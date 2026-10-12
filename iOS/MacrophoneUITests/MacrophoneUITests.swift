@@ -53,6 +53,23 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 3))
     }
 
+    func testSendToPickerRemembersTheChoice() {
+        let app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac", "MACROPHONE_SEND_TO": "automatic"])
+        let chip = app.buttons["send-to"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 8))
+        XCTAssertTrue(chip.label.contains("Automatic"), chip.label)
+        chip.tap()
+        XCTAssertTrue(app.navigationBars["Send To"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS 'Say “ChatGPT, …”'")).firstMatch.exists, "the picker shows each target's lead-in")
+        app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'ChatGPT'")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["send-to"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["send-to"].label.contains("ChatGPT"), app.buttons["send-to"].label)
+        app.terminate()
+        let again = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac"])
+        XCTAssertTrue(again.buttons["send-to"].waitForExistence(timeout: 8))
+        XCTAssertTrue(again.buttons["send-to"].label.contains("ChatGPT"), "the pick is remembered")
+    }
+
     func testPairingLinkFromCamera() throws {
         guard let s = ProcessInfo.processInfo.environment["MACROPHONE_PAIR_URL"], let url = URL(string: s) else {
             throw XCTSkip("no MACROPHONE_PAIR_URL")

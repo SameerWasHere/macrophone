@@ -38,6 +38,8 @@ struct StatusLine: View {
     private var content: (String, Color) {
         if recorder.phase == .recording || recorder.phase == .starting {
             if recorder.softCapReached { return ("Recording will stop at 10:00", Light.ochre) }
+            let live = model.liveRoute(recorder.transcript)
+            if live.byVoice, let p = live.profile { return ("Listening — this one goes to \(p.name)", Light.ember) }
             if holding { return ("Listening — let go to send", Light.ember) }
             return ("Listening — tap to send", Light.ember)
         }
@@ -52,10 +54,18 @@ struct StatusLine: View {
             }
         case .listening: return ("Listening", Light.ember)
         case .cleaning: return ("Cleaning up", Light.teal)
-        case .sending(let mac): return ("Sending to \(mac)", Light.cyan)
-        case .delivered(let mac, let detail, let late):
-            var s = "Delivered to \(mac)"
-            if let detail, !detail.isEmpty { s += " · \(detail)" }
+        case .sending(let mac, let to):
+            return (to.map { "Sending to \($0.name) on \(mac)" } ?? "Sending to \(mac)", Light.cyan)
+        case .delivered(let mac, let detail, let late, let to):
+            var s: String
+            if let to, let spoken = to.spoken {
+                s = "Sent to \(to.name) — you said “\(spoken), …”"
+            } else if let to, detail?.isEmpty ?? true {
+                s = "Sent to \(to.name) on \(mac)"
+            } else {
+                s = "Delivered to \(mac)"
+                if let detail, !detail.isEmpty { s += " · \(detail)" }
+            }
             if late { s += " · sent late" }
             return (s, Light.mint)
         case .duplicate: return ("Already on your Mac", Light.mint)

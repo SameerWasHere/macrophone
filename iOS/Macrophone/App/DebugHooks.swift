@@ -7,13 +7,20 @@ import SwiftUI
 /// `SIMCTL_CHILD_<NAME>=… xcrun simctl launch <udid> com.sameer.macrophone`.
 ///
 /// MACROPHONE_RESET=1                         clear settings, history, queue (not pairings)
-/// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics
+/// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto
 /// MACROPHONE_ONBOARDING_STEP=0…6             which setup step to open on
 /// MACROPHONE_FAKE_TRANSCRIPT=<text>          a finished dictation, as if spoken (cleanup + delivery run)
+/// MACROPHONE_CLEANUP_BUDGET=<seconds>       cleanup's time budget (to see a partial cleanup)
 /// MACROPHONE_FAKE_EARLY=1                    …marked "stopped early"
 /// MACROPHONE_FAKE_RECORDING=<text>           the live recording screen, words appearing
 /// MACROPHONE_FAKE_HISTORY=1                  four sample history items
-/// MACROPHONE_FAKE_PAIRED=<Mac name>          looks paired + connected with three profiles (screens only)
+/// MACROPHONE_FAKE_PAIRED=<Mac name>          looks paired + connected, with the sample targets below (screens only)
+/// MACROPHONE_FAKE_PROFILES=<spec>|default    stand-in for the Mac's targets, kept even when a real Mac connects:
+///                                            "Claude=claude;Claude Code (Terminal)=claude code,terminal@heavy;Clipboard"
+///                                            (name=prefix,prefix@cleanup; the first is the Mac's default)
+/// MACROPHONE_SEND_TO=automatic|<target name> the Send-to choice
+/// MACROPHONE_INTENT_TARGET=automatic|<name>  runs Start Dictation the way a Shortcut / control does, with that
+///                                            target (needs MACROPHONE_SIM_RECORD; stops after 3 s)
 /// MACROPHONE_STATUS=queued|delivered|failed|sending|copied
 /// MACROPHONE_DICTIONARY=a,b,c                dictionary words
 /// MACROPHONE_LANGUAGE=<id>                   recognizer language
@@ -59,16 +66,50 @@ enum DebugHooks {
         }
     }
 
+    /// The targets a developer would set up on the Mac.
+    static let sampleTargets: [ProfileSummary] = parseTargets(
+        "Clipboard;Claude=claude;Claude Code (Terminal)=claude code,terminal;ChatGPT=chatgpt,chat gpt;Cursor=cursor;Quick note=note@light")
+
+    static func parseTargets(_ spec: String) -> [ProfileSummary] {
+        spec.split(separator: ";").enumerated().map { i, part in
+            var s = String(part)
+            var level: CleanupLevel?
+            if let at = s.lastIndex(of: "@") { level = CleanupLevel(rawValue: String(s[s.index(after: at)...])); s = String(s[..<at]) }
+            let bits = s.split(separator: "=", maxSplits: 1).map(String.init)
+            let prefixes = bits.count > 1 ? bits[1].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } : nil
+            return ProfileSummary(id: UUID(uuidString: String(format: "00000000-0000-4000-8000-%012X", i + 1))!, name: bits[0].trimmingCharacters(in: .whitespaces),
+                                  cleanupLevel: level, isDefault: i == 0, voicePrefixes: prefixes)
+        }
+    }
+
     @MainActor static func apply(_ model: AppModel) {
+        if let mac = env["MACROPHONE_FAKE_PAIRED"] {
+            model.debugFakePairing(mac: mac)
+            if env["MACROPHONE_FAKE_PROFILES"] == nil { model.debugFakeProfiles(sampleTargets) }
+        }
+        if let spec = env["MACROPHONE_FAKE_PROFILES"] {
+            model.debugFakeProfiles(spec == "default" ? sampleTargets : parseTargets(spec))
+        }
+        if let to = env["MACROPHONE_SEND_TO"] {
+            if to == "automatic" { model.setSendTo(.automatic) }
+            else if let p = model.profiles.first(where: { $0.name == to }) { model.setSendTo(.profile(p.id)) }
+        }
         if env["MACROPHONE_FAKE_HISTORY"] == "1" { model.debugSeedHistory() }
         if env["MACROPHONE_UNPAIR"] == "1" { Task { await model.unpair() } }
-        if let mac = env["MACROPHONE_FAKE_PAIRED"] {
-            model.debugFakePairing(mac: mac, profiles: ["Default", "Claude prompt", "Slack message"])
+        if let to = env["MACROPHONE_INTENT_TARGET"] {
+            let id = to == "automatic" ? ProfileEntity.automaticID : model.profiles.first { $0.name == to }?.id
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64((Double(env["MACROPHONE_FAKE_DELAY"] ?? "2.5") ?? 2.5) * 1e9))
+                await IntentBridge.startRecording(profileID: id)
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                model.stopRecording()
+            }
         }
         switch env["MACROPHONE_SCREEN"] {
         case "history": model.sheet = .history
         case "settings", "dictionary", "language", "diagnostics": model.sheet = .settings
         case "pairing": model.sheet = .pairing
+        case "sendto": model.sheet = .sendTo
         default: break
         }
         if let s = env["MACROPHONE_OPEN_URL"], let url = URL(string: s) {
@@ -103,9 +144,11 @@ enum DebugHooks {
             let mac = model.pairedMac?.name ?? "Sameer's MacBook Pro"
             switch status {
             case "queued": model.debugSetStatus(.queued)
-            case "delivered": model.debugSetStatus(.delivered(mac: mac, detail: "Pasted into Claude", late: false))
+            case "delivered": model.debugSetStatus(.delivered(mac: mac, detail: "Pasted into Claude", late: false, to: nil))
+            case "delivered-prefix": model.debugSetStatus(.delivered(mac: mac, detail: "Pasted into Claude · Sent", late: false,
+                                                                     to: RouteNote(name: "Claude", spoken: "Claude")))
             case "failed": model.debugSetStatus(.failed(mac: mac, detail: "Accessibility permission is off"))
-            case "sending": model.debugSetStatus(.sending(mac: mac))
+            case "sending": model.debugSetStatus(.sending(mac: mac, to: nil))
             case "copied": model.debugSetStatus(.copiedOnPhone)
             default: break
             }

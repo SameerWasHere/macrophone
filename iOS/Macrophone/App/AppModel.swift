@@ -11,8 +11,8 @@ enum DeliveryStatus: Equatable {
     case ready
     case listening
     case cleaning
-    case sending(mac: String)
-    case delivered(mac: String, detail: String?, late: Bool)
+    case sending(mac: String, to: RouteNote?)
+    case delivered(mac: String, detail: String?, late: Bool, to: RouteNote?)
     case duplicate
     case queued
     case copiedOnPhone
@@ -22,8 +22,25 @@ enum DeliveryStatus: Equatable {
     case problem(String, openSettings: Bool)
 }
 
+/// Which target a dictation went to, for the status line: "Sent to Claude — you said “Claude, …”".
+struct RouteNote: Equatable {
+    var name: String
+    /// The lead-in as heard, when a voice prefix picked it.
+    var spoken: String?
+}
+
+/// How one dictation is routed: the target, why it was picked, and the words to clean and send.
+struct Route: Equatable {
+    var profile: ProfileSummary?
+    var source: ProfileSource?
+    /// The transcript with any voice prefix taken off.
+    var body: String
+    /// The prefix as heard ("Claude"), when one picked the target.
+    var spoken: String?
+}
+
 enum AppSheet: String, Identifiable {
-    case history, settings, pairing
+    case history, settings, pairing, sendTo
     var id: String { rawValue }
 }
 
@@ -71,7 +88,8 @@ final class AppModel: ObservableObject {
     private var bag = Set<AnyCancellable>()
     private var flushing = false
     private var sceneActive = false
-    private var recordingProfileID: UUID?
+    /// A Shortcut / control / Siri picked the target for this one recording.
+    private var recordingOverride: SendTarget?
     private var textWaiters: [CheckedContinuation<String?, Never>] = []
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var statusReset: Task<Void, Never>?
@@ -90,8 +108,11 @@ final class AppModel: ObservableObject {
             Haptics.warning()
             self?.objectWillChange.send()
         }.store(in: &bag)
-        if !CachedProfile.load().isEmpty, pairedMac != nil {
-            profiles = CachedProfile.load().map { ProfileSummary(id: $0.id, name: $0.name, cleanupLevel: nil, isDefault: $0.isDefault) }
+        if pairedMac != nil {
+            profiles = CachedProfile.load().map {
+                ProfileSummary(id: $0.id, name: $0.name, cleanupLevel: $0.cleanupLevel.flatMap(CleanupLevel.init(rawValue:)),
+                               isDefault: $0.isDefault, voicePrefixes: $0.voicePrefixes)
+            }
         }
         refreshHistory()
         refreshAvailability()
@@ -112,15 +133,52 @@ final class AppModel: ObservableObject {
     var isConnected: Bool { if case .connected = linkState { return true }; return false }
     var macName: String { pairedMac?.name ?? "your Mac" }
 
+    /// The target picked for the next dictation (a Shortcut's pick wins while it records).
+    /// Nil = Automatic, or a pick the Mac no longer has.
     var selectedProfile: ProfileSummary? {
-        let id = recordingProfileID ?? settings.selectedProfileID
-        return profiles.first { $0.id == id } ?? profiles.first { $0.isDefault }
+        guard let id = (recordingOverride ?? settings.sendTo).profileID else { return nil }
+        return profiles.first { $0.id == id }
     }
 
     /// The level cleanup will run at, after availability, language and the profile.
-    var effectiveCleanupLevel: CleanupLevel {
+    var effectiveCleanupLevel: CleanupLevel { cleanupLevel(for: selectedProfile) }
+
+    func cleanupLevel(for profile: ProfileSummary?) -> CleanupLevel {
         guard cleanupAvailability.isAvailable else { return .off }
-        return selectedProfile?.cleanupLevel ?? settings.cleanupLevel
+        return profile?.cleanupLevel ?? settings.cleanupLevel
+    }
+
+    /// Picks the target for one transcript: a spoken prefix ("Claude, …") > a Shortcut's pick >
+    /// the Send-to choice. The Mac resolves Automatic by the app in front.
+    func route(for raw: String) -> Route {
+        if !profiles.isEmpty, let m = VoicePrefix.match(raw, profiles: profiles) {
+            return Route(profile: m.profile, source: .prefix, body: m.text, spoken: Self.spokenPrefix(raw, of: m.profile))
+        }
+        if let p = selectedProfile { return Route(profile: p, source: .chosen, body: raw) }
+        return Route(profile: nil, source: isPaired ? .automatic : nil, body: raw)
+    }
+
+    /// The lead-in exactly as the recognizer wrote it ("Claude", "Claude Code").
+    static func spokenPrefix(_ raw: String, of profile: ProfileSummary) -> String? {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = t.lowercased()
+        let match = (profile.voicePrefixes ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)).lowercased() }
+            .filter { !$0.isEmpty && lower.hasPrefix($0) }
+            .max { $0.count < $1.count }
+        return match.map { String(t.prefix($0.count)) }
+    }
+
+    /// The target while the words come in: a prefix shows up the moment it's heard.
+    func liveRoute(_ transcript: String) -> (profile: ProfileSummary?, byVoice: Bool) {
+        if !profiles.isEmpty, let m = VoicePrefix.match(transcript, profiles: profiles) { return (m.profile, true) }
+        return (selectedProfile, false)
+    }
+
+    func routeNote(_ id: UUID) -> RouteNote? {
+        guard let item = historyItems.first(where: { $0.id == id }) ?? (latest?.id == id ? latest : nil),
+              let name = item.targetName else { return nil }
+        return RouteNote(name: name, spoken: item.spokenPrefix)
     }
 
     func refreshAvailability() {
@@ -136,7 +194,7 @@ final class AppModel: ObservableObject {
             endBackgroundTask()
             refreshAvailability()
             if networkExplained || isPaired { client.start() }
-            if pendingStart { pendingStart = false; Task { await startRecording(profileID: recordingProfileID) } }
+            if pendingStart { pendingStart = false; Task { await startRecording(override: recordingOverride) } }
         case .background:
             sceneActive = false
             enterBackground()
@@ -200,8 +258,9 @@ final class AppModel: ObservableObject {
         if recorder.isActive { stopRecording() } else { Task { await startRecording() } }
     }
 
-    func startRecording(profileID: UUID? = nil) async {
+    func startRecording(override: SendTarget? = nil) async {
         guard !recorder.isActive else { return }
+        recordingOverride = override
         #if DEBUG
         // UI tests drive the real button and gestures with a stand-in recognizer
         // (the simulator can't load speech assets).
@@ -213,7 +272,6 @@ final class AppModel: ObservableObject {
         #endif
         statusReset?.cancel()
         startError = nil
-        recordingProfileID = profileID
         let level = effectiveCleanupLevel
         Haptics.light()
         status = .listening
@@ -260,7 +318,7 @@ final class AppModel: ObservableObject {
                 status = o.reason.isEarly ? .notice("Stopped early — nothing was heard") : .nothingHeard
                 scheduleStatusReset(after: 4)
             }
-            recordingProfileID = nil
+            recordingOverride = nil
             resolveTextWaiters(nil)
             return
         }
@@ -272,22 +330,29 @@ final class AppModel: ObservableObject {
         processing = true
         inFlight += 1
         defer { processing = false; inFlight -= 1 }
-        let profile = selectedProfile
-        let level = effectiveCleanupLevel
-        recordingProfileID = nil
+        let route = route(for: raw)
+        let profile = route.profile
+        let level = cleanupLevel(for: profile)
+        recordingOverride = nil
+        if let source = route.source { log.add("target: \(profile?.name ?? "Mac picks") (\(source.rawValue))") }
+        // The prefix is only for the phone: what's cleaned and sent starts after it.
         var cleaned: String?
+        var partial = false
         if level != .off {
             status = .cleaning
             let t0 = Date()
-            let result = await Self.cleanWithDeadline(raw, level: level, dictionary: settings.dictionary, language: o.language)
+            let result = await Self.cleanWithDeadline(route.body, level: level, dictionary: settings.dictionary, language: o.language)
             cleaned = result?.cleaned
-            let outcome = result == nil ? "timed out, kept raw" : (cleaned == nil ? "kept raw (\(result?.skipped ?? "unchanged"))" : "applied")
-            log.add("cleanup \(level.rawValue): \(outcome) in \(Int(Date().timeIntervalSince(t0) * 1000))ms")
+            partial = result?.skipped == "partial"
+            let outcome = result == nil ? "timed out, kept raw" : (cleaned == nil ? "kept raw (\(result?.skipped ?? "unchanged"))" : (partial ? "partly applied (deadline)" : "applied"))
+            log.add("cleanup \(level.rawValue): \(outcome) in \(Int(Date().timeIntervalSince(t0) * 1000))ms, \(route.body.count) chars")
         }
-        let d = Dictation(raw: raw, cleaned: cleaned, cleanupLevel: cleaned == nil ? .off : level, language: o.language,
-                          profileID: profile?.id, profileName: profile?.name, stoppedEarly: o.reason.isEarly,
-                          duration: o.duration, sourceDevice: settings.deviceName)
-        history.add(HistoryItem(dictation: d, delivery: .sending))
+        let cleanupRan = cleaned != nil
+        if cleaned == nil, route.body != raw { cleaned = route.body }
+        let d = Dictation(raw: raw, cleaned: cleaned, cleanupLevel: cleanupRan ? level : .off, language: o.language,
+                          profileID: profile?.id, profileName: profile?.name, profileSource: route.source,
+                          stoppedEarly: o.reason.isEarly, duration: o.duration, sourceDevice: settings.deviceName)
+        history.add(HistoryItem(dictation: d, delivery: .sending, partialCleanup: partial ? true : nil, spokenPrefix: route.spoken))
         refreshHistory()
         processing = false
         resolveTextWaiters(d.text)
@@ -295,17 +360,27 @@ final class AppModel: ObservableObject {
         if o.reason == .hardCap { status = .notice("Stopped at 10:00, the limit for one dictation — it was sent") }
     }
 
-    /// Cleanup never holds a dictation hostage: past the deadline the raw words go out.
-    /// 12 s plus a second per 250 characters, at most 40 s (a 10-minute dictation is ~9,000).
-    /// Returns nil when the deadline passed first.
+    /// Cleanup never holds a dictation hostage. The budget is 8 s plus a second per 120
+    /// characters, at most 60 s (a 10-minute dictation is ~9,000 characters; the model does
+    /// ~150–220 a second). `Cleaner` cleans chunk by chunk and never starts one it can't finish
+    /// in time, so a long dictation comes back partly cleaned rather than not at all.
+    static func cleanupBudget(characters: Int) -> TimeInterval {
+        #if DEBUG
+        if let b = DebugHooks.env["MACROPHONE_CLEANUP_BUDGET"].flatMap(Double.init) { return b }
+        #endif
+        return min(8 + Double(characters) / 120, 60)
+    }
+
+    /// Returns nil only if the model overran the deadline by the safety margin (a hung call).
     private static func cleanWithDeadline(_ raw: String, level: CleanupLevel, dictionary: [String], language: String) async -> CleanupResult? {
-        let deadline = min(12 + Double(raw.count) / 250, 40)
+        let budget = cleanupBudget(characters: raw.count)
+        let deadline = Date().addingTimeInterval(budget)
         // Unstructured on purpose: a task group would wait for a model call that won't cancel.
         return await withCheckedContinuation { (c: CheckedContinuation<CleanupResult?, Never>) in
             let once = ResumeOnce(c)
-            Task.detached { once.resume(await Cleaner.clean(raw, level: level, dictionary: dictionary, language: language)) }
+            Task.detached { once.resume(await Cleaner.clean(raw, level: level, dictionary: dictionary, language: language, deadline: deadline)) }
             Task.detached {
-                try? await Task.sleep(nanoseconds: UInt64(deadline * 1e9))
+                try? await Task.sleep(nanoseconds: UInt64((budget + 5) * 1e9))
                 once.resume(nil)
             }
         }
@@ -330,7 +405,7 @@ final class AppModel: ObservableObject {
             if isConnected { flushQueue() } else { setQueuedStatus() }
             return
         }
-        status = .sending(mac: mac.name)
+        status = .sending(mac: mac.name, to: routeNote(d.id))
         updateItem(d.id) { $0.delivery = .sending; $0.macName = mac.name }
         do {
             let ack = try await client.send(d, delayed: false, timeout: client.isConnected ? 8 : 4)
@@ -354,7 +429,7 @@ final class AppModel: ObservableObject {
         switch ack.outcome {
         case .delivered:
             updateItem(id) { $0.delivery = .delivered; $0.detail = ack.detail; $0.macName = macName; $0.deliveredAt = Date() }
-            if isLatest || !late { status = .delivered(mac: macName, detail: ack.detail, late: late); Haptics.success() }
+            if isLatest || !late { status = .delivered(mac: macName, detail: ack.detail, late: late, to: routeNote(id)); Haptics.success() }
         case .duplicate:
             updateItem(id) { $0.delivery = .duplicate; $0.macName = macName }
             if isLatest || !late { status = .duplicate; Haptics.success() }
@@ -374,7 +449,7 @@ final class AppModel: ObservableObject {
             defer { flushing = false }
             log.add("sending \(queue.count) queued")
             while let e = queue.entries.first {
-                if latest?.id == e.id { status = .sending(mac: mac.name) }
+                if latest?.id == e.id { status = .sending(mac: mac.name, to: routeNote(e.id)) }
                 updateItem(e.id) { $0.delivery = .sending }
                 do {
                     let ack = try await client.send(e.dictation, delayed: true, timeout: 8)
@@ -511,7 +586,7 @@ final class AppModel: ObservableObject {
         pairedMac = client.activeMac
         profiles = []
         CachedProfile.save([])
-        settings.selectedProfileID = nil
+        settings.sendTo = .automatic
         // Anything still waiting can't reach a Mac now; it stays in history with Copy.
         for e in queue.entries { updateItem(e.id) { $0.delivery = .failed; $0.detail = "Unpaired before it was sent" } }
         queue.removeAll()
@@ -529,21 +604,25 @@ final class AppModel: ObservableObject {
         log.add("device renamed")
     }
 
-    func selectProfile(_ id: UUID?) {
-        settings.selectedProfileID = id
+    func setSendTo(_ target: SendTarget) {
+        settings.sendTo = target
+        log.add("send to: \(target == .automatic ? "automatic" : "a chosen target")")
     }
 
     // MARK: Intents
 
     /// Opens already recording (Action Button, Siri, Control Center, Shortcuts).
     func startFromIntent(profileID: UUID?) async {
+        // A Shortcut / control that names a target sends there this once (`.chosen`);
+        // "Automatic" sends on Automatic; empty uses the app's own choice.
+        let override: SendTarget? = profileID.map { $0 == ProfileEntity.automaticID ? .automatic : .profile($0) }
         sheet = nil
         showOnboarding = false
         guard !recorder.isActive else { return }
         if UIApplication.shared.applicationState == .active {
-            await startRecording(profileID: profileID)
+            await startRecording(override: override)
         } else {
-            recordingProfileID = profileID
+            recordingOverride = override
             pendingStart = true
             // The scene becomes active a moment after the intent runs; wait for it.
             for _ in 0..<60 where pendingStart {
@@ -551,7 +630,7 @@ final class AppModel: ObservableObject {
             }
             if pendingStart, UIApplication.shared.applicationState == .active {
                 pendingStart = false
-                await startRecording(profileID: profileID)
+                await startRecording(override: override)
             }
         }
     }
@@ -626,29 +705,54 @@ final class AppModel: ObservableObject {
     }
 
     func debugSeedHistory() {
-        let samples: [(String, String?, DeliveryState, Bool, Bool, Double)] = [
-            ("so um the thing I want to try is, uh, make the retry logic in the uploader back off exponentially, starting at one second and capping at thirty",
-             "Make the retry logic in the uploader back off exponentially, starting at one second and capping at 30.", .delivered, false, false, 120),
-            ("can you write a function that sorts a list of users by last name and then first name", "Can you write a function that sorts a list of users by last name and then first name?", .delivered, false, true, 3600),
-            ("note for the standup we shipped the new onboarding and the crash rate is down", nil, .queued, true, false, 7200),
-            ("Hey Sam, running ten minutes late, start without me.", nil, .copiedOnPhone, false, false, 86_400),
+        struct Seed { var raw: String; var cleaned: String?; var level: CleanupLevel; var target: String?; var source: ProfileSource?
+                      var spoken: String?; var delivery: DeliveryState; var detail: String?; var ago: Double; var late = false }
+        let seeds: [Seed] = [
+            Seed(raw: "Claude, so um the thing I want to try is, uh, make the retry logic in the uploader back off exponentially, starting at one second and capping at thirty, and log every retry with the attempt number",
+                 cleaned: "Make the retry logic in the uploader back off exponentially, starting at one second and capping at 30, and log every retry with the attempt number.",
+                 level: .medium, target: "Claude", source: .prefix, spoken: "Claude", delivery: .delivered, detail: "Pasted into Claude · Sent", ago: 120),
+            Seed(raw: "look at the failing snapshot test in the settings screen and tell me why the toggle renders twice, I think it's the, the on appear firing again",
+                 cleaned: "Look at the failing snapshot test in the settings screen and tell me why the toggle renders twice. I think it's the onAppear firing again.",
+                 level: .medium, target: "Claude Code (Terminal)", source: .chosen, spoken: nil, delivery: .delivered, detail: "Typed into Terminal · Sent", ago: 1_500),
+            Seed(raw: "hey Sam the build is green again I'll cut the release after lunch",
+                 cleaned: "Hey Sam, the build is green again. I'll cut the release after lunch.",
+                 level: .light, target: nil, source: .automatic, spoken: nil, delivery: .delivered, detail: "Pasted into Slack", ago: 4_000),
+            Seed(raw: "ChatGPT, compare SQLite and Postgres for an offline first iOS app with sync, keep it to a table",
+                 cleaned: "Compare SQLite and Postgres for an offline-first iOS app with sync. Keep it to a table.",
+                 level: .medium, target: "ChatGPT", source: .prefix, spoken: "ChatGPT", delivery: .delivered, detail: "Pasted into ChatGPT · Sent", ago: 9_000, late: true),
+            Seed(raw: "rename fetch user to load user everywhere and update the tests",
+                 cleaned: "Rename fetchUser to loadUser everywhere and update the tests.",
+                 level: .medium, target: "Cursor", source: .chosen, spoken: nil, delivery: .delivered, detail: "Pasted into Cursor", ago: 90_000),
         ]
-        for s in samples.reversed() {
-            var d = Dictation(createdAt: Date().addingTimeInterval(-s.5), raw: s.0, cleaned: s.1, cleanupLevel: s.1 == nil ? .off : .medium,
-                              language: "en-US", stoppedEarly: s.3, duration: 18, sourceDevice: settings.deviceName)
-            d.profileName = s.4 ? "Claude prompt" : nil
-            history.add(HistoryItem(dictation: d, delivery: s.2, detail: s.2 == .delivered ? "Pasted into Claude" : nil,
-                                    macName: "Sameer's MacBook Pro", wasDelayed: s.2 == .queued, deliveredAt: Date()))
+        for s in seeds.reversed() {
+            let d = Dictation(createdAt: Date().addingTimeInterval(-s.ago), raw: s.raw, cleaned: s.cleaned, cleanupLevel: s.level,
+                              language: "en-US", profileID: profiles.first { $0.name == s.target }?.id, profileName: s.target,
+                              profileSource: s.source, duration: Double(s.raw.count) / 14, sourceDevice: settings.deviceName)
+            history.add(HistoryItem(dictation: d, delivery: s.delivery, detail: s.detail, macName: "Sameer's MacBook Pro",
+                                    wasDelayed: s.late, deliveredAt: Date(), spokenPrefix: s.spoken))
         }
         refreshHistory()
     }
 
     func debugSetStatus(_ s: DeliveryStatus) { status = s; bumpPulse() }
 
-    func debugFakePairing(mac: String, profiles names: [String]) {
+    var debugProfilesLocked = false
+
+    var debugPairingLocked = false
+
+    func debugFakePairing(mac: String) {
+        debugPairingLocked = true
         pairedMac = PairedPeer(id: UUID(), name: mac)
         linkState = .connected(mac)
-        profiles = names.enumerated().map { ProfileSummary(id: UUID(), name: $1, cleanupLevel: $0 == 1 ? .heavy : nil, isDefault: $0 == 0) }
+    }
+
+    /// Stands in for the Mac's list; stable ids so a pick survives relaunches.
+    func debugFakeProfiles(_ list: [ProfileSummary]) {
+        debugProfilesLocked = true
+        profiles = list
+        CachedProfile.save(list.map {
+            CachedProfile(id: $0.id, name: $0.name, isDefault: $0.isDefault, cleanupLevel: $0.cleanupLevel?.rawValue, voicePrefixes: $0.voicePrefixes)
+        })
     }
     #endif
 }
@@ -656,6 +760,9 @@ final class AppModel: ObservableObject {
 extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, stateChanged state: LinkClient.State) {
         guard client === self.client else { return }
+        #if DEBUG
+        if debugPairingLocked { return }
+        #endif
         linkState = state
         pairedMac = client.activeMac
         if case .connected = state { flushQueue() }
@@ -668,9 +775,15 @@ extension AppModel: LinkClientDelegate {
 
     func linkClient(_ client: LinkClient, profiles: [ProfileSummary], macID: UUID) {
         guard client === self.client else { return }
+        #if DEBUG
+        if debugProfilesLocked { return }
+        #endif
         self.profiles = profiles
-        CachedProfile.save(profiles.map { CachedProfile(id: $0.id, name: $0.name, isDefault: $0.isDefault) })
-        if let id = settings.selectedProfileID, !profiles.contains(where: { $0.id == id }) { settings.selectedProfileID = nil }
+        CachedProfile.save(profiles.map {
+            CachedProfile(id: $0.id, name: $0.name, isDefault: $0.isDefault, cleanupLevel: $0.cleanupLevel?.rawValue, voicePrefixes: $0.voicePrefixes)
+        })
+        // The Mac no longer has the picked target: fall back to Automatic rather than guess.
+        if let id = settings.sendTo.profileID, !profiles.contains(where: { $0.id == id }) { settings.sendTo = .automatic }
         MacrophoneShortcuts.updateAppShortcutParameters()
     }
 

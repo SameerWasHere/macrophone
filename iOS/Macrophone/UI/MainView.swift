@@ -27,7 +27,6 @@ struct MainView: View {
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
                     topBar
-                    if !model.profiles.isEmpty { ProfileMenu().padding(.top, 2) }
                     stage
                     controls
                     bottom
@@ -142,6 +141,11 @@ struct MainView: View {
 
     private var controls: some View {
         VStack(spacing: 8) {
+            if model.isPaired, !model.profiles.isEmpty {
+                SendToChip(recorder: recorder, recording: isRecording)
+                    .padding(.top, 4)
+                    .padding(.bottom, 6)
+            }
             MicButton(recording: isRecording,
                       busy: false,
                       meter: recorder.meter,
@@ -333,37 +337,6 @@ struct MacPill: View {
         case .unreachable(let n): return "\(n) not found"
         case .searching: return "Looking for \(model.macName)"
         }
-    }
-}
-
-/// The Mac's profiles, as a small chip with a menu. The choice is remembered.
-struct ProfileMenu: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        Menu {
-            Picker("Profile", selection: Binding(get: { model.selectedProfile?.id }, set: { model.selectProfile($0) })) {
-                ForEach(model.profiles) { p in
-                    Text(p.cleanupLevel.map { "\(p.name) · \($0.title) cleanup" } ?? p.name).tag(Optional(p.id))
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Kicker("Profile")
-                Text(model.selectedProfile?.name ?? "Default")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Ink.ink)
-                Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .frame(minHeight: 34)
-            .background(Capsule().fill(Ink.ink.opacity(0.05)))
-            .overlay(Capsule().strokeBorder(Ink.line, lineWidth: 1))
-        }
-        .frame(minHeight: 44)
-        .accessibilityLabel("Profile: \(model.selectedProfile?.name ?? "Default")")
-        .accessibilityHint("Choose which of your Mac's profiles handles the next dictation.")
     }
 }
 

@@ -18,7 +18,8 @@ final class Settings: ObservableObject {
     @Published var showHoldHint: Bool { didSet { d.set(showHoldHint, forKey: K.holdHint) } }
     /// What this iPhone calls itself to the Mac. iOS only gives apps "iPhone", so the person can rename it.
     @Published var deviceName: String { didSet { d.set(deviceName, forKey: K.deviceName) } }
-    @Published var selectedProfileID: UUID? { didSet { d.set(selectedProfileID?.uuidString, forKey: K.profile) } }
+    /// Where dictations go: Automatic (the Mac picks by the app in front) or one of its targets.
+    @Published var sendTo: SendTarget { didSet { d.set(sendTo.stored, forKey: K.sendTo) } }
 
     init(defaults: UserDefaults = .standard) {
         d = defaults
@@ -30,7 +31,13 @@ final class Settings: ObservableObject {
         historyEnabled = defaults.object(forKey: K.history) as? Bool ?? true
         showHoldHint = defaults.object(forKey: K.holdHint) as? Bool ?? true
         deviceName = defaults.string(forKey: K.deviceName) ?? UIDevice.current.name
-        selectedProfileID = defaults.string(forKey: K.profile).flatMap(UUID.init(uuidString:))
+        if let s = defaults.string(forKey: K.sendTo) {
+            sendTo = SendTarget(stored: s)
+        } else if let id = defaults.string(forKey: K.profile).flatMap(UUID.init(uuidString:)) {
+            sendTo = .profile(id)   // v1 picked a profile in the old chip: keep it
+        } else {
+            sendTo = .automatic     // a fresh install sends on Automatic
+        }
     }
 
     var isEnglish: Bool { language.lowercased().hasPrefix("en") }
@@ -44,8 +51,26 @@ final class Settings: ObservableObject {
         static let history = "settings.historyEnabled"
         static let holdHint = "settings.showHoldHint"
         static let deviceName = "settings.deviceName"
-        static let profile = "settings.profileID"
+        static let profile = "settings.profileID"   // v1, read once for migration
+        static let sendTo = "settings.sendTo"
     }
+}
+
+/// The Send-to choice on the main screen.
+enum SendTarget: Equatable, Hashable {
+    case automatic
+    case profile(UUID)
+
+    init(stored: String) {
+        if let id = UUID(uuidString: stored) { self = .profile(id) } else { self = .automatic }
+    }
+    var stored: String {
+        switch self {
+        case .automatic: return "automatic"
+        case .profile(let id): return id.uuidString
+        }
+    }
+    var profileID: UUID? { if case .profile(let id) = self { return id }; return nil }
 }
 
 /// Where the app keeps its files: Application Support/Macrophone.

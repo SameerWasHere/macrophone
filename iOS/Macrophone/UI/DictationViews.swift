@@ -4,10 +4,12 @@ import SwiftUI
 /// Raw / Cleaned. Shown only when a cleaned version exists.
 struct VersionToggle: View {
     @Binding var cleaned: Bool
+    /// "Sent" when the only change was taking a spoken target off the front.
+    var cleanedTitle = "Cleaned"
 
     var body: some View {
         HStack(spacing: 2) {
-            option("Cleaned", on: cleaned) { cleaned = true }
+            option(cleanedTitle, on: cleaned) { cleaned = true }
             option("Raw", on: !cleaned) { cleaned = false }
         }
         .padding(3)
@@ -150,11 +152,11 @@ struct LastDictationCard: View {
                 HStack(alignment: .center) {
                     Kicker(kicker).fixedSize()
                     Spacer(minLength: 8)
-                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned).fixedSize() }
+                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned, cleanedTitle: item.cleanedTitle).fixedSize() }
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Kicker(kicker)
-                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned) }
+                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned, cleanedTitle: item.cleanedTitle) }
                 }
             }
             FittedText(text: item.text(cleaned: showCleaned), font: .serif(.body), maxHeight: maxTextHeight)
@@ -170,6 +172,10 @@ struct LastDictationCard: View {
                 if item.dictation.stoppedEarly {
                     Kicker("Stopped early", color: Light.ochre).frame(minHeight: 44)
                 }
+                if item.partialCleanup == true {
+                    Kicker("Partly cleaned", color: Light.ochre).frame(minHeight: 44)
+                        .accessibilityLabel("Partly cleaned: cleanup ran out of time, the rest was sent as spoken")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -178,7 +184,7 @@ struct LastDictationCard: View {
     }
 
     private var kicker: String {
-        var parts = ["Last dictation"]
+        var parts = [item.targetName.map { "→ \($0)" } ?? "Last dictation"]
         parts.append(item.dictation.createdAt.formatted(date: .omitted, time: .shortened))
         return parts.joined(separator: " · ")
     }
@@ -188,4 +194,8 @@ struct LastDictationCard: View {
 func timerString(_ t: TimeInterval) -> String {
     let s = max(0, Int(t))
     return String(format: "%02d:%02d", s / 60, s % 60)
+}
+
+extension HistoryItem {
+    var cleanedTitle: String { onlyPrefixRemoved ? "Sent" : "Cleaned" }
 }

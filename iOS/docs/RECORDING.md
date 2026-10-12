@@ -31,10 +31,48 @@
 
 ## Cleanup
 
-`Cleaner.clean` with the level (profile's level wins when it sets one), prewarmed on record
-start. English only; unavailable → the dial is disabled with its one-line explanation and the
-app behaves as Off. A deadline (12 s + 1 s per 250 characters, ≤ 40 s) sends the raw words if
-the model is slow — the first run on the simulator took ~15 s.
+`Cleaner.clean(_:level:dictionary:language:deadline:)` with the level (the target's level wins
+when it sets one), prewarmed on record start (the prewarmed session is reused when the level
+and dictionary match). English only; unavailable → the dial is disabled with its one-line
+explanation and the app behaves as Off.
+
+**Budget: 8 s + 1 s per 120 characters, at most 60 s** (`AppModel.cleanupBudget`). The model
+does ~150–220 characters a second per level and a short dictation takes ~1.1 s, so a normal
+prompt has several times the time it needs, and a 10-minute dictation (~9,000 characters,
+~60 s budget) mostly cleans. `Cleaner` works chunk by chunk and never starts a chunk it can't
+finish before the deadline: finished chunks come back cleaned and the rest as spoken
+(`skipped == "partial"`). The phone marks that item "Partly cleaned" (history chip, last
+dictation card); the Raw toggle still holds the whole transcript. A hard stop 5 s past the
+deadline sends the words as spoken if a model call hangs.
+
+## Send to (targets)
+
+The Mac's profiles are **targets** ("Claude", "Claude Code (Terminal)", "ChatGPT", …). The
+phone keeps the last list it was sent (`CachedProfile`, in the app group
+`group.com.sameer.macrophone`, with each target's cleanup level and voice prefixes), so the
+picker, voice prefixes, Shortcuts and the Control Center control work while the Mac is away.
+
+For each dictation (`AppModel.route(for:)`):
+
+1. **Voice prefix** — `VoicePrefix.match(raw, profiles:)` on the transcript. A match picks that
+   target for this one dictation (`profileSource = .prefix`), its cleanup level applies, and the
+   prefix is taken off what's cleaned and sent. `raw` keeps exactly what was heard; when
+   cleanup is off the stripped words go in `cleaned` (the toggle reads "Sent / Raw"). Status:
+   "Sent to Claude — you said “Claude, …”". While recording, the chip flips to "SAID · Claude"
+   the moment the prefix is heard.
+2. **A Shortcut, Siri, the Action Button or a control** that names a target → `.chosen` for
+   that recording (its "Automatic" entity → `.automatic`). It doesn't change the saved choice.
+3. **The Send-to chip** by the mic: Automatic (`.automatic`, no profile id — the Mac picks by
+   the app in front) or a target (`.chosen`). A fresh install defaults to Automatic; a target
+   the Mac drops falls back to Automatic.
+
+Verified against `scripts/route-sink` (a stand-in Mac offering prefixed targets; prints each
+dictation's `profileSource`, target, raw and sent text): Automatic → `automatic`, no profile;
+"Claude, refactor…" → `prefix` Claude, sent "Refactor…", raw intact; "Claude code: run…" →
+the longer prefix wins, at that target's Light cleanup; "Chat GPT. Compare…" → ChatGPT; a
+pick → `chosen`; a sentence that only starts like a prefix ("note that…") → the pick; the
+Start Dictation intent with a target → `chosen`, with Automatic → `automatic`, overriding the
+saved pick.
 
 ## Delivery
 
@@ -66,7 +104,8 @@ quality, segment stitching on real audio, and the 5/10-minute caps need the devi
 See `Macrophone/App/DebugHooks.swift`: `MACROPHONE_SCREEN`, `MACROPHONE_ONBOARDING_STEP`,
 `MACROPHONE_FAKE_TRANSCRIPT` (+ `_EARLY`, `_DELAY`), `MACROPHONE_FAKE_RECORDING`,
 `MACROPHONE_SIM_RECORD` (stand-in recognizer for the real button), `MACROPHONE_FAKE_HISTORY`,
-`MACROPHONE_FAKE_PAIRED`, `MACROPHONE_STATUS`, `MACROPHONE_OPEN_URL`, `MACROPHONE_PAIR_CODE`,
+`MACROPHONE_FAKE_PAIRED`, `MACROPHONE_FAKE_PROFILES`, `MACROPHONE_SEND_TO`, `MACROPHONE_INTENT_TARGET`,
+`MACROPHONE_STATUS`, `MACROPHONE_OPEN_URL`, `MACROPHONE_PAIR_CODE`,
 `MACROPHONE_UNPAIR`, `MACROPHONE_RESEND_LATEST`, `MACROPHONE_RECORD`, `MACROPHONE_RESET`.
 
 ## Build and test
@@ -79,4 +118,6 @@ xcodebuild -project Macrophone.xcodeproj -scheme Macrophone -sdk iphonesimulator
 TEST_RUNNER_MACROPHONE_PAIR_URL='macrophone://pair?…' xcodebuild test -project Macrophone.xcodeproj \
   -scheme Macrophone -destination 'id=<your simulator>' -derivedDataPath build
 swift scripts/render-icon.swift   # re-renders the app icon
+cd scripts/route-sink && swift run route-sink --state /tmp/mp-route-sink   # a Mac with prefixed targets
+scripts/capture-store-shots.sh && swift scripts/render-store-shots.swift  # App Store screenshots
 ```

@@ -92,11 +92,11 @@ struct HistoryRow: View {
                 HStack(alignment: .center, spacing: 8) {
                     Kicker(item.dictation.createdAt.formatted(.relative(presentation: .named))).fixedSize()
                     Spacer(minLength: 8)
-                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned).fixedSize() }
+                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned, cleanedTitle: item.cleanedTitle).fixedSize() }
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Kicker(item.dictation.createdAt.formatted(.relative(presentation: .named)))
-                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned) }
+                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned, cleanedTitle: item.cleanedTitle) }
                 }
             }
             ExpandableText(text: item.text(cleaned: showCleaned), font: .serif(.body))
@@ -136,6 +136,11 @@ struct HistoryRow: View {
 
     private var chips: [(String, Color)] {
         var out: [(String, Color)] = []
+        if let name = item.targetName {
+            out.append((item.spokenPrefix.map { "→ \(name) · you said “\($0), …”" } ?? "→ \(name)", Light.cyan))
+        } else if item.dictation.profileSource == .automatic {
+            out.append(("Automatic", Light.violet))
+        }
         switch item.delivery {
         case .delivered:
             out.append((item.wasDelayed ? "Delivered late" : "Delivered", Light.mint))
@@ -147,8 +152,11 @@ struct HistoryRow: View {
         }
         if item.wasDelayed, item.delivery != .delivered, item.delivery != .queued { out.append(("Delayed", Light.ochre)) }
         if item.dictation.stoppedEarly { out.append(("Stopped early", Light.ochre)) }
-        if let p = item.dictation.profileName { out.append((p, Ink.secondary)) }
-        if item.hasCleaned { out.append(("\(item.dictation.cleanupLevel.title) cleanup", Ink.tertiary)) }
+        if item.partialCleanup == true {
+            out.append(("Partly cleaned — the rest as spoken", Light.ochre))
+        } else if item.hasCleaned, item.dictation.cleanupLevel != .off {
+            out.append(("\(item.dictation.cleanupLevel.title) cleanup", Ink.tertiary))
+        }
         return out
     }
 }

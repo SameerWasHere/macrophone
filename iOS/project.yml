@@ -37,6 +37,10 @@ targets:
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    entitlements:
+      path: Macrophone/Macrophone.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.sameer.macrophone]
     info:
       path: Macrophone/Info.plist
       properties:
@@ -72,6 +76,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.controls
         PRODUCT_NAME: MacrophoneControls
         SKIP_INSTALL: YES
+    entitlements:
+      path: MacrophoneControls/MacrophoneControls.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.sameer.macrophone]
     info:
       path: MacrophoneControls/Info.plist
       properties:

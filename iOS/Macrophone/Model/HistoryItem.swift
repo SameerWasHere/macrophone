@@ -26,8 +26,20 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
     /// It went through the offline queue (sent later than it was spoken).
     var wasDelayed: Bool = false
     var deliveredAt: Date?
+    /// Cleanup ran out of time partway: the start is cleaned, the rest went as spoken.
+    var partialCleanup: Bool? = nil
+    /// The lead-in that picked the target, as heard ("Claude"), when a voice prefix did.
+    var spokenPrefix: String? = nil
 
     var id: UUID { dictation.id }
+
+    /// "Claude", or nil when the Mac picked (Automatic) or there was nothing to pick from.
+    var targetName: String? {
+        dictation.profileSource == .automatic ? nil : dictation.profileName
+    }
+
+    /// True when the cleaned version only differs because the prefix was taken off.
+    var onlyPrefixRemoved: Bool { hasCleaned && dictation.cleanupLevel == .off }
 
     var hasCleaned: Bool {
         guard let c = dictation.cleaned?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }

@@ -55,6 +55,7 @@ struct RootView: View {
                 case .settings: SettingsView(settings: model.settings, initialPath: settingsPath)
                         .onDisappear { settingsPath = [] }
                 case .pairing: PairingView()
+                case .sendTo: SendToSheet().presentationDetents(model.profiles.count <= 3 ? [.medium, .large] : [.large])
                 }
             }
             .environmentObject(model)
