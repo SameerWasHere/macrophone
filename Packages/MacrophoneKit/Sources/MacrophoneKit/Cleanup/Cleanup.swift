@@ -32,6 +32,11 @@ public struct CleanupResult: Sendable, Equatable {
     public var cleaned: String?
     /// A short reason when cleanup was skipped, for diagnostics (never contains text).
     public var skipped: String?
+
+    public init(cleaned: String?, skipped: String? = nil) {
+        self.cleaned = cleaned
+        self.skipped = skipped
+    }
 }
 
 /// What happened to each chunk of one cleanup — for the eval tool and tests. Holds text; never log it.
