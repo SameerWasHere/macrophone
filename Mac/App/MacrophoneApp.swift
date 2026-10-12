@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         becomeRegular()
         mainWindow?.showWindow(nil)
         mainWindow?.window?.makeKeyAndOrderFront(nil)
+        mainWindow?.window?.orderFrontRegardless()
     }
 
     func openSetup(_ step: SetupStep) {
@@ -104,6 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindow?.showWindow(nil)
         setupWindow?.window?.center()
         setupWindow?.window?.makeKeyAndOrderFront(nil)
+        // macOS 14+ may refuse activation for an app that wasn't clicked (a login item, a
+        // launch from Terminal); the window still has to be seen.
+        setupWindow?.window?.orderFrontRegardless()
     }
 
     func closeSetup() {
@@ -115,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let w = setupWindow?.window {
             becomeRegular()
             w.makeKeyAndOrderFront(nil)
+            w.orderFrontRegardless()
         } else {
             openSetup(.pair)
         }
@@ -148,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func becomeRegular() {
         if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         NSApp.activate(ignoringOtherApps: true)
+        if #available(macOS 14.0, *) { NSApp.activate() }
     }
 
     private func windowClosed() {
