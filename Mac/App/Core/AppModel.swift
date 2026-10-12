@@ -1,0 +1,318 @@
+import AppKit
+import Combine
+import Foundation
+import MacrophoneKit
+import ServiceManagement
+
+/// A phone asking to pair by code, waiting for the person's answer.
+struct CodeRequest: Identifiable, Equatable {
+    let id = UUID()
+    let code: String
+    let phoneName: String
+    static func == (a: CodeRequest, b: CodeRequest) -> Bool { a.id == b.id }
+}
+
+/// The app's hub: the link to the phones, history, profiles, settings, the pull API.
+@MainActor
+final class AppModel: ObservableObject, LinkServerDelegate {
+    let settings = Settings()
+    let profiles: ProfileStore
+    let log: DiagnosticLog
+    let server: LinkServer
+    let historyStore: HistoryStore<HistoryItem>
+    let popup = PopupController()
+    let api: LocalAPIServer
+    private(set) var delivery: DeliveryEngine!
+
+    @Published private(set) var history: [HistoryItem] = []
+    @Published private(set) var peers: [PairedPeer] = []
+    @Published private(set) var connected: Set<UUID> = []
+    @Published private(set) var phoneVersions: [UUID: String] = [:]
+    @Published private(set) var listenerState: LinkServer.ListenerState = .starting
+    @Published private(set) var apiState: LocalAPIServer.State = .off
+    @Published private(set) var apiToken: String
+    @Published private(set) var lastReceived: Date?
+    @Published private(set) var accessibilityGranted = Paster.isTrusted
+    @Published var launchAtLogin: Bool = false
+
+    // Pairing
+    @Published private(set) var invite: PairingInvite?
+    @Published private(set) var inviteExpires: Date?
+    @Published var codeRequest: CodeRequest?
+    /// Set when a phone just paired (the setup screen moves on).
+    @Published private(set) var justPaired: PairedPeer?
+    private var codeContinuation: CheckedContinuation<Bool, Never>?
+    private var inviteTimer: Timer?
+
+    /// Ticks the status item for a silent copy.
+    var flashStatusItem: () -> Void = {}
+
+    private var bag: Set<AnyCancellable> = []
+
+    init() {
+        log = DiagnosticLog(url: AppPaths.diagnostics)
+        profiles = ProfileStore(url: AppPaths.profiles)
+        let s = settings
+        historyStore = HistoryStore<HistoryItem>(url: AppPaths.history, capacity: 50, enabled: s.historyEnabled)
+        let identity = DeviceIdentity.load(name: AppPaths.computerName)
+        server = LinkServer(identity: identity,
+                            store: KeychainPairingStore(service: AppPaths.keychainService, directory: AppPaths.supportDirectory),
+                            appVersion: AppPaths.appVersion, seenIDsURL: AppPaths.seenIDs)
+
+        // The API token lives in api.json (0600), which the CLI and MCP server read.
+        let token = APIConfig.load()?.token ?? APIConfig.newToken()
+        apiToken = token
+        api = LocalAPIServer(token: token, status: .init(app_version: AppPaths.appVersion, history_enabled: s.historyEnabled, phones: []))
+
+        delivery = DeliveryEngine(app: self)
+        server.log = log
+        server.delegate = self
+        history = historyStore.all
+        peers = server.store.peers()
+        lastReceived = historyStore.latest?.receivedAt
+
+        let store = historyStore
+        api.latest = { store.latest?.pulled }
+        api.history = { n in Array(store.all.prefix(n)).map(\.pulled) }
+        api.log = log
+        api.onStateChange = { [weak self] state in
+            guard let self else { return }
+            self.apiState = state
+            if case .listening(let port) = state { self.writeAPIConfig(port: port) }
+        }
+
+        profiles.onChange = { [weak self] summaries in self?.server.broadcastProfiles(summaries) }
+
+        settings.$historyEnabled.dropFirst().sink { [weak self] on in
+            guard let self else { return }
+            self.historyStore.isEnabled = on
+            self.history = self.historyStore.all
+            self.log.add("history \(on ? "on" : "off")")
+            self.pushStatus()
+        }.store(in: &bag)
+        settings.$apiEnabled.dropFirst().sink { [weak self] on in
+            guard let self else { return }
+            if on { self.api.start() } else { self.api.stop() }
+            self.log.add("API \(on ? "on" : "off")")
+        }.store(in: &bag)
+
+        DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.accessibility.api"))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                // The trust flag flips a moment after the notification.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.refreshAccessibility() }
+            }.store(in: &bag)
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in self?.refreshAccessibility(); Notifier.shared.refresh() }
+            .store(in: &bag)
+
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    func start() {
+        log.add("app started \(AppPaths.appVersion) (\(AppPaths.buildNumber))")
+        server.start()
+        if settings.apiEnabled { api.start() } else { apiState = .off }
+        pushStatus()
+    }
+
+    func refreshAccessibility() {
+        let t = Paster.isTrusted
+        if t != accessibilityGranted { accessibilityGranted = t; log.add("accessibility \(t ? "granted" : "not granted")") }
+    }
+
+    // MARK: History
+
+    func record(_ item: HistoryItem) {
+        historyStore.add(item)
+        history = historyStore.all
+        lastReceived = item.receivedAt
+        api.publish(item.pulled)
+    }
+
+    func update(_ item: HistoryItem) {
+        historyStore.update(item)
+        history = historyStore.all
+    }
+
+    func updateOutcome(_ id: UUID, _ outcome: HistoryItem.Outcome, _ detail: String) {
+        guard var item = historyStore.all.first(where: { $0.id == id }) ?? (historyStore.latest?.id == id ? historyStore.latest : nil) else { return }
+        item.outcome = outcome
+        item.detail = detail
+        update(item)
+    }
+
+    func deleteHistoryItem(_ id: UUID) {
+        historyStore.remove(id)
+        history = historyStore.all
+    }
+
+    func clearHistory() {
+        historyStore.clear()
+        history = []
+        log.add("history cleared")
+    }
+
+    // MARK: API
+
+    private func writeAPIConfig(port: UInt16) {
+        let cfg = APIConfig(port: port, token: apiToken)
+        do {
+            try cfg.save()
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: APIConfig.fileURL.path)
+        } catch {
+            log.add("couldn't write api.json")
+        }
+    }
+
+    func regenerateToken() {
+        apiToken = APIConfig.newToken()
+        api.setToken(apiToken)
+        if case .listening(let port) = apiState { writeAPIConfig(port: port) } else {
+            let port = APIConfig.load()?.port ?? Product.apiPort
+            writeAPIConfig(port: port)
+        }
+        log.add("API token regenerated")
+    }
+
+    func pushStatus() {
+        let connectedIDs = connected
+        let phones = peers.map {
+            LocalAPIServer.PhoneStatus(name: $0.name, connected: connectedIDs.contains($0.id), last_seen: connectedIDs.contains($0.id) ? Date() : $0.lastSeen)
+        }
+        api.setStatus(.init(app_version: AppPaths.appVersion, history_enabled: settings.historyEnabled, phones: phones))
+    }
+
+    // MARK: Pairing
+
+    func beginPairing() {
+        let inv = server.makeInvite()
+        invite = inv
+        inviteExpires = Date().addingTimeInterval(PairingInvite.lifetime)
+        justPaired = nil
+        writeDebugInvite(inv)
+        inviteTimer?.invalidate()
+        // A fresh code a little before the old one expires; only while the screen is open.
+        let t = Timer(timeInterval: PairingInvite.lifetime - 20, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.beginPairing() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        inviteTimer = t
+    }
+
+    func endPairing() {
+        inviteTimer?.invalidate()
+        inviteTimer = nil
+        server.closePairing()
+        invite = nil
+        inviteExpires = nil
+        answerCode(false)
+    }
+
+    func answerCode(_ match: Bool) {
+        codeRequest = nil
+        let c = codeContinuation
+        codeContinuation = nil
+        c?.resume(returning: match)
+        if c != nil { log.add("code pairing \(match ? "approved" : "declined") on the Mac") }
+    }
+
+    func forget(_ peer: PairedPeer) {
+        Task {
+            await server.forget(peer.id)
+            peers = server.store.peers()
+            connected.remove(peer.id)
+            pushStatus()
+        }
+    }
+
+    private func writeDebugInvite(_ inv: PairingInvite) {
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["MACROPHONE_PAIR_URL_FILE"] {
+            try? inv.url.absoluteString.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        #endif
+    }
+
+    // MARK: Launch at login
+
+    func setLaunchAtLogin(_ on: Bool) {
+        #if DEBUG
+        // A debug build doesn't add itself to Login Items unless asked.
+        if ProcessInfo.processInfo.environment["MACROPHONE_REAL_LOGIN_ITEM"] != "1" {
+            launchAtLogin = on
+            log.add("launch at login \(on ? "on" : "off") (debug: not registered)")
+            return
+        }
+        #endif
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            log.add("launch at login change failed")
+        }
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    // MARK: Status words
+
+    var connectedPeer: PairedPeer? { peers.first { connected.contains($0.id) } }
+
+    /// "Connected to Sameer's iPhone" / "Waiting for your iPhone" / "Pair your iPhone to start".
+    var statusLine: String {
+        if let p = connectedPeer { return "Connected to \(p.name)" }
+        if peers.isEmpty { return "Pair your iPhone to start" }
+        return "Waiting for your iPhone"
+    }
+
+    // MARK: LinkServerDelegate
+
+    func linkServer(_ server: LinkServer, approveCode code: String, phoneName: String) async -> Bool {
+        answerCode(false)
+        log.add("code pairing: waiting for the person")
+        return await withCheckedContinuation { c in
+            codeContinuation = c
+            codeRequest = CodeRequest(code: code, phoneName: phoneName)
+            AppDelegate.shared?.showCodeApproval()
+        }
+    }
+
+    func linkServer(_ server: LinkServer, didPair peer: PairedPeer) {
+        peers = server.store.peers()
+        justPaired = peer
+        inviteTimer?.invalidate()
+        invite = nil
+        pushStatus()
+    }
+
+    func linkServer(_ server: LinkServer, didUnpair peerID: UUID) {
+        peers = server.store.peers()
+        connected.remove(peerID)
+        pushStatus()
+    }
+
+    func linkServer(_ server: LinkServer, peerConnected peer: PairedPeer, appVersion: String, os: String) {
+        connected.insert(peer.id)
+        phoneVersions[peer.id] = "\(appVersion) · \(os)"
+        peers = server.store.peers()
+        log.add("phone connected (app \(appVersion))")
+        pushStatus()
+    }
+
+    func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) {
+        connected.remove(peerID)
+        peers = server.store.peers()
+        log.add("phone disconnected")
+        pushStatus()
+    }
+
+    func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {
+        connected.insert(peer.id)
+        return delivery.handle(dictation, delayed: delayed, from: peer)
+    }
+
+    func linkServer(_ server: LinkServer, listenerChanged state: LinkServer.ListenerState) {
+        listenerState = state
+    }
+
+    func profilesForPhones(_ server: LinkServer) -> [ProfileSummary] { profiles.summaries }
+}

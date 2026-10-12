@@ -1,0 +1,315 @@
+import AppKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
+import MacrophoneKit
+import SwiftUI
+
+enum SetupStep: Equatable { case pair, paired, login, modes }
+
+final class SetupNav: ObservableObject {
+    @Published var step: SetupStep = .pair
+    /// First run walks through login + modes after pairing; "Pair iPhone…" just pairs.
+    @Published var firstRun = false
+}
+
+@MainActor
+final class SetupWindowController: NSWindowController, NSWindowDelegate {
+    let nav = SetupNav()
+    var onClose: () -> Void = {}
+    private let model: AppModel
+
+    init(model: AppModel) {
+        self.model = model
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 660),
+                         styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.title = "Set Up Macrophone"
+        w.titlebarAppearsTransparent = true
+        w.titleVisibility = .hidden
+        w.appearance = NSAppearance(named: .darkAqua)
+        w.backgroundColor = Ink.groundNS
+        w.isMovableByWindowBackground = true
+        w.isReleasedWhenClosed = false
+        super.init(window: w)
+        nav.firstRun = !model.settings.hasCompletedSetup
+        w.contentView = NSHostingView(rootView: SetupView(model: model, nav: nav, settings: model.settings,
+                                                          finish: { [weak self] in self?.finish() }))
+        w.delegate = self
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func go(_ step: SetupStep) {
+        nav.step = step
+        if step == .pair { model.beginPairing() }
+    }
+
+    private func finish() {
+        model.settings.hasCompletedSetup = true
+        close()
+    }
+
+    func windowWillClose(_ notification: Notification) { onClose() }
+}
+
+struct SetupView: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var nav: SetupNav
+    @ObservedObject var settings: Settings
+    var finish: () -> Void
+    @State private var openAtLogin = true
+
+    var body: some View {
+        ZStack {
+            Ink.ground.ignoresSafeArea()
+            // A low glow behind the page, like the light a filament throws.
+            RadialGradient(colors: [Light.teal.opacity(0.10), .clear], center: .init(x: 0.5, y: 0.18), startRadius: 0, endRadius: 360)
+                .ignoresSafeArea()
+            Group {
+                switch nav.step {
+                case .pair: PairStep(model: model, skip: skip)
+                case .paired: PairedStep(model: model, next: { nav.firstRun ? (nav.step = .login) : finish() }, firstRun: nav.firstRun)
+                case .login: LoginStep(openAtLogin: $openAtLogin, next: {
+                    model.setLaunchAtLogin(openAtLogin)
+                    nav.step = .modes
+                })
+                case .modes: ModesStep(settings: settings, done: finish)
+                }
+            }
+            .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
+
+            if let req = model.codeRequest {
+                Color.black.opacity(0.55).ignoresSafeArea().transition(.opacity)
+                CodeApproval(request: req, answer: { model.answerCode($0) })
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+            }
+        }
+        .frame(width: 560, height: 660)
+        .preferredColorScheme(.dark)
+        .animation(Motion.reduceMotion ? .easeInOut(duration: 0.2) : Motion.settle, value: nav.step)
+        .animation(Motion.reduceMotion ? .easeInOut(duration: 0.2) : Motion.snap, value: model.codeRequest)
+        .onChange(of: model.justPaired) { _, p in
+            if p != nil { nav.step = .paired }
+        }
+    }
+
+    private func skip() {
+        if nav.firstRun { nav.step = .login } else { finish() }
+    }
+}
+
+// MARK: Steps
+
+struct PairStep: View {
+    @ObservedObject var model: AppModel
+    var skip: () -> Void
+    @State private var breathe = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 40)
+            Text("Pair your iPhone").font(Typeface.serif(30)).foregroundStyle(Ink.ink)
+            Text("Open Macrophone on your iPhone and scan this code.")
+                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
+                .padding(.top, 8)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Ink.ink)
+                    .shadow(color: Light.teal.opacity(0.25), radius: 30)
+                if let invite = model.invite {
+                    QRCodeView(text: invite.url.absoluteString)
+                        .padding(18)
+                        .accessibilityLabel("Pairing code. Scan it with Macrophone on your iPhone.")
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .frame(width: 252, height: 252)
+            .padding(.top, 30)
+
+            VStack(spacing: 10) {
+                FilamentView(peak: breathe ? 0.5 : 0.12, thick: 1.6, glow: 0.55)
+                    .frame(width: 180, height: 22)
+                    .opacity(breathe ? 1 : 0.55)
+                    .animation(Motion.reduceMotion ? nil : .easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: breathe)
+                Kicker("Waiting for your iPhone", color: Light.cyan, size: 11)
+            }
+            .padding(.top, 30)
+            .onAppear { breathe = true }
+
+            Text("No camera handy? On your iPhone, tap “Use a code instead” — this Mac will show a code to compare.")
+                .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 380)
+                .padding(.top, 22)
+
+            Spacer(minLength: 20)
+            HStack {
+                Text("Need the iPhone app? It's free on the App Store — search for Macrophone.")
+                    .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                Spacer()
+                Button("Set Up Later", action: skip).buttonStyle(.borderless).foregroundStyle(Ink.secondary)
+            }
+            .padding(.horizontal, 28)
+            .padding(.bottom, 22)
+        }
+    }
+}
+
+struct PairedStep: View {
+    @ObservedObject var model: AppModel
+    var next: () -> Void
+    var firstRun: Bool
+    @State private var tick = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            ZStack {
+                Circle().fill(Light.mint.opacity(0.14)).frame(width: 92, height: 92)
+                Circle().strokeBorder(Light.mint.opacity(0.5), lineWidth: 1.5).frame(width: 92, height: 92)
+                Image(systemName: "checkmark").font(.system(size: 36, weight: .semibold)).foregroundStyle(Light.mint)
+                    .scaleEffect(tick ? 1 : 0.2).opacity(tick ? 1 : 0)
+            }
+            .onAppear { withAnimation(Motion.reduceMotion ? .easeOut(duration: 0.2) : Motion.pop.delay(0.1)) { tick = true } }
+            Text("Paired").font(Typeface.serif(30)).foregroundStyle(Ink.ink).padding(.top, 26)
+            Text("\(model.justPaired?.name ?? "Your iPhone") can now send to this Mac. Try a dictation — it'll land on your clipboard.")
+                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+                .padding(.top, 8)
+            Spacer()
+            Button(firstRun ? "Continue" : "Done", action: next)
+                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                .keyboardShortcut(.defaultAction)
+                .padding(.bottom, 32)
+        }
+    }
+}
+
+struct LoginStep: View {
+    @Binding var openAtLogin: Bool
+    var next: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            Image(systemName: "power").font(.system(size: 34, weight: .light)).foregroundStyle(Light.cyan)
+            Text("Open at login?").font(Typeface.serif(30)).foregroundStyle(Ink.ink).padding(.top, 22)
+            Text("Macrophone lives in your menu bar and can only receive while it's running.")
+                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
+                .multilineTextAlignment(.center).frame(maxWidth: 380).padding(.top, 8)
+            Toggle("Open Macrophone when I log in", isOn: $openAtLogin)
+                .toggleStyle(.switch)
+                .font(.system(size: 13, weight: .medium))
+                .padding(.horizontal, 18).padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Ink.raised))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+                .padding(.top, 28)
+            Spacer()
+            Button("Continue", action: next)
+                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                .keyboardShortcut(.defaultAction)
+                .padding(.bottom, 32)
+        }
+    }
+}
+
+struct ModesStep: View {
+    @ObservedObject var settings: Settings
+    var done: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("How dictations arrive").font(Typeface.serif(28)).foregroundStyle(Ink.ink).padding(.top, 52)
+            Text("Pick one. Change it any time from the menu bar or in Delivery.")
+                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary).padding(.top, 8)
+            VStack(spacing: 10) {
+                ForEach(DeliveryMode.allCases) { m in
+                    ModeCard(mode: m, selected: settings.deliveryMode == m) {
+                        if m == .autoPaste && !Paster.isTrusted { Paster.requestTrust() }
+                        settings.deliveryMode = m
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 26)
+            Text("Profiles can paste into a specific app — like Claude — and press Return for you. Set them up in Profiles.")
+                .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
+                .multilineTextAlignment(.center).frame(maxWidth: 400)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 18)
+            Spacer()
+            Button("Done", action: done)
+                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                .keyboardShortcut(.defaultAction)
+                .padding(.bottom, 32)
+        }
+    }
+}
+
+/// "Does your iPhone show 482 913?"
+struct CodeApproval: View {
+    let request: CodeRequest
+    var answer: (Bool) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Kicker("\(request.phoneName) wants to pair", color: Light.cyan, size: 11)
+                .multilineTextAlignment(.center)
+            Text("Does your iPhone show")
+                .font(Typeface.serif(22)).foregroundStyle(Ink.ink)
+                .padding(.top, 14)
+            Text(request.code)
+                .font(.system(size: 46, weight: .semibold, design: .monospaced))
+                .tracking(4)
+                .foregroundStyle(Ink.ink)
+                .padding(.top, 14)
+                .accessibilityLabel(request.code.map { String($0) }.joined(separator: " "))
+            Text("Only approve if the numbers are exactly the same.")
+                .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
+                .padding(.top, 10)
+            HStack(spacing: 12) {
+                Button("Don't Match") { answer(false) }
+                    .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
+                    .keyboardShortcut(.cancelAction)
+                Button("They Match") { answer(true) }
+                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.top, 24)
+        }
+        .padding(.horizontal, 34).padding(.vertical, 30)
+        .frame(width: 400)
+        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Ink.raised))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Ink.lineStrong, lineWidth: 1))
+        .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+    }
+}
+
+/// A QR code drawn module-for-module, so it's crisp at any size.
+struct QRCodeView: View {
+    let text: String
+    var body: some View {
+        if let cg = Self.render(text) {
+            Image(decorative: cg, scale: 1)
+                .interpolation(.none)
+                .resizable()
+                .aspectRatio(1, contentMode: .fit)
+        }
+    }
+
+    static func render(_ text: String) -> CGImage? {
+        let f = CIFilter.qrCodeGenerator()
+        f.message = Data(text.utf8)
+        f.correctionLevel = "M"
+        guard let out = f.outputImage else { return nil }
+        // Dark modules on the light plate (phone cameras read this way best).
+        let tinted = out.applyingFilter("CIFalseColor", parameters: [
+            "inputColor0": CIColor(red: 0.02, green: 0.024, blue: 0.051),
+            "inputColor1": CIColor(red: 0.957, green: 0.949, blue: 0.98),
+        ])
+        return CIContext().createCGImage(tinted, from: tinted.extent)
+    }
+}

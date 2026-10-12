@@ -1,0 +1,272 @@
+import AppKit
+import SwiftUI
+
+/// Macrophone's tokens (docs/DESIGN.md). Dark is the identity; every window forces it.
+enum Ink {
+    static let ground = Color(red: 0.020, green: 0.024, blue: 0.051)          // #05060D
+    static let raised = Color(red: 0.075, green: 0.082, blue: 0.125)          // #131520
+    static let sunk = Color(red: 0.012, green: 0.014, blue: 0.032)
+    static let ink = Color(red: 0.957, green: 0.949, blue: 0.980)             // #F4F2FA
+    static let secondary = Color(red: 0.788, green: 0.784, blue: 0.812)       // #C9C8CF
+    static let tertiary = Color(red: 0.620, green: 0.616, blue: 0.647)        // #9E9DA5
+    static let line = ink.opacity(0.08)
+    static let lineStrong = ink.opacity(0.14)
+    static let lineHeavy = ink.opacity(0.22)
+
+    static let groundNS = NSColor(srgbRed: 0.020, green: 0.024, blue: 0.051, alpha: 1)
+}
+
+/// The lights. Each carries one meaning.
+enum Light {
+    static let cyan = Color(hex: 0x58B9DE)      // a connected Mac / phone
+    static let teal = Color(hex: 0x5CD3C3)
+    static let mint = Color(hex: 0x5ED6A2)      // delivered
+    static let gold = Color(hex: 0xE8C06C)
+    static let ember = Color(hex: 0xE9714F)     // your action
+    static let violet = Color(hex: 0x9A86E6)
+    static let rose = Color(hex: 0xE66E7E)      // failure
+    static let ochre = Color(hex: 0xC99D68)     // queued / delayed / caution
+
+    static let spectrum: [Color] = [cyan, teal, mint, gold, ember, violet]
+    static let spectrumStops: [Gradient.Stop] = [
+        .init(color: cyan, location: 0), .init(color: teal, location: 0.22), .init(color: mint, location: 0.40),
+        .init(color: gold, location: 0.60), .init(color: ember, location: 0.80), .init(color: violet, location: 1),
+    ]
+}
+
+enum Motion {
+    static let settle = Animation.spring(response: 0.4, dampingFraction: 0.85)
+    static let snap = Animation.spring(response: 0.25, dampingFraction: 0.7)
+    static let arrive = Animation.spring(response: 0.35, dampingFraction: 0.85)
+    static let depart = Animation.spring(response: 0.45, dampingFraction: 0.86)
+    /// Ease-out-back: the ✓ popping in.
+    static let pop = Animation.timingCurve(0.34, 1.56, 0.64, 1, duration: 0.42)
+
+    static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+}
+
+enum Typeface {
+    /// The words are the hero: New York.
+    static func serif(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .serif)
+    }
+    static func mono(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+}
+
+extension Color {
+    init(hex: UInt32, opacity: Double = 1) {
+        self.init(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255, opacity: opacity)
+    }
+}
+
+/// Small-caps status line in SF Mono, tracked out.
+struct Kicker: View {
+    let text: String
+    var color: Color = Ink.tertiary
+    var size: CGFloat = 10.5
+    init(_ text: String, color: Color = Ink.tertiary, size: CGFloat = 10.5) {
+        self.text = text; self.color = color; self.size = size
+    }
+    var body: some View {
+        Text(text.uppercased())
+            .font(Typeface.mono(size, .semibold))
+            .tracking(1.2)
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A raised plate with a hairline — the window's section container.
+struct Plate<Content: View>: View {
+    var padding: CGFloat = 0
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) { content }
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Ink.raised.opacity(0.72)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+    }
+}
+
+/// One row on a plate: a title, an optional line under it, and a control on the right.
+struct PlateRow<Trailing: View>: View {
+    let title: String
+    var subtitle: String?
+    var subtitleColor: Color = Ink.tertiary
+    var icon: String?
+    var iconColor: Color = Ink.secondary
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(iconColor)
+                    .frame(width: 22)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(Ink.ink)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.system(size: 11.5)).foregroundStyle(subtitleColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 12)
+            trailing
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+    }
+}
+
+extension PlateRow where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil, subtitleColor: Color = Ink.tertiary, icon: String? = nil, iconColor: Color = Ink.secondary) {
+        self.init(title: title, subtitle: subtitle, subtitleColor: subtitleColor, icon: icon, iconColor: iconColor) { EmptyView() }
+    }
+}
+
+struct PlateDivider: View {
+    var inset: CGFloat = 16
+    var body: some View { Rectangle().fill(Ink.line).frame(height: 1).padding(.leading, inset) }
+}
+
+/// A pane's heading: serif title, a plain sentence under it.
+struct PaneHeader: View {
+    let title: String
+    let subtitle: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(Typeface.serif(28, .regular)).foregroundStyle(Ink.ink)
+            Text(subtitle).font(.system(size: 13)).foregroundStyle(Ink.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct SectionLabel: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Kicker(text).padding(.leading, 4).padding(.bottom, 2)
+    }
+}
+
+/// A capsule label, e.g. "Sends text off this Mac".
+struct Chip: View {
+    let text: String
+    var color: Color = Ink.secondary
+    var icon: String?
+    var body: some View {
+        HStack(spacing: 4) {
+            if let icon { Image(systemName: icon).font(.system(size: 9, weight: .bold)) }
+            Text(text).font(.system(size: 10.5, weight: .semibold))
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(color.opacity(0.13)))
+        .overlay(Capsule().strokeBorder(color.opacity(0.22), lineWidth: 0.5))
+        .fixedSize()
+    }
+}
+
+/// The one quiet primary style used across the window.
+struct PillButtonStyle: ButtonStyle {
+    var tint: Color = Ink.ink
+    var filled = true
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12.5, weight: .semibold))
+            .foregroundStyle(filled ? Ink.ground : tint)
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .background(Capsule().fill(filled ? tint.opacity(configuration.isPressed ? 0.75 : 0.95) : tint.opacity(configuration.isPressed ? 0.16 : 0.08)))
+            .overlay(Capsule().strokeBorder(filled ? Color.clear : tint.opacity(0.28), lineWidth: 1))
+            .contentShape(Capsule())
+    }
+}
+
+/// Copyable mono text on a sunk plate (tokens, snippets).
+struct CodePlate: View {
+    let text: String
+    /// What the Copy button copies, when it differs from what's shown (a masked token).
+    var copyText: String? = nil
+    var copyLabel = "Copy"
+    @State private var copied = false
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(text)
+                .font(Typeface.mono(11.5, .regular))
+                .foregroundStyle(Ink.ink)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                Clipboard.copyPlain(copyText ?? text)
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
+            } label: {
+                Label(copied ? "Copied" : copyLabel, systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .labelStyle(.titleAndIcon)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(copied ? Light.mint : Ink.secondary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Ink.sunk))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+    }
+}
+
+/// Plain clipboard writes (copy buttons in the UI — not the paste path).
+enum Clipboard {
+    static func copyPlain(_ s: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
+    }
+}
+
+/// Behind-window blur for the popup and sheets.
+struct VisualEffect: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .hudWindow
+    var blending: NSVisualEffectView.BlendingMode = .behindWindow
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let v = NSVisualEffectView()
+        v.material = material
+        v.blendingMode = blending
+        v.state = .active
+        v.appearance = NSAppearance(named: .darkAqua)
+        return v
+    }
+    func updateNSView(_ v: NSVisualEffectView, context: Context) {
+        v.material = material
+        v.blendingMode = blending
+    }
+}
+
+extension Date {
+    /// "just now", "2 min ago", "3 h ago", "yesterday", "Oct 4".
+    var relativeShort: String {
+        let s = Date().timeIntervalSince(self)
+        if s < 45 { return "just now" }
+        if s < 3600 { return "\(max(1, Int((s / 60).rounded()))) min ago" }
+        if s < 86_400 && Calendar.current.isDateInToday(self) { return "\(Int(s / 3600)) h ago" }
+        if Calendar.current.isDateInYesterday(self) { return "yesterday" }
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMM d")
+        return f.string(from: self)
+    }
+
+    var clockTime: String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f.string(from: self)
+    }
+}
