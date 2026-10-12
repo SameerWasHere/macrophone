@@ -1,15 +1,44 @@
 import AppIntents
 import Foundation
+import Security
 
 // Compiled into both the app and the Controls extension. The extension only needs the types
 // to exist (its control button names the intent, its configuration lists the targets);
 // `perform()` always runs in the app, because the intent opens the app — the microphone needs
 // the app in the foreground.
 
-/// The app group both targets read, so a Control Center control can list the Mac's targets.
+/// The Mac's targets as the phone last heard them, shared with the Controls extension through
+/// a keychain access group (an App Group would need an explicit provisioning profile). Only
+/// target names, cleanup levels and voice prefixes live there — never text or keys.
 enum SharedStore {
-    static let groupID = "group.com.sameer.macrophone"
-    static var defaults: UserDefaults { UserDefaults(suiteName: groupID) ?? .standard }
+    static var keychainGroup: String? { Bundle.main.object(forInfoDictionaryKey: "MacrophoneSharedKeychainGroup") as? String }
+    private static let account = "profiles.cache"
+    private static let service = "com.sameer.macrophone.shared"
+
+    private static func query() -> [String: Any] {
+        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: service,
+                                kSecAttrAccount as String: account]
+        if let g = keychainGroup, !g.hasPrefix("$(") { q[kSecAttrAccessGroup as String] = g }
+        return q
+    }
+
+    static func read() -> Data? {
+        var q = query()
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
+    }
+
+    static func write(_ data: Data) {
+        let q = query()
+        let attrs: [String: Any] = [kSecValueData as String: data,
+                                    kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        if SecItemUpdate(q as CFDictionary, attrs as CFDictionary) == errSecItemNotFound {
+            SecItemAdd(q.merging(attrs) { $1 } as CFDictionary, nil)
+        }
+    }
 }
 
 /// The Mac's profiles ("targets") as the phone last heard them. Kept so the Send-to picker,
@@ -24,18 +53,16 @@ struct CachedProfile: Codable, Hashable, Sendable {
 
     static let key = "profiles.cache"
 
-    static func load(_ defaults: UserDefaults = SharedStore.defaults) -> [CachedProfile] {
-        // One-time move from the app's own defaults (v1 kept it there).
-        if defaults.data(forKey: key) == nil, defaults !== UserDefaults.standard,
-           let old = UserDefaults.standard.data(forKey: key) {
-            defaults.set(old, forKey: key)
-        }
-        guard let d = defaults.data(forKey: key) else { return [] }
+    /// The app reads its own defaults; the extension (which has none) reads the shared keychain item.
+    static func load() -> [CachedProfile] {
+        guard let d = UserDefaults.standard.data(forKey: key) ?? SharedStore.read() else { return [] }
         return (try? JSONDecoder().decode([CachedProfile].self, from: d)) ?? []
     }
 
-    static func save(_ list: [CachedProfile], _ defaults: UserDefaults = SharedStore.defaults) {
-        defaults.set(try? JSONEncoder().encode(list), forKey: key)
+    static func save(_ list: [CachedProfile]) {
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+        SharedStore.write(data)
     }
 }
 

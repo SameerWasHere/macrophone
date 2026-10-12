@@ -118,6 +118,7 @@ final class AppModel: ObservableObject {
         refreshAvailability()
         log.add("app launched, version \(Bundle.main.shortVersion) (\(Bundle.main.buildNumber)), \(queue.count) queued")
         log.add("language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable")")
+        log.add("targets cached: \(profiles.count), shared with controls: \(SharedStore.read() == nil ? "no" : "yes")")
     }
 
     private static func makeClient(store: KeychainPairingStore, name: String, log: DiagnosticLog) -> LinkClient {

@@ -35,6 +35,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>MacrophoneSharedKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)com.sameer.macrophone.shared</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_macrophone._tcp</string>

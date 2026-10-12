@@ -40,13 +40,17 @@ targets:
     entitlements:
       path: Macrophone/Macrophone.entitlements
       properties:
-        com.apple.security.application-groups: [group.com.sameer.macrophone]
+        # The app's own group stays first (the default for new items: the pairing key stays private);
+        # the shared one only holds the targets list for the Control Center control.
+        # (Not an App Group: the wildcard team profile can't carry one.)
+        keychain-access-groups: [$(AppIdentifierPrefix)com.sameer.macrophone, $(AppIdentifierPrefix)com.sameer.macrophone.shared]
     info:
       path: Macrophone/Info.plist
       properties:
         CFBundleDisplayName: Macrophone
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MacrophoneSharedKeychainGroup: $(AppIdentifierPrefix)com.sameer.macrophone.shared
         LSRequiresIPhoneOS: true
         ITSAppUsesNonExemptEncryption: false
         UIUserInterfaceStyle: Dark
@@ -79,13 +83,14 @@ targets:
     entitlements:
       path: MacrophoneControls/MacrophoneControls.entitlements
       properties:
-        com.apple.security.application-groups: [group.com.sameer.macrophone]
+        keychain-access-groups: [$(AppIdentifierPrefix)com.sameer.macrophone.shared]
     info:
       path: MacrophoneControls/Info.plist
       properties:
         CFBundleDisplayName: Macrophone
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MacrophoneSharedKeychainGroup: $(AppIdentifierPrefix)com.sameer.macrophone.shared
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
   MacrophoneUITests:

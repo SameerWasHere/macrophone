@@ -48,9 +48,14 @@ deadline sends the words as spoken if a model call hangs.
 ## Send to (targets)
 
 The Mac's profiles are **targets** ("Claude", "Claude Code (Terminal)", "ChatGPT", …). The
-phone keeps the last list it was sent (`CachedProfile`, in the app group
-`group.com.sameer.macrophone`, with each target's cleanup level and voice prefixes), so the
-picker, voice prefixes, Shortcuts and the Control Center control work while the Mac is away.
+phone keeps the last list it was sent (`CachedProfile`: each target's name, cleanup level and
+voice prefixes), so the picker, voice prefixes, Shortcuts and the Control Center control work
+while the Mac is away. The app keeps it in its defaults and mirrors it to a keychain item in the
+shared access group `<team>.com.sameer.macrophone.shared`, which the Controls extension reads to
+offer targets ("Dictate to Claude"). Not an App Group: the wildcard team profile this Mac signs
+with can't carry one. The app's own keychain group stays first in `keychain-access-groups`, so
+the pairing key (stored without an explicit group) stays private to the app; a pairing made
+before this entitlement still loads (checked on the simulator).
 
 For each dictation (`AppModel.route(for:)`):
 
