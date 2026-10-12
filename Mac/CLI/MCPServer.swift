@@ -20,6 +20,8 @@ final class MCPServer: @unchecked Sendable {
                 handle(trimmed)
             }
         } catch {}
+        // stdin closed: finish what was asked before exiting.
+        for t in pendingTasks() { await t.value }
         return 0
     }
 
@@ -99,6 +101,11 @@ final class MCPServer: @unchecked Sendable {
 
     private func key(_ id: Any) -> String { "\(id)" }
 
+    private func pendingTasks() -> [Task<Void, Never>] {
+        taskLock.lock(); defer { taskLock.unlock() }
+        return Array(tasks.values)
+    }
+
     private func clearTask(_ k: String) {
         taskLock.lock(); tasks[k] = nil; taskLock.unlock()
     }
@@ -175,7 +182,7 @@ final class MCPServer: @unchecked Sendable {
             case "wait_for_dictation":
                 let s = min(300, max(1, intArg(args["timeout_seconds"]) ?? 60))
                 let (code, data) = try await api.get("/v1/next?timeout=\(s)", timeout: TimeInterval(s + 15))
-                guard code == 200, let item = json(data) else { return text("No dictation arrived in \(s) seconds.") }
+                guard code == 200, let item = json(data) else { return text("No dictation arrived in \(s) second\(s == 1 ? "" : "s").") }
                 return text(item["text"] as? String ?? "", structured: item)
             default:
                 return text("Unknown tool.", error: true)

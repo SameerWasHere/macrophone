@@ -19,7 +19,7 @@ enum ClientError: Error {
     var message: String {
         switch self {
         case .notRunning:
-            return "Macrophone isn't running — open it, then try again. (If it's open, turn on Settings › Developer › Local API.)"
+            return "Macrophone isn't running — open it, then try again. (If it's open, turn on Local API in Macrophone › Developer.)"
         case .unauthorized:
             return "Macrophone didn't accept the token. Open Macrophone › Developer and try again."
         case .http(let code, let body):

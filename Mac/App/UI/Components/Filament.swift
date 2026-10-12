@@ -1,3 +1,5 @@
+import AppKit
+import QuartzCore
 import SwiftUI
 
 /// The Filament (docs/DESIGN.md): a tapered luminous line. Hairline at the tips, swelling
@@ -104,4 +106,42 @@ private struct DashMask: View {
             .fill(Color.white)
         }
     }
+}
+
+/// A breathing dot driven by Core Animation, so it costs the app nothing while it breathes
+/// (a SwiftUI repeat animation redraws on the CPU every frame).
+struct PulseDot: NSViewRepresentable {
+    var color: NSColor
+    var size: CGFloat = 7
+
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: size * 3, height: size * 3))
+        v.wantsLayer = true
+        let halo = CALayer(), dot = CALayer()
+        for (l, s) in [(halo, size * 2.6), (dot, size)] {
+            l.bounds = CGRect(x: 0, y: 0, width: s, height: s)
+            l.cornerRadius = s / 2
+            l.position = CGPoint(x: size * 1.5, y: size * 1.5)
+            v.layer?.addSublayer(l)
+        }
+        dot.backgroundColor = color.cgColor
+        halo.backgroundColor = color.withAlphaComponent(0.28).cgColor
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let a = CABasicAnimation(keyPath: "transform.scale")
+            a.fromValue = 0.35; a.toValue = 1
+            let o = CABasicAnimation(keyPath: "opacity")
+            o.fromValue = 0.9; o.toValue = 0
+            let g = CAAnimationGroup()
+            g.animations = [a, o]
+            g.duration = 1.8
+            g.repeatCount = .infinity
+            g.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            halo.add(g, forKey: "pulse")
+        } else {
+            halo.opacity = 0
+        }
+        return v
+    }
+
+    func updateNSView(_ v: NSView, context: Context) {}
 }

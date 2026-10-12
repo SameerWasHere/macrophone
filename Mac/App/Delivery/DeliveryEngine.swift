@@ -227,7 +227,7 @@ final class DeliveryEngine {
                 self.log.add("\(name.lowercased()) failed")
                 self.setAutomation(name, .failed, on: card)
                 // A card of its own, so the failure is seen even if the first card has gone.
-                let c = PopupCard(text: text, source: source, delayed: false, phase: .failed, status: "\(name) failed")
+                let c = PopupCard(text: text, source: source, delayed: false, phase: .failed, status: name)
                 c.headline = message
                 c.note = name == "Webhook" ? "The text didn't reach the URL in this profile." : "Check the command in the profile."
                 c.canRetry = true

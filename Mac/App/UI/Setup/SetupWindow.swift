@@ -102,7 +102,6 @@ struct SetupView: View {
 struct PairStep: View {
     @ObservedObject var model: AppModel
     var skip: () -> Void
-    @State private var breathe = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -127,15 +126,16 @@ struct PairStep: View {
             .frame(width: 252, height: 252)
             .padding(.top, 30)
 
-            VStack(spacing: 10) {
-                FilamentView(peak: breathe ? 0.5 : 0.12, thick: 1.6, glow: 0.55)
+            VStack(spacing: 12) {
+                FilamentView(peak: 0.32, thick: 1.6, glow: 0.55)
                     .frame(width: 180, height: 22)
-                    .opacity(breathe ? 1 : 0.55)
-                    .animation(Motion.reduceMotion ? nil : .easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: breathe)
-                Kicker("Waiting for your iPhone", color: Light.cyan, size: 11)
+                HStack(spacing: 6) {
+                    PulseDot(color: NSColor(srgbRed: 0.345, green: 0.725, blue: 0.871, alpha: 1))
+                        .frame(width: 21, height: 21)
+                    Kicker("Waiting for your iPhone", color: Light.cyan, size: 11)
+                }
             }
-            .padding(.top, 30)
-            .onAppear { breathe = true }
+            .padding(.top, 26)
 
             Text("No camera handy? On your iPhone, tap “Use a code instead” — this Mac will show a code to compare.")
                 .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
@@ -256,10 +256,11 @@ struct CodeApproval: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Kicker("\(request.phoneName) wants to pair", color: Light.cyan, size: 11)
-                .multilineTextAlignment(.center)
-            Text("Does your iPhone show")
+            Kicker("Pairing request", color: Light.cyan, size: 11)
+            Text("Does “\(request.phoneName)” show")
                 .font(Typeface.serif(22)).foregroundStyle(Ink.ink)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 14)
             Text(request.code)
                 .font(.system(size: 46, weight: .semibold, design: .monospaced))

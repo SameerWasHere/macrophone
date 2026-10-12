@@ -30,6 +30,13 @@ struct ProfilesPane: View {
                 .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .onAppear {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["MACROPHONE_SHOW"] == "profile-editor", editing == nil {
+                editing = store.profiles.first { $0.name == "Claude prompt" } ?? store.profiles.first
+            }
+            #endif
+        }
         .sheet(item: $editing) { p in
             ProfileEditor(profile: p, isNew: !store.profiles.contains { $0.id == p.id }, store: store, settings: settings)
         }
@@ -198,6 +205,7 @@ struct ProfileEditor: View {
                     field("Template", note: "Wraps the dictation. {{text}} is replaced with what you said.") {
                         TextEditor(text: $templateText)
                             .font(Typeface.mono(12, .regular))
+                            .noWritingTools()
                             .scrollContentBackground(.hidden)
                             .padding(6)
                             .frame(height: 70)
@@ -257,7 +265,7 @@ struct ProfileEditor: View {
             }
             .padding(16)
         }
-        .frame(width: 520, height: 680)
+        .frame(width: 520, height: 580)
         .background(Ink.ground)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $pickingApp) {
@@ -293,5 +301,12 @@ struct ProfileEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+extension View {
+    /// Writing Tools would offer to rewrite a template — not what this field is for.
+    @ViewBuilder func noWritingTools() -> some View {
+        if #available(macOS 15.0, *) { self.writingToolsBehavior(.disabled) } else { self }
     }
 }

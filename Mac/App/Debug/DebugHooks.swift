@@ -14,6 +14,9 @@ import SwiftUI
 ///   MACROPHONE_WINDOW_IDS_FILE=path writes {"main":id,"setup":id,"popup":id,"popupFrame":[x,y,w,h]} (top-left points)
 ///   MACROPHONE_CODE_ANSWER=match|nomatch  answers a code-pairing request after 3 s through the same call the buttons make
 ///   MACROPHONE_PAIR_URL_FILE=path   writes the live pairing URL (AppModel.beginPairing)
+///   MACROPHONE_FORGET=<name>        forgets matching phones (Devices › Forget's call)
+///   MACROPHONE_HIDE_ICON=1          hide the menu bar icon (the popup falls back to the top-right corner)
+///   MACROPHONE_INSTALL_CLI=1        runs the CLI install at launch
 ///   MACROPHONE_CLI_DIR=path         install the CLI links there instead of /usr/local/bin
 @MainActor
 enum DebugHooks {
@@ -26,6 +29,10 @@ enum DebugHooks {
         let model = app.model
         if env["MACROPHONE_FRESH"] == "1" { model.settings.hasCompletedSetup = false }
         if env["MACROPHONE_SEED_HISTORY"] == "1" { seed(model) }
+        if let name = env["MACROPHONE_FORGET"] {
+            // The same call the Devices pane's Forget button makes.
+            for p in model.peers where p.name.contains(name) { model.forget(p) }
+        }
         if let answer = env["MACROPHONE_CODE_ANSWER"] {
             let c = model.$codeRequest.sink { req in
                 guard req != nil else { return }
@@ -38,6 +45,12 @@ enum DebugHooks {
             RunLoop.main.add(t, forMode: .common)
             bag.append(t)
         }
+        if env["MACROPHONE_INSTALL_CLI"] == "1" {
+            // Developer › Install's call (point MACROPHONE_CLI_DIR somewhere harmless).
+            print("CLI install: \(CLIInstaller.install() ?? "ok") → \(CLIInstaller.status)")
+            fflush(stdout)
+        }
+        if env["MACROPHONE_HIDE_ICON"] == "1" { app.debugStatusItem.debugHide() }
         guard let show = env["MACROPHONE_SHOW"] else { return false }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 
@@ -60,6 +73,8 @@ enum DebugHooks {
             app.openSetup(.pair)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.codeRequest = CodeRequest(code: "482 913", phoneName: "Sameer's iPhone") }
         case "diagnostics": app.showDiagnostics()
+        case "menu":
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { app.debugStatusItem.openMenu() }
         case "profile-editor":
             app.openMainWindow(pane: .profiles)
         default:

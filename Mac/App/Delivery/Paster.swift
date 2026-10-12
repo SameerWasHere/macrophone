@@ -132,12 +132,18 @@ enum Paster {
 
     private static func bringToFront(bundleID: String, name: String) async throws {
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID { return }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            throw PasteFailure.appUnavailable(name: name)
+        }
         if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-            if #available(macOS 14.0, *) { running.activate() } else { running.activate(options: [.activateIgnoringOtherApps]) }
-        } else {
-            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
-                throw PasteFailure.appUnavailable(name: name)
-            }
+            // macOS 14's cooperative activation ignores activate() from an app in the
+            // background; Accessibility's "frontmost" (we already have it) is honoured.
+            let el = AXUIElementCreateApplication(running.processIdentifier)
+            AXUIElementSetAttributeValue(el, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            running.activate()
+            try await Task.sleep(nanoseconds: 120_000_000)
+        }
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleID {
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
             _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: config)

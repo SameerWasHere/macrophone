@@ -73,7 +73,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
         let store = historyStore
         api.latest = { store.latest?.pulled }
-        api.history = { n in Array(store.all.prefix(n)).map(\.pulled) }
+        // With history off, the API still answers with the one item held in memory.
+        api.history = { n in
+            store.isEnabled ? Array(store.all.prefix(n)).map(\.pulled) : (store.latest.map { [$0.pulled] } ?? [])
+        }
         api.log = log
         api.onStateChange = { [weak self] state in
             guard let self else { return }

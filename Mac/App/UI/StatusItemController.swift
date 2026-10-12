@@ -71,6 +71,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: Menu
 
+    #if DEBUG
+    func openMenu() { item.button?.performClick(nil) }
+    /// Stands in for a crowded / notched menu bar that has hidden the icon.
+    func debugHide() { item.isVisible = false }
+    #endif
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
@@ -103,14 +109,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             mi.target = self
             mi.representedObject = m.rawValue
             mi.state = model.settings.deliveryMode == m ? .on : .off
-            mi.image = NSImage(systemSymbolName: m.symbol, accessibilityDescription: nil)
             sub.addItem(mi)
         }
         modeItem.submenu = sub
-        modeItem.image = NSImage(systemSymbolName: "arrow.down.doc", accessibilityDescription: nil)
         menu.addItem(modeItem)
 
-        menu.addItem(action("Pair iPhone…", #selector(pair), symbol: "qrcode"))
+        menu.addItem(action("Pair iPhone…", #selector(pair)))
         menu.addItem(action("Open Macrophone…", #selector(openWindow), key: ","))
         menu.addItem(action("Check for Updates…", #selector(checkUpdates)))
 
@@ -129,18 +133,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func statusHeader() -> NSMenuItem {
         let mi = NSMenuItem()
-        mi.isEnabled = false
-        let title = NSMutableAttributedString()
         let on = model.connectedPeer != nil
-        let dot = NSAttributedString(string: "●  ", attributes: [
-            .foregroundColor: on ? NSColor(srgbRed: 0.345, green: 0.725, blue: 0.871, alpha: 1) : NSColor.tertiaryLabelColor,
-            .font: NSFont.systemFont(ofSize: 9),
-            .baselineOffset: 1.5,
-        ])
-        title.append(dot)
-        title.append(NSAttributedString(string: model.statusLine, attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.labelColor,
-        ]))
         var second: String?
         if let last = model.lastReceived {
             second = "Last received \(last.relativeShort)"
@@ -148,12 +141,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             second = "Nothing received yet"
         }
         if case .failed = model.listenerState { second = "Can't listen on the network — check Local Network in System Settings" }
-        if let second {
-            title.append(NSAttributedString(string: "\n     " + second, attributes: [
-                .font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.secondaryLabelColor,
-            ]))
-        }
-        mi.attributedTitle = title
+        mi.view = StatusHeaderView(title: model.statusLine, detail: second, connected: on)
         return mi
     }
 
@@ -237,7 +225,7 @@ final class RecentItemView: NSView {
         }
         let primary = highlighted ? NSColor.white : NSColor.labelColor
         let secondary = highlighted ? NSColor.white.withAlphaComponent(0.8) : NSColor.secondaryLabelColor
-        let inset: CGFloat = 14
+        let inset: CGFloat = 16
         let width = bounds.width - inset * 2
 
         var meta = item.receivedAt.relativeShort
@@ -279,4 +267,33 @@ final class RecentItemView: NSView {
             }
         }
     }
+}
+
+/// The menu's first row: a status dot, who's connected, when the last dictation came in.
+final class StatusHeaderView: NSView {
+    init(title: String, detail: String?, connected: Bool) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 300, height: detail == nil ? 30 : 46))
+        let dot = NSView(frame: NSRect(x: 16, y: bounds.height - 19, width: 8, height: 8))
+        dot.wantsLayer = true
+        dot.layer?.cornerRadius = 4
+        dot.layer?.backgroundColor = (connected ? NSColor(srgbRed: 0.345, green: 0.725, blue: 0.871, alpha: 1) : NSColor.tertiaryLabelColor).cgColor
+        addSubview(dot)
+        let t = NSTextField(labelWithString: title)
+        t.font = .systemFont(ofSize: 13, weight: .semibold)
+        t.textColor = .labelColor
+        t.frame = NSRect(x: 32, y: bounds.height - 24, width: 256, height: 18)
+        addSubview(t)
+        if let detail {
+            let d = NSTextField(labelWithString: detail)
+            d.font = .systemFont(ofSize: 11.5)
+            d.textColor = .secondaryLabelColor
+            d.frame = NSRect(x: 32, y: 6, width: 256, height: 16)
+            d.lineBreakMode = .byWordWrapping
+            addSubview(d)
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel([title, detail].compactMap { $0 }.joined(separator: ". "))
+    }
+    required init?(coder: NSCoder) { fatalError() }
 }

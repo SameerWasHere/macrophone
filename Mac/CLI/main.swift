@@ -119,7 +119,7 @@ func run() async -> Int32 {
 
         case "wait":
             let (code, data) = try await api.get("/v1/next?timeout=\(o.timeout)", timeout: TimeInterval(o.timeout + 15))
-            guard code == 200, let item = decodeItem(data) else { err("No dictation arrived in \(o.timeout) seconds."); return 1 }
+            guard code == 200, let item = decodeItem(data) else { err("No dictation arrived in \(o.timeout) second\(o.timeout == 1 ? "" : "s")."); return 1 }
             out(o.json ? compactJSON(item) : (o.raw ? item.raw : item.text))
 
         case "watch":
