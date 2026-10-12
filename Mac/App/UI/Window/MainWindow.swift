@@ -130,15 +130,28 @@ struct Sidebar: View {
 struct PanePage<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) { content }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    content
+                    Color.clear.frame(height: 0).id("pane-bottom")
+                }
                 .padding(.horizontal, 32)
                 .padding(.top, 4)
                 .padding(.bottom, 36)
                 .frame(maxWidth: 760, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Ink.ground)
+            .onAppear {
+                #if DEBUG
+                // Screenshots of a pane's foot.
+                if ProcessInfo.processInfo.environment["MACROPHONE_SCROLL_BOTTOM"] == "1" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { proxy.scrollTo("pane-bottom", anchor: .bottom) }
+                }
+                #endif
+            }
         }
-        .scrollContentBackground(.hidden)
-        .background(Ink.ground)
     }
 }

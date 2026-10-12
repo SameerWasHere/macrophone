@@ -88,6 +88,7 @@ struct ProfileEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Text(isNew ? "New Profile" : "Edit Profile").font(Typeface.serif(24)).foregroundStyle(Ink.ink)
@@ -109,22 +110,31 @@ struct ProfileEditor: View {
                         .fixedSize()
                     }
 
-                    section("Where it goes") { destination }
-                    if pastes { section("Then") { thenSection } }
-                    section("Shape the text") { shapeSection }
-                    section("Also") { ActionsEditor(actions: $actions) }
-                    automations
+                    section("Where it goes") { destination }.id("where")
+                    if pastes { section("Then") { thenSection }.id("then") }
+                    section("Shape the text") { shapeSection }.id("shape")
+                    section("Also") { ActionsEditor(actions: $actions) }.id("also")
+                    automations.id("automations")
 
                     Toggle("Use this profile when the iPhone doesn't pick one", isOn: $profile.isDefault)
                         .disabled(profile.isDefault && !isNew && store.profiles.first(where: \.isDefault)?.id == profile.id)
                 }
                 .padding(24)
             }
+            .onAppear {
+                #if DEBUG
+                // Screenshots: MACROPHONE_EDITOR_SCROLL=where|then|shape|also|automations
+                if let id = ProcessInfo.processInfo.environment["MACROPHONE_EDITOR_SCROLL"] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { proxy.scrollTo(id, anchor: .top) }
+                }
+                #endif
+            }
+            }
             Rectangle().fill(Ink.line).frame(height: 1)
             HStack {
                 if !isNew {
                     Button("Delete Profile…", role: .destructive) { confirmDelete = true }
-                        .foregroundStyle(Light.rose)
+                        .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
                         .confirmationDialog("Delete \(profile.name)?", isPresented: $confirmDelete) {
                             Button("Delete", role: .destructive) { store.delete(profile.id); dismiss() }
                         }
@@ -137,7 +147,7 @@ struct ProfileEditor: View {
             }
             .padding(16)
         }
-        .frame(width: 600, height: 760)
+        .frame(width: 600, height: 640)
         .background(Ink.ground)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $pickingApp) {
@@ -308,7 +318,8 @@ struct ProfileEditor: View {
                                sampleText: format.apply(ContextGatherer.samples["text"]!))
             }
             if !settings.snippets.isEmpty {
-                Text("Your \(settings.snippets.count) snippet\(settings.snippets.count == 1 ? "" : "s") expand first, then the format, then the template.")
+                Text(settings.snippets.count == 1 ? "Your snippet expands first, then the format, then the template."
+                     : "Your \(settings.snippets.count) snippets expand first, then the format, then the template.")
                     .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
             }
         }

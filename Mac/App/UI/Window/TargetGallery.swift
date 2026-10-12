@@ -59,7 +59,8 @@ struct TargetGallery: View {
                                 Spacer(minLength: 0)
                             }
                             .padding(12)
-                            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                            .frame(minHeight: 74)
                             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Ink.raised.opacity(0.5)))
                             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Ink.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                             .contentShape(RoundedRectangle(cornerRadius: 12))
@@ -117,7 +118,8 @@ struct TargetGallery: View {
                 Spacer(minLength: 0)
             }
             .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(minHeight: 74)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Ink.raised.opacity(0.72)))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 12))

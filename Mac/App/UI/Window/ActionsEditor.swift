@@ -278,7 +278,9 @@ private struct ReminderFields: View {
         f.doesRelativeDateFormatting = true
         f.dateStyle = .medium
         f.timeStyle = .short
-        return "“Call the dentist tomorrow at 5pm” becomes “\(r.title)”, due \(r.due.map { f.string(from: $0) } ?? "tomorrow")."
+        var when = r.due.map { f.string(from: $0) } ?? "tomorrow"
+        if when.hasPrefix("Tomorrow") || when.hasPrefix("Today") { when = when.prefix(1).lowercased() + when.dropFirst() }
+        return "“Call the dentist tomorrow at 5pm” becomes “\(r.title)”, due \(when)."
     }
 }
 

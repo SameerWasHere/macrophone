@@ -66,9 +66,11 @@ enum Tmux {
 
     /// Every pane of every session. Empty when tmux isn't running.
     static func panes() -> [Pane] {
-        guard let out = try? tmux(["list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}\t#{pane_current_command}\t#{pane_current_path}"]) else { return [] }
+        // tmux prints a tab in a format as "_", so the fields are split on a marker instead.
+        let sep = "|:|"
+        guard let out = try? tmux(["list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}"]) else { return [] }
         return out.split(whereSeparator: \.isNewline).compactMap { line in
-            let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            let f = line.components(separatedBy: sep)
             guard f.count >= 3 else { return nil }
             return Pane(target: f[0], command: f[1], path: f[2])
         }

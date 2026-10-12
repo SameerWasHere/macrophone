@@ -127,7 +127,7 @@ struct ProfileRow: View {
                         Text(profile.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.ink)
                         if profile.isDefault { Chip(text: "Default", color: Light.teal) }
                         ForEach(profile.voicePrefixes ?? [], id: \.self) { p in
-                            Chip(text: "“\(p), …”", color: Light.cyan, icon: "waveform")
+                            Chip(text: "“\(p)”", color: Light.cyan, icon: "waveform")
                         }
                         if profile.sendsOffDevice { Chip(text: "Sends text off this Mac", color: Light.ochre, icon: "arrow.up.right") }
                     }

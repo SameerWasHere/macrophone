@@ -143,7 +143,7 @@ private struct SnippetEditor: View {
                         settings.snippets.removeAll { $0.id == snippet.id }
                         dismiss()
                     }
-                    .foregroundStyle(Light.rose)
+                    .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)

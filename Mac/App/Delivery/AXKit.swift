@@ -127,8 +127,11 @@ enum AX {
         // Tabs first: a tab's title is the precise match; the window title only shows the selected tab.
         for w in wins {
             for button in tabButtons(in: w) where title(button).lowercased().contains(n) {
-                AXUIElementPerformAction(button, kAXPressAction as CFString)
-                raise(w, app: app)
+                if !bool(button, kAXValueAttribute) { AXUIElementPerformAction(button, kAXPressAction as CFString) }
+                // A native tab is its own window: raise the one now showing that tab, never
+                // the window we found the tab bar in (that would bring its old tab back).
+                usleep(150_000)
+                if let shown = windows(app).first(where: { title($0).lowercased().contains(n) }) { raise(shown, app: app) }
                 return true
             }
         }

@@ -2,6 +2,28 @@
 
 The Mac app owns this. The CLI, the MCP server and the website's developer docs all follow it.
 JSON shape of one item is `PulledDictation` in `Packages/MacrophoneKit/Sources/MacrophoneKit/Core/PullAPI.swift`.
+The pro automations (app targeting, tmux, snippets, templates, Obsidian/Notes/Reminders, Ask Claude)
+are documented in `docs/AUTOMATIONS.md`.
+
+## One item
+
+```json
+{ "id": "6F1C…", "text": "Refactor the history store…", "raw": "um refactor the the history store…",
+  "cleaned": "Refactor the history store…", "cleanup_level": "medium", "language": "en-US",
+  "profile": "Claude", "created_at": "2026-10-12T20:41:03Z", "received_at": "2026-10-12T20:41:04Z",
+  "delayed": false, "stopped_early": false, "source_device": "Sameer's iPhone", "reply": null }
+```
+
+Every key is always present. `cleaned`, `profile` and `reply` are `null` when absent.
+
+- `text` is what the phone delivered (cleaned when there is one, else raw). Snippets, the output
+  format and the template are **not** applied here — that's what went to the app/pane.
+- `profile` is the profile that ran on the Mac (after voice prefix / per-app rule resolution).
+- `reply` is Claude's answer when the profile has an **Ask Claude** action (the person's own API
+  key). It is `null` until the reply has finished streaming, and for every other dictation. An
+  item first appears (`/v1/next`, `/v1/stream`) as soon as the dictation arrives, with
+  `reply: null`; read `/v1/latest` or `/v1/history` afterwards to get the reply. With history off,
+  the reply is held in memory with the latest item only.
 
 ## HTTP API
 
@@ -67,10 +89,23 @@ Claude Desktop: `{"mcpServers":{"macrophone":{"command":"/usr/local/bin/macropho
   "created_at": "2026-10-12T20:41:03Z", "language": "en-US", "source_device": "Sameer's iPhone",
   "delayed": false }
 ```
-Header `User-Agent: Macrophone/<version>`. 10 s timeout, one retry after 3 s.
+`text` here is the final text (snippets, output format and template applied). Header
+`User-Agent: Macrophone/<version>`. 10 s timeout, one retry after 3 s.
 
 ## Script
 
-`/bin/zsh -lc "<command>"` with the text (template applied) on stdin, and env vars
+`/bin/zsh -lc "<command>"` with the text (snippets, format and template applied) on stdin, and env vars
 `MACROPHONE_TEXT`, `MACROPHONE_RAW`, `MACROPHONE_PROFILE`, `MACROPHONE_ID`. 30 s timeout;
 non-zero exit shows the error state in the popup with the first line of stderr.
+
+## MCP and CLI and the reply
+
+`mp latest --json`, `mp list --json`, `mp wait --json` and the MCP tools' structured content carry
+the same item, so `reply` is there too (`null` when there isn't one). Plain-text output is unchanged
+(the dictation's text).
+
+## Debug-only hook (Mac DEBUG builds)
+
+A Debug build listens for the distributed notification `com.sameer.macrophone.debug.dictate` with
+`object` = JSON `{"text": "…", "profile"?: "<name>", "source"?: "chosen|prefix|automatic", "delayed"?: bool}`
+and runs it through exactly the path a phone dictation takes. Release builds don't have it.

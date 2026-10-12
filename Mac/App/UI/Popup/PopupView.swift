@@ -265,7 +265,7 @@ struct PopupCardView: View {
                     .buttonStyle(PopupButtonStyle(kind: .secondary))
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Paste Now") { card.onFire() }
+                Button(card.status.contains("Sending") ? "Send Now" : "Paste Now") { card.onFire() }
                     .buttonStyle(PopupButtonStyle(kind: .primary))
             } else {
                 if card.showsSettingsButton {

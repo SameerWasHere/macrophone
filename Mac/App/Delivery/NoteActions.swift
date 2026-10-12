@@ -248,7 +248,9 @@ enum NoteActions {
             f.doesRelativeDateFormatting = true
             f.dateStyle = .medium
             f.timeStyle = .short
-            line += " · due \(f.string(from: due))"
+            var when = f.string(from: due)
+            if when.hasPrefix("Tomorrow") || when.hasPrefix("Today") { when = when.prefix(1).lowercased() + when.dropFirst() }
+            line += " · due \(when)"
         }
         return line
     }
