@@ -16,8 +16,11 @@ public struct PulledDictation: Codable, Sendable, Identifiable, Equatable {
     public var delayed: Bool
     public var stoppedEarly: Bool
     public var sourceDevice: String
+    /// Claude's answer when the profile ran "Ask Claude" (the Mac's own API key); null until
+    /// the reply has finished, and for every other dictation.
+    public var reply: String?
 
-    public init(_ d: Dictation, receivedAt: Date, delayed: Bool) {
+    public init(_ d: Dictation, receivedAt: Date, delayed: Bool, reply: String? = nil) {
         id = d.id
         text = d.text
         raw = d.raw
@@ -30,10 +33,11 @@ public struct PulledDictation: Codable, Sendable, Identifiable, Equatable {
         self.delayed = delayed
         stoppedEarly = d.stoppedEarly
         sourceDevice = d.sourceDevice
+        self.reply = reply
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, text, raw, cleaned, language, profile, delayed
+        case id, text, raw, cleaned, language, profile, delayed, reply
         case cleanupLevel = "cleanup_level"
         case createdAt = "created_at"
         case receivedAt = "received_at"
@@ -41,7 +45,7 @@ public struct PulledDictation: Codable, Sendable, Identifiable, Equatable {
         case sourceDevice = "source_device"
     }
 
-    /// Every key is always present (`cleaned` and `profile` as null when absent) so the
+    /// Every key is always present (`cleaned`, `profile` and `reply` as null when absent) so the
     /// shape never changes between items.
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -57,6 +61,7 @@ public struct PulledDictation: Codable, Sendable, Identifiable, Equatable {
         try c.encode(delayed, forKey: .delayed)
         try c.encode(stoppedEarly, forKey: .stoppedEarly)
         try c.encode(sourceDevice, forKey: .sourceDevice)
+        try c.encode(reply, forKey: .reply)
     }
 
     public static let encoder: JSONEncoder = {
