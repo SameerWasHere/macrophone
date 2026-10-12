@@ -211,8 +211,8 @@ App Preview video (optional, 15–30 s): the website's demo loop as a real recor
 **Recommendation:** keep third-party names out of the name, subtitle, keywords and promotional
 text and out of screenshot *captions*; name them only in the description, as compatibility
 statements with a non-affiliation line, and in the real app UI shown in screenshots. Concretely:
-change shot 2's caption from “Say where it goes. It goes straight there.” to “Say where it
-goes. It goes straight there.”; shots 1, 3 and 5 can keep “Claude”, “ChatGPT” and “Cursor”
+shot 2's caption was changed from “Say “Claude,” and it goes straight into Claude.” to “Say where it
+goes. It goes straight there.” (done, Oct 12 2026); shots 1, 3 and 5 can keep “Claude”, “ChatGPT” and “Cursor”
 inside the UI.
 
 Why:
