@@ -16,11 +16,14 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
     var outcome: Outcome
     /// One plain line: "Pasted into Claude", "Copied — delayed items are never pasted".
     var detail: String
+    /// Claude's answer, when the profile asked Claude (kept next to the dictation).
+    var reply: String?
+    var replyModel: String?
 
     var id: UUID { dictation.id }
 
     var pulled: PulledDictation {
-        PulledDictation(dictation, receivedAt: receivedAt, delayed: delayed)
+        PulledDictation(dictation, receivedAt: receivedAt, delayed: delayed, reply: reply)
     }
 
     /// True when cleanup changed the words (the raw/cleaned toggle only shows then).

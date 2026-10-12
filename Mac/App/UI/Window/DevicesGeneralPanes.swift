@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import MacrophoneKit
 import SwiftUI
 
@@ -105,6 +106,8 @@ struct GeneralPane: View {
                     Toggle("", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                         .toggleStyle(.switch).labelsHidden()
                 }
+                PlateDivider(inset: 50)
+                HotkeyRow(settings: model.settings)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -163,5 +166,69 @@ struct GeneralPane: View {
     private var updateLine: String {
         if let d = updater.lastCheck { return "Last checked \(d.relativeShort)." }
         return "Signed updates from sameer.us. Checked once a day."
+    }
+}
+
+/// General › "Open Macrophone from anywhere": the global shortcut, for when the menu bar
+/// icon is hidden behind the notch.
+struct HotkeyRow: View {
+    @ObservedObject var settings: Settings
+    @State private var recording = false
+    @State private var monitor: Any?
+    @State private var problem: String?
+
+    var body: some View {
+        PlateRow(title: "Open Macrophone from anywhere",
+                 subtitle: problem ?? (settings.hotkey.enabled
+                    ? "Press \(settings.hotkey.display) to bring up this window — handy when the menu bar hides Macrophone's icon. You can also open Macrophone from Spotlight or Finder."
+                    : "Off. You can still open Macrophone from Spotlight or Finder."),
+                 subtitleColor: problem == nil ? Ink.tertiary : Light.ochre,
+                 icon: "keyboard") {
+            HStack(spacing: 8) {
+                Button {
+                    recording ? stop() : start()
+                } label: {
+                    Text(recording ? "Press a shortcut…" : settings.hotkey.display)
+                        .font(Typeface.mono(12, .semibold))
+                        .frame(minWidth: 96)
+                }
+                .buttonStyle(PillButtonStyle(tint: recording ? Light.teal : Ink.ink, filled: false))
+                .disabled(!settings.hotkey.enabled)
+                .help("Click, then press the new shortcut. Esc cancels.")
+                .accessibilityLabel(recording ? "Recording a shortcut" : "Shortcut: \(settings.hotkey.words). Click to change")
+                Toggle("", isOn: Binding(get: { settings.hotkey.enabled }, set: { on in
+                    settings.hotkey.enabled = on
+                    apply()
+                }))
+                .toggleStyle(.switch).labelsHidden()
+            }
+        }
+        .onDisappear(perform: stop)
+    }
+
+    private func start() {
+        recording = true
+        HotkeyCenter.shared.apply(Hotkey(keyCode: 0, modifiers: 0, enabled: false))
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            if e.keyCode == 53 { stop(); return nil } // Esc
+            let mods = Hotkey.carbonModifiers(e.modifierFlags.intersection([.command, .option, .control, .shift]))
+            // Needs ⌘, ⌥ or ⌃ so it can't steal ordinary typing.
+            guard mods & UInt32(cmdKey | optionKey | controlKey) != 0 else { NSSound.beep(); return nil }
+            settings.hotkey = Hotkey(keyCode: UInt32(e.keyCode), modifiers: mods, enabled: true)
+            stop()
+            return nil
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        if recording { recording = false }
+        apply()
+    }
+
+    private func apply() {
+        HotkeyCenter.shared.apply(settings.hotkey)
+        problem = HotkeyCenter.shared.lastError
     }
 }

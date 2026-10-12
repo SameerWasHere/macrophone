@@ -235,11 +235,21 @@ struct ModesStep: View {
             }
             .padding(.horizontal, 32)
             .padding(.top, 26)
-            Text("Profiles can paste into a specific app — like Claude — and press Return for you. Set them up in Profiles.")
+            Text("Profiles send straight into an app — Claude, ChatGPT, Cursor, or the Terminal tab running Claude Code — and press Return for you. Pick one on your iPhone, or add more in Profiles.")
                 .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
-                .multilineTextAlignment(.center).frame(maxWidth: 400)
+                .multilineTextAlignment(.center).frame(maxWidth: 420)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 18)
+            HStack(spacing: 8) {
+                Image(systemName: "keyboard").foregroundStyle(Light.cyan)
+                Text("Can't see the icon in your menu bar? Press \(settings.hotkey.display) anywhere to open Macrophone.")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Light.cyan.opacity(0.07)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Light.cyan.opacity(0.2), lineWidth: 1))
+            .padding(.top, 12)
             Spacer()
             Button("Done", action: done)
                 .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))

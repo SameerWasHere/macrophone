@@ -98,16 +98,16 @@ final class Settings: ObservableObject {
     @Published var hasCompletedSetup: Bool { didSet { d.set(hasCompletedSetup, forKey: "hasCompletedSetup") } }
     @Published var askedForNotifications: Bool { didSet { d.set(askedForNotifications, forKey: "askedForNotifications") } }
 
-    static let defaultAllowlist: [AllowedApp] = [
-        AllowedApp(bundleID: "com.anthropic.claudefordesktop", name: "Claude"),
-        AllowedApp(bundleID: "com.apple.Terminal", name: "Terminal"),
-        AllowedApp(bundleID: "com.googlecode.iterm2", name: "iTerm"),
-        AllowedApp(bundleID: "com.mitchellh.ghostty", name: "Ghostty"),
-        AllowedApp(bundleID: "dev.warp.Warp-Stable", name: "Warp"),
-        AllowedApp(bundleID: "com.todesktop.230313mzl4w4u92", name: "Cursor"),
-        AllowedApp(bundleID: "com.microsoft.VSCode", name: "Visual Studio Code"),
-        AllowedApp(bundleID: "com.openai.chat", name: "ChatGPT"),
-    ]
+    /// Every catalog target that sends by default (Claude, ChatGPT, Codex, Cursor, the terminals).
+    static var defaultAllowlist: [AllowedApp] { TargetCatalog.defaultSendApps }
+
+    /// "When <app> is in front, use <profile>" — for dictations sent on Automatic.
+    @Published var appRules: [AppRule] { didSet { d.set(try? JSONEncoder().encode(appRules), forKey: "appRules") } }
+    /// Say the trigger, get the expansion.
+    @Published var snippets: [Snippet] { didSet { d.set(try? JSONEncoder().encode(snippets), forKey: "snippets") } }
+    /// The shortcut that opens Macrophone's window from anywhere (the menu bar icon can hide
+    /// behind the notch).
+    @Published var hotkey: Hotkey { didSet { d.set(try? JSONEncoder().encode(hotkey), forKey: "hotkey") } }
 
     init() {
         deliveryMode = DeliveryMode(rawValue: d.string(forKey: "deliveryMode") ?? "") ?? .clipboardNotify
@@ -118,8 +118,22 @@ final class Settings: ObservableObject {
         } else {
             enterAllowlist = Self.defaultAllowlist
         }
+        appRules = (d.data(forKey: "appRules")).flatMap { try? JSONDecoder().decode([AppRule].self, from: $0) } ?? []
+        snippets = (d.data(forKey: "snippets")).flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
+        hotkey = (d.data(forKey: "hotkey")).flatMap { try? JSONDecoder().decode(Hotkey.self, from: $0) } ?? .default
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
+        // A saved Return list from before the target catalog gains the catalog's send-by-default
+        // apps once (anything the person removed after this stays removed).
+        if d.integer(forKey: "allowlistVersion") < 2 {
+            if d.data(forKey: "enterAllowlist") != nil {
+                var list = enterAllowlist
+                for a in Self.defaultAllowlist where !list.contains(where: { $0.bundleID == a.bundleID }) { list.append(a) }
+                enterAllowlist = list
+                d.set(try? JSONEncoder().encode(list), forKey: "enterAllowlist")
+            }
+            d.set(2, forKey: "allowlistVersion")
+        }
     }
 
     func allowsEnter(in bundleID: String?) -> Bool {

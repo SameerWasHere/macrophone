@@ -14,12 +14,13 @@ enum Main {
 }
 
 enum Pane: String, CaseIterable, Identifiable {
-    case history, profiles, delivery, devices, developer, general
+    case history, profiles, snippets, delivery, devices, developer, general
     var id: String { rawValue }
     var title: String {
         switch self {
         case .history: return "History"
         case .profiles: return "Profiles"
+        case .snippets: return "Snippets"
         case .delivery: return "Delivery"
         case .devices: return "Devices"
         case .developer: return "Developer"
@@ -30,6 +31,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .history: return "clock.arrow.circlepath"
         case .profiles: return "square.stack.3d.up"
+        case .snippets: return "text.badge.plus"
         case .delivery: return "text.cursor"
         case .devices: return "iphone"
         case .developer: return "chevron.left.forwardslash.chevron.right"
@@ -62,6 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.flashStatusItem = { [weak self] in self?.statusItem.flashReceived() }
         model.start()
         updater.start()
+        // A way in when the menu bar icon is hidden (a crowded or notched menu bar).
+        HotkeyCenter.shared.action = { [weak self] in self?.openMainWindow() }
+        HotkeyCenter.shared.apply(model.settings.hotkey)
 
         #if DEBUG
         if DebugHooks.run(self) { return }

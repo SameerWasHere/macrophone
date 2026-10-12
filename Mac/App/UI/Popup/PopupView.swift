@@ -64,10 +64,11 @@ struct PopupCardView: View {
     var dismiss: () -> Void
     @State private var tickShown = false
     @State private var cardHover = false
+    @State private var replyCopied = false
 
     private var accent: Color {
         switch card.phase {
-        case .copied, .done: return card.delayed ? Light.ochre : Light.mint
+        case .copied, .done: return card.delayed || card.caution ? Light.ochre : Light.mint
         case .countdown, .working: return Light.cyan
         case .cancelled: return Ink.tertiary
         case .failed: return Light.rose
@@ -98,7 +99,12 @@ struct PopupCardView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
             }
-            if card.phase == .countdown || card.phase == .failed {
+            if card.replyState != .none {
+                replyBlock
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+            }
+            if card.phase == .countdown || card.phase == .failed || replyActions {
                 actions
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
@@ -135,7 +141,7 @@ struct PopupCardView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
-            StatusGlyph(phase: card.phase, delayed: card.delayed, tickShown: tickShown)
+            StatusGlyph(phase: card.phase, delayed: card.delayed || card.caution, tickShown: tickShown)
                 .frame(width: 22, height: 22)
             Kicker(statusLine, color: accent.opacity(card.phase == .cancelled ? 1 : 0.95), size: 10.5)
                 .lineLimit(2)
@@ -194,9 +200,67 @@ struct PopupCardView: View {
         }
     }
 
+    private var replyActions: Bool {
+        card.replyState == .done || (card.replyState == .failed && card.canRetry)
+    }
+
+    /// Claude's answer, growing as it streams in.
+    private var replyBlock: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 7) {
+                Image(systemName: "sparkle").font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(card.replyState == .failed ? Light.rose : Light.ember)
+                Kicker(card.replyModel ?? "Claude", color: card.replyState == .failed ? Light.rose : Light.ember.opacity(0.95), size: 9.5)
+                Spacer(minLength: 4)
+                if card.replyState == .waiting || card.replyState == .streaming {
+                    FilamentView(peak: card.replyState == .streaming ? 0.9 : 0.4, thick: 1.3, tint: Light.ember)
+                        .frame(width: 26, height: 10)
+                        .accessibilityLabel("Claude is answering")
+                }
+            }
+            if let reply = card.reply, !reply.isEmpty {
+                ScrollView {
+                    Text(reply)
+                        .font(Typeface.serif(13.5))
+                        .foregroundStyle(Ink.ink)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 240)
+                .fixedSize(horizontal: false, vertical: true)
+            } else if card.replyState == .waiting {
+                Text("Asking Claude…").font(.system(size: 12)).foregroundStyle(Ink.tertiary)
+            }
+            if let n = card.replyNote {
+                Text(n).font(.system(size: 11.5))
+                    .foregroundStyle(card.replyState == .failed ? Ink.secondary : Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Light.ember.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Light.ember.opacity(0.18), lineWidth: 1))
+    }
+
     private var actions: some View {
         HStack(spacing: 8) {
-            if card.phase == .countdown {
+            if card.phase != .countdown && card.phase != .failed && replyActions {
+                Button("Dismiss") { dismiss() }
+                    .buttonStyle(PopupButtonStyle(kind: .secondary))
+                Spacer()
+                if card.replyState == .done {
+                    Button(replyCopied ? "Copied" : "Copy Reply") {
+                        card.onCopyReply()
+                        replyCopied = true
+                    }
+                    .buttonStyle(PopupButtonStyle(kind: .primary))
+                } else {
+                    Button("Ask Again") { card.onRetry() }
+                        .buttonStyle(PopupButtonStyle(kind: .primary))
+                }
+            } else if card.phase == .countdown {
                 Button("Cancel") { card.onCancel() }
                     .buttonStyle(PopupButtonStyle(kind: .secondary))
                     .keyboardShortcut(.cancelAction)
@@ -206,7 +270,7 @@ struct PopupCardView: View {
             } else {
                 if card.showsSettingsButton {
                     Button("Open System Settings") {
-                        NSWorkspace.shared.open(Paster.accessibilitySettingsURL)
+                        NSWorkspace.shared.open(card.settingsURL ?? Paster.accessibilitySettingsURL)
                     }
                     .buttonStyle(PopupButtonStyle(kind: .secondary))
                 }

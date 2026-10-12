@@ -88,7 +88,7 @@ final class PopupController {
         if card.isBusy {
             expiry[card.id] = nil
         } else {
-            expiry[card.id] = Date().addingTimeInterval(card.lifetime)
+            expiry[card.id] = Date().addingTimeInterval(card.effectiveLifetime)
         }
         updateTicker()
     }

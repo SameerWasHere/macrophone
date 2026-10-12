@@ -9,6 +9,10 @@ enum PasteFailure: Error, Equatable {
     case secureField(app: String)
     case appUnavailable(name: String)
     case appDidNotActivate(name: String)
+    /// A profile names a window/tab ("claude") and none matches — nothing was pasted.
+    case windowNotFound(app: String, match: String)
+    /// The text never showed up in the app's message box (nothing was sent).
+    case notLanded(app: String)
 
     var title: String {
         switch self {
@@ -16,6 +20,8 @@ enum PasteFailure: Error, Equatable {
         case .secureField: return "Not pasted — a password field is active"
         case .appUnavailable(let n): return "Couldn't find \(n)"
         case .appDidNotActivate(let n): return "\(n) didn't come to the front"
+        case .windowNotFound(let app, let m): return "No \(app) \(app == "Terminal" || app == "iTerm2" ? "tab" : "window") matching “\(m)”"
+        case .notLanded(let app): return "Didn't send — \(app)'s message box wasn't focused"
         }
     }
 
@@ -29,6 +35,10 @@ enum PasteFailure: Error, Equatable {
             return "\(n) isn't installed anymore. It's on your clipboard — pick another app in the profile."
         case .appDidNotActivate(let n):
             return "\(n) may be busy or showing a dialog. It's on your clipboard."
+        case .windowNotFound(let app, _):
+            return "Nothing was pasted, so nothing went anywhere unexpected. Open \(app == "Terminal" || app == "iTerm2" ? "the tab" : "the window") on this desktop and try again — it's on your clipboard."
+        case .notLanded(let app):
+            return "It's on your clipboard. Click in \(app)'s message box and press ⌘V, or try again."
         }
     }
 
@@ -46,11 +56,28 @@ enum Paster {
         var pressedEnter: Bool
         /// Set when Return was asked for but not pressed, e.g. "Return skipped — Notes isn't on your list".
         var enterNote: String?
+        /// We saw the message box empty out after the send key (or keep the text when not sending).
+        var confirmed = false
+        /// The send key went out but the text stayed in the box.
+        var sendDidNotClear = false
     }
 
     enum Target: Equatable {
         case focused
         case app(bundleID: String, name: String)
+    }
+
+    /// Everything one paste needs to know.
+    struct Request {
+        var text: String
+        var target: Target
+        /// Raise the window/tab whose title (or, in Terminal, running program) contains this.
+        var windowMatch: String?
+        /// The profile asks for the send key after pasting.
+        var send: Bool
+        var sendKey: SendKey = .return
+        /// Bring back the app that was in front once it's sent.
+        var returnToPrevious = false
     }
 
     static var isTrusted: Bool { AXIsProcessTrusted() }
@@ -65,49 +92,125 @@ enum Paster {
     static let accessibilitySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
     static let notificationSettingsURL = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!
 
+    /// Kept for callers that only paste into the app in front.
     static func paste(_ text: String, target: Target, pressEnter: Bool, allowsEnter: (String?) -> Bool) async throws -> Result {
-        guard isTrusted else { throw PasteFailure.accessibilityMissing }
+        try await deliver(Request(text: text, target: target, windowMatch: nil, send: pressEnter), allowsEnter: allowsEnter)
+    }
 
-        // 1. The right app in front.
-        if case let .app(bundleID, name) = target {
-            try await bringToFront(bundleID: bundleID, name: name)
+    /// The paste, start to finish:
+    ///   1. the right app (and window or tab) in front,
+    ///   2. the message box focused (chat apps),
+    ///   3. never into a password field,
+    ///   4. ⌘V, then check the words showed up,
+    ///   5. the send key — only in allowlisted apps — then check the box emptied,
+    ///   6. the clipboard put back, and optionally the previous app.
+    static func deliver(_ req: Request, allowsEnter: (String?) -> Bool) async throws -> Result {
+        guard isTrusted else { throw PasteFailure.accessibilityMissing }
+        let previous = NSWorkspace.shared.frontmostApplication
+
+        // 1. The right app, window and tab in front.
+        var spec: TargetSpec?
+        if case let .app(bundleID, name) = req.target {
+            spec = TargetCatalog.spec(for: bundleID) ?? TargetCatalog.generic(bundleID: bundleID, name: name)
+            try await bringToFront(bundleID: bundleID, name: name, windowMatch: req.windowMatch, spec: spec!)
+        } else {
+            spec = TargetCatalog.spec(for: previous?.bundleIdentifier)
         }
         let front = NSWorkspace.shared.frontmostApplication
-        let appName = front?.localizedName ?? "the app"
+        let appName = (spec?.id.hasPrefix("app:") == false ? spec?.name : nil) ?? front?.localizedName ?? "the app"
+        let axApp = front.map { AX.app($0.processIdentifier) }
 
-        // 2. Never into a password field.
+        // 2. The message box (chat apps): find it and focus it.
+        var box: AXUIElement?
+        if let axApp, let spec, spec.composer == .chatInput {
+            AX.wakeWebContent(axApp)
+            box = Composer.find(in: axApp, hints: spec.composerHints)
+            if box == nil {
+                // Chromium builds its tree on the first request; give it a moment.
+                try await Task.sleep(nanoseconds: 250_000_000)
+                box = Composer.find(in: axApp, hints: spec.composerHints)
+            }
+            if let b = box { _ = await Composer.focus(b, in: axApp) }
+        }
+        let focused = axApp.flatMap { AX.focused(in: $0) }
+        let probe = Composer.probe(req.text)
+        // What we'll read back: the message box, else whatever has focus.
+        let readBack = box ?? focused
+        let before = readBack.flatMap(AX.value).map(Composer.normalize) ?? ""
+        func landed() -> Bool? {
+            guard !probe.isEmpty, let e = readBack ?? axApp.flatMap({ AX.focused(in: $0) }), let v = AX.value(e) else { return nil }
+            let now = Composer.normalize(v)
+            // A box that already held these words before doesn't count.
+            return now.contains(probe) && (!before.contains(probe) || now.count > before.count)
+        }
+
+        // 3. Never into a password field.
         if SecureInput.isActive(frontPID: front?.processIdentifier) || SecureInput.focusedElementIsSecure() {
             throw PasteFailure.secureField(app: appName)
         }
 
-        // 3. Our words on the clipboard, the old contents kept aside.
+        // 4. Our words on the clipboard, the old contents kept aside; ⌘V.
         let pb = NSPasteboard.general
         let saved = PasteboardSnapshot(pb)
-        let ours = writeTransient(text, to: pb)
-
-        // 4. ⌘V, then Return if asked and allowed.
+        let ours = writeTransient(req.text, to: pb)
         try await Task.sleep(nanoseconds: 40_000_000)
         Keys.press(Keys.code(for: "v") ?? CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+        try await Task.sleep(nanoseconds: (spec?.pasteSettle ?? 320) * 1_000_000)
 
-        var pressedEnter = false
-        var note: String?
-        if pressEnter {
-            if allowsEnter(front?.bundleIdentifier) {
-                // Give the app time to take the paste before the Return arrives.
-                try await Task.sleep(nanoseconds: 320_000_000)
-                Keys.press(CGKeyCode(kVK_Return), flags: [])
-                pressedEnter = true
-            } else {
-                note = "Return skipped — \(appName) isn't on your Return list"
-            }
+        var didLand = landed()
+        if didLand == false {
+            // Rich editors can take a beat longer.
+            try await Task.sleep(nanoseconds: 300_000_000)
+            didLand = landed()
+        }
+        if spec?.composer == .chatInput, didLand == false {
+            // The words aren't in the box: leave them on the clipboard and send nothing.
+            Paster.copy(req.text)
+            throw PasteFailure.notLanded(app: appName)
         }
 
-        // 5. Put the clipboard back once the paste has landed — unless the person (or the
+        // 5. The send key, if asked and allowed.
+        var result = Result(appName: appName, bundleID: front?.bundleIdentifier, pressedEnter: false)
+        if req.send {
+            if !allowsEnter(front?.bundleIdentifier) {
+                result.enterNote = "Return skipped — \(appName) isn't on your Return list"
+            } else if didLand == false && spec?.composer != .terminal {
+                result.enterNote = "Didn't send — the words didn't show up where the cursor was"
+            } else {
+                Keys.press(CGKeyCode(kVK_Return), flags: req.sendKey == .commandReturn ? .maskCommand : [])
+                result.pressedEnter = true
+                if didLand == true, readBack != nil, let axApp, let spec, spec.composer == .chatInput {
+                    // Did the box empty out? Chat apps often swap the whole view when a new
+                    // conversation starts, so a box that's gone counts too — then look again
+                    // for whichever message box is there now.
+                    var cleared = false
+                    for _ in 0..<10 {
+                        try await Task.sleep(nanoseconds: 130_000_000)
+                        // The box on screen now (a new conversation may have replaced the old one).
+                        if let fresh = Composer.find(in: axApp, hints: spec.composerHints).flatMap(AX.value) {
+                            if !Composer.normalize(fresh).contains(probe) { cleared = true; break }
+                            continue
+                        }
+                        let old = readBack.flatMap(AX.value).map(Composer.normalize)
+                        if old?.contains(probe) != true { cleared = true; break }
+                    }
+                    result.confirmed = cleared
+                    result.sendDidNotClear = !cleared
+                }
+            }
+        } else {
+            result.confirmed = didLand == true
+        }
+
+        // 6. Put the clipboard back once the paste has landed — unless the person (or the
         //    app) put something new there in the meantime.
-        try await Task.sleep(nanoseconds: pressedEnter ? 700_000_000 : 900_000_000)
+        try await Task.sleep(nanoseconds: result.pressedEnter ? 500_000_000 : 700_000_000)
         if pb.changeCount == ours { saved.restore(to: pb) }
 
-        return Result(appName: appName, bundleID: front?.bundleIdentifier, pressedEnter: pressedEnter, enterNote: note)
+        if req.returnToPrevious, let previous, previous.bundleIdentifier != front?.bundleIdentifier, !previous.isTerminated {
+            AX.bringToFront(previous)
+        }
+        return result
     }
 
     /// Plain copy that stays on the clipboard (clipboard modes, delayed items, fallbacks).
@@ -130,17 +233,51 @@ enum Paster {
         return pb.changeCount
     }
 
-    private static func bringToFront(bundleID: String, name: String) async throws {
-        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID { return }
+    private static func bringToFront(bundleID: String, name: String, windowMatch: String?, spec: TargetSpec) async throws {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
             throw PasteFailure.appUnavailable(name: name)
         }
-        if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-            // macOS 14's cooperative activation ignores activate() from an app in the
-            // background; Accessibility's "frontmost" (we already have it) is honoured.
-            let el = AXUIElementCreateApplication(running.processIdentifier)
-            AXUIElementSetAttributeValue(el, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-            running.activate()
+        let needle = windowMatch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
+        if running == nil {
+            // A named window can't exist in an app that isn't running.
+            if !needle.isEmpty { throw PasteFailure.windowNotFound(app: name, match: needle) }
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            running = try? await NSWorkspace.shared.openApplication(at: url, configuration: config)
+            // Let a freshly launched app put up its window.
+            try await Task.sleep(nanoseconds: 1_200_000_000)
+        }
+
+        // The window or tab first, so activating the app brings the right one.
+        if !needle.isEmpty, let running {
+            var found = false
+            var matching = spec.windowMatching
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["MACROPHONE_NO_APPLESCRIPT"] == "1" { matching = .titles }
+            #endif
+            switch matching {
+            case .terminalApp:
+                if await Scripting.permissionAsync(bundleID, ask: false) == .granted {
+                    found = (try? await Scripting.selectTerminalTab(matching: needle)) ?? false
+                }
+            case .iTerm:
+                if await Scripting.permissionAsync(bundleID, ask: false) == .granted {
+                    found = (try? await Scripting.selectITermSession(matching: needle)) ?? false
+                }
+            case .titles:
+                break
+            }
+            if !found {
+                let ax = AX.app(running.processIdentifier)
+                AX.wakeWebContent(ax)
+                found = AX.raiseWindow(in: ax, matching: needle)
+            }
+            if !found { throw PasteFailure.windowNotFound(app: name, match: needle) }
+        }
+
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleID {
+            if let running { AX.bringToFront(running) }
             try await Task.sleep(nanoseconds: 120_000_000)
         }
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleID {
@@ -153,7 +290,15 @@ enum Paster {
         while Date() < deadline {
             if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID {
                 // Let its window become key before the keystrokes arrive.
-                try await Task.sleep(nanoseconds: 280_000_000)
+                try await Task.sleep(nanoseconds: spec.activationSettle * 1_000_000)
+                if !needle.isEmpty, let running {
+                    // Re-raise: activation can bring a different window of the app forward.
+                    let ax = AX.app(running.processIdentifier)
+                    if !AX.focusedWindowTitle(ax).lowercased().contains(needle.lowercased()), spec.windowMatching == .titles {
+                        _ = AX.raiseWindow(in: ax, matching: needle)
+                        try await Task.sleep(nanoseconds: 120_000_000)
+                    }
+                }
                 return
             }
             try await Task.sleep(nanoseconds: 50_000_000)

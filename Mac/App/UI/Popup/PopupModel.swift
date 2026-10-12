@@ -45,7 +45,21 @@ final class PopupCard: ObservableObject, Identifiable {
     @Published var paused = false
     @Published var automations: [Automation] = []
     @Published var showsSettingsButton = false
+    /// Which System Settings pane the button opens (Accessibility unless set).
+    var settingsURL: URL?
     @Published var canRetry = false
+    /// It landed but didn't fully happen (pasted, not sent): ochre instead of mint.
+    @Published var caution = false
+    /// Claude's answer, streaming in (Ask Claude).
+    @Published var reply: String?
+    @Published var replyState: ReplyState = .none
+    /// "Claude Sonnet 5.5"
+    @Published var replyModel: String?
+    /// A note under the reply ("Copied" / the error).
+    @Published var replyNote: String?
+    var onCopyReply: () -> Void = {}
+
+    enum ReplyState: Equatable { case none, waiting, streaming, done, failed }
 
     var countdownSeconds: Double = 2.5
     /// Called when the countdown runs out or the person taps "Paste now".
@@ -74,8 +88,14 @@ final class PopupCard: ObservableObject, Identifiable {
         }
     }
 
+    /// A finished reply stays two minutes so it can be read (hover holds it; Dismiss closes it).
+    var effectiveLifetime: TimeInterval {
+        replyState == .done || replyState == .failed ? max(lifetime, 120) : lifetime
+    }
+
     var isBusy: Bool {
         phase == .countdown || phase == .working || automations.contains { $0.state == .running }
+            || replyState == .waiting || replyState == .streaming
     }
 }
 

@@ -158,6 +158,8 @@ struct DeveloperPane: View {
                 }
             }
 
+            ClaudeKeySection()
+
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("HTTP")
                 Plate {
@@ -209,6 +211,90 @@ struct DeveloperPane: View {
         case .installed: return "Installed in \(CLIInstaller.directory.path)."
         case .notInstalled: return "Adds macrophone and its short name mp to \(CLIInstaller.directory.path). Asks for your password once."
         case .otherCopy: return "Points at another copy of Macrophone. Reinstall to use this one."
+        }
+    }
+}
+
+/// Developer › Claude API key: for profiles that "Ask Claude".
+struct ClaudeKeySection: View {
+    @State private var saved = ClaudeKey.load()
+    @State private var draft = ""
+    @State private var testing = false
+    @State private var result: String?
+    @State private var resultOK = false
+    @State private var confirmRemove = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("Claude API key")
+            Plate {
+                PlateRow(title: "Anthropic API key",
+                         subtitle: "Used only by profiles with an “Ask Claude” action. Those send what you dictate to Anthropic; billing is on your account. Kept in your keychain, never in diagnostics.",
+                         icon: saved == nil ? "key" : "key.fill", iconColor: saved == nil ? Ink.secondary : Light.mint) { EmptyView() }
+                PlateDivider()
+                VStack(alignment: .leading, spacing: 10) {
+                    if let saved {
+                        HStack(spacing: 10) {
+                            Text(ClaudeKey.masked(saved)).font(Typeface.mono(12, .regular)).foregroundStyle(Ink.ink)
+                            Spacer()
+                            Button(testing ? "Testing…" : "Test Key") { test(saved) }
+                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                                .disabled(testing)
+                            Button("Remove…") { confirmRemove = true }
+                                .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
+                                .confirmationDialog("Remove your API key?", isPresented: $confirmRemove) {
+                                    Button("Remove", role: .destructive) { ClaudeKey.delete(); self.saved = nil; result = nil }
+                                } message: { Text("Profiles that ask Claude will stop until you add a key again.") }
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            SecureField("sk-ant-…", text: $draft)
+                                .textFieldStyle(.roundedBorder)
+                                .font(Typeface.mono(12, .regular))
+                                .onSubmit(saveDraft)
+                            Button("Save") { saveDraft() }
+                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).count < 20)
+                        }
+                        Link("Get a key at console.anthropic.com", destination: URL(string: "https://console.anthropic.com/settings/keys")!)
+                            .font(.system(size: 12, weight: .medium)).foregroundStyle(Light.teal)
+                    }
+                    if let result {
+                        Label(result, systemImage: resultOK ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                            .font(.system(size: 11.5)).foregroundStyle(resultOK ? Light.mint : Light.rose)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text("Test Key asks Anthropic which models the key can use — it costs nothing.")
+                        .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                }
+                .padding(16)
+            }
+        }
+    }
+
+    private func saveDraft() {
+        let k = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard k.count >= 20 else { return }
+        if ClaudeKey.save(k) {
+            saved = k
+            draft = ""
+            test(k)
+        } else {
+            result = "Couldn't save it to the keychain."
+            resultOK = false
+        }
+    }
+
+    private func test(_ key: String) {
+        testing = true
+        result = nil
+        Task {
+            let r = await ClaudeClient.test(key: key, session: DeliveryEngine.claudeSession)
+            testing = false
+            switch r {
+            case .success: result = "Works — Claude accepted the key."; resultOK = true
+            case .failure(let f): result = f.title + ". " + f.detail; resultOK = false
+            }
         }
     }
 }
