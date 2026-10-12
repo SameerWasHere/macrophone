@@ -21,17 +21,20 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            ScrollView {
-                VStack(spacing: 0) {
-                    content
-                        .id(step)
-                        .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                                removal: .move(edge: .leading).combined(with: .opacity)))
+            GeometryReader { geo in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        content
+                            .id(step)
+                            .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                                    removal: .move(edge: .leading).combined(with: .opacity)))
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
+                    .frame(minHeight: geo.size.height * 0.92, alignment: .center)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .scrollBounceBehavior(.basedOnSize)
         }
         .background(GroundBackground(glow: step == .test && recorder.isActive ? Light.ember : Light.cyan))
         .onAppear(perform: skipFinishedSteps)

@@ -57,7 +57,7 @@ func strand(amp: CGFloat, phase: CGFloat, thick: CGFloat, margin: CGFloat) -> (t
         let taper = pow(sin(.pi * u), 1.2)
         let wave = sin(2 * .pi * 3.0 * (u - 0.5) + phase) * 0.78 + sin(2 * .pi * 5.2 * (u - 0.5) + phase * 1.7) * 0.22
         let y = s / 2 + amp * bell * wave
-        let hw = (2.0 + thick * pow(bell, 0.7) + 5 * taper) * s / 1024
+        let hw = (2.5 + thick * pow(bell, 0.7) + 7 * taper) * s / 1024
         mid.append(CGPoint(x: x, y: y))
         top.append(CGPoint(x: x, y: y + hw))
         bottom.append(CGPoint(x: x, y: y - hw))
@@ -101,11 +101,11 @@ ctx.drawRadialGradient(bloom, startCenter: CGPoint(x: s / 2, y: s / 2), startRad
                        endCenter: CGPoint(x: s / 2, y: s / 2), endRadius: s * 0.36, options: [])
 
 // Two quiet strands behind, then the main one.
-for (a, ph, th, al) in [(amp * 0.62, 2.2, 6.0, 0.35), (amp * 0.82, 4.1, 8.0, 0.5)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+for (a, ph, th, al) in [(amp * 0.62, 2.2, 7.0, 0.28), (amp * 0.82, 4.1, 9.0, 0.4)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
     let st = strand(amp: a, phase: ph, thick: th, margin: margin)
     fillGradient(shape(st.top, st.bottom), alpha: al)
 }
-let main = strand(amp: amp, phase: 0.35, thick: 26, margin: margin)
+let main = strand(amp: amp, phase: 0.35, thick: 36, margin: margin)
 let mainPath = shape(main.top, main.bottom)
 // Outer glow, then the body.
 fillGradient(mainPath, alpha: 0.55, glow: s * 0.06, glowColor: rgb(0.40, 0.85, 0.75, 0.9))
@@ -117,7 +117,7 @@ core.move(to: main.mid[0])
 for q in main.mid.dropFirst() { core.addLine(to: q) }
 ctx.saveGState()
 ctx.addPath(core)
-ctx.setLineWidth(4.5 * s / 1024)
+ctx.setLineWidth(6 * s / 1024)
 ctx.setLineCap(.round)
 ctx.setStrokeColor(rgb(1, 1, 1, 0.75))
 ctx.setShadow(offset: .zero, blur: 10 * s / 1024, color: rgb(1, 1, 1, 0.8))

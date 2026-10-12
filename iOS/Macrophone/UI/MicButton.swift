@@ -14,6 +14,9 @@ struct MicButton: View {
 
     static let holdThreshold: TimeInterval = 0.3
     @State private var pressedAt: Date?
+    /// Resets itself if the system cancels the touch (a permission alert, a call banner),
+    /// which never reaches onEnded — without it the button would stay "held" forever.
+    @GestureState private var touching = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let size: CGFloat = 92
 
@@ -67,6 +70,7 @@ struct MicButton: View {
         .contentShape(Circle().scale(0.75))
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                .updating($touching) { _, state, _ in state = true }
                 .onChanged { _ in
                     guard pressedAt == nil else { return }
                     pressedAt = Date()
@@ -78,6 +82,15 @@ struct MicButton: View {
                     onUp(held)
                 }
         )
+        .onChange(of: touching) { _, now in
+            guard !now else { return }
+            // Give onEnded the first word; if it never came, the touch was cancelled.
+            DispatchQueue.main.async {
+                guard pressedAt != nil else { return }
+                pressedAt = nil
+                onUp(0)   // treated as a tap: a recording it started keeps going
+            }
+        }
         .accessibilityElement()
         .accessibilityLabel(recording ? "Stop and send" : "Start dictation")
         .accessibilityHint(recording ? "Stops listening and sends the text to your Mac." : "Starts listening. Double-tap again to stop and send.")

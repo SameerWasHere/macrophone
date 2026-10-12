@@ -202,6 +202,15 @@ final class AppModel: ObservableObject {
 
     func startRecording(profileID: UUID? = nil) async {
         guard !recorder.isActive else { return }
+        #if DEBUG
+        // UI tests drive the real button and gestures with a stand-in recognizer
+        // (the simulator can't load speech assets).
+        if let words = DebugHooks.env["MACROPHONE_SIM_RECORD"] {
+            Haptics.light()
+            debugSimulateRecording(words)
+            return
+        }
+        #endif
         statusReset?.cancel()
         startError = nil
         recordingProfileID = profileID
@@ -594,8 +603,8 @@ final class AppModel: ObservableObject {
             ("Dictionary words", "\(settings.dictionary.count)"),
             ("Auto-stop", settings.autoStop ? "on, \(Int(settings.autoStopDelay)) s" : "off"),
             ("History", settings.historyEnabled ? "on" : "off"),
-            ("Microphone permission", String(describing: Recorder.micStatus.rawValue)),
-            ("Speech permission", String(describing: Recorder.speechStatus.rawValue)),
+            ("Microphone permission", { switch Recorder.micStatus { case .granted: return "allowed"; case .denied: return "denied"; default: return "not asked yet" } }()),
+            ("Speech permission", { switch Recorder.speechStatus { case .authorized: return "allowed"; case .denied: return "denied"; case .restricted: return "restricted"; default: return "not asked yet" } }()),
         ])
     }
 

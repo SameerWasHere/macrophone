@@ -80,11 +80,25 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  MacrophoneUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: MacrophoneUITests
+    dependencies:
+      - target: Macrophone
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.uitests
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Macrophone:
     build:
       targets:
         Macrophone: all
+    test:
+      targets:
+        - MacrophoneUITests
     run:
       config: Debug
     archive:
