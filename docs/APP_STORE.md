@@ -193,7 +193,7 @@ the phone below with the Filament crossing the frame.
 | # | File | Screen | Kicker | Caption (in the image) |
 | --- | --- | --- | --- | --- |
 | 1 | `01-recording.png` | Mid-dictation: live transcript starting “Claude, …”, the Filament alive, timer, **SAID · Claude** chip, “Listening — this one goes to Claude” | DICTATE | Speak into your iPhone. It lands on your Mac. |
-| 2 | `02-delivered.png` | Delivered: mint line with ✓, Send to · Automatic, “Sent to Claude — you said “Claude, …””, last dictation card (→ CLAUDE, Cleaned / Raw, Copy, Resend) | VOICE TARGETS | Say “Claude,” and it goes straight into Claude. |
+| 2 | `02-delivered.png` | Delivered: mint line with ✓, Send to · Automatic, “Sent to Claude — you said “Claude, …””, last dictation card (→ CLAUDE, Cleaned / Raw, Copy, Resend) | VOICE TARGETS | Say where it goes. It goes straight there. |
 | 3 | `03-send-to.png` | The Send To sheet: Automatic, then the Mac's targets (Clipboard, Claude, Claude Code (Terminal), ChatGPT, Cursor, Quick note) with their “Say …” hints | SEND TO | Pick where it goes. Or just say it. |
 | 4 | `04-cleanup.png` | Settings: the cleanup slider (Off · Light · Medium · Heavy) with a HEARD / SENT · MEDIUM CLEANUP card | CLEANUP | Four levels of cleanup. It edits, never answers. |
 | 5 | `05-history.png` | History: three items with Cleaned / Raw, target chips (Claude · you said “Claude, …”, Claude Code (Terminal), Automatic), Delivered, cleanup level | HISTORY | Raw and cleaned, kept on your iPhone. |
@@ -211,7 +211,7 @@ App Preview video (optional, 15–30 s): the website's demo loop as a real recor
 **Recommendation:** keep third-party names out of the name, subtitle, keywords and promotional
 text and out of screenshot *captions*; name them only in the description, as compatibility
 statements with a non-affiliation line, and in the real app UI shown in screenshots. Concretely:
-change shot 2's caption from “Say “Claude,” and it goes straight into Claude.” to “Say where it
+change shot 2's caption from “Say where it goes. It goes straight there.” to “Say where it
 goes. It goes straight there.”; shots 1, 3 and 5 can keep “Claude”, “ChatGPT” and “Cursor”
 inside the UI.
 

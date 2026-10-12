@@ -53,7 +53,7 @@ struct Shot {
 
 let shots: [Shot] = [
     Shot(file: "01-recording", kicker: "Dictate", caption: "Speak into your iPhone.\nIt lands on your Mac.", glow: ember, peak: 0.42),
-    Shot(file: "02-delivered", kicker: "Voice targets", caption: "Say “Claude,” and it goes\nstraight into Claude.", glow: mint, peak: 0.58),
+    Shot(file: "02-delivered", kicker: "Voice targets", caption: "Say where it goes.\nIt goes straight there.", glow: mint, peak: 0.58),
     Shot(file: "03-send-to", kicker: "Send to", caption: "Pick where it goes.\nOr just say it.", glow: cyan, peak: 0.36),
     Shot(file: "04-cleanup", kicker: "Cleanup", caption: "Four levels of cleanup.\nIt edits, never answers.", glow: teal, peak: 0.62,
          beforeAfter: ("so um the thing I want is, uh, make the retry logic back off, no wait, back off exponentially and cap it at thirty seconds",
