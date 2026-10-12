@@ -1,0 +1,100 @@
+import Foundation
+
+// The wire, in two layers.
+//
+// 1. Handshake frames (plain JSON) — either a session handshake with a key both sides
+//    already hold, or a pairing exchange that creates that key. Nothing secret is in them.
+// 2. Session frames — every frame after the handshake is a `Message`, JSON-encoded and
+//    sealed with ChaCha20-Poly1305 under a per-connection, per-direction key.
+//
+// Every frame on the socket is a 4-byte big-endian length followed by that many bytes.
+
+public enum Handshake: Codable, Sendable {
+    // MARK: Session (a paired phone reconnecting)
+    case clientHello(phoneID: UUID, nonce: Data, version: Int)
+    case serverHello(macID: UUID, nonce: Data, proof: Data)
+    case clientFinish(proof: Data)
+
+    // MARK: Pairing by QR code
+    /// The phone proves it saw the QR: proof = HMAC(token, phonePub ‖ macPub).
+    case pairQR(phoneID: UUID, phoneName: String, phonePub: Data, inviteID: UUID, proof: Data, version: Int)
+
+    // MARK: Pairing by confirmation code (commit → key → reveal, so neither side can steer the code)
+    case pairCodeCommit(phoneID: UUID, phoneName: String, commitment: Data, version: Int)
+    case pairCodeMacKey(macID: UUID, macName: String, macPub: Data, nonce: Data)
+    case pairCodeReveal(phonePub: Data, nonce: Data)
+    /// Sent by the Mac while it waits for the person to compare codes.
+    case pairCodeWaiting
+
+    // MARK: Pairing outcome (both methods)
+    /// confirm = HMAC(pairKey, "mac-confirm") so the phone knows the Mac derived the same key.
+    case pairAccepted(macID: UUID, macName: String, confirm: Data)
+    case pairRejected(reason: PairRejection)
+
+    /// The handshake failed; the connection closes after this.
+    case failure(reason: HandshakeFailure)
+}
+
+public enum PairRejection: String, Codable, Sendable, Error {
+    case expired          // the QR or code timed out — make a new one
+    case badProof         // the QR didn't match (scanned an old one?)
+    case declined         // the person said the codes don't match
+    case tooManyAttempts  // code pairing is rate limited
+    case notPairing       // the Mac isn't showing a pairing screen
+    case versionMismatch
+
+    public var message: String {
+        switch self {
+        case .expired: return "That pairing code expired. Make a new one on your Mac."
+        case .badProof: return "That QR code is out of date. Scan the one on your Mac now."
+        case .declined: return "Pairing was declined on the Mac."
+        case .tooManyAttempts: return "Too many tries. Wait a few minutes and try again."
+        case .notPairing: return "Open Macrophone on your Mac and choose Pair iPhone."
+        case .versionMismatch: return "Update Macrophone on both devices, then try again."
+        }
+    }
+}
+
+public enum HandshakeFailure: String, Codable, Sendable, Error {
+    case unknownPeer      // this Mac doesn't know the phone (it was forgotten)
+    case badProof
+    case versionMismatch
+    case protocolError
+}
+
+/// What the Mac did with a dictation.
+public enum DeliveryOutcome: String, Codable, Sendable {
+    case delivered
+    /// Already had this id — a resend or retry. Not delivered twice.
+    case duplicate
+    case failed
+}
+
+public enum Message: Codable, Sendable {
+    // Phone → Mac
+    case hello(phoneName: String, appVersion: String, os: String)
+    case dictation(Dictation, delayed: Bool)
+    // Mac → Phone
+    case welcome(macName: String, appVersion: String, profiles: [ProfileSummary])
+    case profiles([ProfileSummary])
+    /// `detail` is a short human line, e.g. "Pasted into Claude" or "Copied to clipboard".
+    case ack(id: UUID, outcome: DeliveryOutcome, detail: String?)
+    // Either way
+    case ping
+    case pong
+    /// The other side forgot this pairing. Delete the key and stop reconnecting.
+    case unpair
+}
+
+enum WireCoding {
+    static let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
+    static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
+}
