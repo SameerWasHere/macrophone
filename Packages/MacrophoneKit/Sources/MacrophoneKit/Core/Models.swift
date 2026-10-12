@@ -38,6 +38,8 @@ public struct Dictation: Codable, Sendable, Identifiable, Hashable {
     public var language: String
     public var profileID: UUID?
     public var profileName: String?
+    /// How the profile was picked. Nil (older phones) = chosen on the phone.
+    public var profileSource: ProfileSource?
     /// Interrupted (call, lock, permission) — what was captured was still processed and sent.
     public var stoppedEarly: Bool
     public var duration: TimeInterval
@@ -45,8 +47,8 @@ public struct Dictation: Codable, Sendable, Identifiable, Hashable {
 
     public init(id: UUID = UUID(), createdAt: Date = Date(), raw: String, cleaned: String? = nil,
                 cleanupLevel: CleanupLevel = .off, language: String = "en-US", profileID: UUID? = nil,
-                profileName: String? = nil, stoppedEarly: Bool = false, duration: TimeInterval = 0,
-                sourceDevice: String = "") {
+                profileName: String? = nil, profileSource: ProfileSource? = nil, stoppedEarly: Bool = false,
+                duration: TimeInterval = 0, sourceDevice: String = "") {
         self.id = id
         self.createdAt = createdAt
         self.raw = raw
@@ -55,6 +57,7 @@ public struct Dictation: Codable, Sendable, Identifiable, Hashable {
         self.language = language
         self.profileID = profileID
         self.profileName = profileName
+        self.profileSource = profileSource
         self.stoppedEarly = stoppedEarly
         self.duration = duration
         self.sourceDevice = sourceDevice
@@ -75,6 +78,10 @@ public enum Destination: Codable, Sendable, Hashable {
     case focusedApp
     /// Bring this app to the front and paste there.
     case app(bundleID: String, name: String)
+    /// Type into a tmux pane (`session:window.pane`), whatever app is in front.
+    case tmux(target: String)
+    /// Don't copy or paste — only the profile's actions run (e.g. a note, a reminder, Claude).
+    case none
 }
 
 /// A named bundle of cleanup level, destination and post-actions. Lives on the Mac;
@@ -94,10 +101,20 @@ public struct Profile: Codable, Sendable, Identifiable, Hashable {
     /// POSTed a JSON body for every dictation.
     public var webhookURL: URL?
     public var isDefault: Bool
+    /// How the text is shaped before the template (nil = plain).
+    public var outputFormat: OutputFormat?
+    /// Spoken lead-ins that pick this profile for one dictation: "Claude, …", "Note, …".
+    public var voicePrefixes: [String]?
+    /// With an `.app` destination: raise the window whose title contains this before pasting
+    /// (e.g. "Claude Code" to hit the terminal tab running it). Nil = the app's front window.
+    public var windowMatch: String?
+    /// Extra things done with every dictation: save to Obsidian / Notes / Reminders, ask Claude.
+    public var actions: [ProfileAction]?
 
     public init(id: UUID = UUID(), name: String, cleanupLevel: CleanupLevel? = nil,
                 destination: Destination = .clipboard, pressEnter: Bool = false, template: String? = nil,
-                script: String? = nil, webhookURL: URL? = nil, isDefault: Bool = false) {
+                script: String? = nil, webhookURL: URL? = nil, isDefault: Bool = false,
+                outputFormat: OutputFormat? = nil, voicePrefixes: [String]? = nil, actions: [ProfileAction]? = nil) {
         self.id = id
         self.name = name
         self.cleanupLevel = cleanupLevel
@@ -107,13 +124,18 @@ public struct Profile: Codable, Sendable, Identifiable, Hashable {
         self.script = script
         self.webhookURL = webhookURL
         self.isDefault = isDefault
+        self.outputFormat = outputFormat
+        self.voicePrefixes = voicePrefixes
+        self.actions = actions
     }
 
     /// True when this profile can send text off the device.
-    public var sendsOffDevice: Bool { webhookURL != nil || !(script ?? "").isEmpty }
+    public var sendsOffDevice: Bool {
+        webhookURL != nil || !(script ?? "").isEmpty || (actions ?? []).contains { $0.sendsOffDevice }
+    }
 
     public var summary: ProfileSummary {
-        ProfileSummary(id: id, name: name, cleanupLevel: cleanupLevel, isDefault: isDefault)
+        ProfileSummary(id: id, name: name, cleanupLevel: cleanupLevel, isDefault: isDefault, voicePrefixes: voicePrefixes)
     }
 
     /// Applies the template, if any.
@@ -130,11 +152,14 @@ public struct ProfileSummary: Codable, Sendable, Identifiable, Hashable {
     public var name: String
     public var cleanupLevel: CleanupLevel?
     public var isDefault: Bool
-    public init(id: UUID, name: String, cleanupLevel: CleanupLevel?, isDefault: Bool) {
+    /// The phone matches these at the start of a transcript (see `VoicePrefix`).
+    public var voicePrefixes: [String]?
+    public init(id: UUID, name: String, cleanupLevel: CleanupLevel?, isDefault: Bool, voicePrefixes: [String]? = nil) {
         self.id = id
         self.name = name
         self.cleanupLevel = cleanupLevel
         self.isDefault = isDefault
+        self.voicePrefixes = voicePrefixes
     }
 }
 
