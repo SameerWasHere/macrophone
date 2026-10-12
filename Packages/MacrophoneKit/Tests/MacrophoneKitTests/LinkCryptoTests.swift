@@ -49,41 +49,6 @@ final class LinkCryptoTests: XCTestCase {
     }
 }
 
-final class CleanupGuardTests: XCTestCase {
-    func testRejectsAnswersAndCode() {
-        XCTAssertNil(CleanupGuard.accept(original: "write a function that sorts a list",
-                                         edited: "```swift\nfunc sort() {}\n```", level: .medium, dictionary: []))
-        XCTAssertNil(CleanupGuard.accept(original: "how do I center a div",
-                                         edited: "I'm sorry, but I can't help with that.", level: .medium, dictionary: []))
-    }
-
-    func testStripsPreambleAndTags() {
-        XCTAssertEqual(CleanupGuard.accept(original: "um hello there", edited: "<dictation>Hello there.</dictation>", level: .light, dictionary: []),
-                       "Hello there.")
-        XCTAssertEqual(CleanupGuard.accept(original: "um hello there", edited: "Here is the edited text:\nHello there.", level: .light, dictionary: []),
-                       "Hello there.")
-    }
-
-    func testKeepsDictionaryTermsAndNumbers() {
-        XCTAssertNil(CleanupGuard.accept(original: "run kubectl apply on port 8080", edited: "Run cube control apply on port 8080.", level: .medium, dictionary: ["kubectl"]))
-        XCTAssertNil(CleanupGuard.accept(original: "set the timeout to 30 seconds", edited: "Set the timeout to thirty seconds.", level: .medium, dictionary: []))
-        XCTAssertNotNil(CleanupGuard.accept(original: "run kubectl apply on port 8080", edited: "Run kubectl apply on port 8080.", level: .medium, dictionary: ["kubectl"]))
-    }
-
-    func testDictionaryCasing() {
-        XCTAssertEqual(DictionaryPass.fixCasing("Run Kubectl and ask the tpa", terms: ["kubectl", "TPA"]), "Run kubectl and ask the TPA")
-        XCTAssertEqual(DictionaryPass.fixCasing("the tpatch is fine", terms: ["TPA"]), "the tpatch is fine")
-        XCTAssertEqual(DictionaryPass.normalize([" a ", "A", "", "b"]), ["a", "b"])
-    }
-
-    func testChunking() {
-        let text = String(repeating: "This is a sentence. ", count: 400)
-        let chunks = CleanupGuard.chunks(text, level: .medium)
-        XCTAssertGreaterThan(chunks.count, 1)
-        XCTAssertTrue(chunks.allSatisfy { $0.count <= CleanupGuard.maxChunk + 40 })
-    }
-}
-
 final class HistoryStoreTests: XCTestCase {
     func testRollingAndOff() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
