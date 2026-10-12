@@ -41,6 +41,24 @@ public struct PulledDictation: Codable, Sendable, Identifiable, Equatable {
         case sourceDevice = "source_device"
     }
 
+    /// Every key is always present (`cleaned` and `profile` as null when absent) so the
+    /// shape never changes between items.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(text, forKey: .text)
+        try c.encode(raw, forKey: .raw)
+        try c.encode(cleaned, forKey: .cleaned)
+        try c.encode(cleanupLevel, forKey: .cleanupLevel)
+        try c.encode(language, forKey: .language)
+        try c.encode(profile, forKey: .profile)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(receivedAt, forKey: .receivedAt)
+        try c.encode(delayed, forKey: .delayed)
+        try c.encode(stoppedEarly, forKey: .stoppedEarly)
+        try c.encode(sourceDevice, forKey: .sourceDevice)
+    }
+
     public static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601

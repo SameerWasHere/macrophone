@@ -279,6 +279,11 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         }
     }
 
+    func linkServerCodePairingEnded(_ server: LinkServer) {
+        // The phone gave up or the code expired: take the prompt down.
+        if codeRequest != nil { answerCode(false) }
+    }
+
     func linkServer(_ server: LinkServer, didPair peer: PairedPeer) {
         peers = server.store.peers()
         justPaired = peer

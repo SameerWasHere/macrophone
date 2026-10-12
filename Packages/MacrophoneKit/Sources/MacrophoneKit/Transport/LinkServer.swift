@@ -17,6 +17,19 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?)
     func linkServer(_ server: LinkServer, listenerChanged state: LinkServer.ListenerState)
     func profilesForPhones(_ server: LinkServer) -> [ProfileSummary]
+    /// A code-pairing attempt finished (approved, declined or timed out): dismiss the prompt.
+    func linkServerCodePairingEnded(_ server: LinkServer)
+}
+
+public extension LinkServerDelegate {
+    func linkServerCodePairingEnded(_ server: LinkServer) {}
+}
+
+/// True for exactly one caller.
+final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func claim() -> Bool { lock.sync { if done { return false }; done = true; return true } }
 }
 
 /// The Mac end of the link: advertises over Bonjour (peer-to-peer included), runs pairing,
@@ -246,20 +259,23 @@ public final class LinkServer: @unchecked Sendable {
         let code = LinkCrypto.confirmationCode(macPub: macPub, phonePub: phonePub, macNonce: macNonce, phoneNonce: phoneNonce)
         try await conn.sendHandshake(.pairCodeWaiting)
 
-        // The person compares codes on the Mac; the code expires after 2 minutes.
-        let approved = await withTaskGroup(of: Bool?.self) { group -> Bool in
-            group.addTask { @MainActor [weak self] in
-                guard let self, let d = self.delegate else { return false }
-                return await d.linkServer(self, approveCode: code, phoneName: phoneName)
+        // The person compares codes on the Mac; the code expires after 2 minutes. A race on a
+        // continuation (not a task group, which would wait for the unanswered prompt).
+        let approved = await withCheckedContinuation { (c: CheckedContinuation<Bool?, Never>) in
+            let once = OnceFlag()
+            Task { @MainActor [weak self] in
+                guard let self, let d = self.delegate else { if once.claim() { c.resume(returning: false) }; return }
+                let answer = await d.linkServer(self, approveCode: code, phoneName: phoneName)
+                if once.claim() { c.resume(returning: answer) }
             }
-            group.addTask {
+            Task {
                 try? await Task.sleep(nanoseconds: 120 * 1_000_000_000)
-                return nil
+                if once.claim() { c.resume(returning: nil) }
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first ?? false
         }
+        // Whatever happened, the Mac's code prompt is over.
+        notify { $0.linkServerCodePairingEnded(self) }
+        guard let approved else { return try await reject(conn, .expired) }
         guard approved else { return try await reject(conn, .declined) }
         let pairKey = LinkCrypto.pairKey(shared: shared, salt: macNonce + phoneNonce, macID: identity.id, phoneID: phoneID)
         lock.sync { invite = nil; pairingOpenUntil = nil }

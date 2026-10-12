@@ -5,7 +5,7 @@ import MacrophoneKit
 //
 //   mpctl serve --name "Test Mac"            # the Mac side: prints a pairing URL + accepts dictations
 //   mpctl pair 'macrophone://pair?...'       # the phone side, by QR URL
-//   mpctl pair-code                          # the phone side, by confirmation code
+//   mpctl pair-code [--mac <name>]           # the phone side, by confirmation code
 //   mpctl send "hello world" [--count 5] [--resend]
 //   mpctl browse
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
@@ -142,7 +142,7 @@ func run() async -> Int32 {
         client.start()
         var mac: DiscoveredMac?
         for _ in 0..<40 where mac == nil {
-            mac = client.discoveredMacs.first
+            mac = client.discoveredMacs.first { m in flag("--mac").map { m.name == $0 } ?? true }
             if mac == nil { try? await Task.sleep(nanoseconds: 250_000_000) }
         }
         guard let mac else { stdout("No Mac found"); return 1 }
