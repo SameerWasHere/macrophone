@@ -135,7 +135,15 @@ public struct Profile: Codable, Sendable, Identifiable, Hashable {
     }
 
     public var summary: ProfileSummary {
-        ProfileSummary(id: id, name: name, cleanupLevel: cleanupLevel, isDefault: isDefault, voicePrefixes: voicePrefixes)
+        var s = ProfileSummary(id: id, name: name, cleanupLevel: cleanupLevel, isDefault: isDefault, voicePrefixes: voicePrefixes)
+        switch destination {
+        case .clipboard: s.targetKind = .clipboard
+        case .focusedApp: s.targetKind = .focusedApp
+        case let .app(bundleID, appName): s.targetKind = .app; s.targetBundleID = bundleID; s.targetApp = appName
+        case .tmux: s.targetKind = .tmux
+        case .none: s.targetKind = .none
+        }
+        return s
     }
 
     /// Applies the template, if any.
@@ -154,6 +162,13 @@ public struct ProfileSummary: Codable, Sendable, Identifiable, Hashable {
     public var isDefault: Bool
     /// The phone matches these at the start of a transcript (see `VoicePrefix`).
     public var voicePrefixes: [String]?
+    /// What kind of place the text goes — for the phone's icon. Nil from older Macs.
+    public var targetKind: TargetKind?
+    /// With `.app`: which app ("Claude", "com.anthropic.claudefordesktop").
+    public var targetApp: String?
+    public var targetBundleID: String?
+
+    public enum TargetKind: String, Codable, Sendable { case clipboard, focusedApp, app, tmux, none }
     public init(id: UUID, name: String, cleanupLevel: CleanupLevel?, isDefault: Bool, voicePrefixes: [String]? = nil) {
         self.id = id
         self.name = name

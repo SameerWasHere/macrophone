@@ -8,7 +8,24 @@ import SwiftUI
 enum TargetGlyph {
     static let automatic = "wand.and.sparkles"
 
-    /// A plain glyph from the target's name — the Mac doesn't send what kind of place it is.
+    /// The glyph from what the Mac says the target is; older Macs send only a name.
+    static func symbol(for p: ProfileSummary) -> String {
+        switch p.targetKind {
+        case .clipboard?: return "doc.on.clipboard"
+        case .focusedApp?: return "cursorarrow.rays"
+        case .tmux?: return "terminal"
+        case .app?:
+            let bid = (p.targetBundleID ?? "").lowercased()
+            if ["com.apple.terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "dev.warp.warp-stable"].contains(bid) { return "terminal" }
+            return symbol(for: p.targetApp ?? p.name)
+        case .none?:
+            return symbol(for: p.name)
+        case nil:
+            return symbol(for: p.name)
+        }
+    }
+
+    /// A plain glyph from a name.
     static func symbol(for name: String) -> String {
         let n = name.lowercased()
         if n.contains("terminal") || n.contains("claude code") || n.contains("tmux") || n.contains("shell") { return "terminal" }
@@ -38,7 +55,7 @@ struct SendToChip: View {
     var body: some View {
         let live: (ProfileSummary?, Bool) = recording ? model.liveRoute(recorder.transcript) : (model.selectedProfile, false)
         let name = live.0?.name ?? "Automatic"
-        let symbol = live.0.map { TargetGlyph.symbol(for: $0.name) } ?? TargetGlyph.automatic
+        let symbol = live.0.map { TargetGlyph.symbol(for: $0) } ?? TargetGlyph.automatic
         Button { model.sheet = .sendTo } label: {
             HStack(spacing: 8) {
                 Kicker(live.1 ? "Said" : "Send to", color: live.1 ? Light.ember : Ink.tertiary)
@@ -93,7 +110,7 @@ struct SendToSheet: View {
 
                 Section {
                     ForEach(model.profiles) { p in
-                        row(symbol: TargetGlyph.symbol(for: p.name), tint: Light.cyan, title: p.name,
+                        row(symbol: TargetGlyph.symbol(for: p), tint: Light.cyan, title: p.name,
                             subtitle: subtitle(p), selected: model.settings.sendTo == .profile(p.id)) {
                             pick(.profile(p.id))
                         }
