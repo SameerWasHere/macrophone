@@ -117,6 +117,21 @@ struct ExpandableText: View {
     }
 }
 
+/// Icon + title for chip buttons. Not a `Label`: inside a List row (History) iOS 27 laid a
+/// Label out icon-only in a tall sliver.
+struct ChipLabel: View {
+    var title: String
+    var systemImage: String
+    init(_ title: String, systemImage: String) { self.title = title; self.systemImage = systemImage }
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage).contentTransition(.symbolEffect(.replace))
+            Text(title)
+        }
+        .fixedSize()
+    }
+}
+
 /// Copy, with a brief "Copied" in place.
 struct CopyButton: View {
     var action: () -> Void
@@ -128,8 +143,7 @@ struct CopyButton: View {
             copied = true
             Task { try? await Task.sleep(nanoseconds: 1_500_000_000); copied = false }
         } label: {
-            Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                .contentTransition(.symbolEffect(.replace))
+            ChipLabel(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
         }
         .buttonStyle(ChipButtonStyle(tint: copied ? Light.mint : Ink.secondary))
         .accessibilityLabel(copied ? "Copied" : "Copy text")
@@ -165,7 +179,7 @@ struct LastDictationCard: View {
             FlowRow(spacing: 8) {
                 CopyButton { onCopy(showCleaned) }
                 if canResend {
-                    Button(action: onResend) { Label("Resend", systemImage: "arrow.clockwise") }
+                    Button(action: onResend) { ChipLabel("Resend", systemImage: "arrow.clockwise") }
                         .buttonStyle(ChipButtonStyle())
                             .accessibilityHint("Sends it to your Mac again. Your Mac ignores it if it already has it.")
                 }

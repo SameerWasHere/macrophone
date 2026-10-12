@@ -10,6 +10,7 @@ import SwiftUI
 /// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto
 /// MACROPHONE_ONBOARDING_STEP=0…6             which setup step to open on
 /// MACROPHONE_FAKE_TRANSCRIPT=<text>          a finished dictation, as if spoken (cleanup + delivery run)
+/// MACROPHONE_FAKE_CAMERA=1                  the QR scanner sees a Mac's pairing window (store screenshots)
 /// MACROPHONE_CLEANUP_BUDGET=<seconds>       cleanup's time budget (to see a partial cleanup)
 /// MACROPHONE_FAKE_EARLY=1                    …marked "stopped early"
 /// MACROPHONE_FAKE_RECORDING=<text>           the live recording screen, words appearing
@@ -23,6 +24,7 @@ import SwiftUI
 ///                                            target (needs MACROPHONE_SIM_RECORD; stops after 3 s)
 /// MACROPHONE_STATUS=queued|delivered|failed|sending|copied
 /// MACROPHONE_DICTIONARY=a,b,c                dictionary words
+/// MACROPHONE_DEVICE_NAME=<name>             what this iPhone calls itself
 /// MACROPHONE_LANGUAGE=<id>                   recognizer language
 /// MACROPHONE_OPEN_URL=<url>                  handled exactly like onOpenURL (simctl openurl asks "Open in…?" first)
 /// MACROPHONE_PAIR_CODE=<Mac name>            code pairing with the Mac of that name
@@ -31,6 +33,7 @@ import SwiftUI
 /// MACROPHONE_RECORD=<seconds>                really record from the mic for that long, then stop
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
+    static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
 
     /// Runs before the model exists.
     static func early() {
@@ -55,6 +58,7 @@ enum DebugHooks {
             d.set(DictionaryPass.normalize(words.split(separator: ",").map(String.init)), forKey: Settings.K.dictionary)
         }
         if let lang = env["MACROPHONE_LANGUAGE"] { d.set(lang, forKey: Settings.K.language) }
+        if let name = env["MACROPHONE_DEVICE_NAME"] { d.set(name, forKey: Settings.K.deviceName) }
     }
 
     static var settingsPath: [SettingsRoute] {

@@ -11,7 +11,15 @@ struct QRScanner: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: Radius.large, style: .continuous).fill(Ink.sunk)
+            #if DEBUG
+            if DebugHooks.env["MACROPHONE_FAKE_CAMERA"] == "1" {
+                FakeCameraFeed().clipShape(RoundedRectangle(cornerRadius: Radius.large, style: .continuous))
+                Viewfinder()
+            }
+            #endif
             switch (hasCamera, access) {
+            case _ where fakeCamera:
+                EmptyView()
             case (false, _):
                 message("No camera here", "Use a code instead, or open the pairing link on this iPhone.")
             case (true, .authorized):
@@ -32,12 +40,20 @@ struct QRScanner: View {
         }
         .overlay(RoundedRectangle(cornerRadius: Radius.large, style: .continuous).strokeBorder(Ink.line))
         .task {
-            guard hasCamera, access == .notDetermined else { return }
+            guard !fakeCamera, hasCamera, access == .notDetermined else { return }
             _ = await AVCaptureDevice.requestAccess(for: .video)
             access = AVCaptureDevice.authorizationStatus(for: .video)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("QR code scanner")
+    }
+
+    private var fakeCamera: Bool {
+        #if DEBUG
+        return DebugHooks.fakeCamera
+        #else
+        return false
+        #endif
     }
 
     private func message(_ title: String, _ body: String) -> some View {
@@ -50,6 +66,51 @@ struct QRScanner: View {
         .padding(24)
     }
 }
+
+#if DEBUG
+import CoreImage.CIFilterBuiltins
+
+/// Store screenshots: the Mac's pairing window as the camera would see it (the simulator has no camera).
+private struct FakeCameraFeed: View {
+    var body: some View {
+        GeometryReader { g in
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.10, green: 0.11, blue: 0.15), Color(red: 0.05, green: 0.05, blue: 0.08)],
+                               startPoint: .top, endPoint: .bottom)
+                // The Mac's screen, slightly off-axis, a little soft.
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(LinearGradient(colors: [Color(red: 0.16, green: 0.18, blue: 0.26), Color(red: 0.09, green: 0.10, blue: 0.15)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: g.size.width * 1.1, height: g.size.height * 0.92)
+                    .blur(radius: 1.5)
+                let side = min(g.size.width, g.size.height) * 0.62
+                VStack(spacing: 6) {
+                    Text("Pair your iPhone").font(.system(size: 10, weight: .semibold)).foregroundStyle(.black.opacity(0.75))
+                    if let qr = Self.qr {
+                        Image(uiImage: qr).interpolation(.none).resizable().frame(width: side * 0.66, height: side * 0.66)
+                    }
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.96)))
+                .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                .rotation3DEffect(.degrees(6), axis: (x: 0.3, y: -1, z: 0), perspective: 0.4)
+                .blur(radius: 0.3)
+                .position(x: g.size.width / 2, y: g.size.height / 2)
+                RadialGradient(colors: [.clear, .black.opacity(0.45)], center: .center, startRadius: g.size.width * 0.3, endRadius: g.size.width * 0.8)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    static let qr: UIImage? = {
+        let f = CIFilter.qrCodeGenerator()
+        f.message = Data("macrophone://pair?v=1&i=5C1E0F8A-2D7B-4C11-9A63-0E2B7F9D4A10&n=MacBook%20Pro&k=tdI2yELshJ2HW4SoxXIJEiBY2QXhMP".utf8)
+        f.correctionLevel = "M"
+        guard let out = f.outputImage, let cg = CIContext().createCGImage(out, from: out.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }()
+}
+#endif
 
 /// Four soft corners over the camera.
 private struct Viewfinder: View {

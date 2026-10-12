@@ -102,10 +102,11 @@ struct HistoryRow: View {
             ExpandableText(text: item.text(cleaned: showCleaned), font: .serif(.body))
                 .id(showCleaned)
             labels
-            FlowRow(spacing: 8) {
-                CopyButton { onCopy(showCleaned) }
-                Button(action: onResend) { Label("Resend", systemImage: "arrow.clockwise") }
-                    .buttonStyle(ChipButtonStyle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+            // Not a FlowRow: inside a List cell the buttons got measured at a sliver of width (iOS 27).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { actions }
+                VStack(alignment: .leading, spacing: 8) { actions }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -118,6 +119,13 @@ struct HistoryRow: View {
             }
             Button(action: onResend) { Label("Resend", systemImage: "arrow.clockwise") }
         }
+    }
+
+    @ViewBuilder private var actions: some View {
+        CopyButton { onCopy(showCleaned) }.fixedSize()
+        Button(action: onResend) { ChipLabel("Resend", systemImage: "arrow.clockwise") }
+            .buttonStyle(ChipButtonStyle())
+            .fixedSize()
     }
 
     private var labels: some View {
