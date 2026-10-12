@@ -124,7 +124,7 @@ struct PairingPanel: View {
     }
 
     private func codeDisplay(_ code: String, mac: String) -> some View {
-        let spaced = code.count == 6 ? "\(code.prefix(3)) \(code.suffix(3))" : code
+        let spaced = code.count == 6 ? "\(code.prefix(3))\u{00A0}\(code.suffix(3))" : code
         return VStack(spacing: 18) {
             Kicker("Compare with your Mac")
             Text(spaced)
@@ -164,7 +164,7 @@ struct PairingPanel: View {
             Text("Paired with \(name)").font(.serif(.title2)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
             Text("What you say on this iPhone now lands on that Mac.")
                 .font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
-            Button("Done") { model.resetPairing(); onDone() }
+            Button("Start Dictating") { model.resetPairing(); onDone() }
                 .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
         }
         .frame(maxWidth: .infinity, minHeight: 260)

@@ -90,10 +90,11 @@ struct MainView: View {
             ZStack {
                 Filament(mode: filamentMode, meter: recorder.meter, height: 112)
                 DeliveredCheck(visible: showCheck, color: checkColor)
-                timer.frame(maxHeight: .infinity, alignment: .bottom)
+                if !typeSize.isAccessibilitySize { timer.frame(maxHeight: .infinity, alignment: .bottom) }
             }
             .frame(height: 112)
             .padding(.horizontal, -4)
+            if typeSize.isAccessibilitySize { timer }
         }
         .frame(maxHeight: .infinity)
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
@@ -184,7 +185,8 @@ struct MainView: View {
                 LastDictationCard(item: item,
                                   onCopy: { model.copy(item, cleaned: $0) },
                                   onResend: { model.resend(item) },
-                                  maxTextHeight: typeSize.isAccessibilitySize ? 220 : 96)
+                                  maxTextHeight: typeSize.isAccessibilitySize ? 220 : 96,
+                                  canResend: model.isPaired)
                     .id(item.id)
                     .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
             }

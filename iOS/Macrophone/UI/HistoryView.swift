@@ -88,20 +88,26 @@ struct HistoryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 8) {
-                Kicker(item.dictation.createdAt.formatted(.relative(presentation: .named)))
-                Spacer(minLength: 8)
-                if item.hasCleaned { VersionToggle(cleaned: $showCleaned) }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 8) {
+                    Kicker(item.dictation.createdAt.formatted(.relative(presentation: .named))).fixedSize()
+                    Spacer(minLength: 8)
+                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned).fixedSize() }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Kicker(item.dictation.createdAt.formatted(.relative(presentation: .named)))
+                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned) }
+                }
             }
             ExpandableText(text: item.text(cleaned: showCleaned), font: .serif(.body))
                 .id(showCleaned)
             labels
-            HStack(spacing: 8) {
+            FlowRow(spacing: 8) {
                 CopyButton { onCopy(showCleaned) }
                 Button(action: onResend) { Label("Resend", systemImage: "arrow.clockwise") }
                     .buttonStyle(ChipButtonStyle())
-                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
         .glass(Radius.medium)

@@ -83,8 +83,15 @@ final class Recorder: ObservableObject {
         case hardCap
         /// Something outside the app ended it. The words are kept and sent; the item says "stopped early".
         case interrupted(String)
+        /// The recognizer kept failing (e.g. its on-device assets aren't there). What was heard is kept.
+        case recognizerFailed
 
-        var isEarly: Bool { if case .interrupted = self { return true }; return false }
+        var isEarly: Bool {
+            switch self {
+            case .interrupted, .recognizerFailed: return true
+            default: return false
+            }
+        }
     }
 
     struct Outcome {
@@ -263,8 +270,10 @@ final class Recorder: ObservableObject {
         { [weak owner] result, error in
             let text = result?.bestTranscription.formattedString
             let final = (result?.isFinal ?? false) || error != nil
-            let code = (error as NSError?)?.code
-            Task { @MainActor in owner?.update(index: index, generation: generation, text: text, final: final, errorCode: code) }
+            let ns = error as NSError?
+            let code = ns?.code
+            let domain = ns?.domain
+            Task { @MainActor in owner?.update(index: index, generation: generation, text: text, final: final, errorCode: code, errorDomain: domain) }
         }
     }
 
@@ -272,6 +281,11 @@ final class Recorder: ObservableObject {
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         req.requiresOnDeviceRecognition = true
+        #if DEBUG && targetEnvironment(simulator)
+        // The simulator often can't load on-device speech assets (error 300). For exercising the
+        // pipeline only, MACROPHONE_SIM_SERVER_SPEECH=1 lets it use Apple's server instead.
+        if ProcessInfo.processInfo.environment["MACROPHONE_SIM_SERVER_SPEECH"] == "1" { req.requiresOnDeviceRecognition = false }
+        #endif
         req.addsPunctuation = true
         req.taskHint = .dictation
         req.contextualStrings = contextual
@@ -281,7 +295,7 @@ final class Recorder: ObservableObject {
         return seg
     }
 
-    private func update(index: Int, generation g: Int, text: String?, final: Bool, errorCode: Int?) {
+    private func update(index: Int, generation g: Int, text: String?, final: Bool, errorCode: Int?, errorDomain: String? = nil) {
         guard g == generation, index < segments.count else { return }
         let seg = segments[index]
         if let text, !text.isEmpty, text != seg.text {
@@ -291,13 +305,13 @@ final class Recorder: ObservableObject {
         }
         guard final, !seg.done else { return }
         seg.done = true
-        if let errorCode { log?.add("segment \(index) ended with code \(errorCode)") }
+        if let errorCode { log?.add("segment \(index) ended with \(errorDomain ?? "?") \(errorCode)") }
         // The live segment ended on its own while still recording: keep listening in a new one.
         if phase == .recording, index == segments.count - 1 {
             if errorCode != nil, Date().timeIntervalSince(seg.startedAt) < 1.5 { failures += 1 } else { failures = 0 }
             if failures >= 4 {
                 log?.add("recognizer keeps failing; stopping")
-                stop(.interrupted("Speech recognition stopped"))
+                stop(.recognizerFailed)
                 return
             }
             rotate()
@@ -459,6 +473,7 @@ extension Recorder.StopReason {
         case .autoStop: return "auto-stop"
         case .hardCap: return "limit"
         case .interrupted: return "interrupted"
+        case .recognizerFailed: return "recognizer failed"
         }
     }
 }

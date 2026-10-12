@@ -96,6 +96,7 @@ final class AppModel: ObservableObject {
         refreshHistory()
         refreshAvailability()
         log.add("app launched, version \(Bundle.main.shortVersion) (\(Bundle.main.buildNumber)), \(queue.count) queued")
+        log.add("language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable")")
     }
 
     private static func makeClient(store: KeychainPairingStore, name: String, log: DiagnosticLog) -> LinkClient {
@@ -241,7 +242,10 @@ final class AppModel: ObservableObject {
     private func recordingFinished(_ o: Recorder.Outcome) {
         let raw = o.raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else {
-            if o.duration < 0.4, !o.reason.isEarly {
+            if o.reason == .recognizerFailed {
+                status = .problem("Speech recognition couldn't start on this iPhone. Try again in a moment.", openSettings: false)
+                Haptics.error()
+            } else if o.duration < 0.4, !o.reason.isEarly {
                 status = .ready   // a brush of the button — ignored, no item
             } else {
                 status = o.reason.isEarly ? .notice("Stopped early — nothing was heard") : .nothingHeard

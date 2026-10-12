@@ -18,7 +18,10 @@ import SwiftUI
 /// MACROPHONE_DICTIONARY=a,b,c                dictionary words
 /// MACROPHONE_LANGUAGE=<id>                   recognizer language
 /// MACROPHONE_OPEN_URL=<url>                  handled exactly like onOpenURL (simctl openurl asks "Open in…?" first)
-/// MACROPHONE_PAIR_CODE=1                     code pairing with the first Mac found
+/// MACROPHONE_PAIR_CODE=<Mac name>            code pairing with the Mac of that name
+/// MACROPHONE_UNPAIR=1                       forget the paired Mac (tells it, if reachable)
+/// MACROPHONE_RESEND_LATEST=1                 resend the last dictation (same id) after a few seconds
+/// MACROPHONE_RECORD=<seconds>                really record from the mic for that long, then stop
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
 
@@ -58,6 +61,7 @@ enum DebugHooks {
 
     @MainActor static func apply(_ model: AppModel) {
         if env["MACROPHONE_FAKE_HISTORY"] == "1" { model.debugSeedHistory() }
+        if env["MACROPHONE_UNPAIR"] == "1" { Task { await model.unpair() } }
         if let mac = env["MACROPHONE_FAKE_PAIRED"] {
             model.debugFakePairing(mac: mac, profiles: ["Default", "Claude prompt", "Slack message"])
         }
@@ -70,11 +74,26 @@ enum DebugHooks {
         if let s = env["MACROPHONE_OPEN_URL"], let url = URL(string: s) {
             model.handleURL(url)
         }
-        if env["MACROPHONE_PAIR_CODE"] == "1" {
+        if let name = env["MACROPHONE_PAIR_CODE"] {
             model.sheet = .pairing
+            model.startLink()
             Task {
-                for _ in 0..<40 where model.discoveredMacs.isEmpty { try? await Task.sleep(nanoseconds: 250_000_000) }
-                if let mac = model.discoveredMacs.first { await model.pairWithCode(mac) }
+                for _ in 0..<40 where !model.discoveredMacs.contains(where: { $0.name == name }) { try? await Task.sleep(nanoseconds: 250_000_000) }
+                if let mac = model.discoveredMacs.first(where: { $0.name == name }) { await model.pairWithCode(mac) }
+            }
+        }
+        if env["MACROPHONE_RESEND_LATEST"] == "1" {
+            Task {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                if let item = model.latest { model.resend(item) }
+            }
+        }
+        if let secs = env["MACROPHONE_RECORD"].flatMap(Double.init) {
+            Task {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                await model.startRecording()
+                try? await Task.sleep(nanoseconds: UInt64(secs * 1e9))
+                model.stopRecording()
             }
         }
         if let text = env["MACROPHONE_FAKE_RECORDING"] {

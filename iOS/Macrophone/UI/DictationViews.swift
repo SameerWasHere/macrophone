@@ -140,28 +140,38 @@ struct LastDictationCard: View {
     var onCopy: (Bool) -> Void
     var onResend: () -> Void
     var maxTextHeight: CGFloat = 132
+    /// Unpaired, there's nowhere to resend to — Copy is the action.
+    var canResend = true
     @State private var showCleaned = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                Kicker(kicker)
-                Spacer(minLength: 8)
-                if item.hasCleaned { VersionToggle(cleaned: $showCleaned) }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center) {
+                    Kicker(kicker).fixedSize()
+                    Spacer(minLength: 8)
+                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned).fixedSize() }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Kicker(kicker)
+                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned) }
+                }
             }
             FittedText(text: item.text(cleaned: showCleaned), font: .serif(.body), maxHeight: maxTextHeight)
                 .id(showCleaned)
                 .accessibilityLabel(item.text(cleaned: showCleaned))
-            HStack(spacing: 8) {
+            FlowRow(spacing: 8) {
                 CopyButton { onCopy(showCleaned) }
-                Button(action: onResend) { Label("Resend", systemImage: "arrow.clockwise") }
-                    .buttonStyle(ChipButtonStyle())
-                    .accessibilityHint("Sends it to your Mac again. Your Mac ignores it if it already has it.")
-                Spacer(minLength: 0)
+                if canResend {
+                    Button(action: onResend) { Label("Resend", systemImage: "arrow.clockwise") }
+                        .buttonStyle(ChipButtonStyle())
+                            .accessibilityHint("Sends it to your Mac again. Your Mac ignores it if it already has it.")
+                }
                 if item.dictation.stoppedEarly {
-                    Kicker("Stopped early", color: Light.ochre)
+                    Kicker("Stopped early", color: Light.ochre).frame(minHeight: 44)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
         .glass(Radius.large)
