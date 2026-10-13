@@ -135,10 +135,27 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         // Status: who's connected, when the last dictation came in.
         menu.addItem(statusHeader())
+        menu.addItem(.separator())
+
+        // The way into the app — first, with an icon, so it's never missed.
+        // Shows the global shortcut, so the menu teaches the way in when the icon is hidden.
+        let open = action("Open Macrophone", #selector(openWindow), key: ",", symbol: "macwindow")
+        let hk = model.settings.hotkey
+        let keyName = Hotkey.keyName(hk.keyCode)
+        if hk.enabled, keyName.count == 1 {
+            open.keyEquivalent = keyName.lowercased()
+            var m: NSEvent.ModifierFlags = []
+            if hk.modifiers & UInt32(cmdKey) != 0 { m.insert(.command) }
+            if hk.modifiers & UInt32(optionKey) != 0 { m.insert(.option) }
+            if hk.modifiers & UInt32(controlKey) != 0 { m.insert(.control) }
+            if hk.modifiers & UInt32(shiftKey) != 0 { m.insert(.shift) }
+            open.keyEquivalentModifierMask = m
+        }
+        menu.addItem(open)
         if case .failed = model.listenerState {
             menu.addItem(action("Open Local Network Settings…", #selector(openLocalNetwork)))
         } else if model.peers.isEmpty {
-            menu.addItem(action("Pair Your iPhone…", #selector(pair)))
+            menu.addItem(action("Pair Your iPhone…", #selector(pair), symbol: "iphone"))
         }
 
         // The three most recent dictations; click copies.
@@ -173,20 +190,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(modeItem)
 
         if !model.peers.isEmpty { menu.addItem(action("Pair Another iPhone…", #selector(pair))) }
-        // Shows the global shortcut, so the menu teaches the way in when the icon is hidden.
-        let open = action("Open Macrophone…", #selector(openWindow), key: ",")
-        let hk = model.settings.hotkey
-        let keyName = Hotkey.keyName(hk.keyCode)
-        if hk.enabled, keyName.count == 1 {
-            open.keyEquivalent = keyName.lowercased()
-            var m: NSEvent.ModifierFlags = []
-            if hk.modifiers & UInt32(cmdKey) != 0 { m.insert(.command) }
-            if hk.modifiers & UInt32(optionKey) != 0 { m.insert(.option) }
-            if hk.modifiers & UInt32(controlKey) != 0 { m.insert(.control) }
-            if hk.modifiers & UInt32(shiftKey) != 0 { m.insert(.shift) }
-            open.keyEquivalentModifierMask = m
-        }
-        menu.addItem(open)
         menu.addItem(action("Check for Updates…", #selector(checkUpdates)))
 
         if model.peers.count == 1, let p = model.peers.first {
