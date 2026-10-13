@@ -229,7 +229,8 @@ struct PopupCardView: View {
                         .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+                        // Not selectable: the popup grows in on a spring, and a selectable
+                        // Text's AppKit layer can draw upside down mid-animation.
                 }
                 .frame(maxHeight: 240)
                 .fixedSize(horizontal: false, vertical: true)

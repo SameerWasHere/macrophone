@@ -167,7 +167,9 @@ struct HistoryRow: View {
                 .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
                 .frame(maxWidth: .infinity, alignment: rtl ? .trailing : .leading)
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+                // Not .textSelection: a selectable Text is backed by an AppKit text view whose
+                // layer can draw upside down when the row arrives mid-animation (seen live,
+                // Oct 13 2026). Copy and Copy Raw are in the row's buttons.
             if let reply = item.reply, !reply.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
@@ -182,7 +184,6 @@ struct HistoryRow: View {
                         .lineLimit(showReply ? nil : 4)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
                     if reply.count > 280 {
                         Button(showReply ? "Show Less" : "Show All") { showReply.toggle() }
                             .buttonStyle(.borderless)
