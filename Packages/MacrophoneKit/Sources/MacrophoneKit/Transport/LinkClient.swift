@@ -201,10 +201,12 @@ public final class LinkClient: @unchecked Sendable {
         if let active = activeMac, found.contains(where: { $0.macID == active.id }) { ensureConnected() }
     }
 
-    private func endpoint(for mac: PairedPeer) -> NWEndpoint {
-        if let d = discoveredMacs.first(where: { $0.macID == mac.id }) { return d.endpoint }
+    /// `verified` = Bonjour's TXT record says this endpoint IS that Mac (by id). A dial by name
+    /// may reach a different Mac that happens to share the name.
+    private func endpoint(for mac: PairedPeer) -> (endpoint: NWEndpoint, verified: Bool) {
+        if let d = discoveredMacs.first(where: { $0.macID == mac.id }) { return (d.endpoint, true) }
         // Not browsed yet — dial the service by name and let Bonjour resolve it.
-        return .service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil)
+        return (.service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil), false)
     }
 
     // MARK: Session
@@ -248,7 +250,8 @@ public final class LinkClient: @unchecked Sendable {
 
     private func dial(mac: PairedPeer, key: SymmetricKey, timeout: TimeInterval) async throws -> SecureSession {
         setState(.connecting(mac.name))
-        let conn = FramedConnection(NWConnection(to: endpoint(for: mac), using: LinkServer.parameters()), queue: queue)
+        let target = endpoint(for: mac)
+        let conn = FramedConnection(NWConnection(to: target.endpoint, using: LinkServer.parameters()), queue: queue)
         do {
             try await conn.start(timeout: timeout)
             let phoneNonce = LinkCrypto.randomBytes(32)
@@ -282,8 +285,14 @@ public final class LinkClient: @unchecked Sendable {
                 }
                 startLoops(s, macID: mac.id)
                 return s
+            case .failure(.unknownPeer) where !target.verified:
+                // Dialled by name: this may be another Mac with the same name. Never forget the
+                // pairing on its word — wait until Bonjour shows our Mac by id.
+                log?.add("a Mac with this name doesn't know this phone; not ours, keeping the pairing")
+                conn.cancel()
+                throw LinkError.macNotFound
             case .failure(.unknownPeer):
-                // The Mac forgot us while we were away.
+                // Our Mac (matched by id) forgot us while we were away.
                 log?.add("Mac no longer knows this phone")
                 conn.cancel()
                 store.remove(mac.id)

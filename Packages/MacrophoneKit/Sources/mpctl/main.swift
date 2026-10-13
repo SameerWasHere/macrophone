@@ -199,9 +199,21 @@ func run() async -> Int32 {
         client.start()
         let count = Int(flag("--count") ?? "1") ?? 1
         var failures = 0
-        var d = Dictation(raw: args[1], sourceDevice: "mpctl")
+        // --target <bundleID|clipboard|front> [--send] [--window <key>]: route like the phone does.
+        func routed(_ d: Dictation) -> Dictation {
+            guard let t = flag("--target") else { return d }
+            var d = d
+            switch t {
+            case "clipboard": d.target = .clipboard
+            case "front": d.target = .frontApp
+            default: d.target = .app(bundleID: t, windowKey: flag("--window"), name: t)
+            }
+            d.send = has("--send")
+            return d
+        }
+        var d = routed(Dictation(raw: args[1], sourceDevice: "mpctl"))
         for i in 0..<count {
-            if !has("--resend") || i == 0 { if i > 0 { d = Dictation(raw: "\(args[1]) #\(i + 1)", sourceDevice: "mpctl") } }
+            if !has("--resend") || i == 0 { if i > 0 { d = routed(Dictation(raw: "\(args[1]) #\(i + 1)", sourceDevice: "mpctl")) } }
             let t0 = Date()
             do {
                 let ack = try await client.send(d, delayed: has("--delayed"))
