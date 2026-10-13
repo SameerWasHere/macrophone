@@ -1,8 +1,9 @@
 import SwiftUI
 
-// The Filament: a tapered, luminous line in the spectrum gradient that moves with the voice.
+// The Filament: the Thread from SameerOS — a tapered, luminous ribbon in the spectrum that moves
+// with the voice.
 //
-// Ready     — a calm, dim, still line in the cool end.
+// Ready     — at rest in a soft S, still (costs nothing).
 // Live      — the full spectrum; height and brightness follow the mic (attack fast, release slow).
 // Sending   — nearly flat; a bead of light runs along it.
 // Delivered — settles flat in mint (the ✓ is drawn by the caller).
@@ -55,9 +56,9 @@ struct Filament: View {
                 Canvas { ctx, size in
                     draw(&ctx, size: size, now: now, glow: true)
                 }
-                .blur(radius: 14)
+                .blur(radius: 16)
                 .blendMode(.plusLighter)
-                .opacity(0.9)
+                .opacity(0.95)
                 Canvas { ctx, size in
                     step(now: now)
                     draw(&ctx, size: size, now: now, glow: false)
@@ -95,7 +96,7 @@ struct Filament: View {
         let targetTint: Double
         let targetDash: Double
         switch mode {
-        case .ready: targetAmp = 0; targetBright = 0.42; targetTint = 0; targetDash = 0
+        case .ready: targetAmp = 0; targetBright = 0.62; targetTint = 0; targetDash = 0
         case .live: targetAmp = 0.06 + 0.94 * s.level; targetBright = 0.78 + 0.22 * s.level; targetTint = 0; targetDash = 0
         case .sending: targetAmp = 0.05; targetBright = 0.8; targetTint = 0; targetDash = 0
         case .delivered: targetAmp = 0; targetBright = 0.95; targetTint = 1; targetDash = 0
@@ -122,91 +123,117 @@ struct Filament: View {
         }
     }
 
-    // MARK: Drawing
+    // MARK: Drawing — the Thread (SameerOS's luminous ribbon): a tapered band in the spectrum,
+    // a halo, a glow and a white-hot core. At rest it lies in a soft S; a voice swells it.
+
+    private var meaningRGB: RGB { meaning }
 
     private func draw(_ ctx: inout GraphicsContext, size: CGSize, now: Date, glow: Bool) {
         let s = state
         let w = size.width, h = size.height, mid = h / 2
-        let n = 96
-        let maxAmp = Double(h) * 0.40
-        let strands: [(phase: Double, amp: Double, alpha: Double, width: Double)] = glow
-            ? [(0, 1, 0.55, 5.5)]
-            : [(0, 1, 1, 1), (2.1, 0.72, 0.42, 0.55), (4.3, 0.5, 0.28, 0.4)]
+        let n = 120
+        let inset = w * 0.04
+        let span = w - inset * 2
+        // The resting S (always there) plus the voice (only while live).
+        let restAmp = Double(h) * 0.16
+        let voiceAmp = Double(h) * 0.30
+        let half = Double(h) * (0.055 + 0.05 * s.level)
 
-        // The gradient, built per frame: spectrum (or the meaning colour) with the bead of light.
+        // The gradient: the Thread's spectrum, or the meaning colour, with the sending bead.
         let stopsCount = 24
         var stops: [Gradient.Stop] = []
         stops.reserveCapacity(stopsCount + 1)
         for i in 0...stopsCount {
             let u = Double(i) / Double(stopsCount)
-            var c = RGB.spectrumAt(u).mix(meaning, s.tint)
-            if mode == .ready && s.tint < 0.01 {
-                c = RGB.spectrumAt(u * 0.45).mix(.violet, 0.15)   // the cool end, calm
-            }
+            var c = RGB.threadAt(u).mix(meaningRGB, s.tint)
             if s.flow > 0 {
                 let d = (u - (s.flow - 0.15)) / 0.08
                 c = c.mix(.white, 0.75 * exp(-d * d))
             }
             stops.append(.init(color: c.color(s.bright), location: u))
         }
-        let shading = GraphicsContext.Shading.linearGradient(Gradient(stops: stops), startPoint: .zero, endPoint: CGPoint(x: w, y: 0))
+        let shading = GraphicsContext.Shading.linearGradient(Gradient(stops: stops), startPoint: CGPoint(x: inset, y: 0),
+                                                             endPoint: CGPoint(x: w - inset, y: 0))
 
-        for strand in strands {
-            if s.amp < 0.01 && strand.phase != 0 { continue }   // flat: one line
-            var top: [CGPoint] = []
-            var bottom: [CGPoint] = []
-            top.reserveCapacity(n + 1)
-            bottom.reserveCapacity(n + 1)
+        // The centre line.
+        var centre: [CGPoint] = []
+        centre.reserveCapacity(n + 1)
+        for i in 0...n {
+            let u = Double(i) / Double(n)
+            let env = pow(sin(.pi * u), 1.25)
+            // The rest: one S, rising left to right, flattening as the Thread settles to a meaning.
+            let rest = -restAmp * (1 - 0.7 * s.tint) * sin(2 * .pi * (u - 0.5)) * env
+            // The voice: slow, smooth swells travelling along it.
+            let p = s.phase
+            let voice = voiceAmp * s.amp * env * (0.62 * sin(2 * .pi * 1.1 * u + p) + 0.38 * sin(2 * .pi * 2.3 * u - 1.4 * p + 0.8))
+            centre.append(CGPoint(x: Double(inset) + Double(span) * u, y: Double(mid) + rest + voice))
+        }
+
+        func band(_ k: Double) -> (top: [CGPoint], bottom: [CGPoint]) {
+            var top: [CGPoint] = [], bottom: [CGPoint] = []
+            top.reserveCapacity(n + 1); bottom.reserveCapacity(n + 1)
             for i in 0...n {
+                let a = centre[max(i - 1, 0)], b = centre[min(i + 1, n)]
+                let dx = b.x - a.x, dy = b.y - a.y, len = max(hypot(dx, dy), 0.0001)
+                let nx = -dy / len, ny = dx / len
                 let u = Double(i) / Double(n)
-                let env = pow(sin(.pi * u), 1.5)
-                let p = s.phase + strand.phase
-                let wave = 0.55 * sin(2 * .pi * 1.2 * u + p)
-                    + 0.30 * sin(2 * .pi * 2.7 * u - 1.7 * p + 1.0)
-                    + 0.15 * sin(2 * .pi * 5.3 * u + 2.3 * p)
-                let y = Double(mid) + maxAmp * s.amp * strand.amp * env * wave
-                let thick = (0.5 + (1.6 + 3.2 * s.level) * pow(env, 0.8)) * strand.width
-                let x = Double(w) * u
-                top.append(CGPoint(x: x, y: y - thick))
-                bottom.append(CGPoint(x: x, y: y + thick))
+                let t = half * k * pow(sin(.pi * u), 0.7)
+                top.append(CGPoint(x: centre[i].x + nx * t, y: centre[i].y + ny * t))
+                bottom.append(CGPoint(x: centre[i].x - nx * t, y: centre[i].y - ny * t))
             }
-            var opacity = strand.alpha
-            if glow { opacity *= 0.35 + 0.65 * s.bright }
-            if s.dash > 0.02 {
-                // Broken: draw every other run of points.
-                let run = 6
-                var start = 0
-                var on = true
-                while start < n {
-                    let end = min(start + run, n)
-                    if on { fill(&ctx, top: top, bottom: bottom, range: start...end, shading: shading, opacity: opacity) }
-                    else if s.dash < 0.98 { fill(&ctx, top: top, bottom: bottom, range: start...end, shading: shading, opacity: opacity * (1 - s.dash)) }
-                    on.toggle()
-                    start = end
-                }
-            } else {
-                fill(&ctx, top: top, bottom: bottom, range: 0...n, shading: shading, opacity: opacity)
+            return (top, bottom)
+        }
+
+        if glow {
+            // The halo and the glow: wide, soft (the view blurs this layer).
+            let wide = band(2.6)
+            fillBand(&ctx, wide, shading: shading, opacity: 0.55 * (0.4 + 0.6 * s.bright))
+            return
+        }
+        let body = band(1)
+        if s.dash > 0.02 {
+            let run = 8
+            var start = 0
+            var on = true
+            while start < n {
+                let end = min(start + run, n)
+                let o = on ? 1 : max(0, 1 - s.dash)
+                if o > 0.01 { fillBand(&ctx, body, range: start...end, shading: shading, opacity: o) }
+                on.toggle()
+                start = end
             }
-            // A bright core along the main strand, the "luminous" part.
-            if !glow && strand.phase == 0 && s.dash < 0.5 {
-                var core = Path()
-                core.move(to: CGPoint(x: (top[0].x), y: (top[0].y + bottom[0].y) / 2))
-                for i in 1...n { core.addLine(to: CGPoint(x: top[i].x, y: (top[i].y + bottom[i].y) / 2)) }
-                ctx.stroke(core, with: .color(.white.opacity(0.35 * s.bright)), style: StrokeStyle(lineWidth: 0.8, lineCap: .round))
-            }
+        } else {
+            fillBand(&ctx, body, shading: shading, opacity: 1)
+            // The white-hot core.
+            var core = ctx
+            core.blendMode = .plusLighter
+            fillBand(&core, band(0.36), shading: .color(.white), opacity: 0.55 * s.bright)
         }
     }
 
-    private func fill(_ ctx: inout GraphicsContext, top: [CGPoint], bottom: [CGPoint], range: ClosedRange<Int>,
-                      shading: GraphicsContext.Shading, opacity: Double) {
+    private func fillBand(_ ctx: inout GraphicsContext, _ b: (top: [CGPoint], bottom: [CGPoint]), range: ClosedRange<Int>? = nil,
+                          shading: GraphicsContext.Shading, opacity: Double) {
+        let r = range ?? 0...(b.top.count - 1)
         var path = Path()
-        path.move(to: top[range.lowerBound])
-        for i in range.dropFirst() { path.addLine(to: top[i]) }
-        for i in range.reversed() { path.addLine(to: bottom[i]) }
+        path.move(to: b.top[r.lowerBound])
+        for i in r.dropFirst() { path.addLine(to: b.top[i]) }
+        for i in r.reversed() { path.addLine(to: b.bottom[i]) }
         path.closeSubpath()
         var c = ctx
         c.opacity = opacity
         c.fill(path, with: shading)
+    }
+}
+
+extension RGB {
+    static let coral = RGB(r: 0.914, g: 0.502, b: 0.416)
+    /// The Thread's spectrum, cool to warm — violet, cyan, mint, gold, coral (as in SameerOS).
+    static let thread: [RGB] = [.violet, .cyan, .mint, .gold, .coral]
+
+    static func threadAt(_ u: Double) -> RGB {
+        let x = min(max(u, 0), 1) * Double(thread.count - 1)
+        let i = min(Int(x), thread.count - 2)
+        return thread[i].mix(thread[i + 1], x - Double(i))
     }
 }
 
