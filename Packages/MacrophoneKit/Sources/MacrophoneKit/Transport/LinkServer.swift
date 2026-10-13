@@ -19,10 +19,20 @@ public protocol LinkServerDelegate: AnyObject {
     func profilesForPhones(_ server: LinkServer) -> [ProfileSummary]
     /// A code-pairing attempt finished (approved, declined or timed out): dismiss the prompt.
     func linkServerCodePairingEnded(_ server: LinkServer)
+    /// A phone changed the Send-to choice (or sent its own on connecting — the phone wins).
+    /// The server already relayed it to any other connected phones.
+    func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer)
+    /// A phone asked for a fresh scan; answer with `broadcastTargets`.
+    func linkServerRefreshTargets(_ server: LinkServer)
+    /// The current list, sent to a phone right after its welcome.
+    func liveTargets(_ server: LinkServer) -> [LiveTarget]
 }
 
 public extension LinkServerDelegate {
     func linkServerCodePairingEnded(_ server: LinkServer) {}
+    func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {}
+    func linkServerRefreshTargets(_ server: LinkServer) {}
+    func liveTargets(_ server: LinkServer) -> [LiveTarget] { [] }
 }
 
 /// True for exactly one caller.
@@ -169,6 +179,19 @@ public final class LinkServer: @unchecked Sendable {
     public var connectedPeerIDs: Set<UUID> {
         lock.lock(); defer { lock.unlock() }
         return Set(sessions.keys)
+    }
+
+    /// Push the open apps/windows list to every connected phone.
+    public func broadcastTargets(_ targets: [LiveTarget]) {
+        lock.lock(); let all = Array(sessions.values); lock.unlock()
+        for s in all { Task { try? await s.send(.targets(targets)) } }
+    }
+
+    /// The Send-to choice changed on the Mac (or arrived from one phone): tell every phone
+    /// except `except`.
+    public func broadcastSelection(_ selection: SendSelection, except: UUID? = nil) {
+        lock.lock(); let all = sessions.filter { $0.key != except }.map(\.value); lock.unlock()
+        for s in all { Task { try? await s.send(.selection(selection)) } }
     }
 
     /// Push the current profile list to every connected phone.
@@ -349,6 +372,7 @@ public final class LinkServer: @unchecked Sendable {
                 let p = peer
                 let profiles = await profilesOnMain()
                 try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion, profiles: profiles))
+                try await session.send(.targets(await targetsOnMain()))
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
                 if seen.contains(d.id) {
@@ -370,7 +394,13 @@ public final class LinkServer: @unchecked Sendable {
                 store.remove(phoneID)
                 notify { $0.linkServer(self, didUnpair: phoneID) }
                 return
-            case .welcome, .profiles, .ack:
+            case let .selection(sel):
+                broadcastSelection(sel, except: phoneID)
+                let from = peer
+                notify { $0.linkServer(self, selectionChanged: sel, from: from) }
+            case .refreshTargets:
+                notify { $0.linkServerRefreshTargets(self) }
+            case .welcome, .profiles, .ack, .targets:
                 break
             }
         }
@@ -379,6 +409,11 @@ public final class LinkServer: @unchecked Sendable {
     @MainActor private func deliverOnMain(_ d: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {
         guard let delegate else { return (.failed, "Macrophone isn't ready") }
         return await delegate.linkServer(self, deliver: d, delayed: delayed, from: peer)
+    }
+
+    @MainActor private func targetsOnMain() -> [LiveTarget] {
+        guard let delegate else { return [] }
+        return delegate.liveTargets(self)
     }
 
     @MainActor private func profilesOnMain() -> [ProfileSummary] {

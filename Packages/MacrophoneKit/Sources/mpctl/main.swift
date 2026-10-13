@@ -7,6 +7,8 @@ import MacrophoneKit
 //   mpctl pair 'macrophone://pair?...'       # the phone side, by QR URL
 //   mpctl pair-code [--mac <name>]           # the phone side, by confirmation code
 //   mpctl send "hello world" [--count 5] [--resend]
+//   mpctl serve --commands                    # …and type "select com.apple.MobileSMS send" to change the choice on the "Mac"
+//   mpctl targets / mpctl select <bundleID|clipboard|front> [--send]
 //   mpctl browse
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
@@ -65,6 +67,18 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, listenerChanged state: LinkServer.ListenerState) {
         stdout("LISTENER \(state)")
     }
+    func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {
+        stdout("SELECTION \(selection.target.displayName)\(selection.send ? " + send" : "") from \(peer.name)")
+    }
+    func linkServerRefreshTargets(_ server: LinkServer) {
+        stdout("REFRESH requested")
+        server.broadcastTargets(liveTargets(server))
+    }
+    func liveTargets(_ server: LinkServer) -> [LiveTarget] {
+        [LiveTarget(bundleID: "com.anthropic.claudefordesktop", appName: "Claude", lastActive: Date()),
+         LiveTarget(bundleID: "com.apple.MobileSMS", appName: "Messages"),
+         LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "claude — ~/app", windowKey: "41")]
+    }
     func profilesForPhones(_ server: LinkServer) -> [ProfileSummary] {
         [ProfileSummary(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, name: "Default", cleanupLevel: nil, isDefault: true)]
     }
@@ -82,7 +96,16 @@ final class PhoneDelegate: LinkClientDelegate {
         stdout("PROFILES \(profiles.map(\.name).joined(separator: ", "))")
     }
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) { stdout("UNPAIRED by Mac") }
+    func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {
+        stdout("TARGETS \(targets.map(\.title).joined(separator: " | "))")
+    }
+    func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {
+        stdout("SELECTION from Mac: \(selection.target.displayName)\(selection.send ? " + send" : "")")
+    }
 }
+
+/// The client's delegate is weak; keep ours alive for the whole run.
+nonisolated(unsafe) var keepDelegate: PhoneDelegate?
 
 @MainActor
 func makeClient() -> (LinkClient, PhoneDelegate) {
@@ -91,6 +114,7 @@ func makeClient() -> (LinkClient, PhoneDelegate) {
                             store: FilePairingStore(url: dir.appendingPathComponent("pairings.json")),
                             appVersion: "0.0-mpctl", osDescription: ProcessInfo.processInfo.operatingSystemVersionString)
     let d = PhoneDelegate()
+    keepDelegate = d
     client.delegate = d
     if has("--verbose") { client.log = DiagnosticLog(url: nil) }
     return (client, d)
@@ -115,6 +139,20 @@ func run() async -> Int32 {
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
         stdout("Paired phones: \(server.store.peers().map(\.name))")
+        if has("--commands") {
+            // Type "select <bundleID|clipboard|front> [send]" to change the choice "on the Mac".
+            Task.detached {
+                while let line = readLine() {
+                    let parts = line.split(separator: " ").map(String.init)
+                    guard parts.first == "select", parts.count > 1 else { continue }
+                    let send = parts.contains("send")
+                    let target: TargetRef = parts[1] == "clipboard" ? .clipboard : parts[1] == "front" ? .frontApp
+                        : .app(bundleID: parts[1], windowKey: nil, name: parts[1])
+                    server.broadcastSelection(SendSelection(target: target, send: send))
+                    stdout("SENT SELECTION \(target.displayName)\(send ? " + send" : "")")
+                }
+            }
+        }
         while true { try? await Task.sleep(nanoseconds: 3_600_000_000_000) }
 
     case "browse":
@@ -175,6 +213,27 @@ func run() async -> Int32 {
         }
         client.stop()
         return failures == 0 ? 0 : 1
+
+    case "targets", "select":
+        // mpctl targets            — print the Mac's open apps
+        // mpctl select <bundleID|clipboard|front> [--send]  — set the shared choice (sent on connect)
+        let (client, _) = makeClient()
+        var sel: SendSelection?
+        if command == "select", args.count > 1 {
+            switch args[1] {
+            case "clipboard": sel = SendSelection(target: .clipboard)
+            case "front": sel = SendSelection(target: .frontApp, send: has("--send"))
+            default: sel = SendSelection(target: .app(bundleID: args[1], windowKey: flag("--window"), name: args[1]), send: has("--send"))
+            }
+            let chosen = sel
+            client.selectionProvider = { chosen }
+        }
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        if command == "targets" { client.refreshTargets() }
+        try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "1.5") ?? 1.5) * 1e9))
+        client.stop()
+        return 0
 
     case "unpair":
         let (client, _) = makeClient()

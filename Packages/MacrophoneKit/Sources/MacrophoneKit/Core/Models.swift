@@ -40,6 +40,13 @@ public struct Dictation: Codable, Sendable, Identifiable, Hashable {
     public var profileName: String?
     /// How the profile was picked. Nil (older phones) = chosen on the phone.
     public var profileSource: ProfileSource?
+    /// Where this dictation goes (the shared selection, or a spoken app name, at the time it
+    /// was made). Each dictation carries it so a sync race can't misroute one. Nil = older phone.
+    public var target: TargetRef?
+    /// Press the send key after pasting (only for `.app` / `.frontApp`, never when delayed).
+    public var send: Bool?
+    /// True when `target` came from saying the app's name first ("Messages, …").
+    public var targetSpoken: Bool?
     /// Interrupted (call, lock, permission) — what was captured was still processed and sent.
     public var stoppedEarly: Bool
     public var duration: TimeInterval
@@ -47,7 +54,8 @@ public struct Dictation: Codable, Sendable, Identifiable, Hashable {
 
     public init(id: UUID = UUID(), createdAt: Date = Date(), raw: String, cleaned: String? = nil,
                 cleanupLevel: CleanupLevel = .off, language: String = "en-US", profileID: UUID? = nil,
-                profileName: String? = nil, profileSource: ProfileSource? = nil, stoppedEarly: Bool = false,
+                profileName: String? = nil, profileSource: ProfileSource? = nil, target: TargetRef? = nil,
+                send: Bool? = nil, targetSpoken: Bool? = nil, stoppedEarly: Bool = false,
                 duration: TimeInterval = 0, sourceDevice: String = "") {
         self.id = id
         self.createdAt = createdAt
@@ -58,6 +66,9 @@ public struct Dictation: Codable, Sendable, Identifiable, Hashable {
         self.profileID = profileID
         self.profileName = profileName
         self.profileSource = profileSource
+        self.target = target
+        self.send = send
+        self.targetSpoken = targetSpoken
         self.stoppedEarly = stoppedEarly
         self.duration = duration
         self.sourceDevice = sourceDevice

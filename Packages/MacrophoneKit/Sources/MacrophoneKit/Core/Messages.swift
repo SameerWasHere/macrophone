@@ -79,6 +79,14 @@ public enum Message: Codable, Sendable {
     case profiles([ProfileSummary])
     /// `detail` is a short human line, e.g. "Pasted into Claude" or "Copied to clipboard".
     case ack(id: UUID, outcome: DeliveryOutcome, detail: String?)
+    /// Mac → phone: the open apps/windows with somewhere to type, newest first. Sent after
+    /// welcome and whenever the list changes.
+    case targets([LiveTarget])
+    /// Phone → Mac: rescan now (the picker just opened).
+    case refreshTargets
+    /// Either way: the shared Send-to choice changed. The phone sends its own right after
+    /// welcome, so on reconnect the phone's choice wins.
+    case selection(SendSelection)
     // Either way
     case ping
     case pong

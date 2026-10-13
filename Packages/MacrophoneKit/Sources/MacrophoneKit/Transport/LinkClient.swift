@@ -28,10 +28,16 @@ public protocol LinkClientDelegate: AnyObject {
     /// iOS is blocking Bonjour because Local Network access is off for this app (true), or it
     /// came back (false). Tell the person where to turn it on.
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool)
+    /// The Mac's open apps/windows with a text field, newest first.
+    func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID)
+    /// The Send-to choice was changed on the Mac. Apply it (don't send it back).
+    func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID)
 }
 
 public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {}
+    func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {}
+    func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {}
 }
 
 /// The iPhone end of the link: browses for Macs, pairs, and keeps one encrypted session to
@@ -70,6 +76,10 @@ public final class LinkClient: @unchecked Sendable {
     private var retryDelay: TimeInterval = 1
     private var wantsConnection = false
     private var _state: State = .notPaired
+
+    /// The phone's current Send-to choice. Sent to the Mac right after every welcome, so the
+    /// phone's choice wins when the two reconnect.
+    public var selectionProvider: (@Sendable () -> SendSelection?)?
 
     public init(identity: DeviceIdentity, store: PairingStore, appVersion: String, osDescription: String) {
         self.identity = identity
@@ -258,6 +268,7 @@ public final class LinkClient: @unchecked Sendable {
                     throw LinkError.protocolError("expected welcome")
                 }
                 lock.sync { session = s; sessionMacID = mac.id; retryDelay = 1 }
+                if let sel = selectionProvider?() { try? await s.send(.selection(sel)) }
                 store.touch(mac.id)
                 log?.add("connected to Mac")
                 setState(.connected(macName))
@@ -338,6 +349,16 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, profiles: p, macID: macID)
             }
+        case let .targets(list):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, targets: list, macID: macID)
+            }
+        case let .selection(sel):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, selectionChanged: sel, macID: macID)
+            }
         case .ping:
             Task { try? await s.send(.pong) }
         case .unpair:
@@ -349,7 +370,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets:
             break
         }
     }
@@ -416,6 +437,19 @@ public final class LinkClient: @unchecked Sendable {
                 throw error
             }
         }
+    }
+
+    /// Tell the Mac the Send-to choice changed on the phone. If not connected, it goes with
+    /// the next welcome anyway (via `selectionProvider`).
+    public func setSelection(_ selection: SendSelection) {
+        guard let s = lock.sync({ session }) else { return }
+        Task { try? await s.send(.selection(selection)) }
+    }
+
+    /// Ask the Mac to rescan its open apps now (the picker opened).
+    public func refreshTargets() {
+        guard let s = lock.sync({ session }) else { return }
+        Task { try? await s.send(.refreshTargets) }
     }
 
     // MARK: Pairing
