@@ -111,7 +111,41 @@ See `Macrophone/App/DebugHooks.swift`: `MACROPHONE_SCREEN`, `MACROPHONE_ONBOARDI
 `MACROPHONE_SIM_RECORD` (stand-in recognizer for the real button), `MACROPHONE_FAKE_HISTORY`,
 `MACROPHONE_FAKE_PAIRED`, `MACROPHONE_FAKE_PROFILES`, `MACROPHONE_SEND_TO`, `MACROPHONE_INTENT_TARGET`,
 `MACROPHONE_STATUS`, `MACROPHONE_OPEN_URL`, `MACROPHONE_PAIR_CODE`,
-`MACROPHONE_UNPAIR`, `MACROPHONE_RESEND_LATEST`, `MACROPHONE_RECORD`, `MACROPHONE_RESET`.
+`MACROPHONE_UNPAIR`, `MACROPHONE_RESEND_LATEST`, `MACROPHONE_RECORD`, `MACROPHONE_RESET`,
+`MACROPHONE_PAIRING` (`connecting|code|paired|failed|expired`: the pairing panel in that phase).
+
+## Polish rules (Oct 12 2026, before/after in `docs/screens/polish/`)
+
+- **This iPhone's name.** iOS gives apps only "iPhone", so pairing ends on "What should your Mac
+  call this iPhone?" — prefilled with the current name, with a one-tap suggestion read off the Mac's
+  name ("Sameer's MacBook Pro" → "Sameer's iPhone", `DeviceNameSuggestion`). Settings › Mac offers the
+  same suggestion. A rename reconnects with the new name in `hello`; every dictation also carries it
+  (`sourceDevice`), which the Mac's history uses.
+- **No Mac yet.** The first dictations say "Copied on iPhone — paste it anywhere", and under the card
+  a quiet "Want it on your Mac?" row shares the download link (closed for good with its ×).
+- **Never "…" as a cut or a stand-in for words.** A voice prefix reads "Sent to Claude — you said
+  “Claude” first"; the picker's hint is "Say “Claude” first". Progress ellipses ("Listening…") stay.
+- **Cleaned / Raw** (the Mac's words) only when cleanup changed the words; taking a spoken target off
+  the front alone isn't a version — Copy Raw (long-press) still has exactly what was heard.
+- **"Delayed"** is the Mac's word for a dictation that waited in the queue: a status suffix and its
+  own history chip (no more "Delivered late" / "sent late").
+- **Errors end in what to do:** "Not delivered — <the Mac's reason>. Fix that on your Mac, then tap
+  Resend."; pairing that can't reach the Mac says to keep it open on the same Wi-Fi and, if still
+  stuck, offers Settings for Local Network; a denied mic/speech shows an Open Settings button (main
+  screen and setup), and setup carries on by itself when the person comes back with it allowed.
+- **Small screens (< 700pt tall):** a shorter stage and Filament, the hint gives way to the last
+  dictation, so Copy/Resend are on screen on an iPhone SE. Setup's pictures shrink under 620pt.
+- **Huge Dynamic Type:** chrome caps its size (the Mac's name and Send to at AX2/AX3, the Cleaned/Raw
+  toggle at AX2, the live words at AX3, each with the Large Content Viewer where fixed) and re-lays
+  out instead of breaking words: the top bar stacks, the Send-to chip puts its kicker over the name,
+  the cleanup dial shows only the picked stop, history chips wrap inside the row.
+- **Increase Contrast:** glass and chip edges go firm. **Reduce Motion:** the last-dictation card and
+  setup steps fade instead of sliding. **Low Power Mode:** the Filament draws at 30 fps (60 otherwise,
+  paused whenever it's still).
+- `testAccessibilityAudit` runs Xcode's audit (element detection, hit regions, descriptions, clipped
+  text, traits) on main, history, settings, Send to, pairing, dictionary and setup. Contrast and
+  Dynamic Type checks are left out: the contrast check fails the system's own toolbar buttons and
+  white-on-ink text in this dark-only app, and the capped chrome above is by design.
 
 ## Build and test
 
