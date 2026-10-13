@@ -362,22 +362,6 @@ struct SendToList: View {
 
     var body: some View {
         List {
-            if settings.selection.target.canSend {
-                Section {
-                    Picker("After pasting", selection: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
-                        Text("Paste").tag(false)
-                        Text("Paste & send").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("picker-send")
-                } header: {
-                    Text("For \(settings.selection.target.displayName)")
-                } footer: {
-                    Text("Paste & send presses the app's send key after a short countdown on your Mac. Remembered for each place.")
-                }
-                .listRowBackground(Ink.raised)
-            }
-
             Section {
                 row(.clipboard, icon: nil, subtitle: "Copies it on your Mac, to paste yourself")
                 row(.frontApp, icon: nil, subtitle: "Pastes into whatever app is in front on your Mac")
@@ -417,6 +401,21 @@ struct SendToList: View {
                 } footer: {
                     Text("Notes, reminders, scripts and the like, set up in Macrophone on your Mac. Start with an automation's name to use it once: “Note, call the bank.”")
                         .padding(.top, 4)
+                }
+                .listRowBackground(Ink.raised)
+            }
+            if settings.selection.target.canSend {
+                Section {
+                    Picker("After pasting", selection: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
+                        Text("Paste").tag(false)
+                        Text("Paste & send").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("picker-send")
+                } header: {
+                    Text("For \(settings.selection.target.displayName)")
+                } footer: {
+                    Text("Paste & send presses the app's send key after a short countdown on your Mac. Remembered for each place.")
                 }
                 .listRowBackground(Ink.raised)
             }

@@ -36,6 +36,7 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
     /// "Messages", "Clipboard", "Where I'm typing", an automation's name — or nil for older
     /// dictations sent on Automatic.
     var targetName: String? {
+        if delivery == .copiedOnPhone { return nil }   // no Mac: it never went anywhere but here
         if let t = dictation.target { return t.displayName }
         return dictation.profileSource == .automatic ? nil : dictation.profileName
     }

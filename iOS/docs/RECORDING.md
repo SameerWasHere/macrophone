@@ -31,7 +31,7 @@
 
 ## Cleanup
 
-`Cleaner.clean(_:level:dictionary:language:deadline:)` with the level (the target's level wins
+`Cleaner.clean(_:level:dictionary:language:deadline:)` with the level (an automation's level wins
 when it sets one), prewarmed on record start (the prewarmed session is reused when the level
 and dictionary match). English only; unavailable → the dial is disabled with its one-line
 explanation and the app behaves as Off.
@@ -45,39 +45,89 @@ finish before the deadline: finished chunks come back cleaned and the rest as sp
 dictation card); the Raw toggle still holds the whole transcript. A hard stop 5 s past the
 deadline sends the words as spoken if a model call hangs.
 
-## Send to (targets)
+## Send to: the Mac's open apps (Oct 13 2026)
 
-The Mac's profiles are **targets** ("Claude", "Claude Code (Terminal)", "ChatGPT", …). The
-phone keeps the last list it was sent (`CachedProfile`: each target's name, cleanup level and
-voice prefixes), so the picker, voice prefixes, Shortcuts and the Control Center control work
-while the Mac is away. The app keeps it in its defaults and mirrors it to a keychain item in the
-shared access group `<team>.com.sameer.macrophone.shared`, which the Controls extension reads to
-offer targets ("Dictate to Claude"). Not an App Group: the wildcard team profile this Mac signs
-with can't carry one. The app's own keychain group stays first in `keychain-access-groups`, so
-the pairing key (stored without an explicit group) stays private to the app; a pairing made
-before this entitlement still loads (checked on the simulator).
+Sameer's simplification: no configured targets, no Automatic, no per-app rules. The Mac lists
+every open app (or window) with somewhere to type (`LiveTarget`: icon, name, newest first) and
+the phone picks one. Before/after screens: `docs/screens/targets/`.
 
-For each dictation (`AppModel.route(for:)`):
+**The picker** (`UI/SendTo.swift`, `SendToList`): **Clipboard**, **Where I'm typing** (the app in
+front on the Mac), then **Open on <Mac>** — the apps the Mac reports, windows as their own rows
+("Terminal — claude"), the Mac's icons — then **Automations** (the Mac's profiles, which are now
+only automations: notes, reminders, tmux, Ask Claude, scripts…). Opening it asks the Mac to look
+again (`refreshTargets()`). A picked app that's no longer open stays picked and shows "Not open on
+your Mac — it'll be copied instead" (the chip gets an ochre edge and says so to VoiceOver). The
+list is cached (`targets.json`; names only for Shortcuts and the control) so it works while the
+Mac is away.
 
-1. **Voice prefix** — `VoicePrefix.match(raw, profiles:)` on the transcript. A match picks that
-   target for this one dictation (`profileSource = .prefix`), its cleanup level applies, and the
-   prefix is taken off what's cleaned and sent. `raw` keeps exactly what was heard; when
-   cleanup is off the stripped words go in `cleaned` (the toggle reads "Sent / Raw"). Status:
-   "Sent to Claude — you said “Claude, …”". While recording, the chip flips to "SAID · Claude"
-   the moment the prefix is heard.
-2. **A Shortcut, Siri, the Action Button or a control** that names a target → `.chosen` for
-   that recording (its "Automatic" entity → `.automatic`). It doesn't change the saved choice.
-3. **The Send-to chip** by the mic: Automatic (`.automatic`, no profile id — the Mac picks by
-   the app in front) or a target (`.chosen`). A fresh install defaults to Automatic; a target
-   the Mac drops falls back to Automatic.
+**One shared choice** (`SendSelection` in `Settings.selection`, a fresh install = Clipboard):
+`client.selectionProvider` reads it (without the main actor) and the link sends it after every
+welcome, so on reconnect **the phone's choice wins**; any change on the phone calls
+`client.setSelection`; a change made on the Mac (`selectionChanged`) is applied without being sent
+back, its app name swapped for the phone's own listing. Paste or Paste & send is remembered per
+target (`settings.sendByTarget`, keyed by `TargetRef.storageKey`) and only offered for apps and
+Where I'm typing.
 
-Verified against `scripts/route-sink` (a stand-in Mac offering prefixed targets; prints each
-dictation's `profileSource`, target, raw and sent text): Automatic → `automatic`, no profile;
-"Claude, refactor…" → `prefix` Claude, sent "Refactor…", raw intact; "Claude code: run…" →
-the longer prefix wins, at that target's Light cleanup; "Chat GPT. Compare…" → ChatGPT; a
-pick → `chosen`; a sentence that only starts like a prefix ("note that…") → the pick; the
-Start Dictation intent with a target → `chosen`, with Automatic → `automatic`, overriding the
-saved pick.
+**The quick controls by the mic** (Sameer: the level of correction, which app, paste or paste
+and send — "all those should be quick taps"): one tap each, applied to the next dictation (or the
+one being recorded — the route is read when it's processed) and synced to the Mac at once.
+1. **Where** — the chip: icon + name ("SEND TO" kicker, "SAID" in ember while a spoken name is
+   heard); tap → the picker. Long names step down a ladder (kicker off → smaller → two lines),
+   never "…".
+2. **Paste | Paste & send** — a two-way switch, no sheet; disabled with its reason ("Clipboard
+   can't send", "Automations can't send", "Pair your Mac to send"). While recording with an app
+   said first, it shows and sets that app's own setting.
+3. **Cleanup** — a menu chip ("Medium cleanup ⌄"): the four levels each with their one-line
+   summary, the current one ticked; unavailable → "Cleanup off" and the reason on tap. A menu,
+   not tap-to-cycle: each level says what it does before you pick it, and any level is one tap
+   from the menu instead of up to three taps around a cycle. An automation with its own level
+   says so in the menu.
+While recording the row stays, quieter (60%), and still works. Settings › Send to has the same
+choice and switch; Settings › Cleanup the dial.
+
+**Routing one dictation** (`AppModel.route(for:)`): an open app's name said first
+(`SpokenTarget.match`, before cleanup: "Messages, tell Sam I'm late" → Messages, sent "Tell Sam
+I'm late", with that app's Paste/Send setting, `targetSpoken = true`) > an automation's lead-in
+(`VoicePrefix.match`) > a Shortcut's pick for this recording > the shared choice. Raw history keeps
+exactly what was heard. **Every dictation carries `target` and `send`**; `profileID`,
+`profileName` and `profileSource` only for automations.
+
+**Status lines** use the Mac's ack detail: "Pasted into Claude", "Sent to Claude", "Claude isn't
+open on your Mac — copied instead"; said first → "Sent to Messages — you said “Messages” first".
+
+**Shortcuts, Siri, the Action Button, Control Center:** Start Dictation's "Send To"
+(`TargetEntity`, ids `clipboard` / `front` / `app:<bundleID>#<windowKey>` / `auto:<UUID>`) offers
+Clipboard, Where I'm typing, the cached open apps and the automations; a closed app still resolves
+(the Mac copies). The control's title follows ("Dictate to Messages"). Phrases: "Dictate to / Send
+to / Dictate into <place> with Macrophone".
+
+**Verified against `mpctl serve --commands`** (iPhone 17 Pro simulator): the picker lists its three
+apps; picking Messages then Paste & send printed `SELECTION Messages` / `SELECTION Messages + send`;
+typing `select com.anthropic.claudefordesktop` into mpctl turned the open app's chip to Claude
+(`testLiveSyncWithMac`, run with `TEST_RUNNER_MACROPHONE_LIVE=1`); with the app killed, `select
+com.apple.Terminal send` on the "Mac", then relaunched → mpctl printed `SELECTION Claude` (the
+phone's). **Against `scripts/route-sink`** (prints target/send/said/level): "Messages, tell Sam I'm
+late" → `target=app(com.apple.MobileSMS, Messages) send=true said=true level=medium`, sent "Tell
+Sam I'm late."; Where I'm typing + send at Light → `target=front send=true level=light`.
+
+## The mic never moves (Oct 13 2026)
+
+Sameer: holding the button, it shifted down under his finger. The page is now fixed slots
+(`MainView`, `FixedSlot`): the quick controls, the mic, the status line and the bottom (last
+dictation + History) each take the size of a **hidden worst-case template** — a two-line target
+name over the paste/cleanup line; two lines of status (three at accessibility sizes); the card
+with a two-line kicker, the toggle, text at its cap, Copy and Resend — and the real content is laid
+over it (an overlay never sizes its parent). Only the words area above flexes; idle and live
+words share it. Recording fades the card to 22% instead of removing it. Long statuses step down a
+font size to fit; an Open Settings problem makes the whole line the button. The Mac-app nudge
+lives in the chip's line when unpaired. SE-class heights drop the bottom History button (the top
+bar has it) and shorten the card and Filament. `testMicButtonNeverMoves` checks idle, recording
+with a spoken app, a send change mid-recording, sending, delivered, a hold, queued, failed,
+problem, not open, Clipboard, Where I'm typing, an automation, a very long window name, cleanup
+off/heavy, no history, unpaired and the nudge — passing on iPhone SE (3rd gen), 17 Pro and 17 Pro
+Max; `testMicButtonNeverMovesAtAccessibilitySizes` at AX M and AX XXXL.
+`testQuickControlsChangeTheNextDictation` drives each control and reads the route
+(`MACROPHONE_ROUTE_PROBE`).
 
 ## Delivery
 
@@ -109,7 +159,9 @@ quality, segment stitching on real audio, and the 5/10-minute caps need the devi
 See `Macrophone/App/DebugHooks.swift`: `MACROPHONE_SCREEN`, `MACROPHONE_ONBOARDING_STEP`,
 `MACROPHONE_FAKE_TRANSCRIPT` (+ `_EARLY`, `_DELAY`), `MACROPHONE_FAKE_RECORDING`,
 `MACROPHONE_SIM_RECORD` (stand-in recognizer for the real button), `MACROPHONE_FAKE_HISTORY`,
-`MACROPHONE_FAKE_PAIRED`, `MACROPHONE_FAKE_PROFILES`, `MACROPHONE_SEND_TO`, `MACROPHONE_INTENT_TARGET`,
+`MACROPHONE_FAKE_PAIRED`, `MACROPHONE_FAKE_PROFILES` (automations), `MACROPHONE_FAKE_TARGETS` (open apps:
+`default|long|none`), `MACROPHONE_SEND_TO` (`clipboard|front|<name>`), `MACROPHONE_SEND`, `MACROPHONE_CLEANUP`,
+`MACROPHONE_CLEANUP_AVAILABLE`, `MACROPHONE_ROUTE_PROBE`, `MACROPHONE_INTENT_TARGET`,
 `MACROPHONE_STATUS`, `MACROPHONE_OPEN_URL`, `MACROPHONE_PAIR_CODE`,
 `MACROPHONE_UNPAIR`, `MACROPHONE_RESEND_LATEST`, `MACROPHONE_RECORD`, `MACROPHONE_RESET`,
 `MACROPHONE_PAIRING` (`connecting|code|paired|failed|expired`: the pairing panel in that phase).
@@ -157,6 +209,6 @@ xcodebuild -project Macrophone.xcodeproj -scheme Macrophone -sdk iphonesimulator
 TEST_RUNNER_MACROPHONE_PAIR_URL='macrophone://pair?…' xcodebuild test -project Macrophone.xcodeproj \
   -scheme Macrophone -destination 'id=<your simulator>' -derivedDataPath build
 swift scripts/render-icon.swift   # re-renders the app icon
-cd scripts/route-sink && swift run route-sink --state /tmp/mp-route-sink   # a Mac with prefixed targets
+cd scripts/route-sink && swift run route-sink --state /tmp/mp-route-sink   # a Mac with open apps + automations
 scripts/capture-store-shots.sh && swift scripts/render-store-shots.swift  # App Store screenshots
 ```

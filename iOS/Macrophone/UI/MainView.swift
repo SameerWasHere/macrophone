@@ -151,6 +151,9 @@ struct MainView: View {
             }
             idleLine(line, compact ? .title3 : .title2)
             idleLine(line, .headline)
+            // Huge text in a short area: the line, shrunk to fit whole rather than cut off.
+            Text(line).font(.serif(.headline)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
+                .lineLimit(3).minimumScaleFactor(0.4)
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 8)
@@ -212,6 +215,7 @@ struct MainView: View {
         } content: {
             StatusLine(recorder: recorder, holding: holding)
         }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
 
     private func pressDown() {

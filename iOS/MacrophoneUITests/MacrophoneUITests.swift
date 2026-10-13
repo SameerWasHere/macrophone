@@ -20,6 +20,12 @@ final class MacrophoneUITests: XCTestCase {
         app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: timeout)
     }
 
+    /// Delivered (in the Mac's own words: "Pasted into …", "Sent to …", "Copied …"), copied on the
+    /// iPhone, or queued.
+    private func delivered(_ app: XCUIApplication) -> Bool {
+        statusContains(app, "Delivered") || ["Copied", "Pasted into", "Sent to", "Printed by", "queued"].contains { statusContains(app, $0, timeout: 1) }
+    }
+
     func testTapStartsAndTapSends() {
         let app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_SIM_RECORD": "testing the tap to talk path one two three"])
         let start = app.buttons["Start dictation"]
@@ -31,7 +37,7 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(stop.exists, "a quick tap keeps recording (tap mode)")
         stop.tap()
         XCTAssertTrue(app.buttons["Start dictation"].waitForExistence(timeout: 5), "a second tap stops")
-        XCTAssertTrue(statusContains(app, "Delivered") || statusContains(app, "Copied on iPhone", timeout: 1) || statusContains(app, "queued", timeout: 1))
+        XCTAssertTrue(delivered(app))
     }
 
     func testHoldToTalkSendsOnRelease() {
@@ -41,7 +47,7 @@ final class MacrophoneUITests: XCTestCase {
         start.press(forDuration: 1.5)
         XCTAssertTrue(app.buttons["Start dictation"].waitForExistence(timeout: 3), "letting go stops")
         XCTAssertFalse(app.buttons["Stop and send"].exists)
-        XCTAssertTrue(statusContains(app, "Delivered") || statusContains(app, "Copied on iPhone", timeout: 1) || statusContains(app, "queued", timeout: 1))
+        XCTAssertTrue(delivered(app))
     }
 
     /// The mic button sits in one place: idle or recording, with or without a last dictation,
@@ -110,6 +116,31 @@ final class MacrophoneUITests: XCTestCase {
                       "MACROPHONE_FAKE_TRANSCRIPT": "hello from my iPhone", "MACROPHONE_FAKE_DELAY": "1"])
         XCTAssertTrue(app.buttons["mac-app-nudge"].waitForExistence(timeout: 10))
         same(idle, frame(app, "Start dictation"), "the Mac-app nudge keeps the button in place")
+    }
+
+    /// At accessibility text sizes the page may scroll, but starting to record still doesn't move
+    /// the button: the card keeps its room and fades, the quick controls stay where they are.
+    func testMicButtonNeverMovesAtAccessibilitySizes() {
+        for size in ["UICTContentSizeCategoryAccessibilityM", "UICTContentSizeCategoryAccessibilityXXXL"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
+            app.launchEnvironment = ["MACROPHONE_RESET": "1", "MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac",
+                                     "MACROPHONE_FAKE_HISTORY": "1", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_SEND": "1",
+                                     "MACROPHONE_SIM_RECORD": "Messages, a long enough sentence to fill a few lines of words while I keep on talking"]
+            app.launch()
+            let start = app.buttons["Start dictation"]
+            XCTAssertTrue(start.waitForExistence(timeout: 8))
+            let idle = start.frame
+            start.tap()
+            sleep(3)
+            let stop = app.buttons["Stop and send"]
+            XCTAssertTrue(stop.waitForExistence(timeout: 3))
+            XCTAssertEqual(idle.midY, stop.frame.midY, accuracy: 0.5, "\(size): recording keeps the button in place")
+            stop.tap()
+            sleep(4)
+            XCTAssertEqual(idle.midY, app.buttons["Start dictation"].frame.midY, accuracy: 0.5, "\(size): the new last dictation keeps the button in place")
+            app.terminate()
+        }
     }
 
     /// Each quick control changes the next dictation: where it goes, Paste or Paste & send, and the
@@ -290,6 +321,27 @@ final class MacrophoneUITests: XCTestCase {
         let app = launch(["MACROPHONE_RESET": "1", "MACROPHONE_FAKE_PAIRED": "Sameer's MacBook Pro", "MACROPHONE_FAKE_HISTORY": "1", "MACROPHONE_SCREEN": ProcessInfo.processInfo.environment["MACROPHONE_DUMP"] ?? "history"])
         sleep(3)
         print("DUMP\n" + app.debugDescription)
+    }
+
+    /// Against a real stand-in Mac (`mpctl serve --commands`, already paired): a pick on the phone
+    /// reaches the Mac, and a change made on the Mac shows on the phone's chip while it's open.
+    /// Run with TEST_RUNNER_MACROPHONE_LIVE=1; while it waits, type `select com.anthropic.claudefordesktop`
+    /// into mpctl.
+    func testLiveSyncWithMac() throws {
+        guard ProcessInfo.processInfo.environment["MACROPHONE_LIVE"] == "1" else { throw XCTSkip("needs mpctl serve") }
+        let app = launch(["MACROPHONE_SCREEN": "main"])
+        XCTAssertTrue(statusContains(app, "Ready", timeout: 20), "connected")
+        app.buttons["send-to"].tap()
+        let messages = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Messages'")).firstMatch
+        XCTAssertTrue(messages.waitForExistence(timeout: 5), "the Mac's open apps are listed")
+        messages.tap()
+        XCTAssertTrue(app.buttons["Paste & send"].waitForExistence(timeout: 3))
+        app.buttons["Paste & send"].tap()
+        print("LIVE picked Messages + send")
+        let changed = NSPredicate(format: "label CONTAINS 'Claude'")
+        expectation(for: changed, evaluatedWith: app.buttons["send-to"])
+        waitForExpectations(timeout: 60)
+        print("LIVE chip now: \(app.buttons["send-to"].label)")
     }
 
     func testPairingLinkFromCamera() throws {

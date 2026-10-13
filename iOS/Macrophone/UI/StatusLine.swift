@@ -11,51 +11,39 @@ struct StatusLine: View {
 
     var body: some View {
         let (text, color) = content
-        let settings = settingsLink
         Group {
-            if settings {
+            if settingsLink {
                 // The fix is in Settings: the whole line is the way there (no extra row to make room for).
                 Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                } label: { ladder(text, color, link: true) }
+                } label: { line(text, color, link: true) }
                 .buttonStyle(.plain)
                 .accessibilityLabel(text)
                 .accessibilityHint("Opens Settings.")
             } else {
-                ladder(text, color, link: false)
-                    .accessibilityElement(children: .ignore)
+                line(text, color, link: false)
                     .accessibilityLabel(text)
                     .accessibilityAddTraits(.updatesFrequently)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, 24)
         .animation(.easeInOut(duration: 0.2), value: text)
     }
 
     private var settingsLink: Bool { if case .problem(_, true) = model.status { return true }; return false }
 
-    /// The line in the largest size that fits its fixed slot (MainView): the status font, then a
-    /// size down, then two down — never cut.
-    private func ladder(_ text: String, _ color: Color, link: Bool) -> some View {
-        ViewThatFits(in: .vertical) {
-            line(text, color, link: link, font: .subheadline)
-            line(text, color, link: link, font: .footnote)
-            line(text, color, link: link, font: .caption)
-            line(text, color, link: link, font: .caption2).minimumScaleFactor(0.7)
-        }
-    }
-
-    private func line(_ text: String, _ color: Color, link: Bool, font: Font) -> some View {
+    /// The line fills its fixed slot (MainView): a long one shrinks to fit whole — never cut.
+    private func line(_ text: String, _ color: Color, link: Bool) -> some View {
         // The dot rides in the sentence, so it stays beside the first word however the line wraps.
         var t = Text(Image(systemName: "circle.fill")).font(.system(size: dotSize)).foregroundColor(color).baselineOffset(dotSize * 0.2)
             + Text("\u{2002}") + Text(text)
         if link { t = t + Text("  Open Settings").foregroundColor(Light.cyan).fontWeight(.semibold) }
         return t
-            .font(font)
+            .font(.subheadline)
             .foregroundStyle(Ink.secondary)
             .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
+            .minimumScaleFactor(0.6)
             .shadow(color: color.opacity(0.25), radius: 6)
     }
 

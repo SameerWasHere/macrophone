@@ -968,6 +968,11 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {
         guard client === self.client else { return }
         recordingOverride = nil
+        var selection = selection
+        // Show the app the way the phone lists it ("Terminal — claude"), whatever name the Mac sent.
+        if case .app = selection.target, let live = liveTarget(for: selection.target) {
+            selection = SendSelection(target: live.ref, send: selection.send)
+        }
         settings.selection = selection
         log.add("send to changed on the Mac: \(Self.kind(selection.target))\(selection.send ? " + send" : "")")
     }
