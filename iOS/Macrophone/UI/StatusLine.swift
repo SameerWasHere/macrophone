@@ -48,6 +48,13 @@ struct StatusLine: View {
     }
 
     private var content: (String, Color) {
+        // A control just changed: what it now does, briefly (a problem still wins).
+        if let note = model.note {
+            switch model.status {
+            case .problem, .failed: break
+            default: return (note, Light.teal)
+            }
+        }
         if recorder.phase == .recording || recorder.phase == .starting {
             if recorder.softCapReached { return ("Recording will stop at 10:00", Light.ochre) }
             let live = model.liveRoute(recorder.transcript)

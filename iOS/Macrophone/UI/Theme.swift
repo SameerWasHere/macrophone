@@ -188,9 +188,11 @@ extension View {
     func edgeFade(top: CGFloat = 0, bottom: CGFloat = 24) -> some View { modifier(EdgeFade(top: top, bottom: bottom)) }
 }
 
-/// The haptic vocabulary (DESIGN.md): light on start, soft on stop, success / warning / error.
+/// The haptic vocabulary (DESIGN.md): light on start, soft on stop, success / warning / error,
+/// and a tick when a control by the mic changes.
 @MainActor
 enum Haptics {
+    static func tick() { UISelectionFeedbackGenerator().selectionChanged() }
     static func light() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     static func soft() { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
     static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }

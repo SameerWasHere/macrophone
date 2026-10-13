@@ -28,6 +28,9 @@ import UIKit
 /// MACROPHONE_INTENT_TARGET=clipboard|front|<name>  runs Start Dictation the way a Shortcut / control does, with that
 ///                                            target (needs MACROPHONE_SIM_RECORD; stops after 3 s)
 /// MACROPHONE_STATUS=queued|delivered|failed|sending|copied
+/// MACROPHONE_EXPLAIN=<sentence>             the status line's control explanation, held (layout checks)
+/// MACROPHONE_MIC_ONLY=1                      simulator: the real mic without the recognizer (Filament proof)
+/// MACROPHONE_MIC_WORDS=<text>                …with these words appearing as the voice comes in
 /// MACROPHONE_DICTIONARY=a,b,c                dictionary words
 /// MACROPHONE_DEVICE_NAME=<name>             what this iPhone calls itself
 /// MACROPHONE_LANGUAGE=<id>                   recognizer language
@@ -130,6 +133,8 @@ enum DebugHooks {
         default:
             if let t = model.liveTargets.first(where: { $0.title == to || $0.appName == to }) { return t.ref }
             if let p = model.profiles.first(where: { $0.name == to }) { return .automation(id: p.id, name: p.name) }
+            // A sample app that isn't open now (MACROPHONE_FAKE_TARGETS=none): picked anyway, so it shows as closed.
+            if let t = sampleApps(long: true).first(where: { $0.title == to || $0.appName == to }) { return t.ref }
             return nil
         }
     }
@@ -236,6 +241,7 @@ enum DebugHooks {
             default: break
             }
         }
+        if let s = env["MACROPHONE_EXPLAIN"] { model.explain(s, for: 3600) }
         if let text = env["MACROPHONE_FAKE_TRANSCRIPT"] {
             let early = env["MACROPHONE_FAKE_EARLY"] == "1"
             Task {

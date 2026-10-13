@@ -74,7 +74,12 @@ final class AppModel: ObservableObject {
     private(set) var client: LinkClient
 
     // Published state the screens read.
-    @Published var status: DeliveryStatus = .ready
+    @Published var status: DeliveryStatus = .ready {
+        didSet { if status != oldValue, note != nil { note = nil } }
+    }
+    /// A control just changed: the status line says what it now does, for a few seconds.
+    @Published private(set) var note: String?
+    private var noteTask: Task<Void, Never>?
     @Published private(set) var latest: HistoryItem?
     @Published private(set) var historyItems: [HistoryItem] = []
     @Published private(set) var linkState: LinkClient.State = .notPaired
@@ -733,6 +738,17 @@ final class AppModel: ObservableObject {
         case .frontApp: return "where I'm typing"
         case .app: return "an open app"
         case .automation: return "an automation"
+        }
+    }
+
+    /// Says in the status line what a control change does ("Pastes into Claude, then sends").
+    func explain(_ sentence: String, for seconds: Double = 3.2) {
+        note = sentence
+        noteTask?.cancel()
+        noteTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
+            guard !Task.isCancelled else { return }
+            self?.note = nil
         }
     }
 

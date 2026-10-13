@@ -65,6 +65,7 @@ struct MainView: View {
         #endif
         .onChange(of: model.pulse) { _, _ in react() }
         .onChange(of: recorder.phase) { _, _ in react() }
+        .onChange(of: recorder.transcript.isEmpty) { _, _ in react() }
         .onChange(of: model.status) { _, _ in react() }
         .onAppear { react() }
     }
@@ -108,14 +109,14 @@ struct MainView: View {
 
     // MARK: Stage: the words and the Filament
 
-    private var filamentHeight: CGFloat { compact ? 72 : 104 }
+    private var filamentHeight: CGFloat { compact ? 54 : 94 }
 
     /// The one flexible part of the page. Idle words and live words share one area whose size
     /// never depends on which is showing.
     private var stage: some View {
         VStack(spacing: 0) {
             Color.clear
-                .frame(minHeight: compact ? 56 : 84, maxHeight: .infinity)
+                .frame(minHeight: compact ? 36 : 64, maxHeight: .infinity)
                 .overlay(alignment: .bottom) {
                     ZStack(alignment: .bottom) {
                         if showLiveWords {
@@ -128,6 +129,7 @@ struct MainView: View {
                     .padding(.horizontal, 24)
                 }
                 .clipped()
+                .padding(.top, 6)
             ZStack {
                 Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
                 DeliveredCheck(visible: showCheck, color: checkColor)
@@ -198,9 +200,9 @@ struct MainView: View {
 
     private var quickControls: some View {
         FixedSlot {
-            QuickControlsTemplate()
+            QuickControlsTemplate(compact: compact)
         } content: {
-            QuickControls(settings: model.settings, recorder: recorder, recording: isRecording)
+            QuickControls(settings: model.settings, recorder: recorder, recording: isRecording, compact: compact)
         }
         .padding(.top, 4)
         .padding(.bottom, 4)
@@ -244,7 +246,7 @@ struct MainView: View {
 
     // MARK: Bottom: last dictation and the way to history
 
-    private var cardTextHeight: CGFloat { typeSize.isAccessibilitySize ? 200 : (compact ? 48 : 72) }
+    private var cardTextHeight: CGFloat { typeSize.isAccessibilitySize ? 200 : (compact ? 44 : 72) }
 
     private var bottom: some View {
         VStack(spacing: 10) {
@@ -312,14 +314,14 @@ struct MainView: View {
         settleTask?.cancel()
         let mode: FilamentMode
         if isRecording {
-            mode = .live
+            mode = recorder.transcript.isEmpty ? .listening : .live
         } else {
             switch model.status {
             case .cleaning, .sending: mode = .sending
             case .delivered, .duplicate, .copiedOnPhone: mode = .delivered
             case .queued: mode = .queued
             case .failed, .problem: mode = .error
-            case .listening: mode = recorder.phase == .finishing ? .sending : .live
+            case .listening: mode = recorder.phase == .finishing ? .sending : .listening
             default: mode = recorder.phase == .finishing ? .sending : .ready
             }
         }
@@ -351,27 +353,6 @@ struct FixedSlot<Template: View, Content: View>: View {
     }
 }
 
-/// The quick controls at their tallest: a two-line target name over the paste and cleanup line.
-private struct QuickControlsTemplate: View {
-    @Environment(\.dynamicTypeSize) private var typeSize
-    var body: some View {
-        VStack(spacing: 6) {
-            plate(Text("A\nB").font(.caption.weight(.semibold)).padding(.vertical, 6))
-            if typeSize.isAccessibilitySize {
-                VStack(spacing: 6) { plate(Text("A").font(.footnote.weight(.semibold))); plate(Text("A").font(.footnote.weight(.semibold))) }
-            } else {
-                plate(Text("A").font(.footnote.weight(.semibold)))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
-    }
-
-    private func plate(_ t: some View) -> some View {
-        t.frame(minHeight: 38).padding(.vertical, 3).frame(minHeight: 44)
-    }
-}
-
 /// The words as they're heard: serif, newest at the bottom, older lines fading out the top.
 struct LiveWords: View {
     var text: String
@@ -395,7 +376,7 @@ struct LiveWords: View {
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.bottom)
-            .edgeFade(top: 48, bottom: 0)
+            .edgeFade(top: 64, bottom: 0)
             .onChange(of: text) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) }
             }

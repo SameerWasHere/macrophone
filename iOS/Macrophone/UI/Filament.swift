@@ -1,227 +1,599 @@
+import QuartzCore
 import SwiftUI
+import UIKit
 
-// The Filament: the Thread from SameerOS — a tapered, luminous ribbon in the spectrum that moves
-// with the voice.
+// The Filament: the Hey Claude Thread (SameerOS-Mac `Voice/VoiceThread.swift` + `Views/ThreadRig.swift`)
+// on the iPhone, in Core Animation. Three strands braided into one luminous ribbon — spectrum
+// fills through ribbon masks, a soft glow, white-hot cores, and a bloom of light behind it.
 //
-// Ready     — at rest in a soft S, still (costs nothing).
-// Live      — the full spectrum; height and brightness follow the mic (attack fast, release slow).
-// Sending   — nearly flat; a bead of light runs along it.
-// Delivered — settles flat in mint (the ✓ is drawn by the caller).
-// Queued    — flat, ochre, dim.
-// Error     — rose, broken into dashes.
+// Ready      — at rest in a soft S, still. Costs nothing: no display link, no animation.
+// Listening  — the mic is open, no words yet: the cool end of the spectrum, a sweep of light, and
+//              the weave already following the voice.
+// Live       — words arriving: the full spectrum. The weave's height, the strands' spread and
+//              thickness, and the light all follow the level (attack fast, release slow); the phase
+//              runs faster while he speaks and calms in pauses; an onset lifts the cores.
+// Sending    — the working weave, beads of light flowing along the strands.
+// Delivered  — settles flat in mint (the ✓ is the caller's).
+// Queued     — flat, ochre, dim.
+// Error      — rose, broken into dashes, still.
 //
-// Drawn with Canvas in a TimelineView that only ticks while something is moving, so a
-// still screen costs nothing. Reduce Motion: a still line whose brightness follows the level.
+// A CADisplayLink runs only while something moves (live looks, the sending weave, a transition
+// settling) at 60 fps — 30 in Low Power Mode. Reduce Motion: a still Thread whose light follows the
+// level (15 fps, light only).
 
 enum FilamentMode: Equatable {
-    case ready, live, sending, delivered, queued, error
+    case ready, listening, live, sending, delivered, queued, error
+
+    var isLive: Bool { self == .listening || self == .live }
 }
 
-/// Per-frame state, smoothed between modes. A reference type so the Canvas can step it.
-final class FilamentState {
-    var level = 0.0
-    var tempo = 0.0
-    var phase = 0.0
-    var amp = 0.0
-    var bright = 0.45
-    var tint = 0.0        // 0 = spectrum, 1 = flat meaning colour
-    var dash = 0.0        // 0 solid … 1 broken
-    var flow = 0.0        // the sending bead's position
-    var lastTime: Date?
+/// The level → motion rules (Hey Claude's `VoiceDriver`), pure.
+struct VoiceDriver {
+    /// Per second. Attack ~45 ms, release ~0.4 s: it breathes with speech, it doesn't flicker.
+    static let attack = 22.0
+    static let release = 2.4
+    private(set) var level = 0.0
+    /// The weave's speed follows a slower copy of the level, so a pause winds it down gently.
+    private(set) var tempo = 0.0
+    private(set) var phase = 0.0
+    /// The voice's weight (a slower level): the strands' thickness.
+    private(set) var body = 0.0
+    /// An onset (a sudden rise): the cores lift, then decay.
+    private(set) var flash = 0.0
+    private var slow = 0.0
+
+    /// Radians a second: about eight seconds a cycle at rest, about one while he speaks.
+    static func speed(_ tempo: Double) -> Double { 0.8 + 5.4 * tempo }
+
+    mutating func step(raw: Double, dt: Double) {
+        let x = min(max(raw, 0), 1)
+        level += (x - level) * min(1, (x > level ? Self.attack : Self.release) * dt)
+        tempo += (level - tempo) * min(1, (level > tempo ? 6 : 1.1) * dt)
+        phase += dt * Self.speed(tempo)
+        if phase > 2 * .pi * 1000 { phase -= 2 * .pi * 1000 }
+        body += (level - body) * min(1, (level > body ? 9 : 2.5) * dt)
+        flash *= exp(-dt * 6)
+        if x - slow > 0.28 { flash = min(1, flash + 0.6) }
+        slow += (x - slow) * min(1, 1.5 * dt)
+    }
 }
 
+/// The SwiftUI face: a fixed-height band; the light reaches past it.
 struct Filament: View {
     var mode: FilamentMode
     var meter: LevelMeter
-    /// Height of the band the line moves in.
-    var height: CGFloat = 140
+    var height: CGFloat = 104
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var state = FilamentState()
-    @State private var settling = false
-
-    private var animating: Bool {
-        switch mode {
-        case .live, .sending: return true
-        default: return settling
-        }
-    }
 
     var body: some View {
-        // 60 fps while it moves; 30 in Low Power Mode. Paused (free) whenever it's still.
-        TimelineView(.animation(minimumInterval: ProcessInfo.processInfo.isLowPowerModeEnabled ? 1.0 / 30 : 1.0 / 60, paused: !animating)) { context in
-            let now = context.date
-            ZStack {
-                // The glow: the same shape, wider, blurred by the render server.
-                Canvas { ctx, size in
-                    draw(&ctx, size: size, now: now, glow: true)
-                }
-                .blur(radius: 16)
-                .blendMode(.plusLighter)
-                .opacity(0.95)
-                Canvas { ctx, size in
-                    step(now: now)
-                    draw(&ctx, size: size, now: now, glow: false)
-                }
-            }
+        ThreadRepresentable(mode: mode, meter: meter, reduceMotion: reduceMotion)
+            .frame(height: height)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct ThreadRepresentable: UIViewRepresentable {
+    var mode: FilamentMode
+    var meter: LevelMeter
+    var reduceMotion: Bool
+
+    func makeUIView(context: Context) -> ThreadView { ThreadView(meter: meter) }
+    func updateUIView(_ v: ThreadView, context: Context) {
+        v.reduceMotion = reduceMotion
+        v.set(mode)
+    }
+    static func dismantleUIView(_ v: ThreadView, coordinator: ()) { v.stopLink() }
+}
+
+/// Holds the display link weakly (a CADisplayLink retains its target).
+private final class LinkProxy: NSObject {
+    weak var owner: ThreadView?
+    @objc func tick(_ link: CADisplayLink) { owner?.tick(link) }
+}
+
+final class ThreadView: UIView {
+    private let meter: LevelMeter
+    var reduceMotion = false
+
+    // Layers, back to front.
+    private let bloom = CAGradientLayer()          // the light behind it, breathing with the voice
+    private let container = CALayer()               // everything on the strands, faded at the tips
+    private let tipFade = CAGradientLayer()
+    private let glowFill = CAGradientLayer()
+    private let glowMask = CALayer()
+    private var glowStrokes: [CAShapeLayer] = []
+    private let bodyFill = CAGradientLayer()
+    private let bodyMask = CALayer()
+    private var bodies: [CAShapeLayer] = []
+    private var cores: [CAShapeLayer] = []
+    private let dashes = CAShapeLayer()
+    private let sweep = CAGradientLayer()
+    private var beads: [CAGradientLayer] = []
+
+    private(set) var mode: FilamentMode = .ready
+    private var driver = VoiceDriver()
+    private var link: CADisplayLink?
+    private let proxy = LinkProxy()
+    private var lastTick: CFTimeInterval = 0
+    private var modeStart: CFTimeInterval = CACurrentMediaTime()
+    /// The pose on screen, and the one a change blends from.
+    private var shown: [[CGPoint]] = []
+    private var from: [[CGPoint]] = []
+    private var blendStart: CFTimeInterval = 0
+    private static let blendTime: CFTimeInterval = 0.45
+    private static let settleTime: CFTimeInterval = 1.1
+    private var builtSize: CGSize = .zero
+
+    init(meter: LevelMeter) {
+        self.meter = meter
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+        layer.masksToBounds = false
+        proxy.owner = self
+        build()
+    }
+    required init?(coder: NSCoder) { nil }
+
+    deinit { link?.invalidate() }
+
+    // MARK: Building
+
+    private func build() {
+        bloom.type = .radial
+        bloom.startPoint = CGPoint(x: 0.5, y: 0.5)
+        bloom.endPoint = CGPoint(x: 1, y: 1)
+        layer.addSublayer(bloom)
+
+        layer.addSublayer(container)
+        container.mask = tipFade
+        tipFade.startPoint = CGPoint(x: 0, y: 0.5); tipFade.endPoint = CGPoint(x: 1, y: 0.5)
+        let w = UIColor.white
+        tipFade.colors = [w.withAlphaComponent(0).cgColor, w.cgColor, w.cgColor, w.withAlphaComponent(0).cgColor]
+        tipFade.locations = [0, 0.13, 0.87, 1]
+
+        // The glow: one spectrum fill through soft strokes. iOS has no layer filters, so each
+        // stroke's own shadow is its blur (the mask renders it): a wide halo round the middle
+        // strand and a tighter glow round all three.
+        for g in [glowFill, bodyFill] { g.startPoint = CGPoint(x: 0, y: 0.5); g.endPoint = CGPoint(x: 1, y: 0.5) }
+        for alpha in [0.5, 0.6] as [Float] {
+            let s = CAShapeLayer()
+            s.fillColor = nil
+            s.strokeColor = UIColor.black.cgColor
+            s.lineCap = .round; s.lineJoin = .round
+            s.opacity = alpha
+            s.shadowColor = UIColor.black.cgColor
+            s.shadowOpacity = 1
+            s.shadowOffset = .zero
+            glowMask.addSublayer(s)
+            glowStrokes.append(s)
         }
-        .frame(height: height)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-        .onChange(of: mode) { _, _ in settle() }
-        .onAppear { settle() }
+        glowFill.mask = glowMask
+        container.addSublayer(glowFill)
+
+        // The strands: one spectrum fill through three ribbons (the middle one strongest).
+        for i in 0..<3 {
+            let s = CAShapeLayer()
+            s.fillColor = UIColor.black.cgColor
+            s.opacity = i == 1 ? 1 : 0.72
+            bodyMask.addSublayer(s)
+            bodies.append(s)
+        }
+        bodyFill.mask = bodyMask
+        container.addSublayer(bodyFill)
+
+        // The white-hot cores.
+        for _ in 0..<3 {
+            let c = CAShapeLayer()
+            c.fillColor = UIColor.white.cgColor
+            container.addSublayer(c)
+            cores.append(c)
+        }
+
+        dashes.fillColor = nil
+        dashes.lineCap = .round
+        dashes.isHidden = true
+        container.addSublayer(dashes)
+
+        Self.makeGlow(sweep, .white, strength: 0.55)
+        sweep.isHidden = true
+        container.addSublayer(sweep)
+        for _ in 0..<4 {
+            let b = CAGradientLayer()
+            Self.makeGlow(b, UIColor(red: 0.85, green: 1, blue: 0.98, alpha: 1), strength: 0.9)
+            b.isHidden = true
+            container.addSublayer(b)
+            beads.append(b)
+        }
+        noActions(layer)
     }
 
-    /// Keep ticking a little after a mode change so the line eases into its new pose.
-    private func settle() {
-        settling = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
-            settling = false
+    private static func makeGlow(_ g: CAGradientLayer, _ color: UIColor, strength: CGFloat) {
+        g.type = .radial
+        g.startPoint = CGPoint(x: 0.5, y: 0.5)
+        g.endPoint = CGPoint(x: 1, y: 1)
+        g.colors = [color.withAlphaComponent(strength).cgColor, color.withAlphaComponent(strength * 0.3).cgColor,
+                    color.withAlphaComponent(0).cgColor]
+    }
+
+    /// Nothing here animates implicitly; every change is ours.
+    private func noActions(_ l: CALayer) {
+        let none = NSNull()
+        l.actions = ["position": none, "bounds": none, "path": none, "opacity": none, "hidden": none,
+                     "colors": none, "locations": none, "transform": none, "frame": none, "contents": none]
+        l.sublayers?.forEach(noActions)
+        if let m = l.mask { noActions(m) }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        let scale = window?.screen.scale ?? 3
+        func walk(_ l: CALayer) { l.contentsScale = scale; l.sublayers?.forEach(walk); if let m = l.mask { walk(m) } }
+        walk(layer)
+        if window == nil { stopLink() } else { updateLink() }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != builtSize, bounds.width > 4, bounds.height > 4 else { return }
+        builtSize = bounds.size
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let b = bounds
+        // The light reaches past the band.
+        let reach = CGRect(x: -16, y: -b.height * 0.6, width: b.width + 32, height: b.height * 2.2)
+        container.frame = reach
+        tipFade.frame = container.bounds
+        for l in [glowFill, bodyFill] { l.frame = container.bounds }
+        for l in [glowMask, bodyMask, dashes] as [CALayer] { l.frame = container.bounds }
+        for l in glowStrokes + bodies + cores { l.frame = container.bounds }
+        bloom.frame = CGRect(x: b.width * 0.05, y: -b.height * 0.9, width: b.width * 0.9, height: b.height * 2.8)
+        let glowSize = 64 * k
+        sweep.bounds = CGRect(x: 0, y: 0, width: glowSize, height: glowSize)
+        for bd in beads { bd.bounds = CGRect(x: 0, y: 0, width: 26 * k, height: 26 * k) }
+        glowStrokes[0].lineWidth = 5 * k
+        glowStrokes[0].shadowRadius = 18 * k
+        glowStrokes[1].lineWidth = 3 * k
+        glowStrokes[1].shadowRadius = 7 * k
+        dashes.lineWidth = 1.8 * k
+        dashes.lineDashPattern = [NSNumber(value: Double(7 * k)), NSNumber(value: Double(6 * k))]
+        CATransaction.commit()
+        shown = []
+        applyColors(animated: false)
+        render(now: CACurrentMediaTime())
+        updateLink()
+    }
+
+    // MARK: Geometry (ThreadRig's, in the band's own space)
+
+    /// The band inside the container (which reaches past the view for the light).
+    private var band: CGRect {
+        let c = container.frame
+        return CGRect(x: -c.minX + bounds.width * 0.02, y: -c.minY, width: bounds.width * 0.96, height: bounds.height)
+    }
+    private var amp: Double { Double(bounds.height) * 0.5 }
+    /// Thickness: 1.2 at 104 pt.
+    private var k: CGFloat { min(1.45, max(0.8, bounds.height / 88)) }
+    private static let samples = 96
+    private static let phases: [Double] = [0, 2.1, 4.2]
+
+    private func env(_ u: Double) -> Double { pow(sin(.pi * u), 1.25) }
+
+    /// One strand's centre line for a look at `t` seconds into it.
+    private func line(_ s: Int, look: FilamentMode, t: Double) -> [CGPoint] {
+        let n = Self.samples
+        let phi = Self.phases[s]
+        let spread = Double(s - 1)
+        let r = band
+        let w = Double(r.width)
+        let f = min(1.4, max(1, w / 360))
+        let A = amp
+        let v = driver
+        let still = reduceMotion
+        return (0...n).map { i in
+            let u = Double(i) / Double(n)
+            let e = env(u)
+            let rest = -A * 0.36 * sin(2 * .pi * (u - 0.5)) * e
+            var y: Double
+            switch look {
+            case .listening, .live:
+                if still {
+                    y = rest + A * 0.1 * e * sin(2 * .pi * 1.5 * f * u + phi)
+                } else {
+                    // His voice: the energy sits in the middle (a bell under the taper), the weave
+                    // rises with the level and travels with the phase; a standing bulge breathes the
+                    // braid apart when he is loud.
+                    let a = v.level
+                    let bell = exp(-pow((u - 0.5) / 0.26, 2))
+                    let shape = e * (0.25 + 0.75 * bell)
+                    let weave = A * (0.07 + 0.62 * a) * (1 + 0.12 * spread) * shape * sin(2 * .pi * 1.6 * f * u - v.phase + phi)
+                    let stand = A * 0.38 * a * shape * sin(3 * .pi * u) * cos(0.45 * v.phase + phi * 0.5)
+                    y = rest * (0.6 - 0.3 * a) + weave + stand
+                }
+            case .sending:
+                let tt = still ? 0 : t
+                let stand = A * 0.3 * e * sin(3 * .pi * u) * cos(2 * .pi * tt / 3.4)
+                let weave = A * (0.15 + 0.05 * spread) * e * sin(2 * .pi * 2.1 * f * u - 2 * (2 * .pi / 6.8) * tt + phi)
+                y = rest * 0.45 + stand + weave
+            case .delivered, .queued:
+                let q = still ? 1 : min(max(t / Self.settleTime, 0), 1)
+                let settle = 1 - pow(1 - q, 3)
+                let lively = rest * 0.5 + A * 0.12 * e * sin(2 * .pi * 1.5 * f * u + phi)
+                y = lively * (1 - settle) + A * 0.022 * e * sin(2 * .pi * 1.5 * f * u + phi) * settle
+            case .error:
+                y = rest * 0.35
+            case .ready:
+                y = rest + A * 0.11 * e * sin(2 * .pi * 1.5 * f * u + phi)
+            }
+            return CGPoint(x: Double(r.minX) + u * w, y: Double(r.midY) + y)
         }
+    }
+
+    private func ribbon(_ pts: [CGPoint], half: CGFloat) -> CGPath {
+        var top: [CGPoint] = [], bottom: [CGPoint] = []
+        top.reserveCapacity(pts.count); bottom.reserveCapacity(pts.count)
+        for i in pts.indices {
+            let a = pts[max(i - 1, 0)], b = pts[min(i + 1, pts.count - 1)]
+            let dx = b.x - a.x, dy = b.y - a.y
+            let len = max(hypot(dx, dy), 0.0001)
+            let nx = -dy / len, ny = dx / len
+            let u = Double(i) / Double(pts.count - 1)
+            let hw = half * CGFloat(pow(sin(.pi * u), 0.65))
+            top.append(CGPoint(x: pts[i].x + nx * hw, y: pts[i].y + ny * hw))
+            bottom.append(CGPoint(x: pts[i].x - nx * hw, y: pts[i].y - ny * hw))
+        }
+        let path = CGMutablePath()
+        path.addLines(between: top)
+        path.addLines(between: bottom.reversed())
+        path.closeSubpath()
+        return path
+    }
+
+    private func point(at u: Double, on l: [CGPoint]) -> CGPoint {
+        l[min(l.count - 1, max(0, Int((u * Double(l.count - 1)).rounded())))]
+    }
+
+    // MARK: Looks
+
+    func set(_ m: FilamentMode) {
+        guard m != mode else { return }
+        let was = mode
+        mode = m
+        let now = CACurrentMediaTime()
+        modeStart = now
+        // Live to live keeps its pose (the voice continues); anything else blends from where it is.
+        if !(was.isLive && m.isLive) {
+            from = shown
+            blendStart = now
+        }
+        if m.isLive && !was.isLive { driver = VoiceDriver() }
+        applyColors(animated: true)
+        render(now: now)
+        updateLink()
+    }
+
+    private static let spectrum: [UIColor] = RGB.thread.map { UIColor(red: $0.r, green: $0.g, blue: $0.b, alpha: 1) }
+
+    private func stops() -> [(UIColor, Double)] {
+        let s = Self.spectrum   // violet, cyan, mint, gold, coral
+        func c(_ r: RGB) -> UIColor { UIColor(red: r.r, green: r.g, blue: r.b, alpha: 1) }
+        switch mode {
+        case .ready, .listening: return [(s[0], 0), (s[1], 0.5), (s[2], 1)]
+        case .live: return s.enumerated().map { ($1, Double($0) / Double(s.count - 1)) }
+        case .sending: return [(s[1], 0), (s[2], 0.35), (c(.teal), 0.65), (s[1], 1)]
+        case .delivered:
+            let m = c(.mint)
+            return [(m.withAlphaComponent(0.75), 0), (m, 0.3), (UIColor(red: 0.85, green: 1, blue: 0.93, alpha: 1), 0.5), (m, 0.7), (m.withAlphaComponent(0.75), 1)]
+        case .queued: return [(c(.ochre), 0), (c(.ochre), 1)]
+        case .error: return [(c(.rose), 0), (c(.rose), 1)]
+        }
+    }
+
+    private func bloomColor() -> UIColor {
+        func c(_ r: RGB, _ a: CGFloat) -> UIColor { UIColor(red: r.r, green: r.g, blue: r.b, alpha: a) }
+        switch mode {
+        case .ready: return c(.cyan, 0.10)
+        case .listening: return c(.cyan, 0.16)
+        case .live: return c(.ember, 0.20)
+        case .sending: return c(.teal, 0.16)
+        case .delivered: return c(.mint, 0.20)
+        case .queued: return c(.ochre, 0.12)
+        case .error: return c(.rose, 0.14)
+        }
+    }
+
+    private func applyColors(animated: Bool) {
+        let st = stops()
+        let c = container.bounds
+        guard c.width > 0 else { return }
+        let r = band
+        let lo = Double(r.minX / c.width), hi = Double(r.maxX / c.width)
+        CATransaction.begin()
+        if animated && !reduceMotion {
+            CATransaction.setAnimationDuration(0.35)
+        } else {
+            CATransaction.setDisableActions(true)
+        }
+        for g in [glowFill, bodyFill] {
+            let colors = st.map { $0.0.cgColor }
+            let locs = st.map { NSNumber(value: lo + $0.1 * (hi - lo)) }
+            if animated {
+                let a = CABasicAnimation(keyPath: "colors"); a.fromValue = g.presentation()?.colors ?? g.colors; a.toValue = colors
+                a.duration = reduceMotion ? 0.2 : 0.35
+                g.add(a, forKey: "colors")
+            }
+            g.colors = colors
+            g.locations = locs
+        }
+        let bc = bloomColor()
+        let bcolors = [bc.cgColor, bc.withAlphaComponent(bc.cgColor.alpha * 0.35).cgColor, bc.withAlphaComponent(0).cgColor]
+        if animated {
+            let a = CABasicAnimation(keyPath: "colors"); a.fromValue = bloom.presentation()?.colors ?? bloom.colors; a.toValue = bcolors
+            a.duration = 0.5
+            bloom.add(a, forKey: "colors")
+        }
+        bloom.colors = bcolors
+        bloom.locations = [0, 0.45, 1]
+        let rose = UIColor(red: RGB.rose.r, green: RGB.rose.g, blue: RGB.rose.b, alpha: 0.9)
+        dashes.strokeColor = rose.cgColor
+        CATransaction.commit()
     }
 
     // MARK: Motion
 
-    private func step(now: Date) {
-        let s = state
-        let dt = min(max(now.timeIntervalSince(s.lastTime ?? now), 0), 0.05)
-        s.lastTime = now
-        let raw = mode == .live ? Double(meter.level) : 0
-        s.level += (raw - s.level) * min(1, (raw > s.level ? 22 : 2.4) * dt)
-        s.tempo += (s.level - s.tempo) * min(1, (s.level > s.tempo ? 6 : 1.1) * dt)
-
-        let targetAmp: Double
-        let targetBright: Double
-        let targetTint: Double
-        let targetDash: Double
-        switch mode {
-        case .ready: targetAmp = 0; targetBright = 0.62; targetTint = 0; targetDash = 0
-        case .live: targetAmp = 0.06 + 0.94 * s.level; targetBright = 0.78 + 0.22 * s.level; targetTint = 0; targetDash = 0
-        case .sending: targetAmp = 0.05; targetBright = 0.8; targetTint = 0; targetDash = 0
-        case .delivered: targetAmp = 0; targetBright = 0.95; targetTint = 1; targetDash = 0
-        case .queued: targetAmp = 0; targetBright = 0.6; targetTint = 1; targetDash = 0
-        case .error: targetAmp = 0; targetBright = 0.75; targetTint = 1; targetDash = 1
-        }
-        let k = min(1, 5 * dt)
-        s.amp += ((reduceMotion ? 0 : targetAmp) - s.amp) * (targetAmp > s.amp ? min(1, 14 * dt) : k)
-        s.bright += (targetBright - s.bright) * k
-        s.tint += (targetTint - s.tint) * min(1, 6 * dt)
-        s.dash += (targetDash - s.dash) * min(1, 8 * dt)
-        if !reduceMotion {
-            s.phase += dt * (0.8 + 5.4 * s.tempo + (mode == .sending ? 1.5 : 0))
-            if mode == .sending { s.flow = (s.flow + dt * 0.75).truncatingRemainder(dividingBy: 1.3) } else { s.flow = 0 }
-        }
+    /// Whether anything is moving: the display link runs only then.
+    private var moving: Bool {
+        let now = CACurrentMediaTime()
+        if mode.isLive || mode == .sending { return true }
+        if now - blendStart < Self.blendTime + 0.05 { return true }
+        if (mode == .delivered || mode == .queued) && now - modeStart < Self.settleTime + 0.05 && !reduceMotion { return true }
+        return false
     }
 
-    private var meaning: RGB {
-        switch mode {
-        case .delivered: return .mint
-        case .queued: return .ochre
-        case .error: return .rose
-        default: return .cyan
-        }
-    }
-
-    // MARK: Drawing — the Thread (SameerOS's luminous ribbon): a tapered band in the spectrum,
-    // a halo, a glow and a white-hot core. At rest it lies in a soft S; a voice swells it.
-
-    private var meaningRGB: RGB { meaning }
-
-    private func draw(_ ctx: inout GraphicsContext, size: CGSize, now: Date, glow: Bool) {
-        let s = state
-        let w = size.width, h = size.height, mid = h / 2
-        let n = 120
-        let inset = w * 0.04
-        let span = w - inset * 2
-        // The resting S (always there) plus the voice (only while live).
-        let restAmp = Double(h) * 0.16
-        let voiceAmp = Double(h) * 0.30
-        let half = Double(h) * (0.055 + 0.05 * s.level)
-
-        // The gradient: the Thread's spectrum, or the meaning colour, with the sending bead.
-        let stopsCount = 24
-        var stops: [Gradient.Stop] = []
-        stops.reserveCapacity(stopsCount + 1)
-        for i in 0...stopsCount {
-            let u = Double(i) / Double(stopsCount)
-            var c = RGB.threadAt(u).mix(meaningRGB, s.tint)
-            if s.flow > 0 {
-                let d = (u - (s.flow - 0.15)) / 0.08
-                c = c.mix(.white, 0.75 * exp(-d * d))
-            }
-            stops.append(.init(color: c.color(s.bright), location: u))
-        }
-        let shading = GraphicsContext.Shading.linearGradient(Gradient(stops: stops), startPoint: CGPoint(x: inset, y: 0),
-                                                             endPoint: CGPoint(x: w - inset, y: 0))
-
-        // The centre line.
-        var centre: [CGPoint] = []
-        centre.reserveCapacity(n + 1)
-        for i in 0...n {
-            let u = Double(i) / Double(n)
-            let env = pow(sin(.pi * u), 1.25)
-            // The rest: one S, rising left to right, flattening as the Thread settles to a meaning.
-            let rest = -restAmp * (1 - 0.7 * s.tint) * sin(2 * .pi * (u - 0.5)) * env
-            // The voice: slow, smooth swells travelling along it.
-            let p = s.phase
-            let voice = voiceAmp * s.amp * env * (0.62 * sin(2 * .pi * 1.1 * u + p) + 0.38 * sin(2 * .pi * 2.3 * u - 1.4 * p + 0.8))
-            centre.append(CGPoint(x: Double(inset) + Double(span) * u, y: Double(mid) + rest + voice))
-        }
-
-        func band(_ k: Double) -> (top: [CGPoint], bottom: [CGPoint]) {
-            var top: [CGPoint] = [], bottom: [CGPoint] = []
-            top.reserveCapacity(n + 1); bottom.reserveCapacity(n + 1)
-            for i in 0...n {
-                let a = centre[max(i - 1, 0)], b = centre[min(i + 1, n)]
-                let dx = b.x - a.x, dy = b.y - a.y, len = max(hypot(dx, dy), 0.0001)
-                let nx = -dy / len, ny = dx / len
-                let u = Double(i) / Double(n)
-                let t = half * k * pow(sin(.pi * u), 0.7)
-                top.append(CGPoint(x: centre[i].x + nx * t, y: centre[i].y + ny * t))
-                bottom.append(CGPoint(x: centre[i].x - nx * t, y: centre[i].y - ny * t))
-            }
-            return (top, bottom)
-        }
-
-        if glow {
-            // The halo and the glow: wide, soft (the view blurs this layer).
-            let wide = band(2.6)
-            fillBand(&ctx, wide, shading: shading, opacity: 0.55 * (0.4 + 0.6 * s.bright))
-            return
-        }
-        let body = band(1)
-        if s.dash > 0.02 {
-            let run = 8
-            var start = 0
-            var on = true
-            while start < n {
-                let end = min(start + run, n)
-                let o = on ? 1 : max(0, 1 - s.dash)
-                if o > 0.01 { fillBand(&ctx, body, range: start...end, shading: shading, opacity: o) }
-                on.toggle()
-                start = end
+    private func updateLink() {
+        guard window != nil, bounds.width > 4 else { stopLink(); return }
+        if moving {
+            let fps: Float = reduceMotion ? 15 : (ProcessInfo.processInfo.isLowPowerModeEnabled ? 30 : 60)
+            if link == nil {
+                let l = CADisplayLink(target: proxy, selector: #selector(LinkProxy.tick(_:)))
+                l.preferredFrameRateRange = CAFrameRateRange(minimum: min(fps, 30), maximum: fps, preferred: fps)
+                l.add(to: .main, forMode: .common)
+                link = l
+                lastTick = CACurrentMediaTime()
+            } else {
+                link?.preferredFrameRateRange = CAFrameRateRange(minimum: min(fps, 30), maximum: fps, preferred: fps)
             }
         } else {
-            fillBand(&ctx, body, shading: shading, opacity: 1)
-            // The white-hot core.
-            var core = ctx
-            core.blendMode = .plusLighter
-            fillBand(&core, band(0.36), shading: .color(.white), opacity: 0.55 * s.bright)
+            stopLink()
         }
     }
 
-    private func fillBand(_ ctx: inout GraphicsContext, _ b: (top: [CGPoint], bottom: [CGPoint]), range: ClosedRange<Int>? = nil,
-                          shading: GraphicsContext.Shading, opacity: Double) {
-        let r = range ?? 0...(b.top.count - 1)
-        var path = Path()
-        path.move(to: b.top[r.lowerBound])
-        for i in r.dropFirst() { path.addLine(to: b.top[i]) }
-        for i in r.reversed() { path.addLine(to: b.bottom[i]) }
-        path.closeSubpath()
-        var c = ctx
-        c.opacity = opacity
-        c.fill(path, with: shading)
+    func stopLink() {
+        link?.invalidate()
+        link = nil
+    }
+
+    fileprivate func tick(_ l: CADisplayLink) {
+        let now = CACurrentMediaTime()
+        render(now: now)
+        if !moving { stopLink() }
+    }
+
+    /// One frame: the level in, the pose and the light out.
+    private func render(now: CFTimeInterval) {
+        guard bounds.width > 4 else { return }
+        let dt = min(max(now - lastTick, 0), 0.1)
+        lastTick = now
+        if mode.isLive { driver.step(raw: Double(meter.level), dt: dt) }
+        let t = now - modeStart
+
+        var lines = (0..<3).map { line($0, look: mode, t: t) }
+        // A change of look glides from the pose on screen.
+        let bq = (now - blendStart) / Self.blendTime
+        if bq < 1, from.count == 3, from[0].count == lines[0].count, !reduceMotion {
+            let e = bq * bq * (3 - 2 * bq)
+            for s in 0..<3 {
+                for i in lines[s].indices {
+                    let a = from[s][i], b = lines[s][i]
+                    lines[s][i] = CGPoint(x: a.x + (b.x - a.x) * e, y: a.y + (b.y - a.y) * e)
+                }
+            }
+        }
+        shown = lines
+
+        let L = mode.isLive ? driver.level : 0
+        let weight: CGFloat = mode.isLive && !reduceMotion ? CGFloat(0.88 + 0.55 * driver.body + 0.2 * driver.level) : 1
+        let kk = k
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let broken = mode == .error
+        for (i, l) in lines.enumerated() {
+            bodies[i].path = ribbon(l, half: (i == 1 ? 2.9 : 1.5) * kk * weight)
+            cores[i].path = ribbon(l, half: (i == 1 ? 0.62 : 0.3) * kk * weight)
+        }
+        let spines = CGMutablePath()
+        for l in lines { spines.addLines(between: l) }
+        let mid = lines[1]
+        let midSpine = CGMutablePath()
+        midSpine.addLines(between: Array(mid[(mid.count / 10)...(mid.count * 9 / 10)]))
+        glowStrokes[0].path = midSpine
+        glowStrokes[1].path = spines
+
+        bodyFill.isHidden = broken
+        cores.forEach { $0.isHidden = broken }
+        dashes.isHidden = !broken
+        if broken {
+            let p = CGMutablePath(); p.addLines(between: mid); dashes.path = p
+        }
+
+        // The light follows the level: bloom, glow, strands and cores brighten as he speaks.
+        switch mode {
+        case .listening, .live:
+            container.opacity = mode == .listening ? 0.86 : 0.97
+            glowFill.opacity = Float(0.5 + 0.5 * L)
+            bodyFill.opacity = Float(0.66 + 0.34 * L)
+            for c in cores { c.opacity = Float(min(1, 0.3 + 0.5 * L + 0.3 * driver.flash)) }
+            bloom.opacity = Float(0.45 + 0.55 * L)
+            bloom.transform = CATransform3DMakeScale(1, CGFloat(0.85 + 0.3 * L), 1)
+        case .ready:
+            container.opacity = 0.9
+            glowFill.opacity = 0.5
+            bodyFill.opacity = 0.82
+            for c in cores { c.opacity = 0.42 }
+            bloom.opacity = 0.6
+            bloom.transform = CATransform3DIdentity
+        case .sending:
+            container.opacity = 0.95
+            glowFill.opacity = 0.6
+            bodyFill.opacity = 0.8
+            for c in cores { c.opacity = 0.55 }
+            bloom.opacity = 0.8
+            bloom.transform = CATransform3DIdentity
+        case .delivered:
+            container.opacity = 1
+            glowFill.opacity = 0.7
+            bodyFill.opacity = 0.9
+            for c in cores { c.opacity = 0.6 }
+            bloom.opacity = 1
+            bloom.transform = CATransform3DIdentity
+        case .queued:
+            container.opacity = 0.62
+            glowFill.opacity = 0.35
+            bodyFill.opacity = 0.8
+            for c in cores { c.opacity = 0.2 }
+            bloom.opacity = 0.7
+            bloom.transform = CATransform3DIdentity
+        case .error:
+            container.opacity = 0.9
+            glowFill.opacity = 0.22
+            bloom.opacity = 0.8
+            bloom.transform = CATransform3DIdentity
+        }
+
+        // The listening sweep: a pass of light along the strand every 3.4 s.
+        let sweeping = mode == .listening && !reduceMotion
+        sweep.isHidden = !sweeping
+        if sweeping {
+            let p = t.truncatingRemainder(dividingBy: 3.4)
+            let q = min(p / 2.4, 1)
+            let u = min(max(-0.1 + 1.2 * (q * q * (3 - 2 * q)), 0), 1)
+            sweep.position = point(at: u, on: mid)
+            sweep.opacity = Float(p < 2.4 ? (1 - 0.6 * L) * sin(.pi * u) : 0)
+        }
+
+        // Sending: beads of light flowing along the strands, left to right.
+        let flowing = mode == .sending && !reduceMotion
+        for (i, b) in beads.enumerated() {
+            b.isHidden = !flowing
+            guard flowing else { continue }
+            let s = i % 3
+            let u = (t / 1.4 + Double(i) * 0.27).truncatingRemainder(dividingBy: 1)
+            b.position = point(at: u, on: lines[s])
+            b.opacity = Float(sin(.pi * u))
+        }
+        CATransaction.commit()
     }
 }
 

@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import Foundation
 import MacrophoneKit
@@ -23,11 +24,44 @@ final class LevelMeter: @unchecked Sendable {
     func set(_ v: Float) { lock.lock(); value = v; lock.unlock() }
 }
 
+/// Loudness → 0…1 against the room, not against a fixed dB line (the Mac's Hey Claude rule).
+///
+/// Why: the recorder runs the session in `.measurement` mode (no automatic gain, the cleanest
+/// signal for the recognizer), where an iPhone's speech can sit anywhere from about −50 to −20 dBFS
+/// depending on the mic, the room and the distance. The old fixed −52…−12 dB scale (then smoothed
+/// twice, releasing slowly) left a quiet or distant voice near the bottom of it — on the simulator's
+/// mic a voice peaking 13 dB over the room (−46 dBFS) read 0.15 — under a Filament whose voice swell was smaller than its
+/// resting S. Here the floor is the room's own quiet (a low percentile of the last few seconds, so a
+/// voice can't drag it up); 4 dB over it is the first movement and 28 dB over it is full scale, on a
+/// gentle curve. Pure, so it can be checked without a mic.
+struct LevelScale {
+    /// Recent loudness, newest last (~4–6 s of buffers).
+    private var recent: [Float] = []
+    private(set) var floor: Float = -62
+    /// The loudest recent voice, for diagnostics (not content: a number).
+    private(set) var voicePeak: Float = -160
+
+    static let span: Float = 24
+    static let margin: Float = 4
+
+    mutating func level(db: Float) -> Float {
+        guard db > -120 else { return 0 }   // digital silence (the mic starting up)
+        recent.append(db)
+        if recent.count > 60 { recent.removeFirst(recent.count - 60) }
+        let sorted = recent.sorted()
+        // The room: the 10th percentile, never louder than −28 dB (a loud room still leaves a voice room to move).
+        floor = min(sorted[sorted.count / 10], -28)
+        if db > floor + 10 { voicePeak = max(voicePeak, db) }
+        // A gentle curve lifts a quiet voice without flattening a loud one.
+        return pow(min(max((db - floor - Self.margin) / Self.span, 0), 1), 0.8)
+    }
+}
+
 /// The tap's side: which request the buffers go to, plus level and pause detection.
 final class AudioFeed: @unchecked Sendable {
     private let lock = NSLock()
     private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var smoothed: Float = 0
+    private var scale = LevelScale()
     private var lastLoud = Date.distantPast
     private var lastBuffer = Date.distantPast
     let meter: LevelMeter
@@ -39,12 +73,21 @@ final class AudioFeed: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         let old = request
         request = r
-        if r == nil { smoothed = 0; meter.set(0) }
+        if r == nil { meter.set(0) }
         return old
+    }
+
+    /// A fresh recording: forget the last room.
+    func reset() {
+        lock.lock(); scale = LevelScale(); lastLoud = .distantPast; lock.unlock()
+        meter.set(0)
     }
 
     /// Seconds since the voice was last above the quiet line.
     var quietFor: TimeInterval { lock.lock(); defer { lock.unlock() }; return Date().timeIntervalSince(lastLoud) }
+
+    /// The room and the loudest voice heard, in dBFS (diagnostics only).
+    var levels: (room: Float, voice: Float) { lock.lock(); defer { lock.unlock() }; return (scale.floor, scale.voicePeak) }
 
     /// Called on the audio thread for every buffer.
     func consume(_ buffer: AVAudioPCMBuffer) {
@@ -56,20 +99,17 @@ final class AudioFeed: @unchecked Sendable {
         guard let ch = buffer.floatChannelData?[0] else { return }
         let n = Int(buffer.frameLength)
         guard n > 0 else { return }
-        var sum: Float = 0
-        for i in 0..<n { sum += ch[i] * ch[i] }
-        let rms = sqrt(sum / Float(n))
-        let db = 20 * log10(max(rms, 0.000_01))
-        let x = min(max((db + 52) / 40, 0), 1)
+        var rms: Float = 0
+        vDSP_rmsqv(ch, 1, &rms, vDSP_Length(n))
+        let db = 20 * log10(max(rms, 1e-8))
         lock.lock()
-        // Attack fast, release slow: it breathes with speech instead of flickering.
-        smoothed += (x - smoothed) * (x > smoothed ? 0.6 : 0.12)
-        let s = smoothed
+        let x = scale.level(db: db)
         let now = Date()
         lastBuffer = now
-        if x > 0.32 { lastLoud = now }
+        if x > 0.22 { lastLoud = now }
         lock.unlock()
-        meter.set(s)
+        // Raw (per buffer): the Filament smooths it — attack fast, release slow — at its frame rate.
+        meter.set(x)
     }
 }
 
@@ -166,6 +206,22 @@ final class Recorder: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     /// A stop that arrived while the mic was still starting (a quick second tap).
     private var pendingStop: StopReason?
+    /// Seconds of voice heard (the simulator's stand-in words).
+    private var voiced: TimeInterval = 0
+
+    /// DEBUG, simulator: the real microphone without the recognizer (it can't load its assets
+    /// there), so the Filament can be proven against a real voice. `MACROPHONE_MIC_ONLY=1`;
+    /// `MACROPHONE_MIC_WORDS=<text>` shows those words as the voice comes in.
+    static var micOnly: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["MACROPHONE_MIC_ONLY"] == "1"
+        #else
+        return false
+        #endif
+    }
+    static var micWords: [String]? {
+        ProcessInfo.processInfo.environment["MACROPHONE_MIC_WORDS"].map { $0.split(separator: " ").map(String.init) }
+    }
 
     var isActive: Bool { phase != .idle }
 
@@ -218,11 +274,15 @@ final class Recorder: ObservableObject {
         default: throw StartError.speechDenied
         }
 
-        guard let r = SFSpeechRecognizer(locale: Locale(identifier: language)), r.supportsOnDeviceRecognition else {
-            throw StartError.languageNotOnDevice
+        if Self.micOnly {
+            recognizer = nil
+        } else {
+            guard let r = SFSpeechRecognizer(locale: Locale(identifier: language)), r.supportsOnDeviceRecognition else {
+                throw StartError.languageNotOnDevice
+            }
+            guard r.isAvailable else { throw StartError.recognizerBusy }
+            recognizer = r
         }
-        guard r.isAvailable else { throw StartError.recognizerBusy }
-        recognizer = r
         self.language = language
         contextual = Array(contextualStrings.prefix(DictionaryPass.maxTerms))
         autoStopDelay = autoStopAfter
@@ -246,6 +306,8 @@ final class Recorder: ObservableObject {
         lastWordsAt = nil
         failures = 0
         softCapReached = false
+        voiced = 0
+        feed.reset()
         _ = feed.swap(newSegment().request)
         segmentStartedAt = Date()
 
@@ -343,6 +405,16 @@ final class Recorder: ObservableObject {
 
     private func onTick() {
         guard phase == .recording, let startedAt else { return }
+        #if DEBUG
+        if Self.micOnly, let words = Self.micWords {
+            // The real mic, stand-in words: one word per ~0.28 s of voice, so the screen goes from
+            // listening to capturing exactly as speech starts.
+            if meter.level > 0.2 { voiced += 0.1 }
+            let shown = min(words.count, Int(voiced / 0.28))
+            let text = words.prefix(shown).joined(separator: " ")
+            if text != transcript { transcript = text; lastWordsAt = Date() }
+        }
+        #endif
         let now = Date()
         let elapsed = now.timeIntervalSince(startedAt)
         if elapsed >= Self.hardCap { stop(.hardCap); return }
@@ -376,13 +448,14 @@ final class Recorder: ObservableObject {
         feed.swap(nil)?.endAudio()
         let g = generation
         let count = segments.count
-        log?.add("recording stopped (\(reason.logName), \(Int(duration))s, \(count) segment(s))")
+        let lv = feed.levels
+        log?.add("recording stopped (\(reason.logName), \(Int(duration))s, \(count) segment(s)); mic: room \(Int(lv.room)) dB, voice \(lv.voice > -150 ? "\(Int(lv.voice)) dB" : "none")")
 
         Task { [weak self] in
             guard let self else { return }
             // The recognizer finishes the last words after endAudio; give it a moment.
             let deadline = Date().addingTimeInterval(reason.isEarly ? 2.0 : 3.0)
-            while Date() < deadline, self.generation == g, self.segments.contains(where: { !$0.done }) {
+            while Date() < deadline, self.generation == g, self.segments.contains(where: { !$0.done && $0.task != nil }) {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
             guard self.generation == g else { return }
@@ -447,8 +520,10 @@ final class Recorder: ObservableObject {
             var shown = 0
             while let self, self.phase == .recording, t < seconds {
                 t += 0.05
-                let v = 0.45 + 0.35 * sin(t * 7) * sin(t * 2.3) + 0.15 * sin(t * 13)
-                self.meter.set(Float(min(max(v, 0.05), 1)))
+                // Syllables (~5 a second) inside phrases, a breath every few seconds (Hey Claude's stand-in voice).
+                let phrase = max(0, sin(t * 2.1)) > 0.15 ? 1.0 : 0.12
+                let v = max(0, sin(t * 5.3)) * (0.6 + 0.35 * sin(t * 0.9)) * phrase + 0.04
+                self.meter.set(Float(min(max(v, 0), 1)))
                 if shown < words.count, Int(t * 6) > shown { shown += 1; self.transcript = words.prefix(shown).joined(separator: " ") }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
