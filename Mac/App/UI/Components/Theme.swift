@@ -8,10 +8,14 @@ enum Ink {
     static let sunk = Color(red: 0.012, green: 0.014, blue: 0.032)
     static let ink = Color(red: 0.957, green: 0.949, blue: 0.980)             // #F4F2FA
     static let secondary = Color(red: 0.788, green: 0.784, blue: 0.812)       // #C9C8CF
-    static let tertiary = Color(red: 0.620, green: 0.616, blue: 0.647)        // #9E9DA5
-    static let line = ink.opacity(0.08)
-    static let lineStrong = ink.opacity(0.14)
-    static let lineHeavy = ink.opacity(0.22)
+    /// Quiet words. Brighter under Increase Contrast.
+    static var tertiary: Color {
+        A11y.increaseContrast ? Color(red: 0.76, green: 0.757, blue: 0.784) : Color(red: 0.620, green: 0.616, blue: 0.647) // #9E9DA5
+    }
+    // Hairlines: 8 / 14 / 22% of the ink, about three times that under Increase Contrast.
+    static var line: Color { ink.opacity(A11y.increaseContrast ? 0.26 : 0.08) }
+    static var lineStrong: Color { ink.opacity(A11y.increaseContrast ? 0.36 : 0.14) }
+    static var lineHeavy: Color { ink.opacity(A11y.increaseContrast ? 0.5 : 0.22) }
 
     static let groundNS = NSColor(srgbRed: 0.020, green: 0.024, blue: 0.051, alpha: 1)
 }
@@ -32,6 +36,12 @@ enum Light {
         .init(color: cyan, location: 0), .init(color: teal, location: 0.22), .init(color: mint, location: 0.40),
         .init(color: gold, location: 0.60), .init(color: ember, location: 0.80), .init(color: violet, location: 1),
     ]
+}
+
+/// The display accommodations in System Settings › Accessibility › Display.
+enum A11y {
+    static var increaseContrast: Bool { NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast }
+    static var reduceTransparency: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }
 }
 
 enum Motion {

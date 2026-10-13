@@ -34,6 +34,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     @Published private(set) var lastReceived: Date?
     @Published private(set) var accessibilityGranted = Paster.isTrusted
     @Published var launchAtLogin: Bool = false
+    /// The menu bar has hidden Macrophone's icon (a crowded bar, the notch, or it was turned off).
+    @Published private(set) var menuBarIconHidden = false
+    /// Called once when the icon is found hidden (the app opens its window to say so).
+    var onMenuBarIconHidden: () -> Void = {}
 
     // Pairing
     @Published private(set) var invite: PairingInvite?
@@ -181,7 +185,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     func pushStatus() {
         let connectedIDs = connected
         let phones = peers.map {
-            LocalAPIServer.PhoneStatus(name: $0.name, connected: connectedIDs.contains($0.id), last_seen: connectedIDs.contains($0.id) ? Date() : $0.lastSeen)
+            LocalAPIServer.PhoneStatus(name: displayName($0), connected: connectedIDs.contains($0.id), last_seen: connectedIDs.contains($0.id) ? Date() : $0.lastSeen)
         }
         api.setStatus(.init(app_version: AppPaths.appVersion, history_enabled: settings.historyEnabled, phones: phones))
     }
@@ -221,6 +225,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     }
 
     func forget(_ peer: PairedPeer) {
+        settings.deviceNames[peer.id.uuidString] = nil
         Task {
             await server.forget(peer.id)
             peers = server.store.peers()
@@ -256,14 +261,71 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
+    func setMenuBarIconHidden(_ hidden: Bool) {
+        guard hidden != menuBarIconHidden else { return }
+        menuBarIconHidden = hidden
+        log.add("menu bar icon \(hidden ? "hidden" : "visible")")
+        if hidden { onMenuBarIconHidden() }
+    }
+
+    // MARK: Phone names
+
+    /// The name to show for a phone: the one given on this Mac, else the one it sent.
+    func displayName(_ peer: PairedPeer) -> String {
+        if let n = settings.deviceNames[peer.id.uuidString], !n.isEmpty { return n }
+        return peer.name.isEmpty ? "iPhone" : peer.name
+    }
+
+    /// The name given on this Mac, if any.
+    func customName(_ peer: PairedPeer) -> String? { settings.deviceNames[peer.id.uuidString] }
+
+    /// Empty (or the phone's own name) goes back to the name the phone sends.
+    func rename(_ peer: PairedPeer, to name: String) {
+        let n = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        settings.deviceNames[peer.id.uuidString] = (n.isEmpty || n == peer.name) ? nil : n
+        log.add("phone renamed on this Mac")
+        objectWillChange.send()
+        pushStatus()
+    }
+
+    /// iOS hides device names from apps, so many phones say only "iPhone".
+    static func isGenericName(_ name: String) -> Bool {
+        let n = name.trimmingCharacters(in: .whitespaces).lowercased()
+        return n.isEmpty || n == "iphone" || n == "ipad" || n == "ipod touch"
+    }
+
+    /// "Sameer's iPhone", from the Mac account's first name — a suggestion for a generic phone.
+    static var suggestedPhoneName: String {
+        let first = NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
+        return first.isEmpty ? "My iPhone" : "\(first)'s iPhone"
+    }
+
+    #if DEBUG
+    /// Screenshots: stand-in phones (nothing is paired or written to the keychain).
+    func debugJustPaired(_ p: PairedPeer) { justPaired = p }
+
+    func debugListenerFailed() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.listenerState = .failed("Local Network is off") }
+    }
+
+    func debugStage(peers: [PairedPeer], connected: Set<UUID>) {
+        self.peers = peers
+        self.connected = connected
+        pushStatus()
+    }
+    #endif
+
     // MARK: Status words
 
     var connectedPeer: PairedPeer? { peers.first { connected.contains($0.id) } }
 
     /// "Connected to Sameer's iPhone" / "Waiting for your iPhone" / "Pair your iPhone to start".
     var statusLine: String {
-        if let p = connectedPeer { return "Connected to \(p.name)" }
-        if peers.isEmpty { return "Pair your iPhone to start" }
+        let on = peers.filter { connected.contains($0.id) }
+        if on.count == 2 { return "Connected to \(displayName(on[0])) and \(displayName(on[1]))" }
+        if on.count > 2 { return "Connected to \(on.count) iPhones" }
+        if let p = on.first { return "Connected to \(displayName(p))" }
+        if peers.isEmpty { return "No iPhone paired yet" }
         return "Waiting for your iPhone"
     }
 

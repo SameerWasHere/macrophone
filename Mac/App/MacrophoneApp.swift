@@ -67,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A way in when the menu bar icon is hidden (a crowded or notched menu bar).
         HotkeyCenter.shared.action = { [weak self] in self?.openMainWindow() }
         HotkeyCenter.shared.apply(model.settings.hotkey)
+        // The icon is hidden (crowded menu bar / notch): say how to reach the app, once.
+        model.onMenuBarIconHidden = { [weak self] in self?.iconWentMissing() }
 
         #if DEBUG
         if DebugHooks.run(self) { return }
@@ -75,6 +77,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !model.settings.hasCompletedSetup {
             openSetup(.pair)
         }
+    }
+
+    private func iconWentMissing() {
+        let d = UserDefaults.standard
+        guard model.settings.hasCompletedSetup, !model.settings.toldAboutHiddenIcon, !d.bool(forKey: "openedForHiddenIcon") else { return }
+        #if DEBUG
+        if DebugHooks.env["MACROPHONE_SHOW"] != nil { return }
+        #endif
+        let anyOpen = [mainWindow?.window, setupWindow?.window, diagnosticsWindow].compactMap { $0 }.contains(where: \.isVisible)
+        d.set(true, forKey: "openedForHiddenIcon")
+        if !anyOpen { openMainWindow() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -59,6 +59,7 @@ final class PopupController {
     private var lastTick = Date()
     private var expiry: [UUID: Date] = [:]
     private var retractWork: DispatchWorkItem?
+    private var onRetracted: [() -> Void] = []
     private var bag: Set<AnyCancellable> = []
 
     init() {
@@ -110,6 +111,13 @@ final class PopupController {
         model.cards.removeAll()
         expiry.removeAll()
         retract()
+    }
+
+    var isShowing: Bool { panel != nil || !model.cards.isEmpty }
+
+    /// Runs `work` once the popup has gone (at once if nothing is showing).
+    func whenRetracted(_ work: @escaping () -> Void) {
+        if panel == nil && model.cards.isEmpty { work() } else { onRetracted.append(work) }
     }
 
     // MARK: Clock — counts down, expires cards, pauses on hover
@@ -211,6 +219,9 @@ final class PopupController {
             self.panel?.contentView = nil
             self.panel = nil
             self.host = nil
+            let waiting = self.onRetracted
+            self.onRetracted = []
+            waiting.forEach { $0() }
         }
         retractWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + (model.reduceMotion ? 0.25 : 0.45), execute: work)

@@ -52,7 +52,10 @@ struct MainView: View {
         } detail: {
             ZStack {
                 Ink.ground.ignoresSafeArea()
-                detail
+                VStack(spacing: 0) {
+                    HiddenIconSlot(model: model, settings: model.settings)
+                    detail
+                }
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -71,6 +74,64 @@ struct MainView: View {
         case .developer: DeveloperPane(model: model, settings: model.settings)
         case .general: GeneralPane(model: model, updater: updater)
         }
+    }
+}
+
+/// The notice's place above every pane (empty unless the icon is hidden and it hasn't been seen).
+struct HiddenIconSlot: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var settings: Settings
+
+    private var showing: Bool { model.menuBarIconHidden && !settings.toldAboutHiddenIcon }
+
+    var body: some View {
+        if showing {
+            HiddenIconNotice(settings: settings)
+                .padding(.horizontal, 32)
+                .padding(.top, 2)
+                .padding(.bottom, 14)
+                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+        }
+    }
+}
+
+/// Shown once when the menu bar is hiding Macrophone's icon: how to reach the app without it.
+struct HiddenIconNotice: View {
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "menubar.dock.rectangle")
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(Light.cyan)
+                .frame(width: 24)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Your menu bar is hiding Macrophone's icon")
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Ink.ink)
+                // No fixedSize here: outside the pane's scroll view, a fixed-height text makes
+                // the window's minimum size enormous and SwiftUI draws nothing at all.
+                Text(body1)
+                    .font(.system(size: 12)).foregroundStyle(Ink.secondary)
+            }
+            Spacer(minLength: 12)
+            Button("Got It") { settings.toldAboutHiddenIcon = true }
+                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Light.cyan.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Light.cyan.opacity(0.28), lineWidth: 1))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var body1: String {
+        let how = settings.hotkey.enabled
+            ? "To open Macrophone, press \(settings.hotkey.display) anywhere, or open it from Spotlight or Finder."
+            : "To open Macrophone, open it from Spotlight or Finder — or set a shortcut in General."
+        return "There isn't room for it (often the notch covers it). Dictations still arrive and the popup shows at the top right of your screen. " + how
     }
 }
 

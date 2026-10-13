@@ -72,7 +72,7 @@ struct SetupView: View {
                     model.setLaunchAtLogin(openAtLogin)
                     nav.step = .modes
                 })
-                case .modes: ModesStep(settings: settings, done: finish)
+                case .modes: ModesStep(model: model, settings: settings, done: finish)
                 }
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
@@ -162,6 +162,11 @@ struct PairedStep: View {
     var next: () -> Void
     var firstRun: Bool
     @State private var tick = false
+    @State private var name = ""
+    @FocusState private var nameFocused: Bool
+
+    /// iOS hides device names, so a phone often says just "iPhone": offer to name it here.
+    private var askForName: Bool { model.justPaired.map { AppModel.isGenericName($0.name) } ?? false }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -172,19 +177,47 @@ struct PairedStep: View {
                 Image(systemName: "checkmark").font(.system(size: 36, weight: .semibold)).foregroundStyle(Light.mint)
                     .scaleEffect(tick ? 1 : 0.2).opacity(tick ? 1 : 0)
             }
+            .accessibilityHidden(true)
             .onAppear { withAnimation(Motion.reduceMotion ? .easeOut(duration: 0.2) : Motion.pop.delay(0.1)) { tick = true } }
             Text("Paired").font(Typeface.serif(30)).foregroundStyle(Ink.ink).padding(.top, 26)
-            Text("\(model.justPaired?.name ?? "Your iPhone") can now send to this Mac. Try a dictation — it'll land on your clipboard.")
+            Text(askForName ? "Your iPhone can now send to this Mac. Try a dictation — it'll land on your clipboard."
+                            : "\(model.justPaired.map(model.displayName) ?? "Your iPhone") can now send to this Mac. Try a dictation — it'll land on your clipboard.")
                 .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 380)
                 .padding(.top, 8)
+            if askForName {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Name this iPhone").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.secondary)
+                    TextField("Name", text: $name, prompt: Text(AppModel.suggestedPhoneName))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+                        .focused($nameFocused)
+                        .onSubmit(done)
+                        .accessibilityLabel("Name this iPhone")
+                    Text("iOS only tells this Mac “iPhone”. The name shows in the menu, the popup and History.")
+                        .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(width: 320)
+                .padding(.top, 26)
+                .onAppear {
+                    name = AppModel.suggestedPhoneName
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { nameFocused = true }
+                }
+            }
             Spacer()
-            Button(firstRun ? "Continue" : "Done", action: next)
+            Button(firstRun ? "Continue" : "Done", action: done)
                 .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
                 .keyboardShortcut(.defaultAction)
                 .padding(.bottom, 32)
         }
+    }
+
+    private func done() {
+        if askForName, let p = model.justPaired { model.rename(p, to: name) }
+        next()
     }
 }
 
@@ -217,6 +250,7 @@ struct LoginStep: View {
 }
 
 struct ModesStep: View {
+    @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
     var done: () -> Void
 
@@ -240,22 +274,42 @@ struct ModesStep: View {
                 .multilineTextAlignment(.center).frame(maxWidth: 420)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 18)
-            HStack(spacing: 8) {
-                Image(systemName: "keyboard").foregroundStyle(Light.cyan)
-                Text("Can't see the icon in your menu bar? Press \(settings.hotkey.display) anywhere to open Macrophone.")
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: model.menuBarIconHidden ? "menubar.dock.rectangle" : "keyboard")
+                    .foregroundStyle(Light.cyan)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
+                Text(hotkeyLine)
                     .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 14).padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Light.cyan.opacity(0.07)))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Light.cyan.opacity(0.2), lineWidth: 1))
-            .padding(.top, 12)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Light.cyan.opacity(0.07)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Light.cyan.opacity(0.2), lineWidth: 1))
+            .padding(.horizontal, 32)
+            .padding(.top, 14)
+            .onDisappear { if model.menuBarIconHidden { settings.toldAboutHiddenIcon = true } }
             Spacer()
             Button("Done", action: done)
                 .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
                 .keyboardShortcut(.defaultAction)
                 .padding(.bottom, 32)
         }
+    }
+}
+
+extension ModesStep {
+    private var hotkeyLine: String {
+        let key = settings.hotkey
+        if model.menuBarIconHidden {
+            return key.enabled
+                ? "Your menu bar is full, so Macrophone's icon is hidden. Press \(key.display) anywhere to open Macrophone, or open it from Spotlight."
+                : "Your menu bar is full, so Macrophone's icon is hidden. Open Macrophone from Spotlight or Finder."
+        }
+        return key.enabled
+            ? "Macrophone lives in your menu bar. If the icon is ever hidden, press \(key.display) anywhere to open it."
+            : "Macrophone lives in your menu bar. If the icon is ever hidden, open it from Spotlight or Finder."
     }
 }
 
@@ -267,7 +321,7 @@ struct CodeApproval: View {
     var body: some View {
         VStack(spacing: 0) {
             Kicker("Pairing request", color: Light.cyan, size: 11)
-            Text("Does “\(request.phoneName)” show")
+            Text(AppModel.isGenericName(request.phoneName) ? "Does your iPhone show this code?" : "Does “\(request.phoneName)” show this code?")
                 .font(Typeface.serif(22)).foregroundStyle(Ink.ink)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)

@@ -257,12 +257,20 @@ applied).
 
 ## A way in when the menu bar icon is hidden
 
-**General › Open Macrophone from anywhere** — a global shortcut, default **⌥⌘M** (Option-Command-M),
-that opens the main window. Click the shortcut to record a new one (needs ⌘, ⌥ or ⌃; Esc cancels);
-the switch turns it off. If another app owns the shortcut, the row says so. Opening Macrophone from
-Spotlight or Finder also opens the window. The first-run setup mentions it. Note: ⌥⌘M is also the
-standard "Minimize All" shortcut in many apps; while Macrophone's shortcut is on, it opens
-Macrophone instead.
+**General › Open Macrophone from anywhere** — a global shortcut, default **⌃⌥⌘M**
+(Control-Option-Command-M), that opens the main window. Click the shortcut to record a new one
+(it needs ⌘ or ⌃ — Option alone types characters — and plain ⌘-letter shortcuts and the system's
+own, like ⌥⌘M "Minimize All", are refused with a reason; Esc cancels, Delete removes it); the ⓧ
+removes it; **Use ⌃⌥⌘M** puts the default back. If another app owns the shortcut, the row says
+so. A saved ⌥⌘M from an earlier version (it collided with "Minimize All") moves to ⌃⌥⌘M once.
+The menu's **Open Macrophone…** item shows the shortcut. Opening Macrophone from Spotlight or
+Finder also opens the window.
+
+When the menu bar has no room for the icon (a crowded bar, the notch) or it's turned off,
+Macrophone notices (screen and window notifications — nothing polls) and says so once: the main
+window opens with "Your menu bar is hiding Macrophone's icon" and how to reach the app (the
+shortcut, Spotlight, Finder) until **Got It**; the first-run setup says the same on its last
+step. Popups then appear at the top right of the screen in use.
 
 ## What the iPhone needs to know
 

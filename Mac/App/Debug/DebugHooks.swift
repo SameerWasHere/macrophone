@@ -9,13 +9,17 @@ import SwiftUI
 ///   MACROPHONE_SEED_HISTORY=1       sample history (English, Arabic, Hebrew, Japanese, delayed, failed)
 ///   MACROPHONE_SHOW=<what>          popup-toast | popup-countdown | popup-error | popup-stack | popup-delayed |
 ///                                   popup-automation | popup-rtl | window-<pane> | setup | setup-paired |
-///                                   setup-login | setup-modes | code-approval | diagnostics | profile-editor
+///                                   setup-paired-generic | setup-login | setup-modes | code-approval | diagnostics |
+///                                   profile-editor | menu
 ///   MACROPHONE_BACKDROP=1           a neutral backdrop under the popup (screenshots never show a real desktop)
 ///   MACROPHONE_WINDOW_IDS_FILE=path writes {"main":id,"setup":id,"popup":id,"popupFrame":[x,y,w,h]} (top-left points)
 ///   MACROPHONE_CODE_ANSWER=match|nomatch  answers a code-pairing request after 3 s through the same call the buttons make
 ///   MACROPHONE_PAIR_URL_FILE=path   writes the live pairing URL (AppModel.beginPairing)
 ///   MACROPHONE_FORGET=<name>        forgets matching phones (Devices › Forget's call)
 ///   MACROPHONE_HIDE_ICON=1          hide the menu bar icon (the popup falls back to the top-right corner)
+///   MACROPHONE_FAKE_PEERS=a|b*|c>d  stand-in phones for screenshots: * = connected, "iPhone>Sameer's iPhone" = a
+///                                   phone that calls itself "iPhone", renamed on this Mac. Empty = never paired.
+///   MACROPHONE_FAKE_LISTENER=failed the network listener failed (Local Network blocked)
 ///   MACROPHONE_INSTALL_CLI=1        runs the CLI install at launch
 ///   MACROPHONE_CLI_DIR=path         install the CLI links there instead of /usr/local/bin
 ///   MACROPHONE_SHOW (automations)   window-snippets | target-gallery | profile-editor-terminal | profile-editor-actions |
@@ -61,6 +65,8 @@ enum DebugHooks {
             fflush(stdout)
         }
         if env["MACROPHONE_HIDE_ICON"] == "1" { app.debugStatusItem.debugHide() }
+        if let spec = env["MACROPHONE_FAKE_PEERS"] { stagePeers(spec, model: model) }
+        if env["MACROPHONE_FAKE_LISTENER"] == "failed" { model.debugListenerFailed() }
         guard let show = env["MACROPHONE_SHOW"] else { return false }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 
@@ -81,6 +87,12 @@ enum DebugHooks {
         case "setup-paired":
             app.openSetup(.pair)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { app.setupNavForDebug?.step = .paired }
+        case "setup-paired-generic":
+            app.openSetup(.pair)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                app.setupNavForDebug?.firstRun = true
+                model.debugJustPaired(PairedPeer(id: UUID(), name: "iPhone"))
+            }
         case "setup-login":
             app.openSetup(.pair)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { app.setupNavForDebug?.step = .login }
@@ -217,6 +229,29 @@ enum DebugHooks {
         }
     }
 
+    // MARK: Stand-in phones
+
+    private static func stagePeers(_ spec: String, model: AppModel) {
+        var peers: [PairedPeer] = []
+        var connected: Set<UUID> = []
+        let now = Date()
+        for (i, raw) in spec.split(separator: "|").map(String.init).enumerated() where !raw.isEmpty {
+            var name = raw
+            let on = name.hasSuffix("*")
+            if on { name.removeLast() }
+            var rename: String?
+            if let r = name.range(of: ">") { rename = String(name[r.upperBound...]); name = String(name[..<r.lowerBound]) }
+            let id = UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", i + 1))!
+            let p = PairedPeer(id: id, name: name, pairedAt: now.addingTimeInterval(-86_400 * Double(12 + i * 9)),
+                               lastSeen: on ? now : (i == 2 ? nil : now.addingTimeInterval(-3600 * Double(3 + i * 20))))
+            peers.append(p)
+            if on { connected.insert(id) }
+            model.settings.deviceNames[id.uuidString] = rename
+        }
+        // Wait for the real link server's first peer read, then stand in.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { model.debugStage(peers: peers, connected: connected) }
+    }
+
     // MARK: Simulated dictations
 
     private static func listenForSimulatedDictations(_ model: AppModel) {
@@ -283,13 +318,13 @@ enum DebugHooks {
         let now = Date()
         let samples: [(String, String?, String, Bool, HistoryItem.Outcome, String, TimeInterval, String)] = [
             ("um so refactor the the history store so it trims to fifty items on write and uh add a test that proves a resend never shows up twice",
-             english, "Claude prompt", false, .pasted, "Pasted into Claude and sent", 120, "en-US"),
+             english, "Claude", false, .pasted, "Sent to Claude", 120, "en-US"),
             ("remind me to send priya the deck before the three pm sync", short, "Clipboard", false, .copied, "Copied to clipboard", 900, "en-US"),
             ("مرحبا، هذا اختبار للإملاء من الهاتف إلى الماك.", nil, "Clipboard", false, .copied, "Copied to clipboard", 3600, "ar-SA"),
             ("שלום, זו בדיקה של הכתבה מהאייפון למק.", nil, "Clipboard", true, .copied, "Copied — delayed items are never pasted automatically", 7200, "he-IL"),
             ("今日の会議のメモを共有してください。", nil, "Quick note", false, .copied, "Copied to clipboard", 20000, "ja-JP"),
             ("write a function that sorts a list of users by last name", "Write a function that sorts a list of users by last name.",
-             "Claude prompt", false, .failed, "Not pasted — a password field is active", 90000, "en-US"),
+             "Claude", false, .failed, "Not pasted — a password field is active", 90000, "en-US"),
         ]
         for s in samples.reversed() {
             let d = Dictation(createdAt: now.addingTimeInterval(-s.6 - 4), raw: s.0, cleaned: s.1, cleanupLevel: s.1 == nil ? .off : .medium,

@@ -133,7 +133,8 @@ struct PopupCardView: View {
     private var glass: some View {
         ZStack {
             VisualEffect(material: .hudWindow)
-            Ink.ground.opacity(0.7)
+            // Reduce Transparency / Increase Contrast: a solid card, nothing showing through.
+            Ink.ground.opacity(A11y.reduceTransparency || A11y.increaseContrast ? 0.96 : 0.7)
             // A breath of the card's meaning colour at the top.
             LinearGradient(colors: [accent.opacity(0.13), .clear], startPoint: .top, endPoint: .center)
         }
@@ -144,13 +145,16 @@ struct PopupCardView: View {
             StatusGlyph(phase: card.phase, delayed: card.delayed || card.caution, tickShown: tickShown)
                 .frame(width: 22, height: 22)
             Kicker(statusLine, color: accent.opacity(card.phase == .cancelled ? 1 : 0.95), size: 10.5)
-                .lineLimit(2)
+                .layoutPriority(1)
             Spacer(minLength: 8)
             Text(card.source.isEmpty ? card.receivedAt.clockTime : "\(card.source)")
                 .font(.system(size: 10.5))
                 .foregroundStyle(Ink.tertiary)
-                .lineLimit(1)
+                .multilineTextAlignment(.trailing)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 120, alignment: .trailing)
                 .opacity(cardHover ? 0 : 1)
+                .accessibilityLabel("From \(card.source)")
         }
     }
 

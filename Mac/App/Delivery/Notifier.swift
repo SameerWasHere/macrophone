@@ -24,7 +24,30 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
     }
 
-    /// Ask once, at first need.
+    private var askPending = false
+
+    /// The sensible moment to ask: a dictation has just arrived (so the why is obvious), and
+    /// the popup has gone — the system's prompt appears in the same corner and would cover it.
+    /// Never at launch, never while the person is away from the Mac.
+    func askAfterDelivery(_ popup: PopupController) {
+        guard status == .notDetermined, !askPending else { return }
+        askPending = true
+        waitForQuiet(popup)
+    }
+
+    private func waitForQuiet(_ popup: PopupController) {
+        popup.whenRetracted { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                guard let self else { return }
+                // Another dictation arrived in the meantime: wait for that one to go too.
+                if popup.isShowing { self.waitForQuiet(popup); return }
+                self.askPending = false
+                if !Notifier.personIsAway { self.requestIfNeeded() }
+            }
+        }
+    }
+
+    /// Ask now (the Delivery pane's Allow… button, or askAfterDelivery).
     func requestIfNeeded() {
         guard status == .notDetermined else { return }
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in

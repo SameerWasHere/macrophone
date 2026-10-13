@@ -138,7 +138,7 @@ struct DeliveryPane: View {
         case .denied:
             return "Off in System Settings. The popup still shows while you're at your Mac."
         default:
-            return "Asked the first time something arrives — for dictations that land while your Mac is locked."
+            return "Macrophone asks once your first dictation has arrived. Then anything that lands while your Mac is locked waits in Notification Center."
         }
     }
 
@@ -165,7 +165,7 @@ struct ModeCard: View {
                     HStack(spacing: 8) {
                         Text(mode.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.ink)
                         if mode == .clipboardNotify { Chip(text: "Default", color: Ink.tertiary) }
-                        if mode == .autoPaste { Chip(text: "Needs Accessibility", color: Ink.tertiary) }
+                        if mode == .autoPaste && !Paster.isTrusted { Chip(text: "Needs Accessibility", color: Ink.tertiary) }
                     }
                     Text(mode.summary).font(.system(size: 12.5)).foregroundStyle(Ink.secondary)
                         .fixedSize(horizontal: false, vertical: true)

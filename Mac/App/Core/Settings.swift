@@ -108,6 +108,11 @@ final class Settings: ObservableObject {
     /// The shortcut that opens Macrophone's window from anywhere (the menu bar icon can hide
     /// behind the notch).
     @Published var hotkey: Hotkey { didSet { d.set(try? JSONEncoder().encode(hotkey), forKey: "hotkey") } }
+    /// Names the person gave their phones on this Mac (peer id → name). iOS can hide a phone's
+    /// real name, so a phone may introduce itself as just "iPhone".
+    @Published var deviceNames: [String: String] { didSet { d.set(deviceNames, forKey: "deviceNames") } }
+    /// The one-time "your menu bar is hiding Macrophone's icon" notice has been seen.
+    @Published var toldAboutHiddenIcon: Bool { didSet { d.set(toldAboutHiddenIcon, forKey: "toldAboutHiddenIcon") } }
 
     init() {
         deliveryMode = DeliveryMode(rawValue: d.string(forKey: "deliveryMode") ?? "") ?? .clipboardNotify
@@ -120,7 +125,19 @@ final class Settings: ObservableObject {
         }
         appRules = (d.data(forKey: "appRules")).flatMap { try? JSONDecoder().decode([AppRule].self, from: $0) } ?? []
         snippets = (d.data(forKey: "snippets")).flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
-        hotkey = (d.data(forKey: "hotkey")).flatMap { try? JSONDecoder().decode(Hotkey.self, from: $0) } ?? .default
+        var key = (d.data(forKey: "hotkey")).flatMap { try? JSONDecoder().decode(Hotkey.self, from: $0) } ?? .default
+        // ⌥⌘M (the first default) is "Minimize All" in most apps: move a saved copy of it to
+        // the new default once. A shortcut the person picked themselves stays.
+        if d.integer(forKey: "hotkeyVersion") < 2 {
+            if key.keyCode == Hotkey.legacyDefault.keyCode && key.modifiers == Hotkey.legacyDefault.modifiers {
+                key = Hotkey(keyCode: Hotkey.default.keyCode, modifiers: Hotkey.default.modifiers, enabled: key.enabled)
+                d.set(try? JSONEncoder().encode(key), forKey: "hotkey")
+            }
+            d.set(2, forKey: "hotkeyVersion")
+        }
+        hotkey = key
+        deviceNames = d.dictionary(forKey: "deviceNames") as? [String: String] ?? [:]
+        toldAboutHiddenIcon = d.bool(forKey: "toldAboutHiddenIcon")
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
         // A saved Return list from before the target catalog gains the catalog's send-by-default

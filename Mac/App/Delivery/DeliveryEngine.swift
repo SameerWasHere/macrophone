@@ -40,7 +40,9 @@ final class DeliveryEngine {
         var d = incoming
         d.profileID = profile.id
         d.profileName = profile.name
-        let source = d.sourceDevice.isEmpty ? peer.name : d.sourceDevice
+        // A name given on this Mac wins everywhere: the popup, History, the API's source_device.
+        if let named = app.customName(peer) { d.sourceDevice = named }
+        let source = d.sourceDevice.isEmpty ? app.displayName(peer) : d.sourceDevice
         let options = app.profiles.options(for: profile.id)
         let plan = makePlan(profile, options: options, delayed: delayed)
 
@@ -493,7 +495,7 @@ final class DeliveryEngine {
 
     private func notifyIfAway(title: String, body: String, id: UUID) {
         guard settings.deliveryMode == .clipboardNotify || settings.deliveryMode == .autoPaste else { return }
-        Notifier.shared.requestIfNeeded()
+        Notifier.shared.askAfterDelivery(popup)
         if Notifier.personIsAway { Notifier.shared.post(title: title, body: body, id: id.uuidString) }
     }
 }

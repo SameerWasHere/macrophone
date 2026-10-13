@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import MacrophoneKit
 
@@ -12,6 +13,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var bag: Set<AnyCancellable> = []
     private var flashWork: DispatchWorkItem?
     private var flashing = false
+    private var visibilityWork: DispatchWorkItem?
+    private var observers: [NSObjectProtocol] = []
+    private var visibleKVO: NSKeyValueObservation?
 
     init(model: AppModel, updater: Updater) {
         self.model = model
@@ -31,6 +35,41 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.menu = menu
         model.$connected.combineLatest(model.$peers).receive(on: RunLoop.main)
             .sink { [weak self] _, _ in self?.refreshIcon() }.store(in: &bag)
+        watchVisibility()
+    }
+
+    // MARK: Is the icon on screen?
+
+    /// A crowded menu bar hides items behind the notch (or past the left edge), and macOS lets
+    /// people turn an app's item off. Watch for it with notifications only — nothing polls.
+    private func watchVisibility() {
+        let nc = NotificationCenter.default
+        let recheck: (Notification) -> Void = { [weak self] _ in MainActor.assumeIsolated { self?.scheduleVisibilityCheck() } }
+        observers.append(nc.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main, using: recheck))
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+                                                                           object: nil, queue: .main, using: recheck))
+        if let w = item.button?.window {
+            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMoveNotification, NSWindow.didChangeScreenNotification] {
+                observers.append(nc.addObserver(forName: name, object: w, queue: .main, using: recheck))
+            }
+        }
+        visibleKVO = item.observe(\.isVisible, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.scheduleVisibilityCheck() }
+        }
+        // The menu bar lays the item out a moment after launch.
+        scheduleVisibilityCheck(after: 2.0)
+    }
+
+    private func scheduleVisibilityCheck(after delay: TimeInterval = 0.8) {
+        visibilityWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // A full-screen app or an auto-hiding menu bar hides every item; that's not crowding.
+            if self.item.isVisible && !NSMenu.menuBarVisible() { return }
+            self.model.setMenuBarIconHidden(self.visibleFrame == nil)
+        }
+        visibilityWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: w)
     }
 
     private static func image(_ name: String) -> NSImage? {
@@ -64,8 +103,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     var visibleFrame: NSRect? {
         guard item.isVisible, let w = item.button?.window else { return nil }
         let f = w.frame
-        guard f.width > 0, NSScreen.screens.contains(where: { $0.frame.intersects(f) }) else { return nil }
+        guard f.width > 0, let screen = NSScreen.screens.first(where: { $0.frame.intersects(f) }) else { return nil }
         if !w.occlusionState.contains(.visible) { return nil }
+        // On a notched display the bar is only the two areas either side of the notch; an item
+        // pushed into the middle sits behind the camera housing.
+        if screen.safeAreaInsets.top > 0, let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
+            let mid = NSPoint(x: f.midX, y: f.midY)
+            let inBar = [left, right].contains { area in
+                let a = area.intersects(screen.frame) ? area : area.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY)
+                return a.insetBy(dx: 0, dy: -4).contains(mid) && f.minX >= a.minX - 1 && f.maxX <= a.maxX + 1
+            }
+            if !inBar { return nil }
+        }
         return f
     }
 
@@ -74,7 +123,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     #if DEBUG
     func openMenu() { item.button?.performClick(nil) }
     /// Stands in for a crowded / notched menu bar that has hidden the icon.
-    func debugHide() { item.isVisible = false }
+    func debugHide() {
+        item.isVisible = false
+        // Don't let the hidden state stick in this build's defaults for later runs.
+        UserDefaults.standard.removeObject(forKey: "NSStatusItem VisibleCC MacrophoneStatusItem")
+    }
     #endif
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -82,6 +135,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         // Status: who's connected, when the last dictation came in.
         menu.addItem(statusHeader())
+        if case .failed = model.listenerState {
+            menu.addItem(action("Open Local Network Settings…", #selector(openLocalNetwork)))
+        } else if model.peers.isEmpty {
+            menu.addItem(action("Pair Your iPhone…", #selector(pair)))
+        }
 
         // The three most recent dictations; click copies.
         let recent = Array(model.history.prefix(3))
@@ -114,17 +172,39 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         modeItem.submenu = sub
         menu.addItem(modeItem)
 
-        menu.addItem(action("Pair iPhone…", #selector(pair)))
-        menu.addItem(action("Open Macrophone…", #selector(openWindow), key: ","))
+        if !model.peers.isEmpty { menu.addItem(action("Pair Another iPhone…", #selector(pair))) }
+        // Shows the global shortcut, so the menu teaches the way in when the icon is hidden.
+        let open = action("Open Macrophone…", #selector(openWindow), key: ",")
+        let hk = model.settings.hotkey
+        let keyName = Hotkey.keyName(hk.keyCode)
+        if hk.enabled, keyName.count == 1 {
+            open.keyEquivalent = keyName.lowercased()
+            var m: NSEvent.ModifierFlags = []
+            if hk.modifiers & UInt32(cmdKey) != 0 { m.insert(.command) }
+            if hk.modifiers & UInt32(optionKey) != 0 { m.insert(.option) }
+            if hk.modifiers & UInt32(controlKey) != 0 { m.insert(.control) }
+            if hk.modifiers & UInt32(shiftKey) != 0 { m.insert(.shift) }
+            open.keyEquivalentModifierMask = m
+        }
+        menu.addItem(open)
         menu.addItem(action("Check for Updates…", #selector(checkUpdates)))
 
-        if !model.peers.isEmpty {
+        if model.peers.count == 1, let p = model.peers.first {
             menu.addItem(.separator())
+            let mi = action("Forget This iPhone…", #selector(forget(_:)))
+            mi.representedObject = p.id.uuidString
+            menu.addItem(mi)
+        } else if model.peers.count > 1 {
+            menu.addItem(.separator())
+            let forgetItem = NSMenuItem(title: "Forget an iPhone", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
             for p in model.peers {
-                let mi = action(model.peers.count == 1 ? "Forget This iPhone…" : "Forget \(p.name)…", #selector(forget(_:)))
+                let mi = action("\(model.displayName(p))…", #selector(forget(_:)))
                 mi.representedObject = p.id.uuidString
-                menu.addItem(mi)
+                sub.addItem(mi)
             }
+            forgetItem.submenu = sub
+            menu.addItem(forgetItem)
         }
 
         menu.addItem(.separator())
@@ -140,8 +220,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         } else if !model.peers.isEmpty {
             second = "Nothing received yet"
         }
-        if case .failed = model.listenerState { second = "Can't listen on the network — check Local Network in System Settings" }
-        mi.view = StatusHeaderView(title: model.statusLine, detail: second, connected: on)
+        var title = model.statusLine
+        var warning = false
+        if case .failed = model.listenerState {
+            title = "Your iPhone can't reach this Mac"
+            second = "Allow Macrophone in System Settings › Privacy & Security › Local Network."
+            warning = true
+        }
+        mi.view = StatusHeaderView(title: title, detail: second, connected: on, warning: warning)
         return mi
     }
 
@@ -169,6 +255,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func pair() { AppDelegate.shared?.openSetup(.pair) }
+    @objc private func openLocalNetwork() { NSWorkspace.shared.open(DevicesPane.localNetworkSettings) }
     @objc private func openWindow() { AppDelegate.shared?.openMainWindow() }
     @objc private func checkUpdates() { updater.checkForUpdates() }
     @objc private func quit() { NSApp.terminate(nil) }
@@ -178,7 +265,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
               let peer = model.peers.first(where: { $0.id == id }) else { return }
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "Forget \(peer.name)?"
+        alert.messageText = "Forget \(model.displayName(peer))?"
         alert.informativeText = "It won't be able to send to this Mac until you pair it again. Use this if the phone is lost."
         alert.addButton(withTitle: "Forget")
         alert.addButton(withTitle: "Cancel")
@@ -270,27 +357,39 @@ final class RecentItemView: NSView {
 }
 
 /// The menu's first row: a status dot, who's connected, when the last dictation came in.
+/// Both lines wrap rather than cut off.
 final class StatusHeaderView: NSView {
-    init(title: String, detail: String?, connected: Bool) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 300, height: detail == nil ? 30 : 46))
-        let dot = NSView(frame: NSRect(x: 16, y: bounds.height - 19, width: 8, height: 8))
-        dot.wantsLayer = true
-        dot.layer?.cornerRadius = 4
-        dot.layer?.backgroundColor = (connected ? NSColor(srgbRed: 0.345, green: 0.725, blue: 0.871, alpha: 1) : NSColor.tertiaryLabelColor).cgColor
-        addSubview(dot)
-        let t = NSTextField(labelWithString: title)
+    init(title: String, detail: String?, connected: Bool, warning: Bool = false) {
+        let width: CGFloat = 300, textX: CGFloat = 32, textW: CGFloat = 252
+        let t = NSTextField(wrappingLabelWithString: title)
         t.font = .systemFont(ofSize: 13, weight: .semibold)
         t.textColor = .labelColor
-        t.frame = NSRect(x: 32, y: bounds.height - 24, width: 256, height: 18)
-        addSubview(t)
+        t.preferredMaxLayoutWidth = textW
+        let tH = ceil(t.fittingSize.height)
+        var d: NSTextField?
+        var dH: CGFloat = 0
         if let detail {
-            let d = NSTextField(labelWithString: detail)
-            d.font = .systemFont(ofSize: 11.5)
-            d.textColor = .secondaryLabelColor
-            d.frame = NSRect(x: 32, y: 6, width: 256, height: 16)
-            d.lineBreakMode = .byWordWrapping
+            let f = NSTextField(wrappingLabelWithString: detail)
+            f.font = .systemFont(ofSize: 11.5)
+            f.textColor = warning ? .systemOrange : .secondaryLabelColor
+            f.preferredMaxLayoutWidth = textW
+            dH = ceil(f.fittingSize.height)
+            d = f
+        }
+        let height = 8 + tH + (d == nil ? 0 : 2 + dH) + 8
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        t.frame = NSRect(x: textX, y: height - 8 - tH, width: textW, height: tH)
+        addSubview(t)
+        if let d {
+            d.frame = NSRect(x: textX, y: 8, width: textW, height: dH)
             addSubview(d)
         }
+        let dot = NSView(frame: NSRect(x: 16, y: height - 8 - tH / 2 - 4, width: 8, height: 8))
+        dot.wantsLayer = true
+        dot.layer?.cornerRadius = 4
+        dot.layer?.backgroundColor = (connected ? NSColor(srgbRed: 0.345, green: 0.725, blue: 0.871, alpha: 1)
+                                      : (warning ? NSColor.systemOrange : NSColor.tertiaryLabelColor)).cgColor
+        addSubview(dot)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityLabel([title, detail].compactMap { $0 }.joined(separator: ". "))

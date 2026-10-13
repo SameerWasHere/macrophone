@@ -5,6 +5,9 @@ import SwiftUI
 struct DevicesPane: View {
     @ObservedObject var model: AppModel
     @State private var forgetting: PairedPeer?
+    @State private var editing: UUID?
+    @State private var draft = ""
+    @FocusState private var nameFocused: Bool
 
     var body: some View {
         PanePage {
@@ -21,6 +24,7 @@ struct DevicesPane: View {
                     Text("No iPhone yet").font(Typeface.serif(18)).foregroundStyle(Ink.secondary)
                     Text("Get Macrophone for iPhone from the App Store, then choose Pair iPhone.")
                         .font(.system(size: 12.5)).foregroundStyle(Ink.tertiary)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 48)
@@ -31,37 +35,50 @@ struct DevicesPane: View {
                         phoneRow(p)
                     }
                 }
+                Text("Names you give a phone here show in the menu, the popup, History and the API. The phone keeps its own name.")
+                    .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary).padding(.leading, 4)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("This Mac")
                 Plate {
-                    PlateRow(title: AppPaths.computerName, subtitle: listenerLine, icon: "laptopcomputer",
-                             iconColor: listenerOK ? Light.cyan : Light.ochre)
+                    PlateRow(title: AppPaths.computerName, subtitle: listenerLine, subtitleColor: listenerOK ? Ink.tertiary : Light.ochre,
+                             icon: "laptopcomputer", iconColor: listenerOK ? Light.cyan : Light.ochre) {
+                        if case .failed = model.listenerState {
+                            Button("Open System Settings") { NSWorkspace.shared.open(Self.localNetworkSettings) }
+                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                        }
+                    }
                 }
-                Text("The name comes from System Settings › General › Sharing.")
+                Text("Your iPhone sees this name. Change it in System Settings › General › Sharing.")
                     .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary).padding(.leading, 4)
             }
         }
-        .confirmationDialog("Forget \(forgetting?.name ?? "this iPhone")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })) {
+        .confirmationDialog("Forget \(forgetting.map(model.displayName) ?? "this iPhone")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })) {
             Button("Forget", role: .destructive) { if let p = forgetting { model.forget(p) }; forgetting = nil }
         } message: {
             Text("It won't be able to send to this Mac until you pair it again. Use this if the phone is lost.")
         }
     }
 
+    static let localNetworkSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!
+
     private var listenerOK: Bool { if case .ready = model.listenerState { return true }; return false }
 
     private var listenerLine: String {
         switch model.listenerState {
         case .ready: return "Visible to your iPhone on this network and nearby (peer-to-peer)."
-        case .starting: return "Starting…"
-        case .failed: return "Can't listen on the network. Check System Settings › Privacy & Security › Local Network."
+        case .starting: return "Getting ready to listen on your network…"
+        case .failed: return "Your iPhone can't reach this Mac. Turn on Macrophone in System Settings › Privacy & Security › Local Network."
         }
     }
 
     private func phoneRow(_ p: PairedPeer) -> some View {
         let on = model.connected.contains(p.id)
+        let isEditing = editing == p.id
+        let named = model.customName(p)
+        let generic = named == nil && AppModel.isGenericName(p.name)
         return HStack(spacing: 14) {
             ZStack(alignment: .bottomTrailing) {
                 Image(systemName: "iphone.gen3")
@@ -72,15 +89,56 @@ struct DevicesPane: View {
                     .overlay(Circle().strokeBorder(Ink.raised, lineWidth: 1.5))
                     .shadow(color: on ? Light.cyan.opacity(0.9) : .clear, radius: 3)
             }
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(p.name).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Ink.ink)
+                if isEditing {
+                    TextField("Name", text: $draft, prompt: Text(p.name))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+                        .frame(maxWidth: 280)
+                        .focused($nameFocused)
+                        .onSubmit { save(p) }
+                        .onExitCommand { editing = nil }
+                        .accessibilityLabel("Name for this iPhone")
+                } else {
+                    Text(model.displayName(p)).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Ink.ink)
+                }
                 Text(line(p, on: on)).font(.system(size: 11.5)).foregroundStyle(on ? Light.cyan : Ink.tertiary)
+                if let named, named != p.name, !isEditing {
+                    Text("Calls itself “\(p.name)”").font(.system(size: 11)).foregroundStyle(Ink.tertiary)
+                } else if generic && !isEditing {
+                    Text("iOS only shares “\(p.name)” — give it a name so you can tell it apart.")
+                        .font(.system(size: 11)).foregroundStyle(Light.ochre)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            Spacer()
-            Button("Forget…") { forgetting = p }
-                .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
+            .accessibilityElement(children: isEditing ? .contain : .combine)
+            Spacer(minLength: 12)
+            if isEditing {
+                Button("Cancel") { editing = nil }
+                    .buttonStyle(.borderless).foregroundStyle(Ink.secondary)
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { save(p) }
+                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+            } else {
+                Button(generic ? "Name It…" : "Rename…") {
+                    draft = model.customName(p) ?? (generic ? AppModel.suggestedPhoneName : p.name)
+                    editing = p.id
+                    DispatchQueue.main.async { nameFocused = true }
+                }
+                .buttonStyle(PillButtonStyle(tint: generic ? Light.teal : Ink.ink, filled: false))
+                .accessibilityLabel("Rename \(model.displayName(p))")
+                Button("Forget…") { forgetting = p }
+                    .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
+                    .accessibilityLabel("Forget \(model.displayName(p))")
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
+    }
+
+    private func save(_ p: PairedPeer) {
+        model.rename(p, to: draft)
+        editing = nil
     }
 
     private func line(_ p: PairedPeer, on: Bool) -> String {
@@ -170,64 +228,122 @@ struct GeneralPane: View {
 }
 
 /// General › "Open Macrophone from anywhere": the global shortcut, for when the menu bar
-/// icon is hidden behind the notch.
+/// icon is hidden behind the notch. Click to record, ⌫ or the clear button removes it.
 struct HotkeyRow: View {
     @ObservedObject var settings: Settings
     @State private var recording = false
+    @State private var live = ""
     @State private var monitor: Any?
     @State private var problem: String?
 
+    private var key: Hotkey { settings.hotkey }
+
     var body: some View {
-        PlateRow(title: "Open Macrophone from anywhere",
-                 subtitle: problem ?? (settings.hotkey.enabled
-                    ? "Press \(settings.hotkey.display) to bring up this window — handy when the menu bar hides Macrophone's icon. You can also open Macrophone from Spotlight or Finder."
-                    : "Off. You can still open Macrophone from Spotlight or Finder."),
-                 subtitleColor: problem == nil ? Ink.tertiary : Light.ochre,
-                 icon: "keyboard") {
-            HStack(spacing: 8) {
-                Button {
-                    recording ? stop() : start()
-                } label: {
-                    Text(recording ? "Press a shortcut…" : settings.hotkey.display)
-                        .font(Typeface.mono(12, .semibold))
-                        .frame(minWidth: 96)
+        PlateRow(title: "Open Macrophone from anywhere", subtitle: subtitle,
+                 subtitleColor: problem == nil ? Ink.tertiary : Light.ochre, icon: "keyboard") {
+            HStack(spacing: 10) {
+                if !recording && key.enabled && (key.keyCode != Hotkey.default.keyCode || key.modifiers != Hotkey.default.modifiers) {
+                    Button("Use \(Hotkey.default.display)") { set(Hotkey.default) }
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Ink.tertiary)
+                        .help("Go back to the standard shortcut, \(Hotkey.default.words)")
                 }
-                .buttonStyle(PillButtonStyle(tint: recording ? Light.teal : Ink.ink, filled: false))
-                .disabled(!settings.hotkey.enabled)
-                .help("Click, then press the new shortcut. Esc cancels.")
-                .accessibilityLabel(recording ? "Recording a shortcut" : "Shortcut: \(settings.hotkey.words). Click to change")
-                Toggle("", isOn: Binding(get: { settings.hotkey.enabled }, set: { on in
-                    settings.hotkey.enabled = on
-                    apply()
-                }))
-                .toggleStyle(.switch).labelsHidden()
+                recorder
             }
         }
-        .onDisappear(perform: stop)
+        .onAppear { problem = HotkeyCenter.shared.lastError }
+        .onDisappear { stop() }
+    }
+
+    private var subtitle: String {
+        if let problem { return problem }
+        if recording { return "Press the keys you want, holding ⌘, ⌥ or ⌃. Esc cancels; Delete removes the shortcut." }
+        if key.enabled {
+            return "Press \(key.display) anywhere to open this window — useful when your menu bar hides Macrophone's icon."
+        }
+        return "No shortcut. You can still open Macrophone from Spotlight or Finder."
+    }
+
+    private var recorder: some View {
+        HStack(spacing: 6) {
+            Button { recording ? stop() : start() } label: {
+                Text(recording ? (live.isEmpty ? "Type Shortcut" : live) : (key.enabled ? key.display : "Record Shortcut"))
+                    .font(recording || !key.enabled ? .system(size: 12, weight: .medium) : Typeface.mono(12.5, .semibold))
+                    .foregroundStyle(recording ? Light.teal : (key.enabled ? Ink.ink : Ink.secondary))
+                    .frame(minWidth: 104)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Shortcut to open Macrophone")
+            .accessibilityValue(recording ? "Recording. Press the new shortcut" : (key.enabled ? key.words : "None"))
+            .accessibilityHint(recording ? "Escape cancels" : "Click to record a new shortcut")
+            .help(recording ? "Esc cancels" : "Click to record a new shortcut")
+            if key.enabled && !recording {
+                Button { clear() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Ink.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove the shortcut")
+                .accessibilityLabel("Remove the shortcut")
+            }
+        }
+        .padding(.leading, 10).padding(.trailing, key.enabled && !recording ? 7 : 10)
+        .background(Capsule().fill(recording ? Light.teal.opacity(0.10) : Ink.sunk))
+        .overlay(Capsule().strokeBorder(recording ? Light.teal.opacity(0.7) : Ink.lineHeavy, lineWidth: 1))
+        .animation(Motion.reduceMotion ? nil : Motion.snap, value: recording)
     }
 
     private func start() {
+        problem = nil
+        live = ""
         recording = true
+        // Let the current shortcut through to the recorder instead of opening the window.
         HotkeyCenter.shared.apply(Hotkey(keyCode: 0, modifiers: 0, enabled: false))
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
-            if e.keyCode == 53 { stop(); return nil } // Esc
-            let mods = Hotkey.carbonModifiers(e.modifierFlags.intersection([.command, .option, .control, .shift]))
-            // Needs ⌘, ⌥ or ⌃ so it can't steal ordinary typing.
-            guard mods & UInt32(cmdKey | optionKey | controlKey) != 0 else { NSSound.beep(); return nil }
-            settings.hotkey = Hotkey(keyCode: UInt32(e.keyCode), modifiers: mods, enabled: true)
-            stop()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { e in
+            let flags = e.modifierFlags.intersection([.command, .option, .control, .shift])
+            let mods = Hotkey.carbonModifiers(flags)
+            if e.type == .flagsChanged {
+                live = Hotkey.symbols(mods)
+                return e
+            }
+            switch Int(e.keyCode) {
+            case kVK_Escape where mods == 0:
+                stop(); return nil
+            case kVK_Delete where mods == 0, kVK_ForwardDelete where mods == 0:
+                clear(); return nil
+            default: break
+            }
+            if let why = Hotkey.conflict(keyCode: UInt32(e.keyCode), modifiers: mods) {
+                // Keep listening: say why and let them try another.
+                NSSound.beep()
+                problem = why
+                live = ""
+                return nil
+            }
+            set(Hotkey(keyCode: UInt32(e.keyCode), modifiers: mods, enabled: true))
             return nil
         }
+    }
+
+    private func set(_ new: Hotkey) {
+        settings.hotkey = new
+        stop()
+    }
+
+    private func clear() {
+        settings.hotkey.enabled = false
+        stop()
     }
 
     private func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         if recording { recording = false }
-        apply()
-    }
-
-    private func apply() {
+        live = ""
         HotkeyCenter.shared.apply(settings.hotkey)
         problem = HotkeyCenter.shared.lastError
     }
