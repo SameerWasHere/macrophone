@@ -2,7 +2,7 @@ import Foundation
 
 /// How much the on-device model edits a transcript. Default is `.medium`.
 public enum CleanupLevel: String, Codable, CaseIterable, Sendable, Identifiable {
-    case off, light, medium, heavy
+    case off, light, medium, heavy, custom
     public var id: String { rawValue }
 
     public var title: String {
@@ -11,6 +11,7 @@ public enum CleanupLevel: String, Codable, CaseIterable, Sendable, Identifiable 
         case .light: return "Light"
         case .medium: return "Medium"
         case .heavy: return "Heavy"
+        case .custom: return "Custom"
         }
     }
 
@@ -21,6 +22,7 @@ public enum CleanupLevel: String, Codable, CaseIterable, Sendable, Identifiable 
         case .light: return "Removes filler and repeats, fixes punctuation."
         case .medium: return "Also fixes grammar and false starts."
         case .heavy: return "Rewrites rambling speech into tidy text."
+        case .custom: return "Follows your own instructions."
         }
     }
 }

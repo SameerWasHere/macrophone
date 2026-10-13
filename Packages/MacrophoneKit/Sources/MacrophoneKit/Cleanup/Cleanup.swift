@@ -216,7 +216,9 @@ final class Warm: @unchecked Sendable {
     private var session: AnyObject?
 
     static func key(_ level: CleanupLevel, _ dictionary: [String]) -> String {
-        level.rawValue + "|" + dictionary.joined(separator: "\u{1F}")
+        // A prewarmed Custom session is only reusable with the same instructions.
+        let custom = level == .custom ? "|" + String(CleanupPrompts.customInstructions.hashValue) : ""
+        return level.rawValue + custom + "|" + dictionary.joined(separator: "\u{1F}")
     }
 
     func put(_ session: AnyObject, key: String) {
@@ -321,8 +323,15 @@ public enum CleanupGuard {
 
         // 4. Length: light/medium only remove; heavy restructures but keeps content.
         let on = Double(max(o.count, 1)), en = Double(e.count)
+        // Custom follows the person's own instructions, which may well rewrite: only the safety
+        // rules above apply (never an answer, a refusal, invented code or a leaked example),
+        // plus a ceiling on runaway output.
+        if level == .custom {
+            if en > on * 3 + 60 { return .reject("too long") }
+            return .accept(DictionaryPass.fixCasing(e, terms: dictionary))
+        }
         switch level {
-        case .off: return .reject("off")
+        case .off, .custom: return .reject("off")
         case .light, .medium:
             if en > on * 1.25 + 20 { return .reject("too long") }
             if en < on * (level == .light ? 0.45 : 0.35) && on > 60 { return .reject("too short") }
@@ -350,7 +359,7 @@ public enum CleanupGuard {
         let correctionAllowance = level == .light ? 0 : st.corrections * 3
         let novelAllowance: Int, dropAllowance: Int
         switch level {
-        case .off: return .reject("off")
+        case .off, .custom: return .reject("off")
         case .light:
             novelAllowance = Int(Double(st.outputWords) * 0.08)
             dropAllowance = Int(Double(st.inputWords) * 0.05)

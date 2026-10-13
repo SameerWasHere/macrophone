@@ -258,6 +258,15 @@ func run() async -> Int32 {
         stdout("unpaired")
         return 0
 
+    case "clean":
+        // mpctl clean "<text>" [--level light|medium|heavy|custom] [--instructions "<custom prompt>"]
+        guard args.count > 1 else { stdout("usage: mpctl clean <text> [--level …] [--instructions …]"); return 2 }
+        let level = flag("--level").flatMap(CleanupLevel.init(rawValue:)) ?? .medium
+        CleanupPrompts.setCustomInstructions(flag("--instructions"))
+        let r = await Cleaner.clean(args[1], level: level, dictionary: [], language: "en-US")
+        stdout(r.cleaned ?? "(kept as spoken\(r.skipped.map { ": " + $0 } ?? ""))")
+        return 0
+
     case "cleanup-eval":
         return await CleanupEval.run(file: flag("--file"), level: flag("--level"), only: flag("--only"))
 
