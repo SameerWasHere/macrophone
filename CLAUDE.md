@@ -36,3 +36,7 @@ swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url
 - Never upload to App Store Connect / TestFlight unless Sameer explicitly asks to submit.
 - The apps collect nothing. Diagnostics never contain dictation text or keys.
 - Primary users are developers dictating long prompts; when in doubt, optimize for them.
+- Testing on Sameer's Mac (he uses it while you work): stop only processes you started, by PID
+  or exact path. Never `pkill -f`/`killall` with a short pattern — on Oct 13 2026
+  `pkill -f "cat"` matched "/Applications" and closed every app he had open. Never auto-send
+  into Messages, Mail, Slack, Muse or anything that reaches a person.
