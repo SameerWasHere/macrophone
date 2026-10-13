@@ -18,8 +18,13 @@ final class Settings: ObservableObject {
     @Published var showHoldHint: Bool { didSet { d.set(showHoldHint, forKey: K.holdHint) } }
     /// What this iPhone calls itself to the Mac. iOS only gives apps "iPhone", so the person can rename it.
     @Published var deviceName: String { didSet { d.set(deviceName, forKey: K.deviceName) } }
-    /// Where dictations go: Automatic (the Mac picks by the app in front) or one of its targets.
-    @Published var sendTo: SendTarget { didSet { d.set(sendTo.stored, forKey: K.sendTo) } }
+    /// The one shared Send-to choice (synced with the Mac both ways; the phone's wins on connect).
+    @Published var selection: SendSelection {
+        didSet {
+            if let data = try? JSONEncoder().encode(selection) { d.set(data, forKey: K.selection) }
+            if selection.target.canSend { rememberSend(selection.send, for: selection.target) }
+        }
+    }
 
     init(defaults: UserDefaults = .standard) {
         d = defaults
@@ -31,13 +36,33 @@ final class Settings: ObservableObject {
         historyEnabled = defaults.object(forKey: K.history) as? Bool ?? true
         showHoldHint = defaults.object(forKey: K.holdHint) as? Bool ?? true
         deviceName = defaults.string(forKey: K.deviceName) ?? UIDevice.current.name
-        if let s = defaults.string(forKey: K.sendTo) {
-            sendTo = SendTarget(stored: s)
-        } else if let id = defaults.string(forKey: K.profile).flatMap(UUID.init(uuidString:)) {
-            sendTo = .profile(id)   // v1 picked a profile in the old chip: keep it
-        } else {
-            sendTo = .automatic     // a fresh install sends on Automatic
+        selection = Self.storedSelection(defaults)
+    }
+
+    /// Read without the main actor: the link sends it to the Mac right after every welcome.
+    nonisolated static func storedSelection(_ d: UserDefaults = .standard) -> SendSelection {
+        if let data = d.data(forKey: K.selection), let s = try? JSONDecoder().decode(SendSelection.self, from: data) { return s }
+        // Before live targets: "automatic" meant the app in front; a picked profile is now an automation.
+        if let old = d.string(forKey: K.sendTo) {
+            if old == "automatic" { return SendSelection(target: .frontApp) }
+            if let id = UUID(uuidString: old), let p = CachedProfile.load().first(where: { $0.id == id }) {
+                return SendSelection(target: .automation(id: id, name: p.name))
+            }
         }
+        return .default   // a fresh install copies to the Mac's clipboard
+    }
+
+    /// Paste or Paste & send, remembered for each target the person has used.
+    func rememberedSend(for target: TargetRef) -> Bool {
+        guard target.canSend else { return false }
+        return (d.dictionary(forKey: K.sendByTarget) as? [String: Bool])?[target.storageKey] ?? false
+    }
+
+    func rememberSend(_ on: Bool, for target: TargetRef) {
+        guard target.canSend else { return }
+        var all = (d.dictionary(forKey: K.sendByTarget) as? [String: Bool]) ?? [:]
+        all[target.storageKey] = on
+        d.set(all, forKey: K.sendByTarget)
     }
 
     var isEnglish: Bool { language.lowercased().hasPrefix("en") }
@@ -51,26 +76,25 @@ final class Settings: ObservableObject {
         static let history = "settings.historyEnabled"
         static let holdHint = "settings.showHoldHint"
         static let deviceName = "settings.deviceName"
-        static let profile = "settings.profileID"   // v1, read once for migration
-        static let sendTo = "settings.sendTo"
+        static let sendTo = "settings.sendTo"        // before live targets, read once for migration
+        static let selection = "settings.selection"
+        static let sendByTarget = "settings.sendByTarget"
     }
 }
 
-/// The Send-to choice on the main screen.
-enum SendTarget: Equatable, Hashable {
-    case automatic
-    case profile(UUID)
-
-    init(stored: String) {
-        if let id = UUID(uuidString: stored) { self = .profile(id) } else { self = .automatic }
-    }
-    var stored: String {
+extension TargetRef {
+    /// A stable key for remembering things per target ("app:com.apple.MobileSMS#41").
+    var storageKey: String {
         switch self {
-        case .automatic: return "automatic"
-        case .profile(let id): return id.uuidString
+        case .clipboard: return "clipboard"
+        case .frontApp: return "front"
+        case let .app(bid, key, _): return "app:\(bid)#\(key ?? "")"
+        case let .automation(id, _): return "auto:\(id.uuidString)"
         }
     }
-    var profileID: UUID? { if case .profile(let id) = self { return id }; return nil }
+
+    var isAutomation: Bool { if case .automation = self { return true }; return false }
+    var automationID: UUID? { if case let .automation(id, _) = self { return id }; return nil }
 }
 
 /// Where the app keeps its files: Application Support/Macrophone.
@@ -84,6 +108,8 @@ enum AppFiles {
     static var history: URL { directory.appendingPathComponent("history.json") }
     static var queue: URL { directory.appendingPathComponent("queue.json") }
     static var log: URL { directory.appendingPathComponent("diagnostics.log") }
+    /// The Mac's open apps as last heard (names, ids and small icons — no text).
+    static var targets: URL { directory.appendingPathComponent("targets.json") }
 }
 
 extension Bundle {

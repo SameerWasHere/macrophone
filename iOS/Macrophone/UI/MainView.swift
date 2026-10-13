@@ -1,7 +1,14 @@
 import MacrophoneKit
 import SwiftUI
 
-/// The mic screen: the Filament, the words, one big button, the status line, the last dictation.
+/// The mic screen: the words and the Filament, the quick controls, one big button, the status
+/// line, the last dictation.
+///
+/// **The mic never moves.** Everything under the stage sits in a fixed slot whose size comes from
+/// a hidden worst-case template (`FixedSlot`), never from what's showing: the quick controls, the
+/// status line and the last-dictation card keep their room in every state (idle, holding,
+/// recording, sending, delivered, queued, failed, no history, unpaired, a long or short target).
+/// Only the words area above flexes, and the live words grow into it without pushing anything.
 struct MainView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
@@ -14,9 +21,8 @@ struct MainView: View {
     @State private var filamentMode: FilamentMode = .ready
     @State private var showCheck = false
     @State private var settleTask: Task<Void, Never>?
-    /// iPhone SE-class heights: a shorter stage so the last dictation still shows.
+    /// iPhone SE-class heights: a shorter stage and card; History lives in the top bar only.
     @State private var compact = false
-    @AppStorage("onboarding.macNudgeDismissed") private var macNudgeDismissed = false
 
     private var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting }
 
@@ -31,7 +37,14 @@ struct MainView: View {
                 VStack(spacing: 0) {
                     topBar
                     stage
-                    controls
+                    quickControls
+                    MicButton(recording: isRecording,
+                              busy: false,
+                              meter: recorder.meter,
+                              onDown: pressDown,
+                              onUp: pressUp,
+                              onAccessibilityToggle: { model.toggleRecording() })
+                    statusSlot
                     bottom
                 }
                 .frame(minHeight: geo.size.height)
@@ -42,6 +55,14 @@ struct MainView: View {
             .scrollDisabled(isRecording)
         }
         .background(GroundBackground(glow: isRecording ? Light.ember : Light.cyan).animation(.easeInOut(duration: 0.6), value: isRecording))
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            if DebugHooks.env["MACROPHONE_ROUTE_PROBE"] == "1" {
+                Text(model.routeProbe).font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
+                    .accessibilityIdentifier("debug-route").accessibilityLabel(model.routeProbe)
+            }
+        }
+        #endif
         .onChange(of: model.pulse) { _, _ in react() }
         .onChange(of: recorder.phase) { _, _ in react() }
         .onChange(of: model.status) { _, _ in react() }
@@ -87,25 +108,26 @@ struct MainView: View {
 
     // MARK: Stage: the words and the Filament
 
-    private var filamentHeight: CGFloat { compact ? 84 : 112 }
+    private var filamentHeight: CGFloat { compact ? 72 : 104 }
 
-    /// The words grow into the room the card leaves while recording, so the line stays put.
+    /// The one flexible part of the page. Idle words and live words share one area whose size
+    /// never depends on which is showing.
     private var stage: some View {
         VStack(spacing: 0) {
-            if showLiveWords {
-                LiveWords(text: recorder.transcript, listening: isRecording)
-                    .frame(minHeight: compact ? 84 : 110, maxHeight: .infinity)
+            Color.clear
+                .frame(minHeight: compact ? 56 : 84, maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    ZStack(alignment: .bottom) {
+                        if showLiveWords {
+                            LiveWords(text: recorder.transcript, listening: isRecording)
+                                .transition(.opacity)
+                        } else {
+                            idleWords.transition(.opacity)
+                        }
+                    }
                     .padding(.horizontal, 24)
-                    .transition(.opacity)
-            } else {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 8)
-                    idleWords
                 }
-                .frame(minHeight: compact ? 64 : 110, maxHeight: .infinity)
-                .padding(.horizontal, 24)
-                .transition(.opacity)
-            }
+                .clipped()
             ZStack {
                 Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
                 DeliveredCheck(visible: showCheck, color: checkColor)
@@ -119,26 +141,36 @@ struct MainView: View {
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
     }
 
+    /// Whatever fits of: the line and the hint; the line; the line smaller.
     private var idleWords: some View {
-        VStack(spacing: 10) {
-            Spacer(minLength: 0)
-            Text(model.isPaired ? "Speak, and it's on your Mac." : "Speak, and it's on your clipboard.")
-                .font(.serif(compact ? .title3 : .title2))
-                .foregroundStyle(Ink.ink)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            // On a small screen the hint gives its room to the last dictation once there is one.
-            if model.settings.showHoldHint, !(compact && model.latest != nil) {
-                Text("Tap to talk, tap again to send — or hold, and let go to send.")
-                    .font(.subheadline)
-                    .foregroundStyle(Ink.tertiary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+        let line = model.isPaired ? "Speak, and it's on your Mac." : "Speak, and it's on your clipboard."
+        let hint = "Tap to talk, tap again to send — or hold, and let go to send."
+        return ViewThatFits(in: .vertical) {
+            if model.settings.showHoldHint {
+                VStack(spacing: 10) { idleLine(line, compact ? .title3 : .title2); idleHint(hint) }
             }
+            idleLine(line, compact ? .title3 : .title2)
+            idleLine(line, .headline)
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 8)
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+    }
+
+    private func idleLine(_ s: String, _ style: Font.TextStyle) -> some View {
+        Text(s)
+            .font(.serif(style))
+            .foregroundStyle(Ink.ink)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func idleHint(_ s: String) -> some View {
+        Text(s)
+            .font(.subheadline)
+            .foregroundStyle(Ink.tertiary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var timer: some View {
@@ -159,23 +191,26 @@ struct MainView: View {
         .padding(.bottom, 2)
     }
 
-    // MARK: Controls
+    // MARK: Quick controls, the mic, the status line
 
-    private var controls: some View {
-        VStack(spacing: 8) {
-            if model.isPaired, !model.profiles.isEmpty {
-                SendToChip(recorder: recorder, recording: isRecording)
-                    .padding(.top, 4)
-                    .padding(.bottom, 6)
-            }
-            MicButton(recording: isRecording,
-                      busy: false,
-                      meter: recorder.meter,
-                      onDown: pressDown,
-                      onUp: pressUp,
-                      onAccessibilityToggle: { model.toggleRecording() })
+    private var quickControls: some View {
+        FixedSlot {
+            QuickControlsTemplate()
+        } content: {
+            QuickControls(settings: model.settings, recorder: recorder, recording: isRecording)
+        }
+        .padding(.top, 4)
+        .padding(.bottom, 4)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+    }
+
+    private var statusSlot: some View {
+        FixedSlot(alignment: .top) {
+            // Two lines of the status font (three at accessibility sizes); longer lines step down a size.
+            Text(typeSize.isAccessibilitySize ? "A\nB\nC" : "A\nB").font(.subheadline).lineSpacing(0)
+                .frame(maxWidth: .infinity)
+        } content: {
             StatusLine(recorder: recorder, holding: holding)
-                .frame(minHeight: 40, alignment: .top)
         }
     }
 
@@ -205,35 +240,51 @@ struct MainView: View {
 
     // MARK: Bottom: last dictation and the way to history
 
+    private var cardTextHeight: CGFloat { typeSize.isAccessibilitySize ? 200 : (compact ? 48 : 72) }
+
     private var bottom: some View {
         VStack(spacing: 10) {
-            if let item = model.latest, !showLiveWords {
-                LastDictationCard(item: item,
-                                  onCopy: { model.copy(item, cleaned: $0) },
-                                  onResend: { model.resend(item) },
-                                  maxTextHeight: typeSize.isAccessibilitySize ? 220 : (compact ? 72 : 96),
-                                  canResend: model.isPaired)
-                    .id(item.id)
-                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
-                // The first dictations without a Mac: it worked here; this is how to get it there.
-                if !model.isPaired, item.delivery == .copiedOnPhone, !macNudgeDismissed {
-                    MacAppNudge { withAnimation(Motion.pick(Motion.depart, reduce: reduceMotion)) { macNudgeDismissed = true } }
-                        .transition(.opacity)
+            FixedSlot(alignment: .top) {
+                LastDictationCard.template(maxTextHeight: cardTextHeight)
+            } content: {
+                if let item = model.latest {
+                    LastDictationCard(item: item,
+                                      onCopy: { model.copy(item, cleaned: $0) },
+                                      onResend: { model.resend(item) },
+                                      maxTextHeight: cardTextHeight,
+                                      canResend: model.isPaired)
+                        .id(item.id)
+                        .transition(reduceMotion ? .opacity : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
+                        // Recording: the card keeps its room and fades, so nothing below the mic moves.
+                        .opacity(showLiveWords ? 0.22 : 1)
+                        .allowsHitTesting(!showLiveWords)
+                } else {
+                    Text("Your last dictation shows here, ready to copy or send again.")
+                        .font(.footnote)
+                        .foregroundStyle(Ink.tertiary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 24)
+                        .opacity(showLiveWords ? 0 : 1)
                 }
             }
-            Button { model.sheet = .history } label: {
-                VStack(spacing: 2) {
-                    Image(systemName: "chevron.compact.up").font(.title3.weight(.semibold))
-                    Text(model.historyItems.isEmpty ? "History" : "History · \(model.historyItems.count)")
-                        .font(.footnote.weight(.medium))
+            if !compact {
+                Button { model.sheet = .history } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "chevron.compact.up").font(.title3.weight(.semibold))
+                        Text(model.historyItems.isEmpty ? "History" : "History · \(model.historyItems.count)")
+                            .font(.footnote.weight(.medium))
+                    }
+                    .foregroundStyle(Ink.tertiary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(Ink.tertiary)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .opacity(isRecording ? 0 : 1)
+                .allowsHitTesting(!isRecording)
+                .accessibilityLabel("Show history")
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             }
-            .buttonStyle(.plain)
-            .opacity(isRecording ? 0 : 1)
-            .accessibilityLabel("Show history")
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -278,6 +329,42 @@ struct MainView: View {
                 if filamentMode == .delivered || filamentMode == .error { filamentMode = .ready }
             }
         }
+    }
+}
+
+/// A slot whose size is its hidden template's — whatever the content shows. The content is laid
+/// over the template (an overlay never sizes its parent), so a state change can't move anything.
+struct FixedSlot<Template: View, Content: View>: View {
+    var alignment: Alignment = .center
+    @ViewBuilder var template: Template
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        template
+            .hidden()
+            .accessibilityHidden(true)
+            .overlay(alignment: alignment) { content }
+    }
+}
+
+/// The quick controls at their tallest: a two-line target name over the paste and cleanup line.
+private struct QuickControlsTemplate: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    var body: some View {
+        VStack(spacing: 6) {
+            plate(Text("A\nB").font(.caption.weight(.semibold)).padding(.vertical, 6))
+            if typeSize.isAccessibilitySize {
+                VStack(spacing: 6) { plate(Text("A").font(.footnote.weight(.semibold))); plate(Text("A").font(.footnote.weight(.semibold))) }
+            } else {
+                plate(Text("A").font(.footnote.weight(.semibold)))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+    }
+
+    private func plate(_ t: some View) -> some View {
+        t.frame(minHeight: 38).padding(.vertical, 3).frame(minHeight: 44)
     }
 }
 
@@ -384,53 +471,48 @@ struct IconButtonStyle: ButtonStyle {
     }
 }
 
-/// Under the first dictations made without a Mac: the free Mac app, one tap to send yourself
-/// the link. Dismissed for good with the close button; gone once a Mac is paired.
+/// In the quick controls' first line, after the first dictations made without a Mac: the free
+/// Mac app, one tap to send yourself the link. Closed for good with ×; gone once a Mac is paired.
 struct MacAppNudge: View {
     var onDismiss: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 4) {
+        HStack(spacing: 0) {
             ShareLink(item: Product.website,
                       subject: Text("Macrophone for Mac"),
                       message: Text("Get Macrophone for your Mac: \(Product.website.absoluteString)")) {
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     Image(systemName: "laptopcomputer.and.iphone")
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(Light.cyan)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(Light.cyan.opacity(0.12)))
                         .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Want it on your Mac?")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Ink.ink)
-                        Text("The free Mac app puts your words right where you're typing. Tap to send yourself the link.")
-                            .font(.footnote)
-                            .foregroundStyle(Ink.tertiary)
+                    ViewThatFits(in: .horizontal) {
+                        Text("Want it on your Mac? Get the free app").lineLimit(1).fixedSize()
+                        Text("Get the free Mac app").lineLimit(1).fixedSize()
+                        Text("Get the free Mac app").font(.caption.weight(.semibold)).lineLimit(2)
                     }
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Ink.ink)
                 }
-                .padding(.vertical, 12)
                 .padding(.leading, 14)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Want it on your Mac? Get the free Mac app")
             .accessibilityHint("Shares the download link, so you can open it on your Mac.")
             .accessibilityIdentifier("mac-app-nudge")
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.footnote.weight(.semibold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(Ink.tertiary)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 40, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Hide this")
         }
-        .padding(.trailing, 2)
-        .glass(Radius.medium)
+        .background(RoundedRectangle(cornerRadius: 19, style: .continuous).fill(Light.cyan.opacity(0.08)).padding(.vertical, 3))
+        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).strokeBorder(Light.cyan.opacity(0.35), lineWidth: 1).padding(.vertical, 3))
     }
 }

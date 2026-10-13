@@ -16,6 +16,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Form {
+                if model.isPaired { sendToSection }
                 cleanupSection
                 recordingSection
                 macSection
@@ -35,6 +36,7 @@ struct SettingsView: View {
                 case .language: LanguageView(settings: settings)
                 case .diagnostics: DiagnosticsView()
                 case .pairing: PairingView(embedded: true)
+                case .sendTo: SendToList(settings: settings).navigationTitle("Send To").navigationBarTitleDisplayMode(.inline)
                 }
             }
             .onAppear {
@@ -44,6 +46,27 @@ struct SettingsView: View {
             }
         }
         .tint(Light.cyan)
+    }
+
+    // MARK: Send to (the same choice as the quick controls by the mic)
+
+    private var sendToSection: some View {
+        Section {
+            NavigationLink(value: SettingsRoute.sendTo) {
+                HStack(spacing: 12) {
+                    TargetIcon(target: settings.selection.target, icon: model.liveTarget(for: settings.selection.target)?.icon, size: 28)
+                    LabeledContent("Send to", value: settings.selection.target.displayName)
+                }
+            }
+            Toggle("Paste & send", isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) }))
+                .disabled(!settings.selection.target.canSend)
+        } header: {
+            Text("Send to")
+        } footer: {
+            Text(settings.selection.target.canSend
+                 ? "Paste & send presses the app's send key after a short countdown on your Mac. The choice is the same on your Mac: change it in either place."
+                 : "\(settings.selection.target.displayName) can't send — Paste & send is for apps. The choice is the same on your Mac: change it in either place.")
+        }
     }
 
     // MARK: Cleanup
@@ -242,7 +265,7 @@ struct SettingsView: View {
 }
 
 enum SettingsRoute: Hashable {
-    case dictionary, language, diagnostics, pairing
+    case dictionary, language, diagnostics, pairing, sendTo
 }
 
 /// Off · Light · Medium · Heavy as a slider with labelled stops.

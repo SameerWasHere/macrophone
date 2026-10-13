@@ -22,21 +22,29 @@ enum DeliveryStatus: Equatable {
     case problem(String, openSettings: Bool)
 }
 
-/// Which target a dictation went to, for the status line: "Sent to Claude — you said “Claude, …”".
+/// Which target a dictation went to, for the status line: "Sent to Messages — you said “Messages” first".
 struct RouteNote: Equatable {
     var name: String
-    /// The lead-in as heard, when a voice prefix picked it.
+    /// The lead-in as heard, when saying it picked the target.
     var spoken: String?
+    /// Paste & send was on for it.
+    var send = false
 }
 
-/// How one dictation is routed: the target, why it was picked, and the words to clean and send.
+/// How one dictation is routed: where, paste or send, why, and the words to clean and send.
 struct Route: Equatable {
+    var target: TargetRef
+    var send: Bool
+    /// The automation, when the target is one (its cleanup level applies).
     var profile: ProfileSummary?
+    /// How an automation was picked (`.chosen` / `.prefix`); nil for apps, Clipboard, typing.
     var source: ProfileSource?
-    /// The transcript with any voice prefix taken off.
+    /// The transcript with any spoken name taken off.
     var body: String
-    /// The prefix as heard ("Claude"), when one picked the target.
+    /// The name as heard ("Messages", "Claude"), when saying it picked the target.
     var spoken: String?
+    /// An open app's name said first ("Messages, …") picked it.
+    var spokenTarget = false
 }
 
 enum AppSheet: String, Identifiable {
@@ -73,7 +81,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var discoveredMacs: [DiscoveredMac] = []
     /// iOS is blocking the local network for this app — nothing can be found until it's on.
     @Published private(set) var localNetworkDenied = false
+    /// The Mac's automations (notes, reminders, tmux, Ask Claude, scripts…).
     @Published private(set) var profiles: [ProfileSummary] = []
+    /// The Mac's open apps/windows with somewhere to type, newest first (cached while it's away).
+    @Published private(set) var liveTargets: [LiveTarget] = []
+    /// The Mac sent its list since the link last connected (so "Not open on your Mac" is current).
+    @Published private(set) var targetsCurrent = false
     @Published private(set) var pairedMac: PairedPeer?
     @Published var pairing: PairingPhase = .idle
     @Published var sheet: AppSheet?
@@ -91,7 +104,7 @@ final class AppModel: ObservableObject {
     private var flushing = false
     private var sceneActive = false
     /// A Shortcut / control / Siri picked the target for this one recording.
-    private var recordingOverride: SendTarget?
+    private var recordingOverride: SendSelection?
     private var textWaiters: [CheckedContinuation<String?, Never>] = []
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var statusReset: Task<Void, Never>?
@@ -115,6 +128,7 @@ final class AppModel: ObservableObject {
                 ProfileSummary(id: $0.id, name: $0.name, cleanupLevel: $0.cleanupLevel.flatMap(CleanupLevel.init(rawValue:)),
                                isDefault: $0.isDefault, voicePrefixes: $0.voicePrefixes)
             }
+            liveTargets = Self.loadTargets()
         }
         refreshHistory()
         refreshAvailability()
@@ -127,7 +141,19 @@ final class AppModel: ObservableObject {
         let c = LinkClient(identity: DeviceIdentity.load(name: name), store: store,
                            appVersion: Bundle.main.shortVersion, osDescription: "iOS \(UIDevice.current.systemVersion)")
         c.log = log
+        // The phone's choice goes to the Mac after every welcome, so on reconnect the phone's wins.
+        c.selectionProvider = { Settings.storedSelection() }
         return c
+    }
+
+    private static func loadTargets() -> [LiveTarget] {
+        guard let d = try? Data(contentsOf: AppFiles.targets) else { return [] }
+        return (try? JSONDecoder().decode([LiveTarget].self, from: d)) ?? []
+    }
+
+    private func saveTargets(_ list: [LiveTarget]) {
+        if let d = try? JSONEncoder().encode(list) { try? d.write(to: AppFiles.targets, options: .atomic) }
+        CachedTarget.save(list.map { CachedTarget(id: "app:\($0.bundleID)#\($0.windowKey ?? "")", name: $0.title) })
     }
 
     // MARK: Derived
@@ -136,11 +162,22 @@ final class AppModel: ObservableObject {
     var isConnected: Bool { if case .connected = linkState { return true }; return false }
     var macName: String { pairedMac?.name ?? "your Mac" }
 
-    /// The target picked for the next dictation (a Shortcut's pick wins while it records).
-    /// Nil = Automatic, or a pick the Mac no longer has.
+    /// Where the next dictation goes (a Shortcut's pick wins while it records).
+    var selection: SendSelection { recordingOverride ?? settings.selection }
+
+    /// The automation picked for the next dictation, if the choice is one.
     var selectedProfile: ProfileSummary? {
-        guard let id = (recordingOverride ?? settings.sendTo).profileID else { return nil }
+        guard let id = selection.target.automationID else { return nil }
         return profiles.first { $0.id == id }
+    }
+
+    /// The open app a target names, if it's open on the Mac right now.
+    func liveTarget(for ref: TargetRef) -> LiveTarget? { liveTargets.first { ref.matches($0) } }
+
+    /// A remembered app that isn't open on the Mac (it'll copy instead).
+    func isNotOpen(_ ref: TargetRef) -> Bool {
+        guard case .app = ref, targetsCurrent || !liveTargets.isEmpty else { return false }
+        return liveTarget(for: ref) == nil
     }
 
     /// The level cleanup will run at, after availability, language and the profile.
@@ -151,14 +188,31 @@ final class AppModel: ObservableObject {
         return profile?.cleanupLevel ?? settings.cleanupLevel
     }
 
-    /// Picks the target for one transcript: a spoken prefix ("Claude, …") > a Shortcut's pick >
-    /// the Send-to choice. The Mac resolves Automatic by the app in front.
+    /// Paste or Paste & send for a target: the current choice's own setting, else what was last
+    /// used with it.
+    func sendSetting(for ref: TargetRef) -> Bool {
+        guard ref.canSend else { return false }
+        if ref == settings.selection.target { return settings.selection.send }
+        return settings.rememberedSend(for: ref)
+    }
+
+    /// Picks the target for one transcript: an open app's name said first ("Messages, …") >
+    /// an automation's lead-in ("Note, …") > a Shortcut's pick > the Send-to choice.
     func route(for raw: String) -> Route {
-        if !profiles.isEmpty, let m = VoicePrefix.match(raw, profiles: profiles) {
-            return Route(profile: m.profile, source: .prefix, body: m.text, spoken: Self.spokenPrefix(raw, of: m.profile))
+        if isPaired, !liveTargets.isEmpty, let m = SpokenTarget.match(raw, targets: liveTargets) {
+            let ref = m.target.ref
+            return Route(target: ref, send: sendSetting(for: ref), profile: nil, source: nil, body: m.text,
+                         spoken: m.target.appName, spokenTarget: true)
         }
-        if let p = selectedProfile { return Route(profile: p, source: .chosen, body: raw) }
-        return Route(profile: nil, source: isPaired ? .automatic : nil, body: raw)
+        if isPaired, !profiles.isEmpty, let m = VoicePrefix.match(raw, profiles: profiles) {
+            return Route(target: .automation(id: m.profile.id, name: m.profile.name), send: false, profile: m.profile,
+                         source: .prefix, body: m.text, spoken: Self.spokenPrefix(raw, of: m.profile))
+        }
+        let sel = selection
+        if let id = sel.target.automationID {
+            return Route(target: sel.target, send: false, profile: profiles.first { $0.id == id }, source: .chosen, body: raw)
+        }
+        return Route(target: sel.target, send: sendSetting(for: sel.target), profile: nil, source: nil, body: raw)
     }
 
     /// The lead-in exactly as the recognizer wrote it ("Claude", "Claude Code").
@@ -172,20 +226,23 @@ final class AppModel: ObservableObject {
         return match.map { String(t.prefix($0.count)) }
     }
 
-    /// The target while the words come in: a prefix shows up the moment it's heard.
-    func liveRoute(_ transcript: String) -> (profile: ProfileSummary?, byVoice: Bool) {
-        if !profiles.isEmpty, let m = VoicePrefix.match(transcript, profiles: profiles) { return (m.profile, true) }
-        return (selectedProfile, false)
+    /// Where this one goes while the words come in: a spoken name shows up the moment it's heard.
+    func liveRoute(_ transcript: String) -> (target: TargetRef, send: Bool, byVoice: Bool) {
+        let r = route(for: transcript)
+        return (r.target, r.send, r.spoken != nil)
     }
 
     func routeNote(_ id: UUID) -> RouteNote? {
         guard let item = historyItems.first(where: { $0.id == id }) ?? (latest?.id == id ? latest : nil),
               let name = item.targetName else { return nil }
-        return RouteNote(name: name, spoken: item.spokenPrefix)
+        return RouteNote(name: name, spoken: item.spokenPrefix, send: item.dictation.send == true)
     }
 
     func refreshAvailability() {
         cleanupAvailability = Cleaner.availability(language: settings.language)
+        #if DEBUG
+        if DebugHooks.env["MACROPHONE_CLEANUP_AVAILABLE"] == "1" { cleanupAvailability = .available }
+        #endif
     }
 
     // MARK: Lifecycle
@@ -261,7 +318,7 @@ final class AppModel: ObservableObject {
         if recorder.isActive { stopRecording() } else { Task { await startRecording() } }
     }
 
-    func startRecording(override: SendTarget? = nil) async {
+    func startRecording(override: SendSelection? = nil) async {
         guard !recorder.isActive else { return }
         recordingOverride = override
         #if DEBUG
@@ -337,7 +394,7 @@ final class AppModel: ObservableObject {
         let profile = route.profile
         let level = cleanupLevel(for: profile)
         recordingOverride = nil
-        if let source = route.source { log.add("target: \(profile?.name ?? "Mac picks") (\(source.rawValue))") }
+        log.add("target: \(Self.kind(route.target))\(route.send ? " + send" : "")\(route.spoken != nil ? " (said)" : "")")
         // The prefix is only for the phone: what's cleaned and sent starts after it.
         var cleaned: String?
         var partial = false
@@ -352,9 +409,17 @@ final class AppModel: ObservableObject {
         }
         let cleanupRan = cleaned != nil
         if cleaned == nil, route.body != raw { cleaned = route.body }
+        // Every dictation carries where it goes, so the Mac routes each one exactly (a sync race
+        // can't misroute it); the automation fields only for automations.
+        let auto = route.target.automationID
         let d = Dictation(raw: raw, cleaned: cleaned, cleanupLevel: cleanupRan ? level : .off, language: o.language,
-                          profileID: profile?.id, profileName: profile?.name, profileSource: route.source,
+                          profileID: auto, profileName: auto == nil ? nil : route.target.displayName,
+                          profileSource: auto == nil ? nil : (route.source ?? .chosen),
+                          target: route.target, send: route.send, targetSpoken: route.spokenTarget ? true : nil,
                           stoppedEarly: o.reason.isEarly, duration: o.duration, sourceDevice: settings.deviceName)
+        #if DEBUG
+        routeProbe = "target=\(route.target.storageKey) send=\(route.send ? 1 : 0) cleanup=\(level.rawValue) said=\(route.spokenTarget ? 1 : 0) text=\(d.text)"
+        #endif
         history.add(HistoryItem(dictation: d, delivery: .sending, partialCleanup: partial ? true : nil, spokenPrefix: route.spoken))
         refreshHistory()
         processing = false
@@ -606,7 +671,10 @@ final class AppModel: ObservableObject {
         pairedMac = client.activeMac
         profiles = []
         CachedProfile.save([])
-        settings.sendTo = .automatic
+        liveTargets = []
+        targetsCurrent = false
+        saveTargets([])
+        settings.selection = .default
         // Anything still waiting can't reach a Mac now; it stays in history with Copy.
         for e in queue.entries { updateItem(e.id) { $0.delivery = .failed; $0.detail = "Unpaired before it was sent" } }
         queue.removeAll()
@@ -624,18 +692,59 @@ final class AppModel: ObservableObject {
         log.add("device renamed")
     }
 
-    func setSendTo(_ target: SendTarget) {
-        settings.sendTo = target
-        log.add("send to: \(target == .automatic ? "automatic" : "a chosen target")")
+    /// Picks where dictations go (Paste or Paste & send as last used there). Applies to the next
+    /// dictation — or the one being recorded — and goes to the Mac at once.
+    func pick(_ target: TargetRef) {
+        setSelection(SendSelection(target: target, send: settings.rememberedSend(for: target)))
     }
+
+    /// Paste only, or paste and press send. Remembered for this target.
+    func setSend(_ on: Bool) { setSend(on, for: settings.selection.target) }
+
+    /// For the choice it syncs with the Mac; for an app said first mid-recording it's remembered
+    /// for that app and applies to the words being spoken.
+    func setSend(_ on: Bool, for target: TargetRef) {
+        guard target.canSend else { return }
+        if target == settings.selection.target {
+            setSelection(SendSelection(target: target, send: on))
+        } else {
+            objectWillChange.send()
+            settings.rememberSend(on, for: target)
+        }
+    }
+
+    func setSelection(_ s: SendSelection) {
+        recordingOverride = nil   // a change made now wins over a Shortcut's pick for this recording
+        guard s != settings.selection else { return }
+        settings.selection = s
+        client.setSelection(s)
+        log.add("send to: \(Self.kind(s.target))\(s.send ? " + send" : "")")
+    }
+
+    func setCleanupLevel(_ level: CleanupLevel) {
+        settings.cleanupLevel = level
+        log.add("cleanup: \(level.rawValue)")
+    }
+
+    /// For the log: the kind of target, never an app's or window's name.
+    static func kind(_ t: TargetRef) -> String {
+        switch t {
+        case .clipboard: return "clipboard"
+        case .frontApp: return "where I'm typing"
+        case .app: return "an open app"
+        case .automation: return "an automation"
+        }
+    }
+
+    /// The picker opened: ask the Mac to look again.
+    func refreshTargets() { client.refreshTargets() }
 
     // MARK: Intents
 
     /// Opens already recording (Action Button, Siri, Control Center, Shortcuts).
-    func startFromIntent(profileID: UUID?) async {
-        // A Shortcut / control that names a target sends there this once (`.chosen`);
-        // "Automatic" sends on Automatic; empty uses the app's own choice.
-        let override: SendTarget? = profileID.map { $0 == ProfileEntity.automaticID ? .automatic : .profile($0) }
+    func startFromIntent(targetID: String?, name: String? = nil) async {
+        // A Shortcut / control that names a place sends there this once; empty uses the app's choice.
+        let override = targetID.flatMap { intentSelection($0, name: name) }
         sheet = nil
         showOnboarding = false
         guard !recorder.isActive else { return }
@@ -657,8 +766,30 @@ final class AppModel: ObservableObject {
 
     /// Records until the person stops (or auto-stop / the limit / an interruption), then
     /// returns what was said — cleaned when cleanup is on.
+    /// "clipboard", "front", "app:<bundleID>#<windowKey>", "auto:<UUID>" → a one-recording choice.
+    func intentSelection(_ id: String, name: String?) -> SendSelection? {
+        let target: TargetRef
+        switch id {
+        case TargetEntity.clipboardID: target = .clipboard
+        case TargetEntity.frontID: target = .frontApp
+        default:
+            if id.hasPrefix("auto:"), let uuid = UUID(uuidString: String(id.dropFirst(5))) {
+                target = .automation(id: uuid, name: profiles.first { $0.id == uuid }?.name ?? name ?? "Automation")
+            } else if id.hasPrefix("app:") {
+                let parts = id.dropFirst(4).split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+                let bid = parts.first ?? ""
+                let key = parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil
+                let live = liveTargets.first { $0.bundleID == bid && $0.windowKey == key }
+                target = .app(bundleID: bid, windowKey: key, name: live?.title ?? name ?? bid)
+            } else {
+                return nil
+            }
+        }
+        return SendSelection(target: target, send: sendSetting(for: target))
+    }
+
     func dictateForIntent() async -> String? {
-        await startFromIntent(profileID: nil)
+        await startFromIntent(targetID: nil)
         // Wait for the start to land (permissions, the mic opening).
         for _ in 0..<50 where recorder.phase == .starting { try? await Task.sleep(nanoseconds: 100_000_000) }
         guard recorder.isActive || pendingStart else { return nil }
@@ -711,6 +842,8 @@ final class AppModel: ObservableObject {
 
     #if DEBUG
     var debugSimulating = false
+    /// The last dictation's route, for UI tests (`MACROPHONE_ROUTE_PROBE`).
+    @Published var routeProbe = ""
 
     func debugInject(_ text: String, stoppedEarly: Bool = false) {
         recorder.debugShow(text)
@@ -725,33 +858,43 @@ final class AppModel: ObservableObject {
     }
 
     func debugSeedHistory() {
-        struct Seed { var raw: String; var cleaned: String?; var level: CleanupLevel; var target: String?; var source: ProfileSource?
-                      var spoken: String?; var delivery: DeliveryState; var detail: String?; var ago: Double; var late = false }
+        struct Seed { var raw: String; var cleaned: String?; var level: CleanupLevel; var target: TargetRef; var send = false
+                      var spoken: String? = nil; var detail: String?; var ago: Double; var late = false }
+        let claude = TargetRef.app(bundleID: "com.anthropic.claudefordesktop", windowKey: nil, name: "Claude")
         let seeds: [Seed] = [
             Seed(raw: "Claude, so um the thing I want to try is, uh, make the retry logic in the uploader back off exponentially, starting at one second and capping at thirty, and log every retry with the attempt number",
                  cleaned: "Make the retry logic in the uploader back off exponentially, starting at one second and capping at 30, and log every retry with the attempt number.",
-                 level: .medium, target: "Claude", source: .prefix, spoken: "Claude", delivery: .delivered, detail: "Pasted into Claude · Sent", ago: 120),
+                 level: .medium, target: claude, send: true, spoken: "Claude", detail: "Sent to Claude", ago: 120),
             Seed(raw: "look at the failing snapshot test in the settings screen and tell me why the toggle renders twice, I think it's the, the on appear firing again",
                  cleaned: "Look at the failing snapshot test in the settings screen and tell me why the toggle renders twice. I think it's the onAppear firing again.",
-                 level: .medium, target: "Claude Code (Terminal)", source: .chosen, spoken: nil, delivery: .delivered, detail: "Typed into Terminal · Sent", ago: 1_500),
+                 level: .medium, target: .app(bundleID: "com.apple.Terminal", windowKey: "41", name: "Terminal — claude"), send: true,
+                 detail: "Sent to Terminal — claude", ago: 1_500),
             Seed(raw: "hey Sam the build is green again I'll cut the release after lunch",
                  cleaned: "Hey Sam, the build is green again. I'll cut the release after lunch.",
-                 level: .light, target: nil, source: .automatic, spoken: nil, delivery: .delivered, detail: "Pasted into Slack", ago: 4_000),
-            Seed(raw: "ChatGPT, compare SQLite and Postgres for an offline first iOS app with sync, keep it to a table",
+                 level: .light, target: .frontApp, detail: "Pasted into Slack", ago: 4_000),
+            Seed(raw: "compare SQLite and Postgres for an offline first iOS app with sync, keep it to a table",
                  cleaned: "Compare SQLite and Postgres for an offline-first iOS app with sync. Keep it to a table.",
-                 level: .medium, target: "ChatGPT", source: .prefix, spoken: "ChatGPT", delivery: .delivered, detail: "Pasted into ChatGPT · Sent", ago: 9_000, late: true),
+                 level: .medium, target: claude, send: true, detail: "Sent to Claude", ago: 9_000, late: true),
             Seed(raw: "rename fetch user to load user everywhere and update the tests",
                  cleaned: "Rename fetchUser to loadUser everywhere and update the tests.",
-                 level: .medium, target: "Cursor", source: .chosen, spoken: nil, delivery: .delivered, detail: "Pasted into Cursor", ago: 90_000),
+                 level: .medium, target: .clipboard, detail: "Copied to clipboard", ago: 90_000),
         ]
         for s in seeds.reversed() {
             let d = Dictation(createdAt: Date().addingTimeInterval(-s.ago), raw: s.raw, cleaned: s.cleaned, cleanupLevel: s.level,
-                              language: "en-US", profileID: profiles.first { $0.name == s.target }?.id, profileName: s.target,
-                              profileSource: s.source, duration: Double(s.raw.count) / 14, sourceDevice: settings.deviceName)
-            history.add(HistoryItem(dictation: d, delivery: s.delivery, detail: s.detail, macName: "Sameer's MacBook Pro",
+                              language: "en-US", target: s.target, send: s.send, targetSpoken: s.spoken != nil ? true : nil,
+                              duration: Double(s.raw.count) / 14, sourceDevice: settings.deviceName)
+            history.add(HistoryItem(dictation: d, delivery: .delivered, detail: s.detail, macName: "Sameer's MacBook Pro",
                                     wasDelayed: s.late, deliveredAt: Date(), spokenPrefix: s.spoken))
         }
         refreshHistory()
+    }
+
+    /// Stands in for the Mac's open apps.
+    func debugFakeTargets(_ list: [LiveTarget]) {
+        debugProfilesLocked = true
+        liveTargets = list
+        targetsCurrent = true
+        saveTargets(list)
     }
 
     func debugSetStatus(_ s: DeliveryStatus) { status = s; bumpPulse() }
@@ -787,7 +930,7 @@ extension AppModel: LinkClientDelegate {
         #endif
         linkState = state
         pairedMac = client.activeMac
-        if case .connected = state { flushQueue() }
+        if case .connected = state { flushQueue() } else { targetsCurrent = false }
     }
 
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac]) {
@@ -804,9 +947,29 @@ extension AppModel: LinkClientDelegate {
         CachedProfile.save(profiles.map {
             CachedProfile(id: $0.id, name: $0.name, isDefault: $0.isDefault, cleanupLevel: $0.cleanupLevel?.rawValue, voicePrefixes: $0.voicePrefixes)
         })
-        // The Mac no longer has the picked target: fall back to Automatic rather than guess.
-        if let id = settings.sendTo.profileID, !profiles.contains(where: { $0.id == id }) { settings.sendTo = .automatic }
+        // The Mac no longer has the picked automation: fall back to Clipboard rather than guess.
+        if let id = settings.selection.target.automationID, !profiles.contains(where: { $0.id == id }) { setSelection(.default) }
         MacrophoneShortcuts.updateAppShortcutParameters()
+    }
+
+    func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {
+        guard client === self.client else { return }
+        #if DEBUG
+        if debugProfilesLocked { return }
+        #endif
+        liveTargets = targets
+        targetsCurrent = true
+        saveTargets(targets)
+        log.add("open apps on the Mac: \(targets.count)")
+        MacrophoneShortcuts.updateAppShortcutParameters()
+    }
+
+    /// Changed on the Mac: apply it here, and don't send it back.
+    func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {
+        guard client === self.client else { return }
+        recordingOverride = nil
+        settings.selection = selection
+        log.add("send to changed on the Mac: \(Self.kind(selection.target))\(selection.send ? " + send" : "")")
     }
 
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {
@@ -824,8 +987,8 @@ extension AppModel: LinkClientDelegate {
 
 /// The intents' way in (they're compiled into the extension too, where this doesn't exist).
 enum IntentBridge {
-    @MainActor static func startRecording(profileID: UUID?) async {
-        await AppModel.shared.startFromIntent(profileID: profileID)
+    @MainActor static func startRecording(targetID: String?, name: String?) async {
+        await AppModel.shared.startFromIntent(targetID: targetID, name: name)
     }
 
     @MainActor static func dictate() async -> String? {

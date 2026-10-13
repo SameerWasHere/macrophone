@@ -7,15 +7,14 @@ import Security
 // `perform()` always runs in the app, because the intent opens the app — the microphone needs
 // the app in the foreground.
 
-/// The Mac's targets as the phone last heard them, shared with the Controls extension through
+/// The Mac's automations and open apps as the phone last heard them, shared with the Controls extension through
 /// a keychain access group (an App Group would need an explicit provisioning profile). Only
 /// target names, cleanup levels and voice prefixes live there — never text or keys.
 enum SharedStore {
     static var keychainGroup: String? { Bundle.main.object(forInfoDictionaryKey: "MacrophoneSharedKeychainGroup") as? String }
-    private static let account = "profiles.cache"
     private static let service = "com.sameer.macrophone.shared"
 
-    private static func query() -> [String: Any] {
+    private static func query(_ account: String) -> [String: Any] {
         var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                 kSecAttrService as String: service,
                                 kSecAttrAccount as String: account]
@@ -23,16 +22,16 @@ enum SharedStore {
         return q
     }
 
-    static func read() -> Data? {
-        var q = query()
+    static func read(account: String = CachedProfile.key) -> Data? {
+        var q = query(account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
         return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
     }
 
-    static func write(_ data: Data) {
-        let q = query()
+    static func write(_ data: Data, account: String = CachedProfile.key) {
+        let q = query(account)
         let attrs: [String: Any] = [kSecValueData as String: data,
                                     kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
         if SecItemUpdate(q as CFDictionary, attrs as CFDictionary) == errSecItemNotFound {
@@ -41,7 +40,7 @@ enum SharedStore {
     }
 }
 
-/// The Mac's profiles ("targets") as the phone last heard them. Kept so the Send-to picker,
+/// The Mac's automations as the phone last heard them. Kept so the Send-to picker,
 /// voice prefixes, Shortcuts and controls all work while the Mac is away.
 struct CachedProfile: Codable, Hashable, Sendable {
     var id: UUID
@@ -66,51 +65,83 @@ struct CachedProfile: Codable, Hashable, Sendable {
     }
 }
 
-/// A place a dictation can go: one of the Mac's targets, or Automatic (the Mac picks by the
-/// app in front).
-struct ProfileEntity: AppEntity {
-    static var typeDisplayRepresentation: TypeDisplayRepresentation { TypeDisplayRepresentation(name: "Target") }
-    static var defaultQuery: ProfileQuery { ProfileQuery() }
+/// The Mac's open apps as the phone last heard them — only what Shortcuts and the control need
+/// to offer them (id, name). Written by the app next to `CachedProfile`; never text or keys.
+struct CachedTarget: Codable, Hashable, Sendable {
+    /// `TargetEntity` id: "app:<bundleID>#<windowKey>".
+    var id: String
+    var name: String
 
-    /// Stands for "Automatic" wherever an entity is needed (Shortcuts, controls).
-    static let automaticID = UUID(uuidString: "A0705E1E-C700-4000-8000-0000000A0700")!
-    static var automatic: ProfileEntity { ProfileEntity(id: automaticID, name: "Automatic") }
+    static let key = "targets.cache"
 
-    var id: UUID
+    static func load() -> [CachedTarget] {
+        guard let d = UserDefaults.standard.data(forKey: key) ?? SharedStore.read(account: key) else { return [] }
+        return (try? JSONDecoder().decode([CachedTarget].self, from: d)) ?? []
+    }
+
+    static func save(_ list: [CachedTarget]) {
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+        SharedStore.write(data, account: key)
+    }
+}
+
+/// A place a dictation can go, for Shortcuts, Siri and the controls: Clipboard, Where I'm
+/// typing, an app open on the Mac (as last heard), or one of the Mac's automations.
+struct TargetEntity: AppEntity {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { TypeDisplayRepresentation(name: "Send To") }
+    static var defaultQuery: TargetQuery { TargetQuery() }
+
+    static let clipboardID = "clipboard"
+    static let frontID = "front"
+    static var clipboard: TargetEntity { TargetEntity(id: clipboardID, name: "Clipboard", hint: "Copies it on your Mac") }
+    static var front: TargetEntity { TargetEntity(id: frontID, name: "Where I'm typing", hint: "Pastes into the app in front on your Mac") }
+
+    /// "clipboard", "front", "app:<bundleID>#<windowKey>" or "auto:<UUID>".
+    var id: String
     var name: String
     var hint: String? = nil
 
-    var isAutomatic: Bool { id == Self.automaticID }
-
     var displayRepresentation: DisplayRepresentation {
-        if isAutomatic {
-            return DisplayRepresentation(title: "Automatic", subtitle: "Your Mac picks by the app in front",
-                                         image: .init(systemName: "wand.and.sparkles"))
+        let symbol: String
+        switch id {
+        case Self.clipboardID: symbol = "doc.on.clipboard"
+        case Self.frontID: symbol = "cursorarrow.rays"
+        default: symbol = id.hasPrefix("auto:") ? "gearshape.2" : "macwindow"
         }
-        if let hint { return DisplayRepresentation(title: "\(name)", subtitle: "\(hint)") }
-        return DisplayRepresentation(title: "\(name)")
+        if let hint { return DisplayRepresentation(title: "\(name)", subtitle: "\(hint)", image: .init(systemName: symbol)) }
+        return DisplayRepresentation(title: "\(name)", image: .init(systemName: symbol))
     }
 
-    init(id: UUID, name: String, hint: String? = nil) {
+    init(id: String, name: String, hint: String? = nil) {
         self.id = id
         self.name = name
         self.hint = hint
     }
-
-    init(_ p: CachedProfile) {
-        self.init(id: p.id, name: p.name, hint: p.voicePrefixes?.first.map { "Say “\(spokenForm($0, name: p.name)), …”" })
-    }
 }
 
-struct ProfileQuery: EntityQuery {
-    func entities(for identifiers: [UUID]) async throws -> [ProfileEntity] {
-        all().filter { identifiers.contains($0.id) }
+struct TargetQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [TargetEntity] {
+        let known = all()
+        // A target that has since closed on the Mac still resolves (the Mac copies instead).
+        return identifiers.map { id in known.first { $0.id == id } ?? TargetEntity(id: id, name: Self.fallbackName(id)) }
     }
 
-    func suggestedEntities() async throws -> [ProfileEntity] { all() }
+    func suggestedEntities() async throws -> [TargetEntity] { all() }
 
-    private func all() -> [ProfileEntity] {
-        [ProfileEntity.automatic] + CachedProfile.load().map(ProfileEntity.init)
+    private func all() -> [TargetEntity] {
+        [TargetEntity.clipboard, TargetEntity.front]
+            + CachedTarget.load().map { TargetEntity(id: $0.id, name: $0.name, hint: "Open on your Mac") }
+            + CachedProfile.load().map { p in
+                TargetEntity(id: "auto:\(p.id.uuidString)", name: p.name,
+                             hint: p.voicePrefixes?.first.map { "Automation · say “\(spokenForm($0, name: p.name)), …”" } ?? "Automation")
+            }
+    }
+
+    private static func fallbackName(_ id: String) -> String {
+        guard id.hasPrefix("app:") else { return "Send To" }
+        let bid = id.dropFirst(4).split(separator: "#").first.map(String.init) ?? ""
+        return bid.split(separator: ".").last.map { $0.capitalized } ?? "App"
     }
 }
 
@@ -119,39 +150,39 @@ struct ProfileQuery: EntityQuery {
 struct StartDictationIntent: AppIntent {
     static var title: LocalizedStringResource { "Start Dictation" }
     static var description: IntentDescription? {
-        IntentDescription("Opens Macrophone and starts listening. Tap the button when you're done and the text goes to your Mac — to the target you pick here, or the one picked in the app.")
+        IntentDescription("Opens Macrophone and starts listening. Tap the button when you're done and the text goes to your Mac — to the place you pick here (Clipboard, where you're typing, an app open on your Mac, or an automation), or the one picked in the app.")
     }
     static var openAppWhenRun: Bool { true }
     @available(iOS 26.0, *)
     static var supportedModes: IntentModes { .foreground(.immediate) }
 
-    @Parameter(title: "Send To", description: "Where on your Mac the text goes: one of your Mac's targets, or Automatic. Leave empty for the one picked in the app.")
-    var profile: ProfileEntity?
+    @Parameter(title: "Send To", description: "Clipboard, Where I'm typing, an app open on your Mac, or one of its automations. Leave empty for the one picked in the app.")
+    var target: TargetEntity?
 
     init() {}
-    init(profile: ProfileEntity?) { self.profile = profile }
+    init(target: TargetEntity?) { self.target = target }
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Dictate to \(\.$profile)")
+        Summary("Dictate to \(\.$target)")
     }
 
     func perform() async throws -> some IntentResult {
         #if MACROPHONE_APP
-        await IntentBridge.startRecording(profileID: profile?.id)
+        await IntentBridge.startRecording(targetID: target?.id, name: target?.name)
         #endif
         return .result()
     }
 }
 
-/// The Control Center / Lock Screen / Action Button control's settings: which target it sends to.
+/// The Control Center / Lock Screen / Action Button control's settings: where it sends.
 @available(iOS 18.0, *)
 struct DictateControlConfiguration: ControlConfigurationIntent {
     static var title: LocalizedStringResource { "Dictate To" }
     static var description: IntentDescription? { IntentDescription("Choose where this control sends what you say.") }
     static var isDiscoverable: Bool { false }
 
-    @Parameter(title: "Send To", description: "Leave empty to use the target picked in the app.")
-    var profile: ProfileEntity?
+    @Parameter(title: "Send To", description: "Leave empty to use the place picked in the app.")
+    var target: TargetEntity?
 
     init() {}
 

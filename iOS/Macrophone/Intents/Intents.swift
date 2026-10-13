@@ -42,8 +42,9 @@ struct MacrophoneShortcuts: AppShortcutsProvider {
                         "Start \(.applicationName)",
                         "Start dictating in \(.applicationName)",
                         "Talk to my Mac with \(.applicationName)",
-                        "Dictate to \(\.$profile) with \(.applicationName)",
-                        "Send to \(\.$profile) with \(.applicationName)",
+                        "Dictate to \(\.$target) with \(.applicationName)",
+                        "Send to \(\.$target) with \(.applicationName)",
+                        "Dictate into \(\.$target) with \(.applicationName)",
                     ],
                     shortTitle: "Start Dictation",
                     systemImageName: "mic.fill")

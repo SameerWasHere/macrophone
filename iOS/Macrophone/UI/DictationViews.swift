@@ -161,37 +161,47 @@ struct LastDictationCard: View {
     var maxTextHeight: CGFloat = 132
     /// Unpaired, there's nowhere to resend to — Copy is the action.
     var canResend = true
+    /// The hidden worst case that sizes the card's slot on the mic screen (see `FixedSlot`).
+    var isTemplate = false
     @State private var showCleaned = true
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The card at its tallest for this text size: a long kicker, the toggle, the text at its
+    /// cap, Copy and Resend. A real card is never taller, so the slot never changes size.
+    static func template(maxTextHeight: CGFloat) -> LastDictationCard {
+        let d = Dictation(raw: "a", cleaned: "b", cleanupLevel: .medium)
+        return LastDictationCard(item: HistoryItem(dictation: d, delivery: .delivered), onCopy: { _ in }, onResend: {},
+                                 maxTextHeight: maxTextHeight, canResend: true, isTemplate: true)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center) {
-                    Kicker(kicker).fixedSize()
-                    Spacer(minLength: 8)
-                    if item.showsVersionToggle { VersionToggle(cleaned: $showCleaned).fixedSize() }
-                }
+            // One structure for every card (picked by text size, not by what fits), so a card's
+            // header is never taller than the template's.
+            if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 8) {
-                    Kicker(kicker)
-                    if item.showsVersionToggle { VersionToggle(cleaned: $showCleaned).fixedSize() }
+                    kickerView
+                    if showsToggle { VersionToggle(cleaned: $showCleaned).fixedSize() }
+                }
+            } else {
+                HStack(alignment: .center) {
+                    kickerView.frame(maxWidth: .infinity, alignment: .leading)
+                    if showsToggle { VersionToggle(cleaned: $showCleaned).fixedSize() }
                 }
             }
-            FittedText(text: item.text(cleaned: showCleaned), font: .serif(.body), maxHeight: maxTextHeight)
-                .id(showCleaned)
-                .accessibilityLabel(item.text(cleaned: showCleaned))
+            if isTemplate {
+                Color.clear.frame(height: maxTextHeight)
+            } else {
+                FittedText(text: item.text(cleaned: showCleaned), font: .serif(.body), maxHeight: maxTextHeight)
+                    .id(showCleaned)
+                    .accessibilityLabel(item.text(cleaned: showCleaned))
+            }
             FlowRow(spacing: 8) {
                 CopyButton { onCopy(showCleaned) }
                 if canResend {
                     Button(action: onResend) { ChipLabel("Resend", systemImage: "arrow.clockwise") }
                         .buttonStyle(ChipButtonStyle())
                             .accessibilityHint("Sends it to your Mac again. Your Mac ignores it if it already has it.")
-                }
-                if item.dictation.stoppedEarly {
-                    Kicker("Stopped early", color: Light.ochre).frame(minHeight: 44)
-                }
-                if item.partialCleanup == true {
-                    Kicker("Partly cleaned", color: Light.ochre).frame(minHeight: 44)
-                        .accessibilityLabel("Partly cleaned: cleanup ran out of time, the rest was sent as spoken")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -207,9 +217,27 @@ struct LastDictationCard: View {
         }
     }
 
+    private var showsToggle: Bool { isTemplate || item.showsVersionToggle }
+
+    /// "→ MESSAGES · SENT · 2:14 PM · STOPPED EARLY" — up to two lines beside the toggle (the
+    /// toggle's 44pt holds two kicker lines, so the header's height doesn't change).
+    private var kickerView: some View {
+        Text(isTemplate ? "A\nB" : kicker.uppercased())
+            .font(.mono(.caption2, weight: .semibold))
+            .tracking(1.2)
+            .foregroundStyle(Ink.tertiary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.8)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel(kicker)
+    }
+
     private var kicker: String {
         var parts = [item.targetName.map { "→ \($0)" } ?? "Last dictation"]
+        if item.dictation.send == true { parts.append("sent") }
         parts.append(item.dictation.createdAt.formatted(date: .omitted, time: .shortened))
+        if item.dictation.stoppedEarly { parts.append("stopped early") }
+        if item.partialCleanup == true { parts.append("partly cleaned") }
         return parts.joined(separator: " · ")
     }
 }

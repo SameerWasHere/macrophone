@@ -28,14 +28,16 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
     var deliveredAt: Date?
     /// Cleanup ran out of time partway: the start is cleaned, the rest went as spoken.
     var partialCleanup: Bool? = nil
-    /// The lead-in that picked the target, as heard ("Claude"), when a voice prefix did.
+    /// The name that picked the target, as said ("Messages", "Claude"), when saying it did.
     var spokenPrefix: String? = nil
 
     var id: UUID { dictation.id }
 
-    /// "Claude", or nil when the Mac picked (Automatic) or there was nothing to pick from.
+    /// "Messages", "Clipboard", "Where I'm typing", an automation's name — or nil for older
+    /// dictations sent on Automatic.
     var targetName: String? {
-        dictation.profileSource == .automatic ? nil : dictation.profileName
+        if let t = dictation.target { return t.displayName }
+        return dictation.profileSource == .automatic ? nil : dictation.profileName
     }
 
     /// True when the cleaned version only differs because the prefix was taken off.
