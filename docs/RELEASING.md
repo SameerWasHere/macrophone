@@ -54,9 +54,10 @@ Do these once per Mac you release from.
 
 4. **Tools:** Xcode 27, `brew install xcodegen`.
 
-5. **The DMG's window layout** is set by asking Finder over AppleScript. The first run asks
-   for permission for your terminal to control Finder (System Settings › Privacy & Security ›
-   Automation). Without it the DMG still works, it just opens as a plain window.
+5. **The DMG's window layout** needs nothing: `scripts/dmg/dsstore.py` writes the window's
+   `.DS_Store` (icon view, size, icon positions, the background) straight onto the volume, so
+   Finder isn't scripted and no Automation permission is asked for. Eject any mounted
+   "Macrophone" volume before a release (the script stops if one is in the way).
 
 ## Each release
 
@@ -76,7 +77,8 @@ Do these once per Mac you release from.
    It archives Release, exports it signed with Developer ID (hardened runtime, timestamped),
    checks the signatures (the app, Sparkle, and the `macrophone` command-line tool inside
    `Contents/Helpers/`), notarizes and staples the app, builds the DMG (app + Applications
-   alias over `scripts/render-dmg-background.swift`'s background), signs, notarizes and
+   alias over `scripts/render-dmg-background.swift`'s background, laid out by
+   `scripts/dmg/dsstore.py`, with the app's icon on the volume), signs, notarizes and
    staples the DMG, signs it for Sparkle, and writes into
    `~/claude-projects/_web/sameer-gpt/public/macrophone/`:
 

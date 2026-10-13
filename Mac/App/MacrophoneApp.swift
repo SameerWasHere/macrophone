@@ -151,6 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                          styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.title = "Share Diagnostics"
         w.titlebarAppearsTransparent = true
+        // The page carries its own serif title; don't say it twice.
+        w.titleVisibility = .hidden
+        w.minSize = NSSize(width: 520, height: 420)
         w.appearance = NSAppearance(named: .darkAqua)
         w.backgroundColor = Ink.groundNS
         w.contentView = NSHostingView(rootView: view)

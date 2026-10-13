@@ -35,6 +35,14 @@ func render(scale: CGFloat) -> NSBitmapImageRep {
     head.move(to: NSPoint(x: 378, y: 213)); head.line(to: NSPoint(x: 388, y: 205)); head.line(to: NSPoint(x: 378, y: 197))
     head.lineWidth = 2.5; head.lineCapStyle = .round; head.lineJoinStyle = .round
     c(0xE8C06C).setStroke(); head.stroke()
+    // Name plates under the two icons. Finder draws the labels itself, black in Light Mode and
+    // white in Dark Mode, and can't be told otherwise — a mid-tone plate keeps either readable
+    // (about 4.5:1 both ways).
+    for x in [CGFloat(160), 480] {
+        let plate = NSBezierPath(roundedRect: NSRect(x: x - 60, y: 400 - 270 - 11, width: 120, height: 22), xRadius: 11, yRadius: 11)
+        c(0x7C7A87).setFill()
+        plate.fill()
+    }
     // Words.
     let p = NSMutableParagraphStyle(); p.alignment = .center
     let title = NSAttributedString(string: "Drag Macrophone to Applications", attributes: [

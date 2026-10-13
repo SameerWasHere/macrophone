@@ -363,7 +363,11 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     func linkServer(_ server: LinkServer, peerConnected peer: PairedPeer, appVersion: String, os: String) {
         connected.insert(peer.id)
         phoneVersions[peer.id] = "\(appVersion) · \(os)"
-        peers = server.store.peers()
+        // A phone renamed on the iPhone brings its new name in its hello; the store has it and
+        // so does `peer`. (A name given on this Mac still wins — displayName.)
+        var list = server.store.peers()
+        if let i = list.firstIndex(where: { $0.id == peer.id }) { list[i].name = peer.name }
+        peers = list
         log.add("phone connected (app \(appVersion))")
         pushStatus()
     }

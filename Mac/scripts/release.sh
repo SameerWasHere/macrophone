@@ -13,8 +13,8 @@
 #   2. Archives Release, exports it signed with Developer ID (hardened runtime, timestamp).
 #   3. Verifies the signature (app, Sparkle, the embedded `macrophone` CLI).
 #   4. Notarizes and staples the app.
-#   5. Builds the DMG (app + Applications alias over the rendered background), signs,
-#      notarizes and staples it.
+#   5. Builds the DMG (app + Applications alias over the rendered background, laid out by
+#      scripts/dmg/dsstore.py — no Finder scripting), signs, notarizes and staples it.
 #   6. Signs the DMG for Sparkle (EdDSA) and writes the appcast item.
 #   7. Copies DMG, Macrophone-latest.dmg, release notes and appcast.xml into the website repo
 #      (~/claude-projects/_web/sameer-gpt/public/macrophone/). You commit and push that repo.
@@ -158,40 +158,23 @@ say "Building the DMG"
 STAGE="$OUT/dmg"; mkdir -p "$STAGE/.background"
 ditto "$APP" "$STAGE/Macrophone.app"
 ln -s /Applications "$STAGE/Applications"
+cp "$APP/Contents/Resources/AppIcon.icns" "$STAGE/.VolumeIcon.icns"
 swift "$MAC_DIR/scripts/render-dmg-background.swift" "$OUT/bg" >/dev/null
 tiffutil -cathidpicheck "$OUT/bg/background.png" "$OUT/bg/background@2x.png" -out "$STAGE/.background/background.tiff" >/dev/null 2>&1
 RW="$OUT/rw.dmg"; DMG="$OUT/$DMG_NAME"
 hdiutil create -quiet -volname "Macrophone" -srcfolder "$STAGE" -fs HFS+ -format UDRW -ov "$RW"
-MOUNT=$(hdiutil attach -readwrite -noverify -noautoopen "$RW" | grep -o '/Volumes/.*$' | head -1)
+MOUNT=$(hdiutil attach -readwrite -noverify -noautoopen "$RW" 2>/dev/null | grep -o '/Volumes/.*$' | head -1)
 [[ -n "$MOUNT" ]] || die "Couldn't mount the DMG."
 VOL=${MOUNT:t}
-# Window layout (Finder asks once for permission to be automated by your terminal).
-if ! osascript <<APPLESCRIPT >/dev/null 2>&1
-with timeout of 30 seconds
-tell application "Finder"
-  tell disk "$VOL"
-    open
-    set current view of container window to icon view
-    set toolbar visible of container window to false
-    set statusbar visible of container window to false
-    set the bounds of container window to {200, 120, 840, 520}
-    set opts to the icon view options of container window
-    set arrangement of opts to not arranged
-    set icon size of opts to 112
-    set text size of opts to 13
-    set background picture of opts to file ".background:background.tiff"
-    set position of item "Macrophone.app" of container window to {160, 195}
-    set position of item "Applications" of container window to {480, 195}
-    update without registering applications
-    delay 1
-    close
-  end tell
-end tell
-end timeout
-APPLESCRIPT
-then
-  warn "Finder layout skipped (allow your terminal to control Finder in System Settings › Privacy & Security › Automation). The DMG still works."
+if [[ "$VOL" != "Macrophone" ]]; then
+  hdiutil detach -quiet "$MOUNT" || true
+  die "Another volume called Macrophone is mounted (this one came up as \"$VOL\"). Eject it and run again."
 fi
+# Window layout: written straight into the volume's .DS_Store (icon view, window size, icon
+# positions, the background picture) — no Finder scripting, so no Automation prompt.
+python3 "$MAC_DIR/scripts/dmg/dsstore.py" "$MOUNT" >/dev/null || die "Couldn't lay out the DMG window."
+rm -rf "$MOUNT/.fseventsd"
+# The volume shows the app's icon in Finder's sidebar and title bar.
 SetFile -a C "$MOUNT" 2>/dev/null || true
 sync; sleep 1
 hdiutil detach -quiet "$MOUNT" || hdiutil detach -force -quiet "$MOUNT"
