@@ -61,7 +61,8 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) { stdout("DISCONNECTED") }
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {
         received += 1
-        stdout("RECEIVED #\(received)\(delayed ? " (delayed)" : ""): \(dictation.text)")
+        let route = dictation.target.map { " → \($0.displayName)\(dictation.send == true ? " + send" : "")\(dictation.targetSpoken == true ? " (said)" : "")" } ?? ""
+        stdout("RECEIVED #\(received)\(delayed ? " (delayed)" : "")\(route) [\(dictation.cleanupLevel.rawValue)]: \(dictation.text)")
         return (.delivered, "Printed by mpctl")
     }
     func linkServer(_ server: LinkServer, listenerChanged state: LinkServer.ListenerState) {
@@ -146,8 +147,10 @@ func run() async -> Int32 {
                     let parts = line.split(separator: " ").map(String.init)
                     guard parts.first == "select", parts.count > 1 else { continue }
                     let send = parts.contains("send")
+                    let live = await MainActor.run { d.liveTargets(server) }
+                    let name = live.first { $0.bundleID == parts[1] }?.title ?? parts[1]
                     let target: TargetRef = parts[1] == "clipboard" ? .clipboard : parts[1] == "front" ? .frontApp
-                        : .app(bundleID: parts[1], windowKey: nil, name: parts[1])
+                        : .app(bundleID: parts[1], windowKey: nil, name: name)
                     server.broadcastSelection(SendSelection(target: target, send: send))
                     stdout("SENT SELECTION \(target.displayName)\(send ? " + send" : "")")
                 }
