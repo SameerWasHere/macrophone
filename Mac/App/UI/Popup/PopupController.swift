@@ -233,18 +233,26 @@ final class PopupController {
         guard let panel else { return }
         let width = PopupRoot.cardWidth + PopupRoot.margin * 2
         let height = panel.frame.height
-        let active = Self.activeScreen()
+        var active = Self.activeScreen()
+        #if DEBUG
+        // Screenshots: hang under the icon on its own display, whatever app is in front.
+        if ProcessInfo.processInfo.environment["MACROPHONE_POPUP_ON_ICON"] == "1", let item = statusItemFrame(),
+           let s = NSScreen.screens.first(where: { $0.frame.intersects(item) }) { active = s }
+        #endif
         var anchorX: CGFloat
         var top: CGFloat
         let menuBarBottom = active.visibleFrame.maxY
         if let item = statusItemFrame(), let itemScreen = NSScreen.screens.first(where: { $0.frame.intersects(item) }) {
             if itemScreen == active {
                 anchorX = item.midX
+                top = min(item.minY, menuBarBottom) + 2
             } else {
-                // Same spot on this display's menu bar.
+                // Same distance from the right edge, hanging from this display's own top (its
+                // menu bar, or the top edge when only one display has one). The icon's height
+                // belongs to the other display.
                 anchorX = active.frame.maxX - (itemScreen.frame.maxX - item.midX)
+                top = menuBarBottom - 4
             }
-            top = min(item.minY, menuBarBottom) + 2
         } else {
             anchorX = active.visibleFrame.maxX - PopupRoot.cardWidth / 2 - 14
             top = menuBarBottom - 4

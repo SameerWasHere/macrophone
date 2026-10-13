@@ -12,7 +12,7 @@ struct ProfilesPane: View {
     var body: some View {
         PanePage {
             HStack(alignment: .bottom, spacing: 10) {
-                PaneHeader(title: "Profiles", subtitle: "A profile decides where a dictation goes and what happens next. Pick one on your iPhone, or start with its voice prefix.")
+                PaneHeader(title: "Profiles", subtitle: "Where a dictation goes and what happens next. Pick one under Send to on your iPhone, or start a dictation with its voice prefix.")
                 Button { editing = Profile(name: "New profile") } label: { Label("New Profile", systemImage: "plus") }
                     .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                     .padding(.bottom, 2)
@@ -27,7 +27,7 @@ struct ProfilesPane: View {
                 }
             }
 
-            Text("Profiles sync to your iPhone whenever it's connected. A profile's cleanup level overrides the iPhone's setting.")
+            Text("Profiles show up under Send to on your iPhone whenever it's connected. A profile's cleanup level overrides the iPhone's setting.")
                 .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
 

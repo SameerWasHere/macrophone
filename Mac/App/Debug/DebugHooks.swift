@@ -11,6 +11,8 @@ import SwiftUI
 ///                                   popup-automation | popup-rtl | window-<pane> | setup | setup-paired |
 ///                                   setup-paired-generic | setup-login | setup-modes | code-approval | diagnostics |
 ///                                   profile-editor | menu
+///   MACROPHONE_WINDOW_SIZE=WxH      the main window's content size (window-<pane> only)
+///   MACROPHONE_POPUP_ON_ICON=1      the popup hangs under the icon on its own display (not the display in use)
 ///   MACROPHONE_BACKDROP=1           a neutral backdrop under the popup (screenshots never show a real desktop)
 ///   MACROPHONE_WINDOW_IDS_FILE=path writes {"main":id,"setup":id,"popup":id,"popupFrame":[x,y,w,h]} (top-left points)
 ///   MACROPHONE_CODE_ANSWER=match|nomatch  answers a code-pairing request after 3 s through the same call the buttons make
@@ -80,6 +82,11 @@ enum DebugHooks {
         }
         if show.hasPrefix("window-"), let pane = Pane(rawValue: String(show.dropFirst(7))) {
             app.openMainWindow(pane: pane)
+            // MACROPHONE_WINDOW_SIZE=780x520: check a pane at the window's smallest size.
+            if let size = env["MACROPHONE_WINDOW_SIZE"]?.split(separator: "x").compactMap({ Double($0) }), size.count == 2,
+               let w = app.debugMainWindow {
+                w.setContentSize(NSSize(width: size[0], height: size[1]))
+            }
             return true
         }
         switch show {
@@ -157,7 +164,8 @@ enum DebugHooks {
             c.remaining = 0.4
             popup.show(c)
         case "popup-sent":
-            let c = card("Reply with just: OK", phase: .done, status: "Sent to Claude")
+            let c = card("Add exponential backoff to the upload client's retries, and write a test that covers the timeout case.",
+                         phase: .done, status: "Sent to Claude")
             popup.show(c)
         case "popup-not-sent":
             let c = card(english, phase: .done, status: "Pasted into Claude")
@@ -278,7 +286,8 @@ enum DebugHooks {
     // MARK: Backdrop
 
     private static func showBackdrop() {
-        let screen = PopupController.activeScreen()
+        var screen = PopupController.activeScreen()
+        if env["MACROPHONE_POPUP_ON_ICON"] == "1", let main = NSScreen.screens.first { screen = main }
         let f = NSRect(x: screen.visibleFrame.maxX - 980, y: screen.visibleFrame.maxY - 720, width: 980, height: 720)
         let w = NSWindow(contentRect: f, styleMask: [.borderless], backing: .buffered, defer: false)
         w.level = .floating
@@ -326,11 +335,19 @@ enum DebugHooks {
             ("write a function that sorts a list of users by last name", "Write a function that sorts a list of users by last name.",
              "Claude", false, .failed, "Not pasted — a password field is active", 90000, "en-US"),
         ]
-        for s in samples.reversed() {
+        for (i, s) in samples.reversed().enumerated() {
             let d = Dictation(createdAt: now.addingTimeInterval(-s.6 - 4), raw: s.0, cleaned: s.1, cleanupLevel: s.1 == nil ? .off : .medium,
                               language: s.7, profileName: s.2, sourceDevice: "Sameer's iPhone")
-            model.record(HistoryItem(dictation: d, receivedAt: now.addingTimeInterval(-s.6), delayed: s.3, profileName: s.2,
-                                     outcome: s.4, detail: s.5))
+            var h = HistoryItem(dictation: d, receivedAt: now.addingTimeInterval(-s.6), delayed: s.3, profileName: s.2,
+                                outcome: s.4, detail: s.5)
+            if i == samples.count - 2 {
+                // The Priya reminder went through an Ask Claude profile.
+                h.profileName = "Ask Claude"
+                h.detail = "Copied · Claude answered"
+                h.reply = "Done — I'd send it by 2:30 so Priya has time to skim it. Want a two-line note to go with the deck?"
+                h.replyModel = "Claude Sonnet 5.5"
+            }
+            model.record(h)
         }
     }
 

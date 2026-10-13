@@ -14,6 +14,7 @@ struct HistoryPane: View {
             $0.dictation.raw.localizedCaseInsensitiveContains(q)
                 || ($0.dictation.cleaned ?? "").localizedCaseInsensitiveContains(q)
                 || $0.profileName.localizedCaseInsensitiveContains(q)
+                || ($0.reply ?? "").localizedCaseInsensitiveContains(q)
         }
     }
 
@@ -72,7 +73,9 @@ struct HistoryPane: View {
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(items) { item in
-                        HistoryRow(item: item, onDelete: { model.deleteHistoryItem(item.id) })
+                        // With more than one phone, say which one each came from.
+                        HistoryRow(item: item, device: model.peers.count > 1 ? item.dictation.sourceDevice : nil,
+                                   onDelete: { model.deleteHistoryItem(item.id) })
                     }
                 }
             }
@@ -95,10 +98,12 @@ struct HistoryPane: View {
 
 struct HistoryRow: View {
     let item: HistoryItem
+    var device: String?
     var onDelete: () -> Void
     @State private var showRaw = false
     @State private var copied = false
     @State private var hover = false
+    @State private var showReply = false
 
     private var shown: String { showRaw ? item.dictation.raw : item.dictation.text }
     private var rtl: Bool { TextDirection.isRTL(shown) }
@@ -134,7 +139,21 @@ struct HistoryRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help(showRaw ? "Copy the raw transcript" : "Copy")
-                .accessibilityLabel("Copy")
+                .accessibilityLabel(showRaw ? "Copy the raw transcript" : "Copy")
+                Menu {
+                    menuItems
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Ink.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More")
+                .accessibilityLabel("More actions")
             }
             Text(shown)
                 .font(Typeface.serif(15))
@@ -145,8 +164,34 @@ struct HistoryRow: View {
                 .frame(maxWidth: .infinity, alignment: rtl ? .trailing : .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-            if !item.detail.isEmpty {
-                Text(item.detail)
+            if let reply = item.reply, !reply.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkle").font(.system(size: 9, weight: .bold)).foregroundStyle(Light.ember)
+                        Kicker(item.replyModel ?? "Claude's reply", color: Light.ember.opacity(0.95), size: 9.5)
+                    }
+                    .accessibilityElement(children: .combine)
+                    Text(reply)
+                        .font(Typeface.serif(13.5))
+                        .foregroundStyle(Ink.secondary)
+                        .lineSpacing(2)
+                        .lineLimit(showReply ? nil : 4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                    if reply.count > 280 {
+                        Button(showReply ? "Show Less" : "Show All") { showReply.toggle() }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(Light.teal)
+                    }
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Light.ember.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Light.ember.opacity(0.16), lineWidth: 1))
+            }
+            if !detailLine.isEmpty {
+                Text(detailLine)
                     .font(.system(size: 11)).foregroundStyle(outcomeColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -155,12 +200,20 @@ struct HistoryRow: View {
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Ink.raised.opacity(hover ? 0.95 : 0.72)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
         .onHover { hover = $0 }
-        .contextMenu {
-            Button("Copy") { Clipboard.copyPlain(item.dictation.text) }
-            Button("Copy Raw Transcript") { Clipboard.copyPlain(item.dictation.raw) }
-            Divider()
-            Button("Delete", role: .destructive, action: onDelete)
-        }
+        .contextMenu { menuItems }
+    }
+
+    @ViewBuilder private var menuItems: some View {
+        Button("Copy") { Clipboard.copyPlain(item.dictation.text) }
+        if item.hasCleanedVersion { Button("Copy Raw Transcript") { Clipboard.copyPlain(item.dictation.raw) } }
+        if let reply = item.reply, !reply.isEmpty { Button("Copy Claude's Reply") { Clipboard.copyPlain(reply) } }
+        Divider()
+        Button("Delete", role: .destructive, action: onDelete)
+    }
+
+    private var detailLine: String {
+        guard let device, !device.isEmpty else { return item.detail }
+        return item.detail.isEmpty ? "From \(device)" : "\(item.detail) · from \(device)"
     }
 
     private var timeLabel: String {

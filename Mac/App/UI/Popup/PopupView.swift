@@ -145,14 +145,13 @@ struct PopupCardView: View {
             StatusGlyph(phase: card.phase, delayed: card.delayed || card.caution, tickShown: tickShown)
                 .frame(width: 22, height: 22)
             Kicker(statusLine, color: accent.opacity(card.phase == .cancelled ? 1 : 0.95), size: 10.5)
-                .layoutPriority(1)
             Spacer(minLength: 8)
+            // The phone's name, whole (names given on the Mac are kept short); the status line
+            // beside it wraps instead.
             Text(card.source.isEmpty ? card.receivedAt.clockTime : "\(card.source)")
                 .font(.system(size: 10.5))
                 .foregroundStyle(Ink.tertiary)
-                .multilineTextAlignment(.trailing)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 120, alignment: .trailing)
+                .fixedSize()
                 .opacity(cardHover ? 0 : 1)
                 .accessibilityLabel("From \(card.source)")
         }
