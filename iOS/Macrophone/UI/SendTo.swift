@@ -49,6 +49,7 @@ extension ProfileSummary {
 /// The chip by the mic: "SEND TO  → Claude ⌄".
 struct SendToChip: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject var recorder: Recorder
     var recording: Bool
 
@@ -76,10 +77,14 @@ struct SendToChip: View {
         }
         let shape = RoundedRectangle(cornerRadius: 19, style: .continuous)
         Button { model.sheet = .sendTo } label: {
-            // One line when it fits; the kicker over the name under huge type.
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) { kicker; target.fixedSize() }
-                VStack(alignment: .leading, spacing: 4) { kicker; target }
+            // One line; the kicker over the name under accessibility sizes. Picked by text size, not
+            // ViewThatFits, which could settle on the stacked form mid-change when "SAID" swapped in.
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 4) { kicker; target }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) { kicker; target }
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
