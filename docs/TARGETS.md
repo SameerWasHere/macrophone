@@ -17,7 +17,7 @@ Code: `Mac/App/Targets/` (`TargetScanner`, `ComposerFinder`, `WindowServer`, `Ap
 ## The words (the same on the iPhone and the Mac)
 
 **Send to** · **Clipboard** · **Where I'm typing** · the open apps · **Automations** ·
-**Paste** / **Paste & send** (the menu bar says **Send after pasting**).
+**Send after pasting** on or off (the same words on the iPhone and in the Mac menu bar).
 
 ## Discovery — "has somewhere to type"
 
@@ -112,7 +112,7 @@ The paste: a **2.5-second countdown** with **Cancel** (hovering pauses; **Paste 
 skips) → secure-input check (a password field or Secure Keyboard Entry: copied instead) → the
 text on the clipboard as a transient, concealed item → ⌘V → **read back**: the composer's value
 must now contain the words (else "Didn't send — it didn't land in X's message box", copied, nothing
-sent) → with **Paste & send**, the send key → for a message box, **check it emptied** (else ochre
+sent) → with **Send after pasting** on, the send key → for a message box, **check it emptied** (else ochre
 "Pressed Return, but it's still in the message box") → the clipboard put back exactly (unless
 something else changed it meanwhile).
 
