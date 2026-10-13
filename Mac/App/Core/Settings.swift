@@ -15,19 +15,38 @@ enum AppPaths {
         #endif
     }
 
+    /// DEBUG only: MACROPHONE_INSTANCE=<name> runs a debug copy with its own folder, settings,
+    /// pairing keys and identity, so a test copy can't disturb another one (or a release install).
+    static var instance: String? {
+        #if DEBUG
+        if let n = ProcessInfo.processInfo.environment["MACROPHONE_INSTANCE"], !n.isEmpty { return n }
+        #endif
+        return nil
+    }
+
+    /// Settings live here (the standard defaults, or the debug instance's own).
+    static let defaults: UserDefaults = {
+        if let instance, let d = UserDefaults(suiteName: "com.sameer.macrophone.mac.debug.\(instance)") { return d }
+        return .standard
+    }()
+
     static var supportDirectory: URL {
         let base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        let dir = base.appendingPathComponent(isDebugBuild ? "\(Product.name) Debug" : Product.name)
+        var name = isDebugBuild ? "\(Product.name) Debug" : Product.name
+        if let instance { name += " \(instance)" }
+        let dir = base.appendingPathComponent(name)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
     static var history: URL { supportDirectory.appendingPathComponent("history.json") }
     static var seenIDs: URL { supportDirectory.appendingPathComponent("seen-ids.json") }
-    static var profiles: URL { supportDirectory.appendingPathComponent("profiles.json") }
+    /// Before live targets (Oct 2026): profiles. Read once to migrate, never written again.
+    static var legacyProfiles: URL { supportDirectory.appendingPathComponent("profiles.json") }
+    static var automations: URL { supportDirectory.appendingPathComponent("automations.json") }
     static var diagnostics: URL { supportDirectory.appendingPathComponent("diagnostics.log") }
     static var keychainService: String {
-        (Bundle.main.bundleIdentifier ?? "com.sameer.macrophone.mac") + ".pairing"
+        (Bundle.main.bundleIdentifier ?? "com.sameer.macrophone.mac") + ".pairing" + (instance.map { ".\($0)" } ?? "")
     }
 
     static var appVersion: String {
@@ -39,8 +58,10 @@ enum AppPaths {
 
     /// "Sameer's MacBook Pro" — the name the phone shows.
     static var computerName: String {
-        if let n = SCComputerName.current, !n.isEmpty { return n }
-        return Host.current().localizedName ?? "Mac"
+        let name = SCComputerName.current.flatMap { $0.isEmpty ? nil : $0 } ?? Host.current().localizedName ?? "Mac"
+        // A debug test instance says so, so a phone never mixes it up with the real app.
+        if let instance { return "\(name) (\(instance))" }
+        return name
     }
 }
 
@@ -48,62 +69,24 @@ enum SCComputerName {
     static var current: String? { SCDynamicStoreCopyComputerName(nil, nil) as String? }
 }
 
-/// How a dictation reaches you when its profile doesn't say otherwise.
-enum DeliveryMode: String, CaseIterable, Identifiable, Codable {
-    case clipboardNotify, clipboardOnly, autoPaste
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .clipboardNotify: return "Clipboard + notification"
-        case .clipboardOnly: return "Clipboard only"
-        case .autoPaste: return "Auto-paste"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .clipboardNotify: return "Copies it and shows what arrived. You paste with ⌘V."
-        case .clipboardOnly: return "Copies it silently. The menu bar icon ticks, nothing else."
-        case .autoPaste: return "Pastes into the app you're using after a short countdown you can cancel. Puts your clipboard back afterwards."
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .clipboardNotify: return "bell.badge"
-        case .clipboardOnly: return "doc.on.clipboard"
-        case .autoPaste: return "text.cursor"
-        }
-    }
-}
-
-struct AllowedApp: Codable, Hashable, Identifiable {
-    var bundleID: String
-    var name: String
-    var id: String { bundleID }
-}
-
 /// User settings, persisted in UserDefaults.
 @MainActor
 final class Settings: ObservableObject {
-    private let d = UserDefaults.standard
+    private let d = AppPaths.defaults
 
-    @Published var deliveryMode: DeliveryMode { didSet { d.set(deliveryMode.rawValue, forKey: "deliveryMode") } }
+    /// Where dictations go — the one choice the iPhone and this Mac share (Send to).
+    @Published var selection: SendSelection {
+        didSet { d.set(try? JSONEncoder().encode(selection), forKey: "sendSelection") }
+    }
+    /// With Send to › Clipboard: show what arrived (the popup, and Notification Center when
+    /// the person is away). Off: the menu bar icon ticks, nothing else.
+    @Published var clipboardNotification: Bool { didSet { d.set(clipboardNotification, forKey: "clipboardNotification") } }
     @Published var historyEnabled: Bool { didSet { d.set(historyEnabled, forKey: "historyEnabled") } }
     @Published var apiEnabled: Bool { didSet { d.set(apiEnabled, forKey: "apiEnabled") } }
-    @Published var enterAllowlist: [AllowedApp] {
-        didSet { d.set(try? JSONEncoder().encode(enterAllowlist), forKey: "enterAllowlist") }
-    }
     @Published var hasCompletedSetup: Bool { didSet { d.set(hasCompletedSetup, forKey: "hasCompletedSetup") } }
     @Published var askedForNotifications: Bool { didSet { d.set(askedForNotifications, forKey: "askedForNotifications") } }
 
-    /// Every catalog target that sends by default (Claude, ChatGPT, Codex, Cursor, the terminals).
-    static var defaultAllowlist: [AllowedApp] { TargetCatalog.defaultSendApps }
-
-    /// "When <app> is in front, use <profile>" — for dictations sent on Automatic.
-    @Published var appRules: [AppRule] { didSet { d.set(try? JSONEncoder().encode(appRules), forKey: "appRules") } }
-    /// Say the trigger, get the expansion.
+    /// Say the trigger, get the expansion. Global — every dictation, wherever it goes.
     @Published var snippets: [Snippet] { didSet { d.set(try? JSONEncoder().encode(snippets), forKey: "snippets") } }
     /// The shortcut that opens Macrophone's window from anywhere (the menu bar icon can hide
     /// behind the notch).
@@ -115,15 +98,19 @@ final class Settings: ObservableObject {
     @Published var toldAboutHiddenIcon: Bool { didSet { d.set(toldAboutHiddenIcon, forKey: "toldAboutHiddenIcon") } }
 
     init() {
-        deliveryMode = DeliveryMode(rawValue: d.string(forKey: "deliveryMode") ?? "") ?? .clipboardNotify
+        // Before live targets there was a "delivery mode": it becomes the first Send to choice
+        // (a phone that connects with its own choice wins anyway) and the notification option.
+        let legacyMode = d.string(forKey: "deliveryMode")
+        if let data = d.data(forKey: "sendSelection"), let sel = try? JSONDecoder().decode(SendSelection.self, from: data) {
+            selection = sel
+        } else {
+            let migrated = legacyMode == "autoPaste" ? SendSelection(target: .frontApp) : .default
+            selection = migrated
+            d.set(try? JSONEncoder().encode(migrated), forKey: "sendSelection")
+        }
+        clipboardNotification = d.object(forKey: "clipboardNotification") as? Bool ?? (legacyMode != "clipboardOnly")
         historyEnabled = d.object(forKey: "historyEnabled") as? Bool ?? true
         apiEnabled = d.object(forKey: "apiEnabled") as? Bool ?? true
-        if let data = d.data(forKey: "enterAllowlist"), let list = try? JSONDecoder().decode([AllowedApp].self, from: data) {
-            enterAllowlist = list
-        } else {
-            enterAllowlist = Self.defaultAllowlist
-        }
-        appRules = (d.data(forKey: "appRules")).flatMap { try? JSONDecoder().decode([AppRule].self, from: $0) } ?? []
         snippets = (d.data(forKey: "snippets")).flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
         var key = (d.data(forKey: "hotkey")).flatMap { try? JSONDecoder().decode(Hotkey.self, from: $0) } ?? .default
         // ⌥⌘M (the first default) is "Minimize All" in most apps: move a saved copy of it to
@@ -140,21 +127,8 @@ final class Settings: ObservableObject {
         toldAboutHiddenIcon = d.bool(forKey: "toldAboutHiddenIcon")
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
-        // A saved Return list from before the target catalog gains the catalog's send-by-default
-        // apps once (anything the person removed after this stays removed).
-        if d.integer(forKey: "allowlistVersion") < 2 {
-            if d.data(forKey: "enterAllowlist") != nil {
-                var list = enterAllowlist
-                for a in Self.defaultAllowlist where !list.contains(where: { $0.bundleID == a.bundleID }) { list.append(a) }
-                enterAllowlist = list
-                d.set(try? JSONEncoder().encode(list), forKey: "enterAllowlist")
-            }
-            d.set(2, forKey: "allowlistVersion")
-        }
-    }
-
-    func allowsEnter(in bundleID: String?) -> Bool {
-        guard let bundleID else { return false }
-        return enterAllowlist.contains { $0.bundleID == bundleID }
+        // Retired with live targets: the Return list and per-app rules (the phone's "Paste & send"
+        // is the consent now; the app you pick is the rule).
+        for k in ["enterAllowlist", "allowlistVersion", "appRules", "readyMadeVersion"] { d.removeObject(forKey: k) }
     }
 }

@@ -35,7 +35,7 @@ struct SnippetsPane: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("How they work").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.secondary)
-                Text("A trigger matches whole words anywhere in what you say, ignoring capitals and the commas the recognizer adds. Longer triggers win. Expansions can use variables like {{date}} or {{clipboard}}. Snippets apply to every profile, before its format and template.")
+                Text("A trigger matches whole words anywhere in what you say, ignoring capitals and the commas the recognizer adds. Longer triggers win. Expansions can use variables like {{date}} or {{clipboard}}. Snippets apply to every dictation, wherever it goes — before an automation's format and template.")
                     .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }

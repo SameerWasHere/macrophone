@@ -12,11 +12,14 @@ struct CodeRequest: Identifiable, Equatable {
     static func == (a: CodeRequest, b: CodeRequest) -> Bool { a.id == b.id }
 }
 
-/// The app's hub: the link to the phones, history, profiles, settings, the pull API.
+/// The app's hub: the link to the phones, history, Send to (the live targets and the shared
+/// choice), automations, settings, the pull API.
 @MainActor
 final class AppModel: ObservableObject, LinkServerDelegate {
     let settings = Settings()
-    let profiles: ProfileStore
+    let automations: AutomationStore
+    /// The apps and windows open on this Mac that have somewhere to type.
+    let scanner = TargetScanner()
     let log: DiagnosticLog
     let server: LinkServer
     let historyStore: HistoryStore<HistoryItem>
@@ -25,8 +28,13 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var delivery: DeliveryEngine!
 
     @Published private(set) var history: [HistoryItem] = []
+    /// What Send to can pick from right now (newest first).
+    @Published private(set) var targets: [LiveTarget] = []
+    /// A Macrophone window or the menu is open (the target list is being looked at).
+    private var windowOpen = false
+    private var menuOpen = false
     @Published private(set) var peers: [PairedPeer] = []
-    @Published private(set) var connected: Set<UUID> = []
+    @Published private(set) var connected: Set<UUID> = [] { didSet { if connected != oldValue { updateScanning() } } }
     @Published private(set) var phoneVersions: [UUID: String] = [:]
     @Published private(set) var listenerState: LinkServer.ListenerState = .starting
     @Published private(set) var apiState: LocalAPIServer.State = .off
@@ -55,10 +63,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     init() {
         log = DiagnosticLog(url: AppPaths.diagnostics)
-        profiles = ProfileStore(url: AppPaths.profiles)
+        automations = AutomationStore(url: AppPaths.automations, legacyProfiles: AppPaths.legacyProfiles)
         let s = settings
         historyStore = HistoryStore<HistoryItem>(url: AppPaths.history, capacity: 50, enabled: s.historyEnabled)
-        let identity = DeviceIdentity.load(name: AppPaths.computerName)
+        let identity = DeviceIdentity.load(defaults: AppPaths.defaults, name: AppPaths.computerName)
         server = LinkServer(identity: identity,
                             store: KeychainPairingStore(service: AppPaths.keychainService, directory: AppPaths.supportDirectory),
                             appVersion: AppPaths.appVersion, seenIDsURL: AppPaths.seenIDs)
@@ -88,7 +96,20 @@ final class AppModel: ObservableObject, LinkServerDelegate {
             if case .listening(let port) = state { self.writeAPIConfig(port: port) }
         }
 
-        profiles.onChange = { [weak self] summaries in self?.server.broadcastProfiles(summaries) }
+        automations.onChange = { [weak self] summaries in
+            guard let self else { return }
+            self.server.broadcastProfiles(summaries)
+            // Send to pointed at an automation that's gone: back to the clipboard. Renamed: the
+            // new name.
+            if case .automation(let id, let name) = self.settings.selection.target {
+                if let a = self.automations.automation(id) {
+                    if a.name != name { self.choose(SendSelection(target: .automation(id: id, name: a.name))) }
+                } else {
+                    self.choose(.default)
+                }
+            }
+        }
+        scanner.onChange = { [weak self] list in self?.targetsChanged(list) }
 
         settings.$historyEnabled.dropFirst().sink { [weak self] on in
             guard let self else { return }
@@ -163,6 +184,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     // MARK: API
 
     private func writeAPIConfig(port: UInt16) {
+        // A debug test instance never touches the CLI's config (the real app owns it).
+        if AppPaths.instance != nil { return }
         let cfg = APIConfig(port: port, token: apiToken)
         do {
             try cfg.save()
@@ -188,6 +211,81 @@ final class AppModel: ObservableObject, LinkServerDelegate {
             LocalAPIServer.PhoneStatus(name: displayName($0), connected: connectedIDs.contains($0.id), last_seen: connectedIDs.contains($0.id) ? Date() : $0.lastSeen)
         }
         api.setStatus(.init(app_version: AppPaths.appVersion, history_enabled: settings.historyEnabled, phones: phones))
+    }
+
+    // MARK: Send to
+
+    var selection: SendSelection { settings.selection }
+
+    /// The person changed Send to on this Mac: keep it and tell every phone.
+    func choose(_ sel: SendSelection) {
+        let sel = SendSelection(target: sel.target, send: sel.send)
+        guard sel != settings.selection else { return }
+        settings.selection = sel
+        server.broadcastSelection(sel)
+        log.add("send to changed on the Mac (\(Self.kind(sel)))")
+    }
+
+    func setSend(_ on: Bool) { choose(SendSelection(target: settings.selection.target, send: on)) }
+
+    /// "an app, send" — for the log (never names an app or window).
+    static func kind(_ sel: SendSelection) -> String {
+        let k: String
+        switch sel.target {
+        case .clipboard: k = "clipboard"
+        case .frontApp: k = "where typing"
+        case .app: k = "an app"
+        case .automation: k = "an automation"
+        }
+        return sel.send ? k + ", send" : k
+    }
+
+    /// An app picked without a proper name (a bare bundle id) gets the name Finder shows.
+    static func named(_ ref: TargetRef) -> TargetRef {
+        guard case let .app(bid, key, name) = ref, name.isEmpty || name == bid else { return ref }
+        let n = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first?.localizedName ?? Paster.installedName(bid) ?? name
+        return .app(bundleID: bid, windowKey: key, name: n)
+    }
+
+    /// The live target a selection points at, if it's open.
+    func liveTarget(for ref: TargetRef) -> LiveTarget? { targets.first { ref.matches($0) } }
+
+    func setWindowOpen(_ open: Bool) { windowOpen = open; updateScanning() }
+    func setMenuOpen(_ open: Bool) { menuOpen = open; updateScanning() }
+
+    private func updateScanning() {
+        scanner.setActive(!connected.isEmpty || windowOpen || menuOpen)
+    }
+
+    private func targetsChanged(_ list: [LiveTarget]) {
+        targets = list
+        if !connected.isEmpty { server.broadcastTargets(list) }
+        normalizeSelection(list)
+    }
+
+    /// Keeps the shared choice pointing at something in the list: an app that went from one
+    /// window to several is picked by its most recent window, a window whose app now has only it
+    /// becomes the app, and a renamed window keeps its new name.
+    private func normalizeSelection(_ list: [LiveTarget]) {
+        guard case let .app(bid, key, name) = settings.selection.target else { return }
+        let mine = list.filter { $0.bundleID == bid }
+        guard !mine.isEmpty else { return } // not open right now: keep it
+        var ref: TargetRef?
+        if let key {
+            if let t = mine.first(where: { $0.windowKey == key }) {
+                if t.title != name { ref = t.ref }
+            } else if mine.count == 1, mine[0].windowKey == nil, let id = CGWindowID(key), WindowServer.exists(id) {
+                ref = mine[0].ref
+            }
+        } else if let t = mine.first(where: { $0.windowKey == nil }) {
+            if t.title != name { ref = t.ref }
+        } else {
+            ref = mine[0].ref
+        }
+        guard let ref else { return }
+        let sel = SendSelection(target: ref, send: settings.selection.send)
+        settings.selection = sel
+        server.broadcastSelection(sel)
     }
 
     // MARK: Pairing
@@ -388,5 +486,22 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         listenerState = state
     }
 
-    func profilesForPhones(_ server: LinkServer) -> [ProfileSummary] { profiles.summaries }
+    func profilesForPhones(_ server: LinkServer) -> [ProfileSummary] { automations.summaries }
+
+    func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {
+        // The phone's choice wins (on connect it sends its own first).
+        let sel = SendSelection(target: Self.named(selection.target), send: selection.send)
+        if sel != settings.selection {
+            settings.selection = sel
+            log.add("send to changed on the phone (\(Self.kind(sel)))")
+        }
+        normalizeSelection(targets)
+    }
+
+    func linkServerRefreshTargets(_ server: LinkServer) {
+        updateScanning()
+        scanner.refresh()
+    }
+
+    func liveTargets(_ server: LinkServer) -> [LiveTarget] { targets }
 }

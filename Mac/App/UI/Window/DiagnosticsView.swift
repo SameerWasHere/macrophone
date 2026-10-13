@@ -35,10 +35,11 @@ enum Diagnostics {
             ("Network listener", listener),
             ("Local API", api),
             ("Paired phones", "\(model.peers.count) (\(model.connected.count) connected)"),
-            ("Delivery mode", model.settings.deliveryMode.title),
+            ("Send to", AppModel.kind(model.settings.selection)),
+            ("Apps with somewhere to type", "\(model.targets.count)"),
             ("Accessibility granted", model.accessibilityGranted ? "yes" : "no"),
             ("History", model.settings.historyEnabled ? "on (\(model.history.count) items)" : "off"),
-            ("Profiles", "\(model.profiles.profiles.count) (\(model.profiles.profiles.filter(\.sendsOffDevice).count) send off this Mac)"),
+            ("Automations", "\(model.automations.automations.count) (\(model.automations.automations.filter(\.sendsOffDevice).count) send off this Mac)"),
         ]
     }
 }

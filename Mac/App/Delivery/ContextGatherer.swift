@@ -3,7 +3,7 @@ import Foundation
 import MacrophoneKit
 
 /// Fills template variables ({{clipboard}}, {{selection}}, {{url}}…). Only the variables a
-/// profile's template or snippets actually use are gathered: reading the selection needs
+/// automation's template or snippets actually use are gathered: reading the selection needs
 /// Accessibility, the browser address needs Automation.
 @MainActor
 enum ContextGatherer {
@@ -40,11 +40,11 @@ enum ContextGatherer {
 
     /// The context for one dictation. `notes` explains any variable that came back empty for a
     /// reason the person can fix.
-    static func context(needed: Set<String>, arrival: Arrival, dictation d: Dictation, profile: Profile) async -> (values: [String: String], notes: [String]) {
+    static func context(needed: Set<String>, arrival: Arrival, dictation d: Dictation, name: String, tmuxTarget: String?) async -> (values: [String: String], notes: [String]) {
         var c = TemplateRenderer.clockContext()
         var notes: [String] = []
         c["raw"] = d.raw
-        c["profile"] = profile.name
+        c["profile"] = name
         c["device"] = d.sourceDevice
         c["app"] = arrival.frontName ?? ""
         if needed.contains("clipboard") { c["clipboard"] = arrival.clipboard ?? "" }
@@ -59,7 +59,7 @@ enum ContextGatherer {
             if let n = r.note { notes.append(n) }
         }
         if needed.contains("tmux_cwd") {
-            if case .tmux(let target) = profile.destination {
+            if let target = tmuxTarget {
                 c["tmux_cwd"] = await Task.detached { Tmux.currentPath(target) }.value ?? ""
             } else {
                 c["tmux_cwd"] = ""

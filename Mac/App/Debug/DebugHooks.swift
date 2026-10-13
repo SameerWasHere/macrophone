@@ -10,13 +10,14 @@ import SwiftUI
 ///   MACROPHONE_SHOW=<what>          popup-toast | popup-countdown | popup-error | popup-stack | popup-delayed |
 ///                                   popup-automation | popup-rtl | window-<pane> | setup | setup-paired |
 ///                                   setup-paired-generic | setup-login | setup-modes | code-approval | diagnostics |
-///                                   profile-editor | menu
+///                                   automation-editor | menu
 ///   MACROPHONE_WINDOW_SIZE=WxH      the main window's content size (window-<pane> only)
 ///   MACROPHONE_POPUP_ON_ICON=1      the popup hangs under the icon on its own display (not the display in use)
 ///   MACROPHONE_BACKDROP=1           a neutral backdrop under the popup (screenshots never show a real desktop)
 ///   MACROPHONE_WINDOW_IDS_FILE=path writes {"main":id,"setup":id,"popup":id,"popupFrame":[x,y,w,h]} (top-left points)
 ///   MACROPHONE_CODE_ANSWER=match|nomatch  answers a code-pairing request after 3 s through the same call the buttons make
 ///   MACROPHONE_PAIR_URL_FILE=path   writes the live pairing URL (AppModel.beginPairing)
+///   MACROPHONE_PAIR_HEADLESS=1      opens pairing at launch with no window (for mpctl)
 ///   MACROPHONE_FORGET=<name>        forgets matching phones (Devices › Forget's call)
 ///   MACROPHONE_HIDE_ICON=1          hide the menu bar icon (the popup falls back to the top-right corner)
 ///   MACROPHONE_FAKE_PEERS=a|b*|c>d  stand-in phones for screenshots: * = connected, "iPhone>Sameer's iPhone" = a
@@ -24,14 +25,19 @@ import SwiftUI
 ///   MACROPHONE_FAKE_LISTENER=failed the network listener failed (Local Network blocked)
 ///   MACROPHONE_INSTALL_CLI=1        runs the CLI install at launch
 ///   MACROPHONE_CLI_DIR=path         install the CLI links there instead of /usr/local/bin
-///   MACROPHONE_SHOW (automations)   window-snippets | target-gallery | profile-editor-terminal | profile-editor-actions |
-///                                   profile-editor-tmux | snippet-editor | popup-sent | popup-not-sent |
-///                                   popup-window-missing | popup-reply | popup-reply-error | popup-prefix | popup-tmux
+///   MACROPHONE_SHOW (automations)   window-snippets | window-automations | automation-editor-actions |
+///                                   automation-editor-tmux | snippet-editor | popup-sent | popup-not-sent |
+///                                   popup-not-open | popup-window-gone | popup-nowhere | popup-reply | popup-reply-error |
+///                                   popup-prefix | popup-tmux
+///   MACROPHONE_INSTANCE=<name>      a debug copy with its own settings, folder, pairing keys and identity (AppPaths)
+///   Distributed notification "com.sameer.macrophone.debug.openMenu" opens the menu bar menu.
+///   MACROPHONE_TARGETS_DEBUG=1      print every target scan (timing, what was found) to stdout
 ///   MACROPHONE_CLAUDE_MOCK=ok|badkey|ratelimit|offline|refusal  Ask Claude answers from a mocked transport (no network)
 ///   MACROPHONE_NO_APPLESCRIPT=1     window/tab matching uses Accessibility titles only (tests the fallback)
 ///   MACROPHONE_CLAUDE_KEY=…         use this key instead of the keychain's (mock runs)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
-///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text","profile"?,"source"?:"chosen|prefix|automatic","delayed"?}.
+///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
+///   "window"?: "<window key>", "send"?: bool, "automation"?: "<name>", "delayed"?: bool}. No target = this Mac's Send to.
 @MainActor
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -42,6 +48,11 @@ enum DebugHooks {
     static func run(_ app: AppDelegate) -> Bool {
         let model = app.model
         listenForSimulatedDictations(model)
+        // Open the menu bar menu, as a click on the icon does (screenshots; keyboard drives it).
+        bag.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.openMenu"),
+                                                                       object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { app.debugStatusItem.openMenu() }
+        })
         if let mock = env["MACROPHONE_CLAUDE_MOCK"], mock != "off" { DeliveryEngine.claudeSession = ClaudeMock.session(mock) }
         if env["MACROPHONE_FRESH"] == "1" { model.settings.hasCompletedSetup = false }
         if env["MACROPHONE_SEED_HISTORY"] == "1" { seed(model) }
@@ -69,11 +80,14 @@ enum DebugHooks {
         if env["MACROPHONE_HIDE_ICON"] == "1" { app.debugStatusItem.debugHide() }
         if let spec = env["MACROPHONE_FAKE_PEERS"] { stagePeers(spec, model: model) }
         if env["MACROPHONE_FAKE_LISTENER"] == "failed" { model.debugListenerFailed() }
+        // Pair a stand-in phone (mpctl) without opening any window: the URL goes to
+        // MACROPHONE_PAIR_URL_FILE.
+        if env["MACROPHONE_PAIR_HEADLESS"] == "1" { model.beginPairing() }
         guard let show = env["MACROPHONE_SHOW"] else { return false }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 
-        if show.hasPrefix("profile-editor") || show == "target-gallery" {
-            app.openMainWindow(pane: .profiles)
+        if show.hasPrefix("automation-editor") {
+            app.openMainWindow(pane: .automations)
             return true
         }
         if show == "snippet-editor" {
@@ -172,9 +186,19 @@ enum DebugHooks {
             c.caution = true
             c.note = "Pressed Return, but it's still in the message box — Claude may still be answering. Press Return when it's ready."
             popup.show(c)
-        case "popup-window-missing":
-            let c = card(english, phase: .failed, status: "Not pasted")
-            let f = PasteFailure.windowNotFound(app: "Terminal", match: "claude")
+        case "popup-not-open", "popup-window-missing":
+            let c = card(english, phase: .failed, status: "Copied instead")
+            let f = PasteFailure.appNotOpen(name: "Claude")
+            c.headline = f.title; c.note = f.detail; c.canRetry = true
+            popup.show(c)
+        case "popup-window-gone":
+            let c = card(english, phase: .failed, status: "Copied instead")
+            let f = PasteFailure.windowGone(app: "Terminal", window: "claude ~/app")
+            c.headline = f.title; c.note = f.detail; c.canRetry = true
+            popup.show(c)
+        case "popup-nowhere":
+            let c = card(short, phase: .failed, status: "Copied instead")
+            let f = PasteFailure.nowhereToType(app: "Finder")
             c.headline = f.title; c.note = f.detail; c.canRetry = true
             popup.show(c)
         case "popup-composer":
@@ -183,7 +207,7 @@ enum DebugHooks {
             c.headline = f.title; c.note = f.detail; c.canRetry = true
             popup.show(c)
         case "popup-prefix":
-            let c = card("Fix the flaky upload test and run the suite again.", phase: .countdown, status: "Claude Code · Sending to Terminal · “claude”")
+            let c = card("Fix the flaky upload test and run the suite again.", phase: .countdown, status: "Sending to Terminal — claude")
             c.note = "Pastes, then presses Return."
             c.remaining = 0.55
             popup.show(c)
@@ -213,13 +237,15 @@ enum DebugHooks {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { popup.freeze() }
     }
 
-    // MARK: Profile editor staging
+    // MARK: Automation editor staging
 
-    static func profileForEditor(_ store: ProfileStore) -> Profile {
+    static func automationForEditor(_ store: AutomationStore) -> Profile {
         switch env["MACROPHONE_SHOW"] {
-        case "profile-editor-terminal":
-            return store.profiles.first { $0.windowMatch != nil } ?? ReadyMade.profile(for: ReadyMade.items[1])
-        case "profile-editor-actions":
+        case "automation-editor-tmux":
+            var p = Profile(name: "tmux: work", destination: .tmux(target: "mptest:0.0"), pressEnter: true, outputFormat: .singleLine)
+            p.template = "{{text}}"
+            return p
+        default:
             var p = Profile(name: "Daily log", destination: .none, voicePrefixes: ["note", "log"])
             p.actions = [
                 ProfileAction(kind: .obsidian(vaultPath: NSHomeDirectory() + "/Documents/Vault", notePath: nil, dailyFolder: "Daily", heading: "Log")),
@@ -227,13 +253,7 @@ enum DebugHooks {
                 ProfileAction(kind: .claude(model: ClaudeClient.defaultModel, systemPrompt: "Answer in two sentences.", deliverReply: true)),
             ]
             p.template = "{{text}}\n\nFrom {{app}} — {{window}}"
-            return p
-        case "profile-editor-tmux":
-            var p = Profile(name: "tmux: work", destination: .tmux(target: "mptest:0.0"), pressEnter: true, outputFormat: .singleLine)
-            p.template = "{{text}}"
-            return p
-        default:
-            return store.profiles.first { $0.name == "Claude" } ?? store.profiles.first!
+            return store.automations.first ?? p
         }
     }
 
@@ -269,11 +289,19 @@ enum DebugHooks {
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let text = obj["text"] as? String else { return }
             MainActor.assumeIsolated {
-                let name = obj["profile"] as? String
-                let profile = name.flatMap { n in model.profiles.profiles.first { $0.name.lowercased() == n.lowercased() } }
-                let source = (obj["source"] as? String).flatMap(ProfileSource.init(rawValue:))
-                let d = Dictation(raw: obj["raw"] as? String ?? text, cleaned: text, cleanupLevel: .medium, profileID: profile?.id,
-                                  profileName: profile?.name, profileSource: source, sourceDevice: "Simulated iPhone")
+                var target: TargetRef?
+                switch obj["target"] as? String {
+                case nil: target = nil
+                case "clipboard": target = .clipboard
+                case "front": target = .frontApp
+                case let bid?: target = .app(bundleID: bid, windowKey: obj["window"] as? String,
+                                             name: model.targets.first { $0.bundleID == bid && $0.windowKey == obj["window"] as? String }?.title ?? bid)
+                }
+                if let n = obj["automation"] as? String, let a = model.automations.automation(named: n) {
+                    target = .automation(id: a.id, name: a.name)
+                }
+                let d = Dictation(raw: obj["raw"] as? String ?? text, cleaned: text, cleanupLevel: .medium, target: target,
+                                  send: obj["send"] as? Bool, sourceDevice: "Simulated iPhone")
                 let peer = PairedPeer(id: UUID(), name: "Simulated iPhone")
                 let (_, ack) = model.delivery.handle(d, delayed: obj["delayed"] as? Bool ?? false, from: peer)
                 print("simulated dictation → \(ack ?? "")")

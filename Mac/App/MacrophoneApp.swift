@@ -14,12 +14,12 @@ enum Main {
 }
 
 enum Pane: String, CaseIterable, Identifiable {
-    case history, profiles, snippets, delivery, devices, developer, general
+    case history, automations, snippets, delivery, devices, developer, general
     var id: String { rawValue }
     var title: String {
         switch self {
         case .history: return "History"
-        case .profiles: return "Profiles"
+        case .automations: return "Automations"
         case .snippets: return "Snippets"
         case .delivery: return "Delivery"
         case .devices: return "Devices"
@@ -30,7 +30,7 @@ enum Pane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .history: return "clock.arrow.circlepath"
-        case .profiles: return "square.stack.3d.up"
+        case .automations: return "gearshape.2"
         case .snippets: return "text.badge.plus"
         case .delivery: return "text.cursor"
         case .devices: return "iphone"
@@ -103,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             mainWindow?.onClose = { [weak self] in self?.windowClosed() }
         }
         if let pane { mainWindow?.select(pane) }
+        model.setWindowOpen(true)
         becomeRegular()
         mainWindow?.showWindow(nil)
         mainWindow?.window?.makeKeyAndOrderFront(nil)
@@ -119,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         setupWindow?.go(step)
+        model.setWindowOpen(true)
         becomeRegular()
         setupWindow?.showWindow(nil)
         setupWindow?.window?.center()
@@ -182,6 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let open = [self.mainWindow?.window, self.setupWindow?.window, self.diagnosticsWindow].compactMap { $0 }.filter(\.isVisible)
             if open.isEmpty { NSApp.setActivationPolicy(.accessory) }
+            let targetsShown = [self.mainWindow?.window, self.setupWindow?.window].compactMap { $0 }.contains(where: \.isVisible)
+            self.model.setWindowOpen(targetsShown)
         }
     }
 

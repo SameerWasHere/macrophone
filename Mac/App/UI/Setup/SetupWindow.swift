@@ -256,22 +256,15 @@ struct ModesStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("How dictations arrive").font(Typeface.serif(28)).foregroundStyle(Ink.ink).padding(.top, 52)
-            Text("Pick one. Change it any time from the menu bar or in Delivery.")
+            Text("Where dictations go").font(Typeface.serif(28)).foregroundStyle(Ink.ink).padding(.top, 52)
+            Text("Pick it on your iPhone under Send to — or here. It's one choice, shared.")
                 .font(.system(size: 13.5)).foregroundStyle(Ink.secondary).padding(.top, 8)
-            VStack(spacing: 10) {
-                ForEach(DeliveryMode.allCases) { m in
-                    ModeCard(mode: m, selected: settings.deliveryMode == m) {
-                        if m == .autoPaste && !Paster.isTrusted { Paster.requestTrust() }
-                        settings.deliveryMode = m
-                    }
-                }
-            }
-            .padding(.horizontal, 32)
-            .padding(.top, 26)
-            Text("Profiles send straight into an app — Claude, ChatGPT, Cursor, or the Terminal tab running Claude Code — and press Return for you. Pick one on your iPhone, or add more in Profiles.")
+            SendToCard(model: model, settings: settings, automations: model.automations, compact: true)
+                .padding(.horizontal, 32)
+                .padding(.top, 26)
+            Text("Every app open on this Mac with somewhere to type — Claude, Messages, a Terminal window — shows up on its own. Choose Paste & send and Macrophone presses send for you, after a countdown you can cancel.")
                 .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
-                .multilineTextAlignment(.center).frame(maxWidth: 420)
+                .multilineTextAlignment(.center).frame(maxWidth: 440)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 18)
             HStack(alignment: .top, spacing: 10) {

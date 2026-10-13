@@ -67,7 +67,7 @@ struct MainView: View {
     @ViewBuilder private var detail: some View {
         switch nav.pane ?? .history {
         case .history: HistoryPane(model: model, settings: model.settings)
-        case .profiles: ProfilesPane(model: model, store: model.profiles, settings: model.settings)
+        case .automations: AutomationsPane(model: model, store: model.automations, settings: model.settings)
         case .snippets: SnippetsPane(settings: model.settings)
         case .delivery: DeliveryPane(model: model, settings: model.settings, notifier: Notifier.shared)
         case .devices: DevicesPane(model: model)

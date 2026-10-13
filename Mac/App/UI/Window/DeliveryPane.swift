@@ -5,104 +5,65 @@ struct DeliveryPane: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
     @ObservedObject var notifier: Notifier
-    @State private var addingApp = false
 
     var body: some View {
         PanePage {
-            PaneHeader(title: "Delivery", subtitle: "What happens when a dictation arrives. A profile can send it somewhere specific instead.")
+            PaneHeader(title: "Delivery", subtitle: "Where dictations go is one choice, shared with your iPhone. Every app open on this Mac with somewhere to type is on the list — nothing to set up.")
 
-            VStack(spacing: 10) {
-                ForEach(DeliveryMode.allCases) { m in
-                    ModeCard(mode: m, selected: settings.deliveryMode == m) { choose(m) }
+            SendToCard(model: model, settings: settings, automations: model.automations)
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel("Clipboard")
+                Plate {
+                    PlateRow(title: "Show a notification",
+                             subtitle: settings.clipboardNotification
+                                ? "When Send to is Clipboard, a popup shows what arrived — and Notification Center keeps it if you're away from your Mac."
+                                : "Off: it's copied silently and the menu bar icon ticks.",
+                             icon: "bell.badge", iconColor: Light.teal) {
+                        Toggle("", isOn: $settings.clipboardNotification)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .accessibilityLabel("Show a notification")
+                    }
                 }
             }
 
             permissions
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Return list")
-                Plate {
-                    PlateRow(title: "Apps where Return can be pressed",
-                             subtitle: "A profile set to press Return only does it in these apps. Everywhere else it pastes and stops.") {
-                        EmptyView()
-                    }
-                    PlateDivider()
-                    if settings.enterAllowlist.isEmpty {
-                        Text("No apps — Return is never pressed.")
-                            .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
-                            .padding(.horizontal, 16).padding(.vertical, 12)
-                    }
-                    ForEach(settings.enterAllowlist) { app in
-                        HStack(spacing: 10) {
-                            if let icon = InstalledApp.icon(for: app.bundleID) {
-                                Image(nsImage: icon).resizable().frame(width: 20, height: 20)
-                            } else {
-                                Image(systemName: "app.dashed").frame(width: 20, height: 20).foregroundStyle(Ink.tertiary)
-                            }
-                            Text(app.name).font(.system(size: 13)).foregroundStyle(Ink.ink)
-                            if InstalledApp.icon(for: app.bundleID) == nil {
-                                Text("not installed").font(.system(size: 11)).foregroundStyle(Ink.tertiary)
-                            }
-                            Spacer()
-                            Button {
-                                settings.enterAllowlist.removeAll { $0.bundleID == app.bundleID }
-                            } label: {
-                                Image(systemName: "minus.circle.fill").foregroundStyle(Ink.tertiary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Remove \(app.name)")
-                            .accessibilityLabel("Remove \(app.name)")
-                        }
-                        .padding(.horizontal, 16).padding(.vertical, 7)
-                    }
-                    PlateDivider()
-                    HStack {
-                        Button { addingApp = true } label: { Label("Add App…", systemImage: "plus") }
-                            .buttonStyle(.borderless)
-                        Spacer()
-                        Button("Restore Defaults") { settings.enterAllowlist = Settings.defaultAllowlist }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(Ink.secondary)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Always on")
                 Plate {
-                    safety("timer", "A 2.5-second countdown before anything is pasted", "Cancel it in the popup. Hovering pauses it.")
+                    safety("timer", "A 2.5-second countdown before anything is pasted or sent", "Cancel it in the popup. Hovering pauses it.")
+                    PlateDivider(inset: 50)
+                    safety("paperplane", "It's only sent when you choose Paste & send", "Otherwise it's pasted and waits for you. Your choice on the iPhone (or here) is what says it may send.")
                     PlateDivider(inset: 50)
                     safety("lock.shield", "Never into a password field", "If a password field or Secure Keyboard Entry is active, it's copied instead.")
                     PlateDivider(inset: 50)
                     safety("clock.arrow.circlepath", "Delayed dictations are only copied", "Anything your iPhone queued while your Mac was away is never pasted or sent on its own.")
                     PlateDivider(inset: 50)
                     safety("arrow.uturn.backward", "Your clipboard comes back", "After a paste, whatever you had copied is put back. Clipboard managers skip the dictation.")
+                    PlateDivider(inset: 50)
+                    safety("questionmark.app.dashed", "If the app isn't there, it's copied", "An app that's quit or a window that's closed gets nothing typed into it — the popup says so and it's on your clipboard.")
                 }
             }
         }
-        .sheet(isPresented: $addingApp) {
-            AppPickerSheet(title: "Allow Return in…", exclude: Set(settings.enterAllowlist.map(\.bundleID))) { app in
-                settings.enterAllowlist.append(AllowedApp(bundleID: app.bundleID, name: app.name))
-            }
-        }
-    }
-
-    private func choose(_ m: DeliveryMode) {
-        if m == .autoPaste && !Paster.isTrusted { Paster.requestTrust() }
-        settings.deliveryMode = m
     }
 
     @ViewBuilder private var permissions: some View {
-        let needsAX = settings.deliveryMode == .autoPaste || model.profiles.profiles.contains { $0.pastes(mode: settings.deliveryMode) }
+        let needsAX: Bool = {
+            switch settings.selection.target {
+            case .frontApp, .app: return true
+            case .clipboard, .automation: return false
+            }
+        }()
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel("Permissions")
             Plate {
                 PlateRow(title: "Accessibility",
                          subtitle: model.accessibilityGranted
-                            ? "Allowed. Macrophone can paste and press Return for you."
+                            ? "Allowed. Macrophone can see which apps have somewhere to type, paste, and press send for you."
                             : (needsAX ? "Needed to paste. Until it's on, dictations are copied and you'll see why in the popup."
-                                       : "Only needed for pasting. Not needed for the clipboard modes."),
+                                       : "Needed to list the apps you can send to and to paste. Not needed for the clipboard."),
                          subtitleColor: !model.accessibilityGranted && needsAX ? Light.ochre : Ink.tertiary,
                          icon: model.accessibilityGranted ? "checkmark.circle.fill" : "hand.raised",
                          iconColor: model.accessibilityGranted ? Light.mint : (needsAX ? Light.ochre : Ink.tertiary)) {
@@ -144,48 +105,5 @@ struct DeliveryPane: View {
 
     private func safety(_ symbol: String, _ title: String, _ line: String) -> some View {
         PlateRow(title: title, subtitle: line, icon: symbol, iconColor: Light.teal)
-    }
-}
-
-struct ModeCard: View {
-    let mode: DeliveryMode
-    let selected: Bool
-    var choose: () -> Void
-    @State private var hover = false
-
-    var body: some View {
-        Button(action: choose) {
-            HStack(alignment: .top, spacing: 14) {
-                ZStack {
-                    Circle().strokeBorder(selected ? Light.teal : Ink.lineHeavy, lineWidth: selected ? 5 : 1.2)
-                        .frame(width: 18, height: 18)
-                }
-                .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(mode.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.ink)
-                        if mode == .clipboardNotify { Chip(text: "Default", color: Ink.tertiary) }
-                        if mode == .autoPaste && !Paster.isTrusted { Chip(text: "Needs Accessibility", color: Ink.tertiary) }
-                    }
-                    Text(mode.summary).font(.system(size: 12.5)).foregroundStyle(Ink.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                }
-                Spacer()
-                Image(systemName: mode.symbol)
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(selected ? Light.teal : Ink.tertiary)
-                    .frame(width: 28)
-            }
-            .padding(16)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(selected ? Light.teal.opacity(0.08) : Ink.raised.opacity(hover ? 0.95 : 0.72)))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(selected ? Light.teal.opacity(0.45) : Ink.line, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 14))
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

@@ -229,7 +229,7 @@ struct ClaudeKeySection: View {
             SectionLabel("Claude API key")
             Plate {
                 PlateRow(title: "Anthropic API key",
-                         subtitle: "Used only by profiles with an “Ask Claude” action. Those send what you dictate to Anthropic; billing is on your account. Kept in your keychain, never in diagnostics.",
+                         subtitle: "Used only by automations with an “Ask Claude” action. Those send what you dictate to Anthropic; billing is on your account. Kept in your keychain, never in diagnostics.",
                          icon: saved == nil ? "key" : "key.fill", iconColor: saved == nil ? Ink.secondary : Light.mint) { EmptyView() }
                 PlateDivider()
                 VStack(alignment: .leading, spacing: 10) {
@@ -244,7 +244,7 @@ struct ClaudeKeySection: View {
                                 .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
                                 .confirmationDialog("Remove your API key?", isPresented: $confirmRemove) {
                                     Button("Remove", role: .destructive) { ClaudeKey.delete(); self.saved = nil; result = nil }
-                                } message: { Text("Profiles that ask Claude will stop until you add a key again.") }
+                                } message: { Text("Automations that ask Claude will stop until you add a key again.") }
                         }
                     } else {
                         HStack(spacing: 10) {

@@ -20,6 +20,10 @@ struct HistoryPane: View {
 
     var body: some View {
         PanePage {
+            // Where dictations go — the choice the iPhone and this Mac share — first.
+            SendToCard(model: model, settings: settings, automations: model.automations)
+                .padding(.top, 8)
+
             PaneHeader(title: "History", subtitle: "Your last 50 dictations. They stay on this Mac — separate from your iPhone's history.")
 
             HStack(spacing: 12) {

@@ -2,39 +2,34 @@ import AppKit
 import MacrophoneKit
 import SwiftUI
 
-/// Create or edit a profile: where the words go, how they're shaped, and what else happens.
-struct ProfileEditor: View {
+/// Create or edit an automation: where the words go, how they're shaped, and what else happens.
+struct AutomationEditor: View {
     @State var profile: Profile
-    @State var options: ProfileOptions
     let isNew: Bool
-    @ObservedObject var store: ProfileStore
+    @ObservedObject var store: AutomationStore
     @ObservedObject var settings: Settings
     @Environment(\.dismiss) private var dismiss
 
-    enum Where: Int { case delivery, focused, app, tmux, nowhere }
+    enum Where: Int { case copy, focused, tmux, nowhere }
     @State private var whereTo: Where
     @State private var templateText: String
     @State private var scriptText: String
     @State private var webhookText: String
-    @State private var windowText: String
     @State private var tmuxTarget: String
     @State private var prefixes: [String]
     @State private var prefixDraft = ""
     @State private var actions: [ProfileAction]
-    @State private var pickingApp = false
     @State private var confirmDelete = false
 
-    init(profile: Profile, isNew: Bool, store: ProfileStore, settings: Settings) {
+    init(profile: Profile, isNew: Bool, store: AutomationStore, settings: Settings) {
         _profile = State(initialValue: profile)
-        _options = State(initialValue: store.options(for: profile.id))
         self.isNew = isNew
         self.store = store
         self.settings = settings
         let w: Where
         switch profile.destination {
-        case .clipboard: w = .delivery
+        case .clipboard, .app: w = .copy
         case .focusedApp: w = .focused
-        case .app: w = .app
         case .tmux: w = .tmux
         case .none: w = .nowhere
         }
@@ -42,7 +37,6 @@ struct ProfileEditor: View {
         _templateText = State(initialValue: profile.template ?? "")
         _scriptText = State(initialValue: profile.script ?? "")
         _webhookText = State(initialValue: profile.webhookURL?.absoluteString ?? "")
-        _windowText = State(initialValue: profile.windowMatch ?? "")
         if case .tmux(let t) = profile.destination { _tmuxTarget = State(initialValue: t) } else { _tmuxTarget = State(initialValue: "") }
         _prefixes = State(initialValue: profile.voicePrefixes ?? [])
         _actions = State(initialValue: profile.actions ?? [])
@@ -50,16 +44,10 @@ struct ProfileEditor: View {
 
     // MARK: Derived
 
-    private var appTarget: (id: String, name: String)? {
-        if case .app(let id, let name) = profile.destination { return (id, name) }
-        return nil
-    }
-    private var spec: TargetSpec? { TargetCatalog.spec(for: appTarget?.id) }
     private var pastes: Bool {
         switch whereTo {
-        case .delivery: return settings.deliveryMode == .autoPaste
-        case .focused, .app, .tmux: return true
-        case .nowhere: return false
+        case .focused, .tmux: return true
+        case .copy, .nowhere: return false
         }
     }
     private var webhookValid: Bool {
@@ -73,7 +61,6 @@ struct ProfileEditor: View {
     }
     private var canSave: Bool {
         webhookValid && !profile.name.trimmingCharacters(in: .whitespaces).isEmpty
-            && !(whereTo == .app && appTarget == nil)
             && !(whereTo == .tmux && tmuxTarget.trimmingCharacters(in: .whitespaces).isEmpty)
             && actionsValid
     }
@@ -91,17 +78,17 @@ struct ProfileEditor: View {
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Text(isNew ? "New Profile" : "Edit Profile").font(Typeface.serif(24)).foregroundStyle(Ink.ink)
+                    Text(isNew ? "New Automation" : "Edit Automation").font(Typeface.serif(24)).foregroundStyle(Ink.ink)
 
                     field("Name") {
-                        TextField("Profile name", text: $profile.name).textFieldStyle(.roundedBorder)
+                        TextField("Automation name", text: $profile.name).textFieldStyle(.roundedBorder)
                     }
 
-                    field("Voice prefix", note: "Start a dictation with one of these and a pause — “\(prefixes.first ?? "Claude"), fix the failing test” — to use this profile for that one. Your iPhone takes the words off.") {
+                    field("Voice prefix", note: "Start a dictation with one of these and a pause — “\(prefixes.first ?? "note"), call the dentist tomorrow” — to use this automation for that one. Your iPhone takes the words off.") {
                         ChipField(items: $prefixes, draft: $prefixDraft, placeholder: "Type a word, press Return")
                     }
 
-                    field("Cleanup", note: "Overrides the iPhone's own setting when this profile is used.") {
+                    field("Cleanup", note: "Overrides the iPhone's own setting when this automation is used.") {
                         Picker("", selection: $profile.cleanupLevel) {
                             Text("Use the iPhone's setting").tag(CleanupLevel?.none)
                             ForEach(CleanupLevel.allCases) { l in Text(l.title).tag(CleanupLevel?.some(l)) }
@@ -115,9 +102,6 @@ struct ProfileEditor: View {
                     section("Shape the text") { shapeSection }.id("shape")
                     section("Also") { ActionsEditor(actions: $actions) }.id("also")
                     automations.id("automations")
-
-                    Toggle("Use this profile when the iPhone doesn't pick one", isOn: $profile.isDefault)
-                        .disabled(profile.isDefault && !isNew && store.profiles.first(where: \.isDefault)?.id == profile.id)
                 }
                 .padding(24)
             }
@@ -133,7 +117,7 @@ struct ProfileEditor: View {
             Rectangle().fill(Ink.line).frame(height: 1)
             HStack {
                 if !isNew {
-                    Button("Delete Profile…", role: .destructive) { confirmDelete = true }
+                    Button("Delete Automation…", role: .destructive) { confirmDelete = true }
                         .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
                         .confirmationDialog("Delete \(profile.name)?", isPresented: $confirmDelete) {
                             Button("Delete", role: .destructive) { store.delete(profile.id); dismiss() }
@@ -141,7 +125,7 @@ struct ProfileEditor: View {
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(isNew ? "Add Profile" : "Save") { save() }
+                Button(isNew ? "Add Automation" : "Save") { save() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
             }
@@ -150,12 +134,6 @@ struct ProfileEditor: View {
         .frame(width: 600, height: 640)
         .background(Ink.ground)
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $pickingApp) {
-            AppPickerSheet(title: "Send to…") { app in
-                profile.destination = .app(bundleID: app.bundleID, name: TargetCatalog.spec(for: app.bundleID)?.name ?? app.name)
-                if let s = TargetCatalog.spec(for: app.bundleID), isNew { profile.pressEnter = s.sendsByDefault }
-            }
-        }
     }
 
     // MARK: Where it goes
@@ -163,17 +141,15 @@ struct ProfileEditor: View {
     @ViewBuilder private var destination: some View {
         VStack(alignment: .leading, spacing: 10) {
             Picker("", selection: $whereTo) {
-                Text("As set in Delivery (\(settings.deliveryMode.title))").tag(Where.delivery)
-                Text("Paste into the app you're using").tag(Where.focused)
-                Text("Send to an app").tag(Where.app)
-                Text("Type into a tmux pane").tag(Where.tmux)
+                Text("Copy it to the clipboard").tag(Where.copy)
+                Text("Paste it where I'm typing").tag(Where.focused)
+                Text("Type it into a tmux pane").tag(Where.tmux)
                 Text("Nowhere — only do what's under “Also”").tag(Where.nowhere)
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
 
             switch whereTo {
-            case .app: appSection.padding(.leading, 20)
             case .tmux: TmuxPanePicker(target: $tmuxTarget).padding(.leading, 20)
             case .nowhere:
                 Text("Nothing is pasted or copied. Add a note, reminder or Claude below.")
@@ -183,104 +159,14 @@ struct ProfileEditor: View {
         }
     }
 
-    @ViewBuilder private var appSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                if let t = appTarget {
-                    if let icon = InstalledApp.icon(for: t.id) { Image(nsImage: icon).resizable().frame(width: 24, height: 24) }
-                    Text(t.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Ink.ink)
-                    if spec != nil { Chip(text: "Tuned", color: Light.teal, icon: "checkmark") }
-                    if InstalledApp.icon(for: t.id) == nil { Text("not installed").font(.system(size: 11)).foregroundStyle(Light.ochre) }
-                } else {
-                    Text("No app chosen").font(.system(size: 13)).foregroundStyle(Ink.tertiary)
-                }
-                Button(appTarget == nil ? "Choose App…" : "Change…") { pickingApp = true }
-            }
-            Text(appLine)
-                .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if appTarget != nil {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(spec?.kind == .terminal ? "Only the tab or window with this in its title or running this program" : "Only the window with this in its title")
-                        .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.secondary)
-                    TextField(spec?.kind == .terminal ? "e.g. claude" : "Leave empty for the front window", text: $windowText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 280)
-                    Text(windowLine)
-                        .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let t = appTarget, spec?.windowMatching == .terminalApp || spec?.windowMatching == .iTerm,
-                       !windowText.trimmingCharacters(in: .whitespaces).isEmpty {
-                        AutomationPermissionRow(bundleID: t.id, appName: t.name,
-                                                why: "Lets Macrophone pick the \(t.name) tab by the program running in it, not just its title. Without it, only titles are matched.")
-                    }
-                }
-            }
-        }
-    }
-
-    private var appLine: String {
-        guard let spec else { return "Macrophone brings it to the front and pastes where the cursor is." }
-        switch spec.composer {
-        case .chatInput: return "Macrophone brings \(spec.name) to the front, puts the cursor in the message box, pastes, and checks the words arrived."
-        case .terminal: return "Macrophone brings \(spec.name) to the front and types into the window you name below (or the front one)."
-        case .focused: return "Macrophone brings \(spec.name) to the front and pastes where the cursor is — an editor or a chat box."
-        }
-    }
-
-    private var windowLine: String {
-        let w = windowText.trimmingCharacters(in: .whitespaces)
-        if w.isEmpty { return "Empty: whichever window is in front." }
-        return "If nothing matches “\(w)”, nothing is pasted — you'll see why, and it's on your clipboard."
-    }
-
     // MARK: Then
 
     @ViewBuilder private var thenSection: some View {
-        let target = whereTo == .app ? appTarget?.id : nil
-        let allowed = target.map { settings.allowsEnter(in: $0) } ?? true
         VStack(alignment: .leading, spacing: 10) {
-            Toggle(whereTo == .tmux ? "Press Return after typing" : "Send it — press the send key after pasting", isOn: $profile.pressEnter)
-            if profile.pressEnter {
-                if whereTo != .tmux {
-                    HStack(spacing: 10) {
-                        Text("Send key").font(.system(size: 12)).foregroundStyle(Ink.secondary)
-                        Picker("", selection: Binding(get: { options.sendKey ?? TargetCatalog.defaultSendKey(for: target) },
-                                                      set: { options.sendKey = $0 == TargetCatalog.defaultSendKey(for: target) ? nil : $0 })) {
-                            ForEach(SendKey.allCases) { k in Text(k.title).tag(k) }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .fixedSize()
-                        Text(target != nil ? "\(spec?.name ?? appTarget?.name ?? "This app") sends with \(TargetCatalog.defaultSendKey(for: target).title)." : "Most apps send with Return.")
-                            .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                    }
-                }
-                if let spec, spec.reachesPeople {
-                    Label("\(spec.name) reaches other people. Macrophone will send without you looking first.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11.5)).foregroundStyle(Light.ochre)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let target, !allowed, let name = appTarget?.name {
-                    HStack(spacing: 10) {
-                        Label("\(name) isn't on your Return list, so it would only paste.", systemImage: "exclamationmark.circle")
-                            .font(.system(size: 11.5)).foregroundStyle(Light.ochre)
-                        Button("Add \(name)") { settings.enterAllowlist.append(AllowedApp(bundleID: target, name: name)) }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                    }
-                }
-            }
-            Text(whereTo == .tmux
-                 ? "You get a 2.5-second countdown to cancel. Never for delayed dictations."
-                 : "You get a 2.5-second countdown to cancel. Only in apps on your Return list, never into a password field, never for delayed dictations.")
+            Toggle(whereTo == .tmux ? "Press Return after typing" : "Send it — press the app's send key after pasting", isOn: $profile.pressEnter)
+            Text("You get a 2.5-second countdown to cancel. Never into a password field, never for delayed dictations.")
                 .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            if whereTo == .app || whereTo == .focused {
-                Toggle("Go back to where I was after sending", isOn: $options.returnToPrevious)
-                Text("Brings back the app you were using once the text is in.")
-                    .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-            }
         }
     }
 
@@ -355,9 +241,8 @@ struct ProfileEditor: View {
 
     private func save() {
         switch whereTo {
-        case .delivery: profile.destination = .clipboard
+        case .copy: profile.destination = .clipboard
         case .focused: profile.destination = .focusedApp
-        case .app: break
         case .tmux: profile.destination = .tmux(target: tmuxTarget.trimmingCharacters(in: .whitespaces))
         case .nowhere: profile.destination = .none
         }
@@ -368,15 +253,13 @@ struct ProfileEditor: View {
         profile.script = s.isEmpty ? nil : s
         let w = webhookText.trimmingCharacters(in: .whitespaces)
         profile.webhookURL = w.isEmpty ? nil : URL(string: w)
-        let win = windowText.trimmingCharacters(in: .whitespacesAndNewlines)
-        profile.windowMatch = whereTo == .app && !win.isEmpty ? win : nil
+        profile.windowMatch = nil
         var ps = prefixes
         let d = prefixDraft.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
         if !d.isEmpty, !ps.contains(where: { $0.lowercased() == d.lowercased() }) { ps.append(d) }
         profile.voicePrefixes = ps.isEmpty ? nil : ps
         profile.actions = actions.isEmpty ? nil : actions
-        if whereTo != .app && whereTo != .focused { options.returnToPrevious = false }
-        store.upsert(profile, options: options)
+        store.upsert(profile)
         dismiss()
     }
 

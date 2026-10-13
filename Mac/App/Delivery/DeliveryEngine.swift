@@ -2,16 +2,16 @@ import AppKit
 import Foundation
 import MacrophoneKit
 
-/// What happens to a dictation when it arrives. The order (MacrophoneKit/Core/Automation.swift):
-///   1. the profile — voice prefix > the phone's pick > the rule for the app in front > default
-///   2. snippets expand inside the text
-///   3. the output format shapes it
-///   4. the template wraps it, with context variables filled in
-///   5. the destination (clipboard / the app in front / an app / a tmux pane / nowhere) and
-///      the profile's actions (Obsidian, Notes, Reminders, Claude, script, webhook)
-/// The safety rules decide what may fire on its own: a countdown before any paste, the send
-/// key only in allowlisted apps, never into a password field, never automatically for a
-/// delayed item.
+/// What happens to a dictation when it arrives (docs/TARGETS.md):
+///   1. where it goes — the dictation's own Send to target (the phone's choice, or an app named
+///      first: "Messages, …"); from an older phone, an automation it picked, else this Mac's
+///      Send to choice;
+///   2. snippets expand inside the text (always);
+///   3. Clipboard → copied; Where I'm typing / an app → pasted after a 2.5-second countdown, and
+///      sent if the phone said "Paste & send"; an automation → its format, template, destination
+///      and actions (docs/AUTOMATIONS.md).
+/// Safety: a countdown before any paste, never into a password field, never automatically for
+/// a delayed item (those are only copied).
 @MainActor
 final class DeliveryEngine {
     private unowned let app: AppModel
@@ -24,183 +24,171 @@ final class DeliveryEngine {
     private var popup: PopupController { app.popup }
     private var log: DiagnosticLog { app.log }
 
-    enum Plan {
-        case copy(loud: Bool)
-        case paste(Paster.Request)
-        case tmux(target: String, enter: Bool)
-        /// Only the profile's actions run.
-        case nothing
+    /// Where one dictation goes.
+    enum Route {
+        case clipboard
+        case paste(Paster.Target, send: Bool, name: String)
+        case automation(Profile)
+        /// The phone picked an automation this Mac no longer has.
+        case missingAutomation(name: String)
+
+        var name: String {
+            switch self {
+            case .clipboard: return "Clipboard"
+            case .paste(_, _, let name): return name
+            case .automation(let p): return p.name
+            case .missingAutomation(let name): return name
+            }
+        }
+    }
+
+    func route(for d: Dictation) -> Route {
+        if let t = d.target { return route(t, send: d.send ?? false) }
+        // An older phone (no Send to target): an automation it picked by profile, else this
+        // Mac's own Send to choice.
+        if let a = app.automations.automation(d.profileID) ?? app.automations.automation(named: d.profileName) {
+            return .automation(a)
+        }
+        let s = settings.selection
+        return route(s.target, send: s.send)
+    }
+
+    func route(_ t: TargetRef, send: Bool) -> Route {
+        switch AppModel.named(t) {
+        case .clipboard: return .clipboard
+        case .frontApp: return .paste(.front, send: send, name: TargetRef.frontApp.displayName)
+        case let .app(bundleID, windowKey, name): return .paste(.app(bundleID: bundleID, windowKey: windowKey, name: name), send: send, name: name)
+        case let .automation(id, name): return app.automations.automation(id).map(Route.automation) ?? .missingAutomation(name: name)
+        }
     }
 
     /// Returns the ack for the phone right away; the rest finishes on its own.
     func handle(_ incoming: Dictation, delayed: Bool, from peer: PairedPeer) -> (DeliveryOutcome, String?) {
-        // "The app in front" is the one in front when the dictation arrives.
-        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let profile = app.profiles.resolve(incoming, frontmostBundleID: front, rules: settings.appRules)
         var d = incoming
-        d.profileID = profile.id
-        d.profileName = profile.name
         // A name given on this Mac wins everywhere: the popup, History, the API's source_device.
         if let named = app.customName(peer) { d.sourceDevice = named }
         let source = d.sourceDevice.isEmpty ? app.displayName(peer) : d.sourceDevice
-        let options = app.profiles.options(for: profile.id)
-        let plan = makePlan(profile, options: options, delayed: delayed)
+        let route = route(for: d)
+        if case .automation(let a) = route { return handleAutomation(d, a, delayed: delayed, source: source) }
 
-        // What the template and snippets need, read before anything moves.
-        let needed = ContextGatherer.needed(template: profile.template, snippets: settings.snippets, text: d.text)
+        // Snippet variables ({{clipboard}}, {{selection}}…) are read before anything moves.
+        let needed = ContextGatherer.needed(template: nil, snippets: settings.snippets, text: d.text)
         let arrival = ContextGatherer.arrival(needed: needed)
-
-        let item = HistoryItem(dictation: d, receivedAt: Date(), delayed: delayed, profileName: profile.name,
-                               outcome: .pending, detail: "")
+        d.profileName = route.name
+        let item = HistoryItem(dictation: d, receivedAt: Date(), delayed: delayed, profileName: route.name, outcome: .pending, detail: "")
         app.record(item)
-        var how = d.profileSource == .automatic ? "automatic" : (d.profileSource == .prefix ? "prefix" : (profile.isDefault ? "default" : "chosen"))
-        if d.profileSource == .automatic, settings.appRules.contains(where: { $0.bundleID == front }) { how += " rule" }
-        log.add("dictation received (\(d.text.count) chars, \(delayed ? "delayed, " : "")profile \(how))")
+        let kind: String
+        switch route {
+        case .clipboard: kind = "clipboard"
+        case .paste(let t, let send, _): kind = (t == .front ? "where typing" : "an app") + (send ? ", send" : "")
+        case .missingAutomation: kind = "a missing automation"
+        case .automation: kind = "automation"
+        }
+        log.add("dictation received (\(d.text.count) chars, \(delayed ? "delayed, " : "")\(d.target == nil ? "no target from phone, " : "")to \(kind)\(d.targetSpoken == true ? ", named by voice" : ""))")
 
-        Task { await self.run(d, profile: profile, options: options, plan: plan, item: item, needed: needed,
-                              arrival: arrival, delayed: delayed, source: source) }
-        return (.delivered, ack(plan, delayed: delayed))
+        // Gone before we start: say so now rather than after a countdown.
+        var early: PasteFailure?
+        if !delayed, case .paste(let t, _, _) = route { early = Paster.precheck(t) }
+        Task { await self.runTarget(d, route: route, item: item, needed: needed, arrival: arrival, delayed: delayed, source: source, early: early) }
+        return (.delivered, ack(route, delayed: delayed, early: early))
     }
 
-    private func makePlan(_ profile: Profile, options: ProfileOptions, delayed: Bool) -> Plan {
-        // From the phone's offline queue: clipboard only, never pasted or sent on its own.
-        if delayed { return .copy(loud: true) }
-        let mode = settings.deliveryMode
-        func request(_ target: Paster.Target) -> Paster.Request {
-            Paster.Request(text: "", target: target, windowMatch: profile.windowMatch, send: profile.pressEnter,
-                           sendKey: options.sendKey ?? TargetCatalog.defaultSendKey(for: profile.targetBundleID),
-                           returnToPrevious: options.returnToPrevious)
-        }
-        switch profile.destination {
-        case .clipboard:
-            return mode == .autoPaste ? .paste(request(.focused)) : .copy(loud: mode == .clipboardNotify)
-        case .focusedApp:
-            return .paste(request(.focused))
-        case let .app(bundleID, name):
-            return .paste(request(.app(bundleID: bundleID, name: name)))
-        case .tmux(let target):
-            return .tmux(target: target, enter: profile.pressEnter)
-        case .none:
-            return .nothing
+    private func ack(_ route: Route, delayed: Bool, early: PasteFailure?) -> String {
+        if delayed { return "Copied (delayed)" }
+        if let early { return early.title }
+        switch route {
+        case .clipboard: return "Copied to clipboard"
+        case let .paste(t, send, name):
+            if t == .front { return send ? "Sending where you're typing" : "Pasting where you're typing" }
+            return send ? "Sending to \(name)" : "Pasting into \(name)"
+        case .automation(let a): return a.name
+        case .missingAutomation(let name): return "“\(name)” isn't on this Mac — copied instead"
         }
     }
 
-    private func ack(_ plan: Plan, delayed: Bool) -> String {
-        switch plan {
-        case .copy: return delayed ? "Copied (delayed)" : "Copied to clipboard"
-        case .paste(let r):
-            if case let .app(_, name) = r.target { return r.send ? "Sending to \(name)" : "Pasting into \(name)" }
-            return "Pasting into the app in front"
-        case .tmux(let target, _): return "Typing into tmux \(target)"
-        case .nothing: return "Received"
-        }
-    }
+    // MARK: Clipboard, Where I'm typing, an app
 
-    // MARK: The pipeline
-
-    private func run(_ d: Dictation, profile: Profile, options: ProfileOptions, plan: Plan, item: HistoryItem,
-                     needed: Set<String>, arrival: ContextGatherer.Arrival, delayed: Bool, source: String) async {
-        let ctx = await ContextGatherer.context(needed: needed, arrival: arrival, dictation: d, profile: profile)
-        // 2–4: snippets, format, template.
-        var text = SnippetExpander.expand(d.text, snippets: settings.snippets, context: ctx.values)
-        text = (profile.outputFormat ?? .plain).apply(text)
-        text = TemplateRenderer.render(template: profile.template, text: text, context: ctx.values)
-
+    private func runTarget(_ d: Dictation, route: Route, item: HistoryItem, needed: Set<String>, arrival: ContextGatherer.Arrival,
+                           delayed: Bool, source: String, early: PasteFailure?) async {
+        let ctx = await ContextGatherer.context(needed: needed, arrival: arrival, dictation: d, name: route.name, tmuxTarget: nil)
+        let text = SnippetExpander.expand(d.text, snippets: settings.snippets, context: ctx.values)
         var item = item
-        let kicker = d.profileSource == .prefix ? "\(profile.name) · " : ""
         var card: PopupCard?
 
-        switch plan {
-        case .copy(let loud):
+        if delayed {
+            // From the phone's offline queue: clipboard only, never pasted or sent on its own.
             Paster.copy(text)
             item.outcome = .copied
-            item.detail = delayed ? "Copied — delayed items are never pasted automatically" : "Copied to clipboard"
+            item.detail = "Copied — delayed items are never pasted automatically"
             app.update(item)
-            if loud || profile.hasActions || !kicker.isEmpty {
-                let c = PopupCard(text: text, source: source, delayed: delayed, phase: .copied,
-                                  status: kicker + (delayed ? "Copied · delayed" : "Copied"))
-                if !profile.isDefault && kicker.isEmpty { c.status += " · \(profile.name)" }
+            let c = PopupCard(text: text, source: source, delayed: true, phase: .copied, status: "Copied · delayed")
+            card = c
+            popup.show(c)
+            notifyIfAway(title: "Delayed dictation copied", body: text, id: d.id)
+        } else {
+            switch route {
+            case .clipboard:
+                Paster.copy(text)
+                item.outcome = .copied
+                item.detail = "Copied to clipboard"
+                app.update(item)
+                if settings.clipboardNotification {
+                    let c = PopupCard(text: text, source: source, delayed: false, phase: .copied, status: "Copied")
+                    card = c
+                    popup.show(c)
+                    notifyIfAway(title: "Copied", body: text, id: d.id)
+                } else {
+                    app.flashStatusItem()
+                }
+            case .missingAutomation(let name):
+                Paster.copy(text)
+                app.updateOutcome(d.id, .copied, "Copied — the automation “\(name)” isn't on this Mac")
+                let c = PopupCard(text: text, source: source, delayed: false, phase: .failed, status: "Copied instead")
+                c.headline = "“\(name)” isn't on this Mac — copied instead"
+                c.note = "It may have been deleted. Pick another place under Send to."
                 card = c
                 popup.show(c)
-            } else {
-                app.flashStatusItem()
-            }
-            if settings.deliveryMode == .clipboardNotify || delayed {
-                notifyIfAway(title: delayed ? "Delayed dictation copied" : "Copied", body: text, id: d.id)
-            }
-
-        case .paste(var req):
-            req.text = text
-            let c = PopupCard(text: text, source: source, delayed: false, phase: .countdown, status: "")
-            card = c
-            if !Paster.isTrusted {
-                // Fallback: clipboard + notification, and say what's missing.
-                Paster.copy(text)
-                app.updateOutcome(d.id, .copied, "Copied — Accessibility is off, so it wasn't pasted")
-                fail(c, .accessibilityMissing, retry: { [weak self] in self?.startCountdown(c, req, kicker: kicker, itemID: d.id) })
+            case let .paste(target, send, name):
+                let req = Paster.Request(text: text, target: target, send: send)
+                let c = PopupCard(text: text, source: source, delayed: false, phase: .countdown, status: "")
+                card = c
                 popup.show(c)
-                notifyIfAway(title: "Copied — not pasted", body: text, id: d.id)
-                log.add("paste skipped: Accessibility not granted")
-            } else {
-                popup.show(c)
-                startCountdown(c, req, kicker: kicker, itemID: d.id)
+                if let early {
+                    failed(c, early, req: req, name: name, itemID: d.id)
+                } else if !Paster.isTrusted {
+                    failed(c, .accessibilityMissing, req: req, name: name, itemID: d.id)
+                    log.add("paste skipped: Accessibility not granted")
+                } else {
+                    startCountdown(c, req, name: name, itemID: d.id)
+                }
+            case .automation:
+                break
             }
-
-        case let .tmux(target, enter):
-            let c = PopupCard(text: text, source: source, delayed: false, phase: .countdown, status: "")
-            card = c
-            popup.show(c)
-            startTmuxCountdown(c, text: text, target: target, enter: enter, kicker: kicker, itemID: d.id)
-
-        case .nothing:
-            item.outcome = .copied
-            item.detail = "Not pasted — the profile's actions ran"
-            app.update(item)
-            let c = PopupCard(text: text, source: source, delayed: delayed, phase: .copied, status: kicker + "Received")
-            card = c
-            popup.show(c)
         }
-
         if !ctx.notes.isEmpty, let card {
             card.note = ([card.note].compactMap { $0 } + ctx.notes).joined(separator: "\n")
             popup.refresh(card)
         }
-        runActions(profile, dictation: d, text: text, delayed: delayed, card: card, source: source)
     }
 
-    // MARK: Paste
-
-    private func name(of target: Paster.Target) -> String {
-        switch target {
-        case .app(_, let name): return name
-        case .focused: return NSWorkspace.shared.frontmostApplication?.localizedName ?? "the app in front"
-        }
+    /// "Sending to Claude", "Pasting where you're typing".
+    private func doing(_ req: Paster.Request, name: String) -> String {
+        if req.target == .front { return req.send ? "Sending where you're typing" : "Pasting where you're typing" }
+        return req.send ? "Sending to \(name)" : "Pasting into \(name)"
     }
 
-    private func bundle(of target: Paster.Target) -> String? {
-        switch target {
-        case .app(let id, _): return id
-        case .focused: return NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        }
-    }
-
-    func startCountdown(_ c: PopupCard, _ req: Paster.Request, kicker: String, itemID: UUID) {
-        let appName = name(of: req.target)
-        let where_ = req.windowMatch.map { " · “\($0)”" } ?? ""
-        let sends = req.send && settings.allowsEnter(in: bundle(of: req.target))
+    func startCountdown(_ c: PopupCard, _ req: Paster.Request, name: String, itemID: UUID, kicker: String = "") {
         c.phase = .countdown
         c.remaining = 1
         c.headline = nil
         c.caution = false
         c.showsSettingsButton = false
         c.canRetry = false
-        c.status = kicker + (sends ? "Sending to \(appName)" : "Pasting into \(appName)") + where_
-        if req.send && !sends {
-            c.note = "Return won't be pressed — \(appName) isn't on your Return list."
-        } else if sends {
-            let spec = TargetCatalog.spec(for: bundle(of: req.target))
-            let key = req.sendKey == .commandReturn ? "⌘ Return" : "Return"
-            c.note = spec?.composer == .chatInput ? "Pastes into the message box, then sends it." : "Pastes, then presses \(key)."
+        c.status = kicker + doing(req, name: name)
+        if req.send {
+            var bid: String?
+            if case .app(let b, _, _) = req.target { bid = b } else { bid = NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+            c.note = "Pastes, then presses \(AppQuirks.sendKey(for: bid).title)."
         } else {
             c.note = nil
         }
@@ -208,7 +196,7 @@ final class DeliveryEngine {
         c.onFire = { [weak self, weak c] in
             guard let self, let c, !fired, c.phase == .countdown else { return }
             fired = true
-            self.fire(c, req, kicker: kicker, itemID: itemID)
+            self.fire(c, req, name: name, itemID: itemID, kicker: kicker)
         }
         c.onCancel = { [weak self, weak c] in
             guard let self, let c, !fired, c.phase == .countdown else { return }
@@ -227,42 +215,43 @@ final class DeliveryEngine {
         log.add("paste cancelled")
     }
 
-    private func fire(_ c: PopupCard, _ req: Paster.Request, kicker: String, itemID: UUID) {
+    private func fire(_ c: PopupCard, _ req: Paster.Request, name: String, itemID: UUID, kicker: String) {
         c.phase = .working
-        c.status = kicker + (req.windowMatch != nil ? "Finding “\(req.windowMatch!)”" : "Pasting")
+        c.status = kicker + (req.target == .front ? "Pasting" : "Opening \(Paster.appName(fromTitle: name))")
         popup.refresh(c)
         let previous = pasteChain
+        let scanner = app.scanner
         pasteChain = Task { [weak self] in
             await previous?.value
             guard let self else { return }
             do {
-                let r = try await Paster.deliver(req, allowsEnter: { self.settings.allowsEnter(in: $0) })
+                let r = try await Paster.deliver(req, scanner: scanner)
                 c.phase = .done
                 let outcome: String
-                if r.pressedEnter && r.sendDidNotClear {
+                if r.pressedSend && r.stillInBox {
                     c.status = kicker + "Pasted into \(r.appName)"
                     c.caution = true
-                    c.note = "Pressed \(req.sendKey.title), but it's still in the message box — \(r.appName) may still be answering. Press \(req.sendKey.title) when it's ready."
-                    outcome = "Pasted into \(r.appName) — still in the message box after \(req.sendKey.title)"
-                } else if r.pressedEnter {
+                    c.note = "Pressed \(r.sendKey.title), but it's still in the message box — \(r.appName) may still be answering. Press \(r.sendKey.title) when it's ready."
+                    outcome = "Pasted into \(r.appName) — still in the message box after \(r.sendKey.title)"
+                } else if r.pressedSend && (r.confirmedSent || AppQuirks.isTerminal(r.bundleID) || r.landed == nil) {
                     c.status = kicker + "Sent to \(r.appName)"
                     c.note = nil
                     outcome = "Sent to \(r.appName)"
+                } else if r.pressedSend {
+                    c.status = kicker + "Pasted into \(r.appName) · pressed \(r.sendKey.title)"
+                    c.note = nil
+                    outcome = "Pasted into \(r.appName), then pressed \(r.sendKey.title)"
                 } else {
                     c.status = kicker + "Pasted into \(r.appName)"
-                    c.caution = req.send
-                    c.note = r.enterNote
-                    outcome = "Pasted into \(r.appName)" + (r.enterNote.map { " — \($0.prefix(1).lowercased() + $0.dropFirst())" } ?? "")
+                    c.note = nil
+                    outcome = "Pasted into \(r.appName)"
                 }
                 self.popup.refresh(c)
                 self.app.updateOutcome(itemID, .pasted, outcome)
-                self.log.add("delivered: \(r.pressedEnter ? (r.confirmed ? "sent, confirmed" : (r.sendDidNotClear ? "send key pressed, box not cleared" : "sent")) : "pasted")\(r.enterNote != nil ? " (not sent)" : "")")
+                let how = r.pressedSend ? (r.confirmedSent ? "sent, confirmed" : (r.stillInBox ? "send key pressed, box not cleared" : "sent")) : "pasted"
+                self.log.add("delivered: \(how)\(r.landed == true ? ", landed" : (r.landed == nil ? ", not readable" : ""))")
             } catch let f as PasteFailure {
-                Paster.copy(req.text)
-                self.fail(c, f, retry: { [weak self] in self?.startCountdown(c, req, kicker: kicker, itemID: itemID) })
-                self.popup.refresh(c)
-                self.app.updateOutcome(itemID, .failed, f.title)
-                self.notifyIfAway(title: f.title, body: req.text, id: itemID)
+                self.failed(c, f, req: req, name: name, itemID: itemID, kicker: kicker)
                 self.log.add("paste failed: \(String(describing: f).prefix(40))")
             } catch {
                 c.phase = .cancelled
@@ -271,11 +260,15 @@ final class DeliveryEngine {
         }
     }
 
-    private func fail(_ c: PopupCard, _ f: PasteFailure, retry: @escaping () -> Void) {
+    private func failed(_ c: PopupCard, _ f: PasteFailure, req: Paster.Request, name: String, itemID: UUID, kicker: String = "") {
+        Paster.copy(req.text)
         c.phase = .failed
         c.caution = false
-        c.status = f == .accessibilityMissing ? "Copied, not pasted" : "Not pasted"
-        if case .notLanded = f { c.status = "Not sent" }
+        switch f {
+        case .accessibilityMissing: c.status = kicker + "Copied, not pasted"
+        case .notLanded: c.status = kicker + "Not sent"
+        default: c.status = kicker + (f.copiedInstead ? "Copied instead" : "Not pasted")
+        }
         c.headline = f.title
         c.note = f.detail
         c.showsSettingsButton = f.opensAccessibilitySettings
@@ -287,9 +280,106 @@ final class DeliveryEngine {
                 Paster.requestTrust()
                 return
             }
-            retry()
-            self.popup.refresh(c)
+            self.startCountdown(c, req, name: name, itemID: itemID, kicker: kicker)
         }
+        popup.refresh(c)
+        app.updateOutcome(itemID, f.copiedInstead ? .copied : .failed, f.title)
+        notifyIfAway(title: f.title, body: req.text, id: itemID)
+    }
+
+    // MARK: Automations
+
+    enum Plan {
+        case copy
+        case paste(Paster.Request)
+        case tmux(target: String, enter: Bool)
+        /// Only the automation's actions run.
+        case nothing
+    }
+
+    private func handleAutomation(_ incoming: Dictation, _ a: Profile, delayed: Bool, source: String) -> (DeliveryOutcome, String?) {
+        var d = incoming
+        d.profileID = a.id
+        d.profileName = a.name
+        let plan: Plan
+        if delayed {
+            plan = .copy
+        } else {
+            switch a.destination {
+            case .clipboard: plan = .copy
+            case .focusedApp: plan = .paste(Paster.Request(text: "", target: .front, send: a.pressEnter))
+            case let .app(bundleID, name): plan = .paste(Paster.Request(text: "", target: .app(bundleID: bundleID, windowKey: nil, name: name), send: a.pressEnter))
+            case .tmux(let target): plan = .tmux(target: target, enter: a.pressEnter)
+            case .none: plan = .nothing
+            }
+        }
+        // What the template and snippets need, read before anything moves.
+        let needed = ContextGatherer.needed(template: a.template, snippets: settings.snippets, text: d.text)
+        let arrival = ContextGatherer.arrival(needed: needed)
+        let item = HistoryItem(dictation: d, receivedAt: Date(), delayed: delayed, profileName: a.name, outcome: .pending, detail: "")
+        app.record(item)
+        log.add("dictation received (\(d.text.count) chars, \(delayed ? "delayed, " : "")automation)")
+        Task { await self.runAutomation(d, a, plan: plan, item: item, needed: needed, arrival: arrival, delayed: delayed, source: source) }
+        let ackLine: String
+        switch plan {
+        case .copy: ackLine = delayed ? "Copied (delayed)" : "\(a.name) · copied"
+        case .paste: ackLine = "\(a.name) · pasting where you're typing"
+        case .tmux(let t, _): ackLine = "\(a.name) · typing into tmux \(t)"
+        case .nothing: ackLine = a.name
+        }
+        return (.delivered, ackLine)
+    }
+
+    private func runAutomation(_ d: Dictation, _ a: Profile, plan: Plan, item: HistoryItem, needed: Set<String>,
+                               arrival: ContextGatherer.Arrival, delayed: Bool, source: String) async {
+        let tmuxTarget: String? = { if case .tmux(let t) = a.destination { return t }; return nil }()
+        let ctx = await ContextGatherer.context(needed: needed, arrival: arrival, dictation: d, name: a.name, tmuxTarget: tmuxTarget)
+        // Snippets, format, template.
+        var text = SnippetExpander.expand(d.text, snippets: settings.snippets, context: ctx.values)
+        text = (a.outputFormat ?? .plain).apply(text)
+        text = TemplateRenderer.render(template: a.template, text: text, context: ctx.values)
+
+        var item = item
+        let kicker = "\(a.name) · "
+        var card: PopupCard?
+        switch plan {
+        case .copy:
+            Paster.copy(text)
+            item.outcome = .copied
+            item.detail = delayed ? "Copied — delayed items are never pasted automatically" : "Copied to clipboard"
+            app.update(item)
+            let c = PopupCard(text: text, source: source, delayed: delayed, phase: .copied, status: kicker + (delayed ? "Copied · delayed" : "Copied"))
+            card = c
+            popup.show(c)
+            if delayed { notifyIfAway(title: "Delayed dictation copied", body: text, id: d.id) }
+        case .paste(var req):
+            req.text = text
+            let c = PopupCard(text: text, source: source, delayed: false, phase: .countdown, status: "")
+            card = c
+            popup.show(c)
+            if !Paster.isTrusted {
+                failed(c, .accessibilityMissing, req: req, name: "Where I'm typing", itemID: d.id, kicker: kicker)
+            } else {
+                startCountdown(c, req, name: "Where I'm typing", itemID: d.id, kicker: kicker)
+            }
+        case let .tmux(target, enter):
+            let c = PopupCard(text: text, source: source, delayed: false, phase: .countdown, status: "")
+            card = c
+            popup.show(c)
+            startTmuxCountdown(c, text: text, target: target, enter: enter, kicker: kicker, itemID: d.id)
+        case .nothing:
+            item.outcome = .copied
+            item.detail = "Not pasted — the automation's actions ran"
+            app.update(item)
+            let c = PopupCard(text: text, source: source, delayed: delayed, phase: .copied, status: kicker + "Received")
+            card = c
+            popup.show(c)
+        }
+        if !ctx.notes.isEmpty, let card {
+            card.note = ([card.note].compactMap { $0 } + ctx.notes).joined(separator: "\n")
+            popup.refresh(card)
+        }
+        runActions(a, dictation: d, text: text, delayed: delayed, card: card, source: source)
     }
 
     // MARK: tmux
@@ -323,7 +413,7 @@ final class DeliveryEngine {
                     c.phase = .failed
                     c.status = "Not sent"
                     c.headline = msg
-                    c.note = "It's on your clipboard. Pick a pane that's open in the profile, or try again."
+                    c.note = "It's on your clipboard. Pick a pane that's open in the automation, or try again."
                     c.canRetry = true
                     c.onRetry = { [weak self, weak c] in
                         guard let self, let c else { return }
@@ -400,9 +490,9 @@ final class DeliveryEngine {
                 let c = PopupCard(text: text, source: source, delayed: false, phase: .failed, status: name)
                 c.headline = message
                 switch name {
-                case "Webhook": c.note = "The text didn't reach the URL in this profile."
-                case "Script": c.note = "Check the command in the profile."
-                default: c.note = settingsURL != nil ? "Allow it in System Settings, then try again." : "Check the action in the profile."
+                case "Webhook": c.note = "The text didn't reach the URL in this automation."
+                case "Script": c.note = "Check the command in the automation."
+                default: c.note = settingsURL != nil ? "Allow it in System Settings, then try again." : "Check the action in the automation."
                 }
                 c.settingsURL = settingsURL
                 c.showsSettingsButton = settingsURL != nil
@@ -493,15 +583,10 @@ final class DeliveryEngine {
 
     // MARK: Notification Center
 
+    /// When the person is away from the Mac (locked, asleep, idle), what arrived waits in
+    /// Notification Center.
     private func notifyIfAway(title: String, body: String, id: UUID) {
-        guard settings.deliveryMode == .clipboardNotify || settings.deliveryMode == .autoPaste else { return }
         Notifier.shared.askAfterDelivery(popup)
         if Notifier.personIsAway { Notifier.shared.post(title: title, body: body, id: id.uuidString) }
-    }
-}
-
-extension Profile {
-    var hasActions: Bool {
-        !(actions ?? []).isEmpty || webhookURL != nil || !(script ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

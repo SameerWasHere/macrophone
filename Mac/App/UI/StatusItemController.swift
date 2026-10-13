@@ -35,6 +35,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.menu = menu
         model.$connected.combineLatest(model.$peers).receive(on: RunLoop.main)
             .sink { [weak self] _, _ in self?.refreshIcon() }.store(in: &bag)
+        // A scan finishing while Send to is open shows up in it straight away.
+        model.$targets.receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, let m = self.sendToMenu, self.menuOpen else { return }
+                self.fillSendTo(m)
+            }.store(in: &bag)
         watchVisibility()
     }
 
@@ -130,7 +136,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
     #endif
 
+    func menuWillOpen(_ menu: NSMenu) {
+        // The list of open apps is only kept up to date while someone could look at it.
+        if menu === item.menu { menuOpen = true; model.setMenuOpen(true) }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === item.menu { menuOpen = false; model.setMenuOpen(false) }
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === sendToMenu {
+            fillSendTo(menu)
+            return
+        }
         menu.removeAllItems()
 
         // Status: who's connected, when the last dictation came in.
@@ -158,6 +177,27 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(action("Pair Your iPhone…", #selector(pair), symbol: "iphone"))
         }
 
+        // Send to: the choice the iPhone and this Mac share.
+        let sendTo = NSMenuItem(title: SendToWords.title, action: nil, keyEquivalent: "")
+        sendTo.image = NSImage(systemSymbolName: "paperplane", accessibilityDescription: nil)
+        if #available(macOS 14.4, *) {
+            let sel = model.selection
+            sendTo.subtitle = SendToWords.name(sel.target, in: model) + (sel.send && sel.target.canSend ? " · \(SendToWords.pasteAndSend)" : "")
+        }
+        let sub = NSMenu(title: SendToWords.title)
+        sub.delegate = self
+        sub.autoenablesItems = false
+        sendToMenu = sub
+        fillSendTo(sub)
+        sendTo.submenu = sub
+        menu.addItem(sendTo)
+        let send = action(SendToWords.sendAfterPasting, #selector(toggleSend))
+        send.state = model.selection.send && model.selection.target.canSend ? .on : .off
+        send.isEnabled = model.selection.target.canSend
+        send.toolTip = model.selection.target.canSend ? "Presses the app's send key after pasting, after a 2.5-second countdown."
+            : "Pick an app or Where I'm typing to send after pasting."
+        menu.addItem(send)
+
         // The three most recent dictations; click copies.
         let recent = Array(model.history.prefix(3))
         if !recent.isEmpty {
@@ -177,18 +217,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        let modeItem = NSMenuItem(title: "Delivery", action: nil, keyEquivalent: "")
-        let sub = NSMenu()
-        for m in DeliveryMode.allCases {
-            let mi = NSMenuItem(title: m.title, action: #selector(pickMode(_:)), keyEquivalent: "")
-            mi.target = self
-            mi.representedObject = m.rawValue
-            mi.state = model.settings.deliveryMode == m ? .on : .off
-            sub.addItem(mi)
-        }
-        modeItem.submenu = sub
-        menu.addItem(modeItem)
-
         if !model.peers.isEmpty { menu.addItem(action("Pair Another iPhone…", #selector(pair))) }
         menu.addItem(action("Check for Updates…", #selector(checkUpdates)))
 
@@ -248,13 +276,56 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return mi
     }
 
-    @objc private func pickMode(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let m = DeliveryMode(rawValue: raw) else { return }
-        if m == .autoPaste && !Paster.isTrusted {
-            // Ask for Accessibility only when the person turns pasting on.
-            Paster.requestTrust()
+    // MARK: Send to
+
+    private weak var sendToMenu: NSMenu?
+    private var menuOpen = false
+
+    private func fillSendTo(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let current = model.selection.target
+        func add(_ ref: TargetRef, bundleID: String? = nil) {
+            let mi = NSMenuItem(title: SendToWords.name(ref, in: model), action: #selector(pickTarget(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.representedObject = SelectionBox(ref)
+            mi.state = ref == current ? .on : .off
+            if let bundleID, let icon = TargetIcons.image(bundleID: bundleID) {
+                mi.image = icon
+            } else {
+                mi.image = NSImage(systemSymbolName: TargetIcons.symbol(for: ref), accessibilityDescription: nil)
+            }
+            menu.addItem(mi)
         }
-        model.settings.deliveryMode = m
+        add(.clipboard)
+        add(.frontApp)
+        let apps = model.targets
+        var unlisted: TargetRef?
+        if case .app = current, model.liveTarget(for: current) == nil { unlisted = current }
+        if !apps.isEmpty || unlisted != nil {
+            menu.addItem(.separator())
+            for t in apps { add(t.ref, bundleID: t.bundleID) }
+            if let unlisted { add(unlisted, bundleID: unlisted.bundleID) }
+        } else {
+            menu.addItem(.separator())
+            let none = NSMenuItem(title: "No other apps with somewhere to type", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+        }
+        let autos = model.automations.automations
+        if !autos.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(sectionHeader(SendToWords.automations))
+            for a in autos { add(.automation(id: a.id, name: a.name)) }
+        }
+    }
+
+    @objc private func pickTarget(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? SelectionBox else { return }
+        model.choose(SendSelection(target: box.ref, send: model.selection.send))
+    }
+
+    @objc private func toggleSend() {
+        model.setSend(!model.selection.send)
     }
 
     @objc private func pair() { AppDelegate.shared?.openSetup(.pair) }
@@ -398,4 +469,10 @@ final class StatusHeaderView: NSView {
         setAccessibilityLabel([title, detail].compactMap { $0 }.joined(separator: ". "))
     }
     required init?(coder: NSCoder) { fatalError() }
+}
+
+/// A TargetRef in a menu item's representedObject.
+final class SelectionBox: NSObject {
+    let ref: TargetRef
+    init(_ ref: TargetRef) { self.ref = ref }
 }
