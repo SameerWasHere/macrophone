@@ -8,6 +8,9 @@ public final class DiagnosticLog: @unchecked Sendable {
     private var lines: [String] = []
     private let capacity: Int
     private let url: URL?
+    /// Writes happen here, coalesced, never on the caller's thread.
+    private let writeQueue = DispatchQueue(label: "macrophone.diagnostics", qos: .utility)
+    private var writeScheduled = false
     private let formatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -27,12 +30,22 @@ public final class DiagnosticLog: @unchecked Sendable {
         lock.lock()
         lines.append(line)
         if lines.count > capacity { lines.removeFirst(lines.count - capacity) }
-        let snapshot = lines
+        let schedule = url != nil && !writeScheduled
+        if schedule { writeScheduled = true }
         lock.unlock()
         #if DEBUG
         print("[macrophone] \(event)")
         #endif
-        if let url { try? snapshot.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8) }
+        guard schedule, let url else { return }
+        // One write per half second at most, off the caller's thread.
+        writeQueue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            let snapshot = self.lines
+            self.writeScheduled = false
+            self.lock.unlock()
+            try? snapshot.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     /// The exported text: a header the caller provides (app version, OS, device model,

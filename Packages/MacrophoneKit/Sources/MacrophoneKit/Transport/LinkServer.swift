@@ -305,7 +305,7 @@ public final class LinkServer: @unchecked Sendable {
             try? await conn.sendHandshake(.failure(reason: .versionMismatch)); conn.cancel(); return
         }
         guard phoneNonce.count == 32, let key = store.key(for: phoneID),
-              let peer = store.peers().first(where: { $0.id == phoneID }) else {
+              var peer = store.peers().first(where: { $0.id == phoneID }) else {
             log?.add("session from an unknown phone")
             try? await conn.sendHandshake(.failure(reason: .unknownPeer)); conn.cancel(); return
         }
@@ -339,8 +339,14 @@ public final class LinkServer: @unchecked Sendable {
             let message = try await session.receive()
             switch message {
             case let .hello(phoneName, appVersion, os):
-                var p = peer
-                p.name = phoneName
+                // The phone may have been renamed since pairing: remember its current name.
+                let name = phoneName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty, name != peer.name {
+                    peer.name = name
+                    peer.lastSeen = Date()
+                    store.save(peer, key: key)
+                }
+                let p = peer
                 let profiles = await profilesOnMain()
                 try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion, profiles: profiles))
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }

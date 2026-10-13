@@ -9,6 +9,13 @@ public struct DiscoveredMac: Identifiable, Hashable, Sendable {
     public var name: String
     public var endpoint: NWEndpoint
     public var isPeerToPeer: Bool
+
+    public init(macID: UUID?, name: String, endpoint: NWEndpoint, isPeerToPeer: Bool = false) {
+        self.macID = macID
+        self.name = name
+        self.endpoint = endpoint
+        self.isPeerToPeer = isPeerToPeer
+    }
 }
 
 @MainActor
@@ -18,6 +25,13 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, profiles: [ProfileSummary], macID: UUID)
     /// The Mac forgot this phone ("Forget this iPhone"). The key is already deleted.
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID)
+    /// iOS is blocking Bonjour because Local Network access is off for this app (true), or it
+    /// came back (false). Tell the person where to turn it on.
+    func linkClient(_ client: LinkClient, localNetworkDenied: Bool)
+}
+
+public extension LinkClientDelegate {
+    func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {}
 }
 
 /// The iPhone end of the link: browses for Macs, pairs, and keeps one encrypted session to
@@ -99,8 +113,12 @@ public final class LinkClient: @unchecked Sendable {
             b.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .failed(let e): self?.log?.add("browser failed: \(e)"); self?.restartBrowser()
-                case .waiting(let e): self?.log?.add("browser waiting: \(e)")
-                case .ready: self?.log?.add("browser ready")
+                case .waiting(let e):
+                    self?.log?.add("browser waiting: \(e)")
+                    self?.setLocalNetworkDenied(Self.isPolicyDenied(e))
+                case .ready:
+                    self?.log?.add("browser ready")
+                    self?.setLocalNetworkDenied(false)
                 default: break
                 }
             }
@@ -122,6 +140,29 @@ public final class LinkClient: @unchecked Sendable {
         retryTask?.cancel()
         pingTask?.cancel()
         failPending(LinkError.cancelled)
+    }
+
+    /// True while iOS refuses Bonjour for this app (Local Network permission off).
+    public var isLocalNetworkDenied: Bool { lock.sync { localNetworkDenied } }
+    private var localNetworkDenied = false
+
+    static func isPolicyDenied(_ e: NWError) -> Bool {
+        if case let .dns(code) = e { return code == -65570 }  // kDNSServiceErr_PolicyDenied
+        return false
+    }
+
+    private func setLocalNetworkDenied(_ denied: Bool) {
+        let changed = lock.sync { () -> Bool in
+            guard localNetworkDenied != denied else { return false }
+            localNetworkDenied = denied
+            return true
+        }
+        guard changed else { return }
+        log?.add(denied ? "local network access is off" : "local network access ok")
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.delegate?.linkClient(self, localNetworkDenied: denied)
+        }
     }
 
     private func restartBrowser() {

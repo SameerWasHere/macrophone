@@ -28,11 +28,14 @@ public enum LinkError: Error, Sendable, CustomStringConvertible {
     public var userMessage: String {
         switch self {
         case .rejected(let r): return r.message
-        case .handshake(.unknownPeer): return "This Mac no longer knows this iPhone. Pair again."
-        case .handshake(.versionMismatch): return "Update Macrophone on both devices."
-        case .macNotFound: return "Mac not found."
-        case .timedOut: return "The Mac didn't answer in time."
-        default: return "Couldn't reach your Mac."
+        case .handshake(.unknownPeer): return "Your Mac no longer knows this iPhone. Pair them again from Settings."
+        case .handshake(.versionMismatch): return "Update Macrophone on both your iPhone and your Mac, then try again."
+        case .handshake: return "Your Mac turned the connection down. Pair them again from Settings."
+        case .macNotFound: return "Mac not found. Open Macrophone on your Mac and keep both on the same Wi-Fi."
+        case .timedOut: return "Your Mac didn't answer in time. Check that Macrophone is open on it, then try again."
+        case .notPaired: return "This iPhone isn't paired with a Mac yet. Pair it from Settings."
+        case .cancelled: return "Cancelled."
+        default: return "Couldn't reach your Mac. Check that Macrophone is open on it and both are on the same Wi-Fi."
         }
     }
 }

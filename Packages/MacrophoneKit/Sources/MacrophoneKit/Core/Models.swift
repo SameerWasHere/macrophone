@@ -141,7 +141,7 @@ public struct Profile: Codable, Sendable, Identifiable, Hashable {
         case .focusedApp: s.targetKind = .focusedApp
         case let .app(bundleID, appName): s.targetKind = .app; s.targetBundleID = bundleID; s.targetApp = appName
         case .tmux: s.targetKind = .tmux
-        case .none: s.targetKind = .none
+        case .none: s.targetKind = ProfileSummary.TargetKind.none
         }
         return s
     }
