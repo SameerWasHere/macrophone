@@ -229,9 +229,11 @@ struct PairingPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             Button("Try Again") { model.resetPairing() }
                 .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
-            if model.pairingMayNeedLocalNetwork {
+            if model.pairingMayNeedLocalNetwork || model.localNetworkDenied {
                 VStack(spacing: 8) {
-                    Text("Still stuck? Make sure Local Network is on for Macrophone.")
+                    Text(model.localNetworkDenied
+                         ? "Local Network is off for Macrophone, so it can't reach your Mac. Turn it on in Settings."
+                         : "Still stuck? Make sure Local Network is on for Macrophone.")
                         .font(.footnote).foregroundStyle(Ink.tertiary).multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Open Settings") {

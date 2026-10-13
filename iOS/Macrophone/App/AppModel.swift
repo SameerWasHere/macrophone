@@ -71,6 +71,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var historyItems: [HistoryItem] = []
     @Published private(set) var linkState: LinkClient.State = .notPaired
     @Published private(set) var discoveredMacs: [DiscoveredMac] = []
+    /// iOS is blocking the local network for this app — nothing can be found until it's on.
+    @Published private(set) var localNetworkDenied = false
     @Published private(set) var profiles: [ProfileSummary] = []
     @Published private(set) var pairedMac: PairedPeer?
     @Published var pairing: PairingPhase = .idle
@@ -805,6 +807,11 @@ extension AppModel: LinkClientDelegate {
         // The Mac no longer has the picked target: fall back to Automatic rather than guess.
         if let id = settings.sendTo.profileID, !profiles.contains(where: { $0.id == id }) { settings.sendTo = .automatic }
         MacrophoneShortcuts.updateAppShortcutParameters()
+    }
+
+    func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {
+        guard client === self.client else { return }
+        self.localNetworkDenied = localNetworkDenied
     }
 
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) {

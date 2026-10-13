@@ -208,7 +208,10 @@ struct OnboardingView: View {
                  body: model.discoveredMacs.isEmpty
                     ? "Open Macrophone on your Mac. Keep both on the same Wi-Fi, or close together with Wi-Fi turned on."
                     : "Next, pair them so only your iPhone can send to it.") {
-                if model.discoveredMacs.isEmpty, lookingLong {
+                if model.discoveredMacs.isEmpty, model.localNetworkDenied {
+                    note("Local Network is off for Macrophone, so it can't see your Mac. Turn it on in Settings › Privacy & Security › Local Network.")
+                    openSettingsButton
+                } else if model.discoveredMacs.isEmpty, lookingLong {
                     note("Still nothing? Check that Local Network is on for Macrophone in Settings.")
                     openSettingsButton
                 }

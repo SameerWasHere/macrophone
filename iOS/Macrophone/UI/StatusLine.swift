@@ -53,7 +53,9 @@ struct StatusLine: View {
             switch model.linkState {
             case .connected(let name): return ("Ready · \(name)", Light.cyan)
             case .connecting(let name): return ("Connecting to \(name)", Ink.tertiary)
-            case .unreachable(let name): return ("\(name) not found — dictations will wait for it", Light.ochre)
+            case .unreachable(let name):
+                if model.localNetworkDenied { return ("Local Network is off for Macrophone — turn it on in Settings to reach \(name)", Light.ochre) }
+                return ("\(name) not found — dictations will wait for it", Light.ochre)
             default: return ("Looking for \(model.macName)", Ink.tertiary)
             }
         case .listening: return ("Listening", Light.ember)
@@ -73,7 +75,9 @@ struct StatusLine: View {
             if late { s += " · delayed" }
             return (s, Light.mint)
         case .duplicate: return ("Already on your Mac", Light.mint)
-        case .queued: return ("Mac not found — queued, it'll send when your Mac is back", Light.ochre)
+        case .queued:
+            if model.localNetworkDenied { return ("Queued — Local Network is off for Macrophone. Turn it on in Settings and it'll send", Light.ochre) }
+            return ("Mac not found — queued, it'll send when your Mac is back", Light.ochre)
         case .copiedOnPhone: return ("Copied on iPhone — paste it anywhere", Light.mint)
         case .failed(_, let detail):
             if let detail, !detail.isEmpty {
