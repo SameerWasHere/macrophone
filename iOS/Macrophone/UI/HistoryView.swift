@@ -48,7 +48,8 @@ struct HistoryView: View {
                 ForEach(model.historyItems) { item in
                     HistoryRow(item: item,
                                onCopy: { model.copy(item, cleaned: $0) },
-                               onResend: { model.resend(item) })
+                               onResend: { model.resend(item) },
+                               onDelete: { model.deleteHistoryItem(item.id) })
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -84,6 +85,7 @@ struct HistoryRow: View {
     var item: HistoryItem
     var onCopy: (Bool) -> Void
     var onResend: () -> Void
+    var onDelete: () -> Void = {}
     @State private var showCleaned = true
 
     var body: some View {
@@ -92,11 +94,11 @@ struct HistoryRow: View {
                 HStack(alignment: .center, spacing: 8) {
                     Kicker(item.dictation.createdAt.formatted(.relative(presentation: .named))).fixedSize()
                     Spacer(minLength: 8)
-                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned, cleanedTitle: item.cleanedTitle).fixedSize() }
+                    if item.showsVersionToggle { VersionToggle(cleaned: $showCleaned).fixedSize() }
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Kicker(item.dictation.createdAt.formatted(.relative(presentation: .named)))
-                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned, cleanedTitle: item.cleanedTitle) }
+                    if item.showsVersionToggle { VersionToggle(cleaned: $showCleaned).fixedSize() }
                 }
             }
             ExpandableText(text: item.text(cleaned: showCleaned), font: .serif(.body))
@@ -115,9 +117,11 @@ struct HistoryRow: View {
         .contextMenu {
             Button { onCopy(showCleaned) } label: { Label("Copy", systemImage: "doc.on.doc") }
             if item.hasCleaned {
-                Button { onCopy(!showCleaned) } label: { Label(showCleaned ? "Copy Raw" : "Copy Cleaned", systemImage: "doc.on.doc") }
+                Button { onCopy(!showCleaned) } label: { Label(showCleaned ? "Copy Raw" : "Copy Cleaned", systemImage: "text.quote") }
             }
             Button(action: onResend) { Label("Resend", systemImage: "arrow.clockwise") }
+            Divider()
+            Button(role: .destructive, action: onDelete) { Label("Delete", systemImage: "trash") }
         }
     }
 
@@ -134,10 +138,11 @@ struct HistoryRow: View {
                 Text(chip.0)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(chip.1)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
-                    .background(Capsule().fill(chip.1.opacity(0.12)))
-                    .overlay(Capsule().strokeBorder(chip.1.opacity(0.3), lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(chip.1.opacity(0.12)))
+                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(chip.1.opacity(0.3), lineWidth: 1))
             }
         }
     }
@@ -145,20 +150,21 @@ struct HistoryRow: View {
     private var chips: [(String, Color)] {
         var out: [(String, Color)] = []
         if let name = item.targetName {
-            out.append((item.spokenPrefix.map { "→ \(name) · you said “\($0), …”" } ?? "→ \(name)", Light.cyan))
+            out.append((item.spokenPrefix.map { "→ \(name) · you said “\($0)” first" } ?? "→ \(name)", Light.cyan))
         } else if item.dictation.profileSource == .automatic {
             out.append(("Automatic", Light.violet))
         }
         switch item.delivery {
         case .delivered:
-            out.append((item.wasDelayed ? "Delivered late" : "Delivered", Light.mint))
+            out.append(("Delivered", Light.mint))
         case .duplicate: out.append(("On your Mac", Light.mint))
         case .copiedOnPhone: out.append(("Copied on iPhone", Light.mint))
         case .queued: out.append(("Queued", Light.ochre))
         case .cleaning, .sending: out.append(("Sending", Light.cyan))
         case .failed: out.append(("Not delivered", Light.rose))
         }
-        if item.wasDelayed, item.delivery != .delivered, item.delivery != .queued { out.append(("Delayed", Light.ochre)) }
+        // The Mac's word for something that waited in the queue.
+        if item.wasDelayed, item.delivery != .queued { out.append(("Delayed", Light.ochre)) }
         if item.dictation.stoppedEarly { out.append(("Stopped early", Light.ochre)) }
         if item.partialCleanup == true {
             out.append(("Partly cleaned — the rest as spoken", Light.ochre))
@@ -169,15 +175,22 @@ struct HistoryRow: View {
     }
 }
 
-/// Wraps chips onto as many lines as they need.
+/// Wraps chips onto as many lines as they need. A chip wider than the row gets the row's
+/// width and wraps its own words (huge Dynamic Type) instead of running off the edge.
 struct FlowRow: Layout {
     var spacing: CGFloat = 6
+
+    private func size(of s: LayoutSubview, in width: CGFloat) -> CGSize {
+        let ideal = s.sizeThatFits(.unspecified)
+        guard width.isFinite, ideal.width > width else { return ideal }
+        return s.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxX: CGFloat = 0
         for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
+            let size = size(of: s, in: width)
             if x > 0, x + size.width > width { x = 0; y += rowH + spacing; rowH = 0 }
             x += size.width + spacing
             rowH = max(rowH, size.height)
@@ -189,7 +202,7 @@ struct FlowRow: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
         for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
+            let size = size(of: s, in: bounds.width)
             if x > bounds.minX, x + size.width > bounds.maxX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
             s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
             x += size.width + spacing

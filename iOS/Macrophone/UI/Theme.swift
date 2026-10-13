@@ -97,16 +97,19 @@ struct Kicker: View {
 }
 
 /// Glass panel: ultra-thin material over the ground, a hairline, a soft shadow.
+/// Increase Contrast: a firmer edge and a more solid plate.
 struct Glass: ViewModifier {
     var radius: CGFloat = Radius.medium
+    @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
-        content
+        let high = contrast == .increased
+        return content
             .background {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .fill(.ultraThinMaterial)
-                    .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Ink.raised.opacity(0.55)))
+                    .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Ink.raised.opacity(high ? 0.9 : 0.55)))
             }
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(high ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
             .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
     }
 }
@@ -151,6 +154,7 @@ struct PillButtonStyle: ButtonStyle {
 struct ChipButtonStyle: ButtonStyle {
     var tint: Color = Ink.secondary
     var filled = false
+    @Environment(\.colorSchemeContrast) private var contrast
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.medium))
@@ -159,7 +163,7 @@ struct ChipButtonStyle: ButtonStyle {
             .frame(minHeight: 44)
             .foregroundStyle(tint)
             .background(Capsule().fill(filled ? tint.opacity(0.16) : Ink.ink.opacity(0.05)))
-            .overlay(Capsule().strokeBorder(filled ? tint.opacity(0.35) : Ink.line, lineWidth: 1))
+            .overlay(Capsule().strokeBorder(filled ? tint.opacity(0.35) : (contrast == .increased ? Ink.ink.opacity(0.45) : Ink.line), lineWidth: 1))
             .opacity(configuration.isPressed ? 0.7 : 1)
             .contentShape(Capsule())
     }

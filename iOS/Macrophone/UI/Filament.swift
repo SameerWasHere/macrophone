@@ -47,7 +47,8 @@ struct Filament: View {
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !animating)) { context in
+        // 60 fps while it moves; 30 in Low Power Mode. Paused (free) whenever it's still.
+        TimelineView(.animation(minimumInterval: ProcessInfo.processInfo.isLowPowerModeEnabled ? 1.0 / 30 : 1.0 / 60, paused: !animating)) { context in
             let now = context.date
             ZStack {
                 // The glow: the same shape, wider, blurred by the render server.

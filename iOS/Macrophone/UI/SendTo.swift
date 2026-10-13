@@ -39,10 +39,10 @@ enum TargetGlyph {
 }
 
 extension ProfileSummary {
-    /// "Say “Claude, …”" — the first lead-in, as a hint.
+    /// "Say “Claude” first" — the first lead-in, as a hint.
     var prefixHint: String? {
         guard let p = voicePrefixes?.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return nil }
-        return "Say “\(spokenForm(p, name: name)), …”"
+        return "Say “\(spokenForm(p, name: name))” first"
     }
 }
 
@@ -56,35 +56,43 @@ struct SendToChip: View {
         let live: (ProfileSummary?, Bool) = recording ? model.liveRoute(recorder.transcript) : (model.selectedProfile, false)
         let name = live.0?.name ?? "Automatic"
         let symbol = live.0.map { TargetGlyph.symbol(for: $0) } ?? TargetGlyph.automatic
+        let kicker = Kicker(live.1 ? "Said" : "Send to", color: live.1 ? Light.ember : Ink.tertiary).fixedSize()
+        let target = HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(live.0 == nil ? Light.violet : Light.cyan)
+                .contentTransition(.symbolEffect(.replace))
+            Text(name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Ink.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+                .contentTransition(.opacity)
+            if !recording {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Ink.tertiary)
+            }
+        }
+        let shape = RoundedRectangle(cornerRadius: 19, style: .continuous)
         Button { model.sheet = .sendTo } label: {
-            HStack(spacing: 8) {
-                Kicker(live.1 ? "Said" : "Send to", color: live.1 ? Light.ember : Ink.tertiary)
-                Image(systemName: symbol)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(live.0 == nil ? Light.violet : Light.cyan)
-                    .contentTransition(.symbolEffect(.replace))
-                Text(name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Ink.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-                    .contentTransition(.opacity)
-                if !recording {
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Ink.tertiary)
-                }
+            // One line when it fits; the kicker over the name under huge type.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) { kicker; target.fixedSize() }
+                VStack(alignment: .leading, spacing: 4) { kicker; target }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(minHeight: 38)
-            .background(Capsule().fill(Ink.ink.opacity(live.1 ? 0.09 : 0.05)))
-            .overlay(Capsule().strokeBorder(live.1 ? Light.ember.opacity(0.5) : Ink.line, lineWidth: 1))
-            .contentShape(Capsule())
+            .background(shape.fill(Ink.ink.opacity(live.1 ? 0.09 : 0.05)))
+            .overlay(shape.strokeBorder(live.1 ? Light.ember.opacity(0.5) : Ink.line, lineWidth: 1))
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
             .animation(Motion.snap, value: name)
         }
         .buttonStyle(.plain)
-        .frame(minHeight: 44)
+        .padding(.horizontal, 16)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
         .allowsHitTesting(!recording)
         .accessibilityLabel(live.1 ? "Sending this one to \(name), because you said it" : "Send to: \(name)")
         .accessibilityHint(recording ? "" : "Choose where on your Mac your dictations go.")
@@ -109,6 +117,15 @@ struct SendToSheet: View {
                 .listRowBackground(Ink.raised)
 
                 Section {
+                    if model.profiles.isEmpty {
+                        Text(model.isPaired
+                             ? "No profiles yet. Add one in Macrophone on your Mac — Claude, ChatGPT, a Terminal tab — and it shows up here."
+                             : "Pair your Mac to send to its profiles.")
+                            .font(.subheadline)
+                            .foregroundStyle(Ink.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.vertical, 6)
+                    }
                     ForEach(model.profiles) { p in
                         row(symbol: TargetGlyph.symbol(for: p), tint: Light.cyan, title: p.name,
                             subtitle: subtitle(p), selected: model.settings.sendTo == .profile(p.id)) {
@@ -136,9 +153,9 @@ struct SendToSheet: View {
 
     private var footer: String {
         let anyPrefix = model.profiles.contains { $0.prefixHint != nil }
-        var s = anyPrefix ? "Start with a target's name to send just that dictation there — “Claude, refactor this…”. " : ""
-        s += "Targets are set up in Macrophone on your Mac."
-        if !model.isConnected { s += " Your Mac isn't connected, so this is the list it last sent." }
+        var s = anyPrefix ? "Start with a profile's name to send just that one dictation there: “Claude, refactor the uploader.” " : ""
+        s += "Profiles are set up in Macrophone on your Mac."
+        if model.isPaired, !model.isConnected { s += " \(model.macName) isn't connected right now, so this is the list it sent last." }
         return s
     }
 

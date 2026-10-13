@@ -1,37 +1,41 @@
 import SwiftUI
 import UIKit
 
-/// The delivery line under the mic: a dot in the meaning colour and one plain sentence.
+/// The delivery line under the mic: a dot in the meaning colour and one plain sentence
+/// (and, when the fix is in Settings, the button that goes there).
 struct StatusLine: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
     var holding: Bool
+    @ScaledMetric(relativeTo: .subheadline) private var dotSize: CGFloat = 7
 
     var body: some View {
         let (text, color) = content
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Spacer(minLength: 0)
-            Circle().fill(color).frame(width: 7, height: 7)
-                .shadow(color: color.opacity(0.7), radius: 4)
-                .alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 1 }
-            Text(text)
+        VStack(spacing: 2) {
+            // The dot rides in the sentence, so it stays beside the first word however the line wraps.
+            (Text(Image(systemName: "circle.fill")).font(.system(size: dotSize)).foregroundColor(color).baselineOffset(dotSize * 0.2)
+             + Text("\u{2002}") + Text(text))
                 .font(.subheadline)
                 .foregroundStyle(Ink.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .shadow(color: color.opacity(0.25), radius: 6)
+                .accessibilityLabel(text)
+                .accessibilityAddTraits(.updatesFrequently)
             if case .problem(_, true) = model.status {
-                Button("Settings") {
+                Button("Open Settings") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Light.cyan)
+                .frame(minHeight: 44)
+                .padding(.horizontal, 12)
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 24)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityElement(children: .contain)
         .animation(.easeInOut(duration: 0.2), value: text)
     }
 
@@ -59,23 +63,27 @@ struct StatusLine: View {
         case .delivered(let mac, let detail, let late, let to):
             var s: String
             if let to, let spoken = to.spoken {
-                s = "Sent to \(to.name) — you said “\(spoken), …”"
+                s = "Sent to \(to.name) — you said “\(spoken)” first"
             } else if let to, detail?.isEmpty ?? true {
                 s = "Sent to \(to.name) on \(mac)"
             } else {
                 s = "Delivered to \(mac)"
                 if let detail, !detail.isEmpty { s += " · \(detail)" }
             }
-            if late { s += " · sent late" }
+            if late { s += " · delayed" }
             return (s, Light.mint)
         case .duplicate: return ("Already on your Mac", Light.mint)
         case .queued: return ("Mac not found — queued, it'll send when your Mac is back", Light.ochre)
-        case .copiedOnPhone: return ("Copied on iPhone", Light.mint)
-        case .failed(let mac, let detail):
-            return ("\(mac) couldn't deliver it\(detail.map { " — \($0)" } ?? ""). It's in your history.", Light.rose)
+        case .copiedOnPhone: return ("Copied on iPhone — paste it anywhere", Light.mint)
+        case .failed(_, let detail):
+            if let detail, !detail.isEmpty {
+                return ("Not delivered — \(detail). Fix that on your Mac, then tap Resend.", Light.rose)
+            }
+            return ("Not delivered. Check Macrophone on your Mac, then tap Resend.", Light.rose)
         case .nothingHeard: return ("Didn't catch anything — try again", Ink.tertiary)
         case .notice(let s): return (s, Light.ochre)
         case .problem(let s, _): return (s, Light.rose)
         }
     }
 }
+

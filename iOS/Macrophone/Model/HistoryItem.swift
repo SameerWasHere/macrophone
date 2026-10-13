@@ -54,11 +54,12 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
         switch delivery {
         case .copiedOnPhone: out.append("Copied on iPhone")
         case .cleaning, .sending: out.append("Sending")
-        case .delivered: out.append(wasDelayed ? "Delivered late" : "Delivered")
+        case .delivered: out.append("Delivered")
         case .duplicate: out.append("On your Mac")
         case .queued: out.append("Queued")
         case .failed: out.append("Not delivered")
         }
+        if wasDelayed, delivery != .queued { out.append("Delayed") }
         if dictation.stoppedEarly { out.append("Stopped early") }
         return out
     }

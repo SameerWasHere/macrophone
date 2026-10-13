@@ -1,19 +1,20 @@
 import MacrophoneKit
 import SwiftUI
 
-/// Raw / Cleaned. Shown only when a cleaned version exists.
+/// Cleaned / Raw — the Mac's words for the same two versions. Shown only when cleanup changed
+/// the words (taking a spoken "Claude," off the front alone isn't worth a toggle; Copy Raw has it).
 struct VersionToggle: View {
     @Binding var cleaned: Bool
-    /// "Sent" when the only change was taking a spoken target off the front.
-    var cleanedTitle = "Cleaned"
 
     var body: some View {
         HStack(spacing: 2) {
-            option(cleanedTitle, on: cleaned) { cleaned = true }
+            option("Cleaned", on: cleaned) { cleaned = true }
             option("Raw", on: !cleaned) { cleaned = false }
         }
         .padding(3)
-        .background(Capsule().fill(Ink.ink.opacity(0.06)))
+        .frame(minHeight: 44)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .background(Capsule().fill(Ink.ink.opacity(0.06)).padding(.vertical, 3.5))
         .overlay(Capsule().strokeBorder(Ink.line, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Version")
@@ -28,10 +29,11 @@ struct VersionToggle: View {
                 .frame(minHeight: 32)
                 .foregroundStyle(on ? Ink.ground : Ink.secondary)
                 .background(Capsule().fill(on ? Ink.ink : .clear))
-                .contentShape(Capsule())
+                .contentShape(Capsule().inset(by: -6))
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityHint(title == "Raw" ? "Shows exactly what was heard." : "Shows what was sent.")
     }
 }
 
@@ -126,6 +128,7 @@ struct ChipLabel: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage).contentTransition(.symbolEffect(.replace))
+                .accessibilityHidden(true)
             Text(title)
         }
         .fixedSize()
@@ -166,11 +169,11 @@ struct LastDictationCard: View {
                 HStack(alignment: .center) {
                     Kicker(kicker).fixedSize()
                     Spacer(minLength: 8)
-                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned, cleanedTitle: item.cleanedTitle).fixedSize() }
+                    if item.showsVersionToggle { VersionToggle(cleaned: $showCleaned).fixedSize() }
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Kicker(kicker)
-                    if item.hasCleaned { VersionToggle(cleaned: $showCleaned, cleanedTitle: item.cleanedTitle) }
+                    if item.showsVersionToggle { VersionToggle(cleaned: $showCleaned).fixedSize() }
                 }
             }
             FittedText(text: item.text(cleaned: showCleaned), font: .serif(.body), maxHeight: maxTextHeight)
@@ -195,6 +198,13 @@ struct LastDictationCard: View {
         }
         .padding(16)
         .glass(Radius.large)
+        .contextMenu {
+            Button { onCopy(showCleaned) } label: { Label("Copy", systemImage: "doc.on.doc") }
+            if item.hasCleaned {
+                Button { onCopy(false) } label: { Label("Copy Raw", systemImage: "text.quote") }
+            }
+            if canResend { Button(action: onResend) { Label("Resend", systemImage: "arrow.clockwise") } }
+        }
     }
 
     private var kicker: String {
@@ -211,5 +221,6 @@ func timerString(_ t: TimeInterval) -> String {
 }
 
 extension HistoryItem {
-    var cleanedTitle: String { onlyPrefixRemoved ? "Sent" : "Cleaned" }
+    /// Cleaned / Raw only when cleanup changed the words, not just a spoken target taken off the front.
+    var showsVersionToggle: Bool { hasCleaned && !onlyPrefixRemoved }
 }
