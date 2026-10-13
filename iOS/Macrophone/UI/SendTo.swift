@@ -145,16 +145,18 @@ struct SendToList: View {
             }
             if settings.selection.target.canSend {
                 Section {
-                    Picker("After pasting", selection: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
-                        Text("Paste").tag(false)
-                        Text("Paste & send").tag(true)
+                    Toggle(isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
+                        HStack(spacing: 10) {
+                    Image(systemName: settings.selection.send ? "paperplane.fill" : "paperplane").foregroundStyle(Light.cyan)
+                        .accessibilityHidden(true)
+                    Text("Send after pasting").fixedSize(horizontal: false, vertical: true)
+                }
                     }
-                    .pickerStyle(.segmented)
                     .accessibilityIdentifier("picker-send")
                 } header: {
                     Text("For \(settings.selection.target.displayName)")
                 } footer: {
-                    Text("Paste & send presses the app's send key after a short countdown on your Mac. Remembered for each place.")
+                    Text("Your Mac presses the app's send key after pasting, after a short countdown you can cancel. Remembered for each place.")
                 }
                 .listRowBackground(Ink.raised)
             }
@@ -172,7 +174,7 @@ struct SendToList: View {
         return t
     }
 
-    private func sendNote(_ t: TargetRef) -> String? { settings.rememberedSend(for: t) ? "Paste & send" : nil }
+    private func sendNote(_ t: TargetRef) -> String? { settings.rememberedSend(for: t) ? "Sends after pasting" : nil }
 
     private var openFooter: String {
         var s = "Apps and windows on your Mac with somewhere to type, most recent first. Say an app's name first to send just that one there: “Messages, tell Sam I'm late.”"

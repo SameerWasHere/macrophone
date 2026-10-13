@@ -291,7 +291,7 @@ final class MacrophoneUITests: XCTestCase {
         app.swipeUp()
         XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS 'Say “Note” first'")).firstMatch.waitForExistence(timeout: 2), "automations show their lead-in")
         app.swipeDown()
-        app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Terminal'")).firstMatch.tap()
+        app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Terminal —'")).firstMatch.tap()
         XCTAssertTrue(app.buttons["send-to"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["send-to"].label.contains("Terminal"), app.buttons["send-to"].label)
         app.terminate()
@@ -353,8 +353,15 @@ final class MacrophoneUITests: XCTestCase {
         guard #available(iOS 17.0, *) else { throw XCTSkip("needs iOS 17") }
         let paired = ["MACROPHONE_RESET": "1", "MACROPHONE_FAKE_PAIRED": "Sameer's MacBook Pro", "MACROPHONE_FAKE_HISTORY": "1"]
         var found: [String] = []
-        for screen in ["main", "history", "settings", "sendto", "pairing", "dictionary", "onboarding"] {
-            let app = launch(paired.merging(["MACROPHONE_SCREEN": screen]) { $1 })
+        let only = ProcessInfo.processInfo.environment["AUDIT_SCREENS"]?.split(separator: ",").map(String.init)
+        for screen in only ?? ["main", "history", "settings", "sendto", "pairing", "dictionary", "onboarding"] {
+            // AUDIT_ENV="KEY=VALUE;KEY=VALUE" adds launch settings (to narrow a finding down).
+            var extra: [String: String] = [:]
+            for kv in (ProcessInfo.processInfo.environment["AUDIT_ENV"] ?? "").split(separator: ";") {
+                let p = kv.split(separator: "=", maxSplits: 1).map(String.init)
+                if p.count == 2 { extra[p[0]] = p[1] }
+            }
+            let app = launch(paired.merging(["MACROPHONE_SCREEN": screen]) { $1 }.merging(extra) { $1 })
             sleep(3)
             // Contrast and Dynamic Type are left out on purpose: the contrast check fails the system's own
             // toolbar buttons and white-on-ink text in this dark-only app (false positives), and a few
@@ -390,9 +397,9 @@ final class MacrophoneUITests: XCTestCase {
         guard ProcessInfo.processInfo.environment["MACROPHONE_LIVE"] == "1" else { throw XCTSkip("needs mpctl serve") }
         let app = launch(["MACROPHONE_SCREEN": "main"])
         XCTAssertTrue(statusContains(app, "Ready", timeout: 20), "connected")
-        app.buttons["send-to"].tap()
-        let messages = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Messages'")).firstMatch
-        XCTAssertTrue(messages.waitForExistence(timeout: 5), "the Mac's open apps are listed")
+        // The Mac's open apps are on the dock: one tap picks Messages.
+        let messages = app.buttons["Messages"]
+        XCTAssertTrue(messages.waitForExistence(timeout: 10), "the Mac's open apps are on the dock")
         messages.tap()
         XCTAssertTrue(app.descendants(matching: .any)["send-toggle"].waitForExistence(timeout: 3))
         let send = app.descendants(matching: .any)["send-toggle"]

@@ -18,6 +18,8 @@ struct MicButton: View {
     /// which never reaches onEnded — without it the button would stay "held" forever.
     @GestureState private var touching = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Bumped when the mic opens: one ring of light leaves the button.
+    @State private var ripples = 0
     private let size: CGFloat = 92
 
     var body: some View {
@@ -33,6 +35,25 @@ struct MicButton: View {
                         .opacity(reduceMotion ? 0.5 + 0.5 * Double(l) : 1)
                 }
                 .transition(.opacity)
+            }
+            // The mic opening: one ember ring leaves the button (once, not a loop).
+            if !reduceMotion {
+                Circle()
+                    .strokeBorder(Light.ember, lineWidth: 2)
+                    .frame(width: size, height: size)
+                    .keyframeAnimator(initialValue: Ripple(), trigger: ripples) { ring, v in
+                        ring.scaleEffect(v.scale).opacity(v.opacity)
+                    } keyframes: { _ in
+                        KeyframeTrack(\.scale) {
+                            LinearKeyframe(1, duration: 0.01)
+                            CubicKeyframe(1.75, duration: 0.7)
+                        }
+                        KeyframeTrack(\.opacity) {
+                            LinearKeyframe(0.75, duration: 0.01)
+                            CubicKeyframe(0, duration: 0.7)
+                        }
+                    }
+                    .allowsHitTesting(false)
             }
             Circle()
                 .fill(recording
@@ -91,10 +112,16 @@ struct MicButton: View {
                 onUp(0)   // treated as a tap: a recording it started keeps going
             }
         }
+        .onChange(of: recording) { _, now in if now { ripples += 1 } }
         .accessibilityElement()
         .accessibilityLabel(recording ? "Stop and send" : "Start dictation")
         .accessibilityHint(recording ? "Stops listening and sends the text to your Mac." : "Starts listening. Double-tap again to stop and send.")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onAccessibilityToggle() }
     }
+}
+
+private struct Ripple {
+    var scale: CGFloat = 1
+    var opacity: Double = 0
 }

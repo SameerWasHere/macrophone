@@ -217,6 +217,7 @@ private struct DockIcon: View {
     var onPick: (TargetRef) -> Void
     var onMore: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         Button {
@@ -241,7 +242,8 @@ private struct DockIcon: View {
                     .shadow(color: tint.opacity(selected ? 0.9 : 0), radius: 4)
             }
             .frame(width: compact ? 46 : 52, height: compact ? 46 : 56)
-            .opacity(selected ? 1 : (place.kind == .closed ? 0.4 : 0.6))
+            // Increase Contrast: the others stay nearly whole; the bar and the size still say which.
+            .opacity(selected ? 1 : (place.kind == .closed ? 0.4 : (contrast == .increased ? 0.88 : 0.6)))
             .contentShape(Rectangle())
         }
         .buttonStyle(DockPressStyle())
@@ -338,6 +340,10 @@ struct PlaceName: View {
                 row(lead: false, name: name, notOpen: notOpen, font: .subheadline)
                 row(lead: false, name: name, notOpen: notOpen, font: .footnote)
                 row(lead: false, name: name, notOpen: notOpen, font: .footnote, wrap: true)
+                row(lead: false, name: name, notOpen: notOpen, font: .caption, wrap: true)
+                // A very long window title: three small lines, shrunk to fit whole rather than cut.
+                row(lead: false, name: name, notOpen: notOpen, font: .caption2, wrap: true, lines: 3)
+                    .minimumScaleFactor(0.6)
             }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
@@ -350,15 +356,16 @@ struct PlaceName: View {
         .accessibilityIdentifier("send-to")
     }
 
-    private func row(lead: Bool, name: String, notOpen: Bool, font: Font, wrap: Bool = false) -> some View {
+    private func row(lead: Bool, name: String, notOpen: Bool, font: Font, wrap: Bool = false, lines: Int = 2) -> some View {
         var t = Text(name).font(font.weight(.semibold)).foregroundColor(notOpen ? Ink.secondary : Ink.ink)
         if lead { t = Text(said ? "You said " : "Send to ").font(font).foregroundColor(said ? Light.ember : Ink.tertiary) + t }
-        if notOpen { t = t + Text(" — not open, it'll be copied").font(font).foregroundColor(Light.ochre) }
+        // The status line says the rest ("Claude isn't open on your Mac — it'll be copied instead").
+        if notOpen { t = t + Text(" · closed").font(font).foregroundColor(Light.ochre) }
         t = t + Text("  ") + Text(Image(systemName: "chevron.down")).font(.caption2.weight(.bold)).foregroundColor(Ink.tertiary)
         return t
-            .lineLimit(wrap ? 2 : 1)
+            .lineLimit(wrap ? lines : 1)
             .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: !wrap, vertical: true)
+            .fixedSize(horizontal: !wrap, vertical: lines < 3)
             .contentTransition(.opacity)
     }
 
@@ -518,7 +525,6 @@ struct CleanupSteps: View {
         // Four words in a row: capped like the rest of the chrome, with the Large Content Viewer.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Cleanup")
         .accessibilityIdentifier("cleanup-level")
         .overlay {
             // Unavailable: the whole control is one explanation.
@@ -539,7 +545,9 @@ struct CleanupSteps: View {
         }
         .padding(.leading, 11)
         .padding(.trailing, 6)
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Cleanup")
+        .accessibilityAddTraits(.isHeader)
     }
 
     private func step(_ l: CleanupLevel, on: Bool, enabled: Bool, profile: ProfileSummary?) -> some View {

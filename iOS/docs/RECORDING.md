@@ -56,7 +56,8 @@ front on the Mac), then **Open on <Mac>** — the apps the Mac reports, windows 
 ("Terminal — claude"), the Mac's icons — then **Automations** (the Mac's profiles, which are now
 only automations: notes, reminders, tmux, Ask Claude, scripts…). Opening it asks the Mac to look
 again (`refreshTargets()`). A picked app that's no longer open stays picked and shows "Not open on
-your Mac — it'll be copied instead" (the chip gets an ochre edge and says so to VoiceOver). The
+your Mac — it'll be copied instead" (on the dock it stays, greyed with a moon and an ochre bar, the
+line reads "Claude · closed", the status line says it'll be copied, and VoiceOver says so). The
 list is cached (`targets.json`; names only for Shortcuts and the control) so it works while the
 Mac is away.
 
@@ -68,22 +69,30 @@ back, its app name swapped for the phone's own listing. Paste or Paste & send is
 target (`settings.sendByTarget`, keyed by `TargetRef.storageKey`) and only offered for apps and
 Where I'm typing.
 
-**The quick controls by the mic** (Sameer: the level of correction, which app, paste or paste
-and send — "all those should be quick taps"): one tap each, applied to the next dictation (or the
-one being recorded — the route is read when it's processed) and synced to the Mac at once.
-1. **Where** — the chip: icon + name ("SEND TO" kicker, "SAID" in ember while a spoken name is
-   heard); tap → the picker. Long names step down a ladder (kicker off → smaller → two lines),
-   never "…".
-2. **Paste | Paste & send** — a two-way switch, no sheet; disabled with its reason ("Clipboard
-   can't send", "Automations can't send", "Pair your Mac to send"). While recording with an app
-   said first, it shows and sets that app's own setting.
-3. **Cleanup** — a menu chip ("Medium cleanup ⌄"): the four levels each with their one-line
-   summary, the current one ticked; unavailable → "Cleanup off" and the reason on tap. A menu,
-   not tap-to-cycle: each level says what it does before you pick it, and any level is one tap
-   from the menu instead of up to three taps around a cycle. An automation with its own level
-   says so in the menu.
-While recording the row stays, quieter (60%), and still works. Settings › Send to has the same
-choice and switch; Settings › Cleanup the dial.
+**The controls by the mic** (Oct 13 2026, the elegance pass; `UI/QuickControls.swift`). Sameer:
+"The selecting where it goes and other toggles can be way better and more intuitive." Each is
+glanceable and one tap, with no sheet for the common case, applied to the next dictation (or the one
+being recorded — the route is read when it's processed) and synced to the Mac at once. Every change
+plays a selection tick and the status line says for ~3 s what the next dictation will do ("Pastes
+into Messages, then sends", "Light cleanup — Removes filler and repeats, fixes punctuation").
+1. **Where — the dock** (`PlaceDock`): Clipboard, Where I'm typing, then the Mac's open apps by
+   their own icons, newest first, one icon per app. The pick is lifted, lit and has a bar under it
+   (cyan; ember while an app said first is heard; ochre when it closed). A tap picks; a few places
+   sit centred, many scroll with the pick kept in view. An app with several windows wears a count;
+   its long-press lists the windows (and "All places"). A picked automation, or a picked app that
+   closed, stays on the dock (the closed one greyed with a moon). The dashed end-cap and the
+   **Send to <place>** line under the dock open the full list (windows, automations). Unpaired, the
+   dock is one plate: "Copies on this iPhone · Pair your Mac to send to its apps".
+2. **Send after pasting** (`SendSwitch`): a paper plane that lights when on; remembered per place
+   (`settings.sendByTarget`), synced (`SendSelection`). Clipboard and automations show why they
+   can't ("Clipboard can't send"), and a tap explains. While recording with an app said first, it
+   shows and sets that app's own setting.
+3. **Cleanup** (`CleanupSteps`): Off · Light · Medium · Heavy, all visible, the pick sliding. An
+   automation with its own level shows that level dimmed and says so on a tap; unavailable, a tap
+   says why. Settings › Cleanup uses the same control.
+While recording the controls stay, quieter (72%), and still work. All of it sits in a fixed slot
+sized by `QuickControlsTemplate`, so nothing here can move the mic; SE-class heights get a smaller
+dock and tighter rows.
 
 **Routing one dictation** (`AppModel.route(for:)`): an open app's name said first
 (`SpokenTarget.match`, before cleanup: "Messages, tell Sam I'm late" → Messages, sent "Tell Sam
@@ -114,20 +123,48 @@ Sam I'm late."; Where I'm typing + send at Light → `target=front send=true lev
 
 Sameer: holding the button, it shifted down under his finger. The page is now fixed slots
 (`MainView`, `FixedSlot`): the quick controls, the mic, the status line and the bottom (last
-dictation + History) each take the size of a **hidden worst-case template** — a two-line target
-name over the paste/cleanup line; two lines of status (three at accessibility sizes); the card
+dictation + History) each take the size of a **hidden worst-case template** — the dock, a two-line
+place name beside Send after pasting, the cleanup steps; two lines of status (three at accessibility sizes); the card
 with a two-line kicker, the toggle, text at its cap, Copy and Resend — and the real content is laid
 over it (an overlay never sizes its parent). Only the words area above flexes; idle and live
 words share it. Recording fades the card to 22% instead of removing it. Long statuses step down a
 font size to fit; an Open Settings problem makes the whole line the button. The Mac-app nudge
-lives in the chip's line when unpaired. SE-class heights drop the bottom History button (the top
+takes the dock's place when unpaired. SE-class heights drop the bottom History button (the top
 bar has it) and shorten the card and Filament. `testMicButtonNeverMoves` checks idle, recording
-with a spoken app, a send change mid-recording, sending, delivered, a hold, queued, failed,
+with a spoken app, a send change, a cleanup change and a place picked mid-recording, sending, delivered, a hold, queued, failed,
 problem, not open, Clipboard, Where I'm typing, an automation, a very long window name, cleanup
-off/heavy, no history, unpaired and the nudge — passing on iPhone SE (3rd gen), 17 Pro and 17 Pro
+off/heavy/unavailable, an app that closed, no open apps, a long control explanation, no history,
+unpaired and the nudge — passing on iPhone SE (3rd gen), 17 Pro and 17 Pro
 Max; `testMicButtonNeverMovesAtAccessibilitySizes` at AX M and AX XXXL.
 `testQuickControlsChangeTheNextDictation` drives each control and reads the route
-(`MACROPHONE_ROUTE_PROBE`).
+(`MACROPHONE_ROUTE_PROBE`); `testDockPlacesAndWindows` (windows counted and listed on a long-press,
+the end-cap, a closed pick kept) and `testControlsExplainThemselves` (what a control that can't apply
+says, an automation's own cleanup level).
+
+## The Filament follows the voice (Oct 13 2026)
+
+Sameer: on his iPhone the waveform didn't visibly move when he talked. Two causes, both fixed:
+- **The level.** The session runs in `.measurement` mode (no automatic gain), so speech can sit
+  anywhere from about −50 to −20 dBFS. The old meter mapped a fixed −52…−12 dB line, then smoothed
+  it twice (per buffer and per frame) with a slow release — a quiet or distant voice barely left the
+  bottom. On the simulator's mic a voice peaking 12–13 dB over the room read about 0.15. Now
+  `LevelScale` measures against the room: the floor is the 10th percentile of the last ~6 s
+  (clamped −75…−28 dB, so a voice can't drag it up and a mic ramping up isn't a room), 4 dB over it
+  is the first movement and 28 dB over it full scale, on a gentle curve; the mic's first half second
+  only learns the room. The Filament does the only smoothing (Hey Claude's `VoiceDriver`).
+- **The drawing.** The old single Canvas ribbon's voice swell was smaller than its resting S, so
+  even a good level read as a slight wobble. `UI/Filament.swift` is now the Hey Claude Thread in
+  Core Animation (`ThreadView`): three braided strands whose weave opens and swells with each
+  syllable, a CADisplayLink only while something moves (0.0% CPU idle on the simulator; ~8–10% of a
+  core while recording, SwiftUI's live words and halo included).
+
+**Proof against a real voice** (simulator: the recognizer can't run there, the mic can):
+`MACROPHONE_MIC_ONLY=1` records from the Mac's microphone without the recognizer,
+`MACROPHONE_MIC_WORDS=<text>` reveals those words as voice comes in, and once a second the log
+writes `mic level 0.42 (room -58 dB, voice -46 dB)` (numbers only). With `say` playing quietly from
+the Mac's speakers: levels 0.13–0.42 while it spoke, 0.00–0.06 in the pauses; the recording and
+frame grabs are `docs/screens/elegance/thread-real-voice*`. A real phone held to the mouth is
+20–30 dB over the room, near full scale.
 
 ## Delivery
 
@@ -164,7 +201,9 @@ See `Macrophone/App/DebugHooks.swift`: `MACROPHONE_SCREEN`, `MACROPHONE_ONBOARDI
 `MACROPHONE_CLEANUP_AVAILABLE`, `MACROPHONE_ROUTE_PROBE`, `MACROPHONE_INTENT_TARGET`,
 `MACROPHONE_STATUS`, `MACROPHONE_OPEN_URL`, `MACROPHONE_PAIR_CODE`,
 `MACROPHONE_UNPAIR`, `MACROPHONE_RESEND_LATEST`, `MACROPHONE_RECORD`, `MACROPHONE_RESET`,
-`MACROPHONE_PAIRING` (`connecting|code|paired|failed|expired`: the pairing panel in that phase).
+`MACROPHONE_PAIRING` (`connecting|code|paired|failed|expired`: the pairing panel in that phase),
+`MACROPHONE_EXPLAIN` (the status line's control explanation, held), `MACROPHONE_MIC_ONLY` / `MACROPHONE_MIC_WORDS`
+(the real mic on the simulator, no recognizer).
 
 ## Polish rules (Oct 12 2026, before/after in `docs/screens/polish/`)
 
@@ -193,7 +232,7 @@ See `Macrophone/App/DebugHooks.swift`: `MACROPHONE_SCREEN`, `MACROPHONE_ONBOARDI
   the cleanup dial shows only the picked stop, history chips wrap inside the row.
 - **Increase Contrast:** glass and chip edges go firm. **Reduce Motion:** the last-dictation card and
   setup steps fade instead of sliding. **Low Power Mode:** the Filament draws at 30 fps (60 otherwise,
-  paused whenever it's still).
+  no display link at all whenever it's still).
 - `testAccessibilityAudit` runs Xcode's audit (element detection, hit regions, descriptions, clipped
   text, traits) on main, history, settings, Send to, pairing, dictionary and setup. Contrast and
   Dynamic Type checks are left out: the contrast check fails the system's own toolbar buttons and

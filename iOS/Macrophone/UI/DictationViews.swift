@@ -222,7 +222,10 @@ struct LastDictationCard: View {
     /// "→ MESSAGES · SENT · 2:14 PM · STOPPED EARLY" — up to two lines beside the toggle (the
     /// toggle's 44pt holds two kicker lines, so the header's height doesn't change).
     private var kickerView: some View {
-        Text(isTemplate ? "A\nB" : kicker.uppercased())
+        // The paper plane when it was sent, the arrow when it was pasted or copied.
+        let glyph = Text(Image(systemName: item.dictation.send == true ? "paperplane.fill" : "arrow.right"))
+            .foregroundColor(item.dictation.send == true ? Light.cyan : Ink.tertiary)
+        return (isTemplate ? Text("A\nB") : glyph + Text(" " + shortKicker.uppercased()))
             .font(.mono(.caption2, weight: .semibold))
             .tracking(1.2)
             .foregroundStyle(Ink.tertiary)
@@ -230,6 +233,15 @@ struct LastDictationCard: View {
             .minimumScaleFactor(0.8)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityLabel(kicker)
+    }
+
+    /// "CLAUDE · 2:14 PM · STOPPED EARLY" — the glyph says sent or not.
+    private var shortKicker: String {
+        var parts = [item.targetName ?? "Last dictation"]
+        parts.append(item.dictation.createdAt.formatted(date: .omitted, time: .shortened))
+        if item.dictation.stoppedEarly { parts.append("stopped early") }
+        if item.partialCleanup == true { parts.append("partly cleaned") }
+        return parts.joined(separator: " · ")
     }
 
     private var kicker: String {

@@ -44,13 +44,18 @@ struct LevelScale {
     static let span: Float = 24
     static let margin: Float = 4
 
-    mutating func level(db: Float) -> Float {
-        guard db > -120 else { return 0 }   // digital silence (the mic starting up)
+    /// `warming`: the mic's first half second, while it ramps up from silence. It's not the room
+    /// (it would hold the floor down for seconds) and not a voice (it would read as a shout).
+    mutating func level(db: Float, warming: Bool = false) -> Float {
+        guard db > -120, !warming else { return 0 }
         recent.append(db)
         if recent.count > 60 { recent.removeFirst(recent.count - 60) }
         let sorted = recent.sorted()
-        // The room: the 10th percentile, never louder than −28 dB (a loud room still leaves a voice room to move).
-        floor = min(sorted[sorted.count / 10], -28)
+        // The room: the 10th percentile, between −75 dB (a mic still ramping up isn't a room) and
+        // −28 dB (a loud room still leaves a voice room to move).
+        floor = min(max(sorted[sorted.count / 10], -75), -28)
+        // The next few buffers only learn the room.
+        guard recent.count > 3 else { return 0 }
         if db > floor + 10 { voicePeak = max(voicePeak, db) }
         // A gentle curve lifts a quiet voice without flattening a loud one.
         return pow(min(max((db - floor - Self.margin) / Self.span, 0), 1), 0.8)
@@ -64,6 +69,7 @@ final class AudioFeed: @unchecked Sendable {
     private var scale = LevelScale()
     private var lastLoud = Date.distantPast
     private var lastBuffer = Date.distantPast
+    private var openedAt = Date.distantPast
     let meter: LevelMeter
 
     init(meter: LevelMeter) { self.meter = meter }
@@ -79,7 +85,7 @@ final class AudioFeed: @unchecked Sendable {
 
     /// A fresh recording: forget the last room.
     func reset() {
-        lock.lock(); scale = LevelScale(); lastLoud = .distantPast; lock.unlock()
+        lock.lock(); scale = LevelScale(); lastLoud = .distantPast; openedAt = Date(); lock.unlock()
         meter.set(0)
     }
 
@@ -103,8 +109,8 @@ final class AudioFeed: @unchecked Sendable {
         vDSP_rmsqv(ch, 1, &rms, vDSP_Length(n))
         let db = 20 * log10(max(rms, 1e-8))
         lock.lock()
-        let x = scale.level(db: db)
         let now = Date()
+        let x = scale.level(db: db, warming: now.timeIntervalSince(openedAt) < 0.5)
         lastBuffer = now
         if x > 0.22 { lastLoud = now }
         lock.unlock()
@@ -208,6 +214,8 @@ final class Recorder: ObservableObject {
     private var pendingStop: StopReason?
     /// Seconds of voice heard (the simulator's stand-in words).
     private var voiced: TimeInterval = 0
+    private var peakLevel: Float = 0
+    private var lastLevelLog = Date.distantPast
 
     /// DEBUG, simulator: the real microphone without the recognizer (it can't load its assets
     /// there), so the Filament can be proven against a real voice. `MACROPHONE_MIC_ONLY=1`;
@@ -406,6 +414,16 @@ final class Recorder: ObservableObject {
     private func onTick() {
         guard phase == .recording, let startedAt else { return }
         #if DEBUG
+        if Self.micOnly {
+            // Proof against a real voice: once a second, the loudest level and the room (numbers only).
+            peakLevel = max(peakLevel, meter.level)
+            if Date().timeIntervalSince(lastLevelLog) >= 1 {
+                let lv = feed.levels
+                log?.add(String(format: "mic level %.2f (room %.0f dB, voice %.0f dB)", peakLevel, lv.room, lv.voice))
+                peakLevel = 0
+                lastLevelLog = Date()
+            }
+        }
         if Self.micOnly, let words = Self.micWords {
             // The real mic, stand-in words: one word per ~0.28 s of voice, so the screen goes from
             // listening to capturing exactly as speech starts.

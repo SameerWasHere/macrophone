@@ -17,7 +17,7 @@ import UIKit
 /// MACROPHONE_FAKE_RECORDING=<text>           the live recording screen, words appearing
 /// MACROPHONE_FAKE_HISTORY=1                  four sample history items
 /// MACROPHONE_FAKE_PAIRED=<Mac name>          looks paired + connected, with the sample open apps and automations below
-/// MACROPHONE_FAKE_TARGETS=default|long|none  stand-in for the Mac's open apps (long: a very long window name)
+/// MACROPHONE_FAKE_TARGETS=default|long|none|many  stand-in for the Mac's open apps (long: a very long window name; many: 15)
 /// MACROPHONE_FAKE_PROFILES=<spec>|default    stand-in for the Mac's automations, kept even when a real Mac connects:
 ///                                            "Quick note=note@light;Remind me=remind"  (name=prefix,prefix@cleanup)
 /// MACROPHONE_SEND_TO=clipboard|front|<app or automation name>  the Send-to choice (as if picked)
@@ -152,6 +152,17 @@ enum DebugHooks {
         case "default"?: model.debugFakeTargets(sampleApps())
         case "long"?: model.debugFakeTargets(sampleApps(long: true))
         case "none"?: model.debugFakeTargets([])
+        case "many"?:
+            // Fifteen apps: the dock scrolls, the pick kept in view.
+            let more: [(String, String, CGFloat, CGFloat, CGFloat)] = [("Mail", "envelope.fill", 0.2, 0.5, 0.95), ("Xcode", "hammer.fill", 0.15, 0.45, 0.9),
+                        ("Cursor", "cursorarrow", 0.1, 0.1, 0.12), ("ChatGPT", "bubble.left.fill", 0.1, 0.6, 0.5),
+                        ("Linear", "line.3.horizontal", 0.35, 0.35, 0.8), ("Ghostty", "terminal", 0.2, 0.2, 0.3),
+                        ("Safari", "safari.fill", 0.2, 0.55, 0.95), ("Obsidian", "diamond.fill", 0.45, 0.3, 0.75),
+                        ("Discord", "gamecontroller.fill", 0.35, 0.4, 0.9), ("Things", "checkmark.square.fill", 0.25, 0.5, 0.95)]
+            model.debugFakeTargets(sampleApps() + more.enumerated().map { i, a in
+                LiveTarget(bundleID: "debug.\(a.0.lowercased())", appName: a.0, icon: icon(a.1, a.2, a.3, a.4),
+                           lastActive: Date() - Double(4_000 + i * 60))
+            })
         default: break
         }
         if let to = env["MACROPHONE_SEND_TO"], let t = target(named: to, in: model) { model.pick(t) }

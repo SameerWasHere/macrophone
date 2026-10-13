@@ -54,7 +54,8 @@ struct MainView: View {
             .scrollBounceBehavior(.basedOnSize)
             .scrollDisabled(isRecording)
         }
-        .background(GroundBackground(glow: isRecording ? Light.ember : Light.cyan).animation(.easeInOut(duration: 0.6), value: isRecording))
+        // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
+        .background(GroundBackground(glow: skyGlow).animation(.easeInOut(duration: 0.7), value: filamentMode))
         #if DEBUG
         .overlay(alignment: .topLeading) {
             if DebugHooks.env["MACROPHONE_ROUTE_PROBE"] == "1" {
@@ -109,14 +110,15 @@ struct MainView: View {
 
     // MARK: Stage: the words and the Filament
 
-    private var filamentHeight: CGFloat { compact ? 54 : 94 }
+    private var filamentHeight: CGFloat { compact ? 56 : 96 }
+    private var filamentSlot: CGFloat { compact ? 50 : 74 }
 
     /// The one flexible part of the page. Idle words and live words share one area whose size
     /// never depends on which is showing.
     private var stage: some View {
         VStack(spacing: 0) {
             Color.clear
-                .frame(minHeight: compact ? 36 : 64, maxHeight: .infinity)
+                .frame(minHeight: compact ? 36 : 82, maxHeight: .infinity)
                 .overlay(alignment: .bottom) {
                     ZStack(alignment: .bottom) {
                         if showLiveWords {
@@ -131,11 +133,14 @@ struct MainView: View {
                 .clipped()
                 .padding(.top, 6)
             ZStack {
+                // The Thread's band is taller than its slot: its quiet top edge sits under the words'
+                // last line, so the words keep room for their hint without a shorter Thread.
                 Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
+                    .frame(height: filamentSlot, alignment: .bottom)
                 DeliveredCheck(visible: showCheck, color: checkColor)
                 if !typeSize.isAccessibilitySize { timer.frame(maxHeight: .infinity, alignment: .bottom) }
             }
-            .frame(height: filamentHeight)
+            .frame(height: filamentSlot)
             .padding(.horizontal, -4)
             if typeSize.isAccessibilitySize { timer }
         }
@@ -146,7 +151,7 @@ struct MainView: View {
     /// Whatever fits of: the line and the hint; the line; the line smaller.
     private var idleWords: some View {
         let line = model.isPaired ? "Speak, and it's on your Mac." : "Speak, and it's on your clipboard."
-        let hint = "Tap to talk, tap again to send — or hold, and let go to send."
+        let hint = "Tap to talk, tap again to send. Or hold, and let go."
         return ViewThatFits(in: .vertical) {
             if model.settings.showHoldHint {
                 VStack(spacing: 10) { idleLine(line, compact ? .title3 : .title2); idleHint(hint) }
@@ -310,6 +315,17 @@ struct MainView: View {
 
     private var checkColor: Color { Light.mint }
 
+    private var skyGlow: Color {
+        switch filamentMode {
+        case .ready: return Light.cyan
+        case .listening, .live: return Light.ember
+        case .sending: return Light.teal
+        case .delivered: return Light.mint
+        case .queued: return Light.ochre
+        case .error: return Light.rose
+        }
+    }
+
     private func react() {
         settleTask?.cancel()
         let mode: FilamentMode
@@ -376,7 +392,7 @@ struct LiveWords: View {
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.bottom)
-            .edgeFade(top: 64, bottom: 0)
+            .edgeFade(top: 36, bottom: 0)
             .onChange(of: text) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) }
             }

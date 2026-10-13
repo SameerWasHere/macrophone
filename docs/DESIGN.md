@@ -17,12 +17,19 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
 - **Ground:** near-black blue ink — `#05060D` ground, `#131520` raised (`0.075,0.082,0.125`),
   hairlines at 8 / 14 / 22% of the ink colour `#F4F2FA`. Text: ink `#F4F2FA`, secondary
   `#C9C8CF`, tertiary `#9E9DA5`. Dark is the identity; both apps force dark appearance.
-- **The Filament** is the waveform: a tapered luminous line across the screen that moves with
-  the voice (height and brightness follow mic level; attack fast, release slow; calm when silent).
-  Gradient through the lights: cyan `#58B9DE` → teal `#5CD3C3` → mint `#5ED6A2` → gold `#E8C06C`
-  → ember `#E9714F` → violet `#9A86E6`. Idle/ready = a calm, dim, still line. Recording = full
-  spectrum, alive. Sending = light flows along it. Delivered = it settles flat in mint and a ✓
-  pops in (ease-out-back). Error = rose `#E66E7E`, broken into dashes. Queued = ochre `#C99D68`.
+- **The Filament** is the waveform — on the iPhone, the Hey Claude Thread itself (Oct 13 2026):
+  three strands braided into one tapered luminous ribbon (spectrum fills through ribbon masks, a
+  soft glow, white-hot cores, a bloom of light behind), drawn in Core Animation. It moves with the
+  voice the Hey Claude way (`VoiceDriver`: attack fast, release slow; the weave's height, the
+  strands' spread and thickness and the light follow the level; the phase runs faster while he
+  speaks and calms in pauses; an onset lifts the cores). The level is loudness against the room's
+  own floor, not a fixed dB line. Gradient through the lights: violet `#9A86E6` → cyan `#58B9DE`
+  → mint `#5ED6A2` → gold `#E8C06C` → coral `#E9806A`. Ready = a calm, still S in the cool end
+  (costs nothing). Listening (mic open, no words yet) = the cool end, a sweep of light, already
+  following the voice. Capturing = full spectrum, alive. Sending = beads of light flow along the
+  strands. Delivered = it settles flat in mint and a ✓ pops in (ease-out-back). Queued = ochre
+  `#C99D68`, flat and dim. Error = rose `#E66E7E`, broken into dashes. The page's sky follows the
+  same state (cool, ember while the mic is open, mint when it lands).
 - **Meaning colours:** mint = delivered, ochre = queued/caution, rose = failure, ember = the mic
   is live / your action, cyan = connected Mac.
 - **Type:** chrome in SF. The transcript in **New York serif** (`.serif` design) — the words are
@@ -30,7 +37,13 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
 - **Motion:** springs — settle (0.4, 0.85), snap (0.25, 0.7), arrive (0.35, 0.85),
   depart (0.45, 0.86). Everything respects Reduce Motion (fades, a still filament).
 - **Haptics (phone):** `light` on record start, `soft` on stop, `success` on delivered,
-  `warning` on queued, `error` on failure. Nothing on ordinary taps.
+  `warning` on queued, `error` on failure, and a selection `tick` when a control by the mic
+  changes (a place, Send after pasting, a cleanup step). Nothing on ordinary navigation taps.
+- **The controls by the mic (phone):** a dock of the Mac's open apps by their own icons (the pick
+  lifted and lit, with a bar under it like the Mac's Dock), "Send to <place>" under it opening
+  every place, a **Send after pasting** toggle (a paper plane that lights), and **Off · Light ·
+  Medium · Heavy** steps. A change is one tap; the status line then says in a sentence what the
+  next dictation will do. A control that can't apply says why when tapped.
 - **Glass:** panels are `.ultraThinMaterial` over the ground with a 1pt hairline and a soft
   shadow; radii 14 / 18 / 22.
 

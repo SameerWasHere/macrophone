@@ -66,7 +66,12 @@ struct StatusLine: View {
         case .ready:
             if !model.isPaired { return ("Not paired — your words are copied on this iPhone", Ink.tertiary) }
             switch model.linkState {
-            case .connected(let name): return ("Ready · \(name)", Light.cyan)
+            case .connected(let name):
+                // The pick closed on the Mac: say so before he talks, not after.
+                if model.isNotOpen(model.selection.target) {
+                    return ("\(model.selection.target.displayName) isn't open on your Mac — it'll be copied instead", Light.ochre)
+                }
+                return ("Ready · \(name)", Light.cyan)
             case .connecting(let name): return ("Connecting to \(name)", Ink.tertiary)
             case .unreachable(let name):
                 if model.localNetworkDenied { return ("Local Network is off for Macrophone — turn it on in Settings to reach \(name)", Light.ochre) }
