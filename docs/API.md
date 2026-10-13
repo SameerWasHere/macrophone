@@ -2,8 +2,9 @@
 
 The Mac app owns this. The CLI, the MCP server and the website's developer docs all follow it.
 JSON shape of one item is `PulledDictation` in `Packages/MacrophoneKit/Sources/MacrophoneKit/Core/PullAPI.swift`.
-The pro automations (app targeting, tmux, snippets, templates, Obsidian/Notes/Reminders, Ask Claude)
-are documented in `docs/AUTOMATIONS.md`.
+Where dictations go (Send to: Clipboard, Where I'm typing, any open app, an automation) is
+`docs/TARGETS.md`; the automations (tmux, snippets, templates, Obsidian/Notes/Reminders, Ask
+Claude, script, webhook) are `docs/AUTOMATIONS.md`.
 
 ## One item
 
@@ -18,8 +19,9 @@ Every key is always present. `cleaned`, `profile` and `reply` are `null` when ab
 
 - `text` is what the phone delivered (cleaned when there is one, else raw). Snippets, the output
   format and the template are **not** applied here — that's what went to the app/pane.
-- `profile` is the profile that ran on the Mac (after voice prefix / per-app rule resolution).
-- `reply` is Claude's answer when the profile has an **Ask Claude** action (the person's own API
+- `profile` is where it went on the Mac: the automation's name ("Daily log"), or the Send to target
+  ("Claude", "Terminal — claude", "Where I'm typing", "Clipboard"). The key keeps its old name.
+- `reply` is Claude's answer when the automation has an **Ask Claude** action (the person's own API
   key). It is `null` until the reply has finished streaming, and for every other dictation. An
   item first appears (`/v1/next`, `/v1/stream`) as soon as the dictation arrives, with
   `reply: null`; read `/v1/latest` or `/v1/history` afterwards to get the reply. With history off,
@@ -85,7 +87,7 @@ Claude Desktop: `{"mcpServers":{"macrophone":{"command":"/usr/local/bin/macropho
 ## Webhook body (POST, `Content-Type: application/json`)
 
 ```json
-{ "id": "…", "text": "…(template applied)…", "raw": "…", "cleaned": "…", "profile": "Claude prompt",
+{ "id": "…", "text": "…(template applied)…", "raw": "…", "cleaned": "…", "profile": "Daily log",
   "created_at": "2026-10-12T20:41:03Z", "language": "en-US", "source_device": "Sameer's iPhone",
   "delayed": false }
 ```
@@ -95,7 +97,7 @@ Claude Desktop: `{"mcpServers":{"macrophone":{"command":"/usr/local/bin/macropho
 ## Script
 
 `/bin/zsh -lc "<command>"` with the text (snippets, format and template applied) on stdin, and env vars
-`MACROPHONE_TEXT`, `MACROPHONE_RAW`, `MACROPHONE_PROFILE`, `MACROPHONE_ID`. 30 s timeout;
+`MACROPHONE_TEXT`, `MACROPHONE_RAW`, `MACROPHONE_PROFILE` (the automation's name), `MACROPHONE_ID`. 30 s timeout;
 non-zero exit shows the error state in the popup with the first line of stderr.
 
 ## MCP and CLI and the reply
@@ -104,8 +106,10 @@ non-zero exit shows the error state in the popup with the first line of stderr.
 the same item, so `reply` is there too (`null` when there isn't one). Plain-text output is unchanged
 (the dictation's text).
 
-## Debug-only hook (Mac DEBUG builds)
+## Debug-only hooks (Mac DEBUG builds)
 
 A Debug build listens for the distributed notification `com.sameer.macrophone.debug.dictate` with
-`object` = JSON `{"text": "…", "profile"?: "<name>", "source"?: "chosen|prefix|automatic", "delayed"?: bool}`
-and runs it through exactly the path a phone dictation takes. Release builds don't have it.
+`object` = JSON `{"text": "…", "target"?: "clipboard|front|<bundle id>", "window"?: "<window key>",
+"send"?: bool, "automation"?: "<name>", "delayed"?: bool}` and runs it through exactly the path a
+phone dictation takes (no target = this Mac's Send to choice). `com.sameer.macrophone.debug.openMenu`
+opens the menu bar menu. More in docs/TARGETS.md › Debug hooks. Release builds have none of these.

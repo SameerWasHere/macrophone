@@ -1,144 +1,70 @@
 # Macrophone for Mac — automations
 
-Everything a profile can do on the Mac beyond "copy it". This is the source for the website's
+Since Oct 13 2026 apps need no setup: every app open on the Mac with somewhere to type is listed
+under **Send to** on the iPhone and the Mac (docs/TARGETS.md). **Automations** are the deeper
+features — named things the iPhone lists under **Send to › Automations**: save to Obsidian, Apple
+Notes or Reminders, type into a tmux pane, ask Claude, run a script, post to a webhook — each with
+its own template, output format and voice prefixes. This is the source for the website's
 automation docs: UI names are exact (in **bold**), defaults are what ships. The pure rules live in
 `Packages/MacrophoneKit/Sources/MacrophoneKit/Core/Automation.swift`; the Mac side is
-`Mac/App/Delivery/`. Screens: `Mac/docs/screens/`.
+`Mac/App/Delivery/` and `Mac/App/Core/AutomationStore.swift` (stored as the shared `Profile` shape
+in `automations.json`). Screens: `Mac/docs/screens/targets/`.
 
-## How one dictation is handled
+## How a dictation picks an automation
 
-1. **Pick the profile.** A voice prefix ("Claude, …") wins, then the profile picked on the iPhone
-   (or by a Shortcut / Action Button), then — only when the iPhone sent it on **Automatic** — the
-   rule for the app in front when it arrived, then the default profile.
-2. **Snippets** expand inside the text.
-3. The profile's **Format** shapes it.
-4. The profile's **Template** wraps it, with context variables filled in.
-5. It goes where the profile says (**Where it goes**), and everything under **Also** runs (save to
-   Obsidian / Apple Notes / Reminders, Ask Claude), plus the script and webhook.
+The iPhone sends it as the dictation's target (`TargetRef.automation`) — picked under Send to, or
+by a voice prefix ("note, …"). An older iPhone sends the automation as its profile. Then:
 
-Safety rules that always hold: a **2.5-second countdown** with **Cancel** before anything is pasted
-or sent (hovering the popup pauses it; **Send Now** / **Paste Now** skips it); the send key only in
-apps on the **Return list**; never into a password field or while Secure Keyboard Entry is on;
-dictations the iPhone queued while the Mac was away (**delayed**) are only copied — never pasted,
-typed or sent on their own. After a paste, the clipboard is put back.
+1. **Snippets** expand inside the text (snippets are global — they apply to every dictation).
+2. The automation's **Format** shapes it.
+3. Its **Template** wraps it, with context variables filled in.
+4. It goes where the automation says (**Where it goes**: copy it, paste it where I'm typing, type
+   it into a tmux pane, or nowhere), and everything under **Also** runs (save to Obsidian / Apple
+   Notes / Reminders, Ask Claude), plus the script and webhook.
 
----
+Safety rules that always hold: a **2.5-second countdown** with **Cancel** before anything is
+pasted or typed (hovering the popup pauses it; **Send Now** / **Paste Now** skips it); never into a
+password field or while Secure Keyboard Entry is on; dictations the iPhone queued while the Mac
+was away (**delayed**) are only copied — never pasted, typed or sent on their own (the actions
+still run). After a paste, the clipboard is put back.
 
-## App targeting (Profiles › Where it goes › **Send to an app**)
+## The Automations pane
 
-Dictate straight into an app and have it sent — a Claude chat, the Terminal tab running Claude
-Code, ChatGPT, Cursor's agent. Macrophone:
+**New Automation** offers starting points: **Save to Obsidian**, **Save to Apple Notes**, **Add to
+Reminders**, **Type into a tmux pane**, **Ask Claude**, **Run a script**, **Send to a webhook**,
+**Copy with a template**. Each opens the editor: **Name**, **Voice prefix**, **Cleanup** (overrides
+the iPhone's setting), **Where it goes**, **Then** (press Return / the send key after pasting or
+typing), **Shape the text** (Format, Template), **Also** (actions), **Script and webhook**. Rows
+show the voice prefixes, "Send to" when it's the current choice, and **Sends text off this Mac**
+when it does.
 
-1. brings the app forward (launching it if needed) — and, when the profile names a window or tab,
-   that window or tab first;
-2. puts the cursor in the message box (chat apps), even if you'd clicked somewhere else;
-3. pastes, then checks the words actually showed up in the box;
-4. presses the send key (if the profile sends and the app is on the Return list), then checks the
-   box emptied;
-5. puts your clipboard back and, if you asked, brings back the app you were using.
+## What changed on Oct 13 2026 (live targets)
 
-### The target catalog
+Gone: the target catalog and **Add a Target…** gallery, ready-made app profiles, **Send to an
+app** / window and tab matching, the per-app send key and "go back to where I was", **When an app
+is in front** rules and the iPhone's **Automatic**, the default profile, the **Delivery** mode
+setting and the **Return list**. The phone's **Paste & send** is the consent to send.
 
-Tuned behaviour for these apps (any other app works too — "**Any app…**" — it pastes where the
-cursor is):
+Migration (once, from `profiles.json`, which is left in place): a profile that only sent text to
+an app, the clipboard or the app in front becomes nothing — that app shows up live. One that did
+more — a tmux pane, nowhere-plus-actions, a template or output format, notes, reminders, Ask Claude,
+a script or a webhook — becomes an automation; an app profile with extra actions keeps them, with
+the text copied. The old delivery mode becomes the first Send to choice (Auto-paste → **Where I'm
+typing**, else **Clipboard**) until a phone sends its own, and **Show a notification** (Clipboard +
+notification → on, Clipboard only → off).
 
-| Target | Bundle id | Sends by default | Send key | What "tuned" means |
-| --- | --- | --- | --- | --- |
-| Claude | `com.anthropic.claudefordesktop` | Yes | Return | Finds the message box ("Write your prompt to Claude" / "Ask Claude anything"), focuses it, verifies paste and send |
-| ChatGPT | `com.openai.chat` | Yes | Return | Same, for ChatGPT's message box |
-| Codex | `com.openai.codex` | Yes | Return | Same, for the task box |
-| Cursor | `com.todesktop.230313mzl4w4u92` | Yes | Return | Same, for the Agent box ("Plan, Build…") |
-| VS Code | `com.microsoft.VSCode` | No | Return | Pastes where the cursor is (editor or chat box) |
-| Terminal | `com.apple.Terminal` | Yes | Return | Picks the tab by title or by the program running in it |
-| iTerm2 | `com.googlecode.iterm2` | Yes | Return | Picks the session by its name |
-| Ghostty | `com.mitchellh.ghostty` | Yes | Return | Window titles |
-| Warp | `dev.warp.Warp-Stable` | Yes | Return | Window titles |
-| Slack | `com.tinyspeck.slackmacgap` | **No** — it reaches people | Return | Finds the message box; the editor warns if you turn sending on |
-
-Apps that send by default are on the **Return list** out of the box (Delivery › Return list), so
-they work without setup. An install from before the catalog gets them added once.
-
-### Ready-made profiles
-
-Added on first run (when the app is installed) and offered in **Add a Target…** (Profiles):
-
-| Profile | Goes to | Sends | Voice prefix |
-| --- | --- | --- | --- |
-| **Claude** | Claude (desktop) | Yes | "Claude" |
-| **Claude Code (Terminal)** | Terminal — the tab running `claude` | Yes | "Claude Code" |
-| **ChatGPT** | ChatGPT | Yes | "ChatGPT" |
-| **Cursor** | Cursor | Yes | "Cursor" |
-
-An install from before this release: the untouched "Claude prompt" profile becomes **Claude**
-(same id, so an iPhone that had it picked keeps it) and the others are added once if their apps are
-installed.
-
-### Profile settings for a target
-
-- **Only the window with this in its title** (chat apps, editors) / **Only the tab or window with
-  this in its title or running this program** (terminals). Empty = the front window. Matching is
-  case-insensitive "contains".
-  - **Terminal:** with Automation permission for Terminal, every tab is checked — its custom title,
-    the window name, and the programs running in it — so `claude` finds the tab running Claude
-    Code even when another tab is selected. Without the permission, window and tab titles are
-    matched through Accessibility (Claude Code puts "Claude" in its title, so it usually still works).
-  - **iTerm2:** session names, with Automation permission; titles otherwise.
-  - Others: window titles and native tab titles.
-  - Windows on another desktop (Space) can't be seen. **If nothing matches, nothing is pasted** —
-    the popup says "No Terminal tab matching “claude”", the text is on the clipboard, **Try Again**.
-- **Send it — press the send key after pasting** — default from the catalog.
-- **Send key** — **Return** or **⌘ Return**. Default from the catalog (Return for every target
-  today); change it for apps set to send with ⌘ Return.
-- **Go back to where I was after sending** — off by default.
-- If the target isn't on the Return list, the editor says so with an **Add <app>** button.
-
-### Automation permission
-
-Asked only when a profile needs it, from the editor's **Allow…** button (never by surprise):
-"Lets Macrophone pick the Terminal tab by the program running in it, not just its title. Without
-it, only titles are matched." Denied → the row says how to turn it on in System Settings ›
-Privacy & Security › Automation, and titles still work.
-
-### What the popup says
-
-| Result | Popup |
-| --- | --- |
-| Pasted, sent, box emptied | **Sent to Claude** |
-| Terminal / tmux (can't read back) | **Sent to Terminal** |
-| Pasted, not set to send | **Pasted into Claude** |
-| Pasted, app not on the Return list | **Pasted into Notes** · "Return skipped — Notes isn't on your Return list" |
-| Pressed send, words still in the box | **Pasted into Claude** (ochre) · "Pressed Return, but it's still in the message box — Claude may still be answering. Press Return when it's ready." |
-| The words never reached the message box | **Not sent** · "Didn't send — Claude's message box wasn't focused" · on the clipboard · **Try Again** |
-| No matching window/tab | **Not pasted** · "No Terminal tab matching “claude”" · **Try Again** |
-| Password field | **Not pasted** · "Not pasted — a password field is active" |
-| Accessibility off | **Copied, not pasted** · **Open System Settings** |
-
-While counting down the kicker reads "Sending to Claude" (or "Pasting into…"), plus the window
-match ("· “claude”"). A dictation picked by voice prefix shows the profile first: "Claude Code ·
-Sending to Terminal · “claude”".
-
----
-
-## Per-app rules (Profiles › **When an app is in front**)
-
-"**When <app> is in front, use <profile>**". **Add Rule…** picks the app; a menu picks the profile;
-the minus removes it. "Otherwise: <default profile>".
-
-Applies **only** to dictations the iPhone sends on **Automatic** (`profileSource: "automatic"`). A
-voice prefix or a profile picked on the iPhone always wins. The app in front is the one in front
-**when the dictation arrives**. A rule whose profile was deleted falls back to the default.
-
-## Voice prefixes (profile editor › **Voice prefix**)
+## Voice prefixes (editor › **Voice prefix**)
 
 Editable chips ("Type a word, press Return"). Start a dictation with one of them and a pause —
-"Claude, fix the failing test" — and that profile is used for that one dictation; the iPhone takes
-the words off before sending. A prefix must be followed by the recognizer's pause punctuation
+"note, call the dentist tomorrow" — and that automation is used for that one dictation; the iPhone
+takes the words off before sending. (An open app's own name works the same way — "Messages, I'm
+running late" — `SpokenTarget`.) A prefix must be followed by the recognizer's pause punctuation
 (`,` `:` `.` `;` `!` `—`) or the spoken words "colon"/"comma", so "note that the API…" never
-matches "note". Longest prefix wins ("Claude Code" over "Claude"). The Mac sends every profile's
-prefixes to the phone (`ProfileSummary.voicePrefixes`) whenever profiles change or a phone
-connects. Profile rows show them as chips.
+matches "note". Longest prefix wins ("ask Claude" over "ask"). The Mac sends every automation's
+prefixes to the phone (`ProfileSummary.voicePrefixes`) whenever automations change or a phone
+connects. Automation rows show them as chips.
 
-## Output formats (profile editor › Shape the text › **Format**)
+## Output formats (editor › Shape the text › **Format**)
 
 With a live preview. Default **Plain text**.
 
@@ -151,13 +77,13 @@ With a live preview. Default **Plain text**.
 | Shell-quoted | One safely single-quoted argument |
 | JSON string | A JSON string literal, quotes and escapes included |
 
-## Templates and context variables (profile editor › Shape the text › **Template**)
+## Templates and context variables (editor › Shape the text › **Template**)
 
 `{{text}}` is the dictation (after snippets and the format). A template without `{{text}}` gets
 the text appended after a blank line. The editor has variable chips (click to insert, hover for
 what each is), a **Preview · sample values** box, a warning for anything that isn't a known
 variable ("It'll be left as typed") or malformed braces, and a note for variables that need a
-permission. Only the variables a profile's template (or a matching snippet) uses are gathered.
+permission. Only the variables an automation's template (or a matching snippet) uses are gathered.
 
 | Variable | Value |
 | --- | --- |
@@ -168,11 +94,11 @@ permission. Only the variables a profile's template (or a matching snippet) uses
 | `{{app}}` | The name of the app in front |
 | `{{window}}` | The title of the front window (Accessibility) |
 | `{{url}}` | The front tab's URL in Safari, Chrome, Arc, Brave or Edge — the browser in front, else the browser with the front-most window. Asks for Automation once per browser |
-| `{{tmux_cwd}}` | The working directory of the profile's tmux pane |
+| `{{tmux_cwd}}` | The working directory of the automation's tmux pane |
 | `{{date}}` | `2026-10-12` |
 | `{{time}}` | `14:05` |
 | `{{datetime}}` | ISO 8601, e.g. `2026-10-12T14:05:00-07:00` |
-| `{{profile}}` | The profile's name |
+| `{{profile}}` | The automation's name (or where it went: "Claude", "Clipboard") |
 | `{{device}}` | The iPhone it came from |
 
 "In front" means when the dictation arrived, before anything was brought forward.
@@ -192,7 +118,7 @@ Selected:
 **Put this instead** (the expansion, which can use the variables above, with the same chips and
 preview) / **Try it** (live). Triggers match whole words anywhere in the dictation, ignoring case
 and the commas the recognizer adds; longer triggers win; duplicates are refused. Snippets apply to
-every profile, before its format and template.
+every dictation — wherever it goes — before an automation's format and template.
 
 Example: `my email` → `sameer@example.com`; `sig` → `Thanks,\nSameer\n{{date}}`.
 
@@ -235,7 +161,7 @@ popup says "In Reminders · due tomorrow at 5:00 PM".
 ## Also: Ask Claude
 
 Sends the final text to Claude with **your own Anthropic API key** — labelled **Sends text to
-Anthropic** (the profile row shows **Sends text off this Mac**). **Model**: Claude Sonnet 5.5
+Anthropic** (the automation's row shows **Sends text off this Mac**). **Model**: Claude Sonnet 5.5
 (`claude-sonnet-5-5`, default), Claude Opus 5.5 (`claude-opus-5-5`), Claude Haiku 5.5
 (`claude-haiku-5-5`). **Instructions** (optional system prompt). **Reply** — **Copy Claude's reply
 to the clipboard** (on by default).
@@ -274,9 +200,9 @@ step. Popups then appear at the top right of the screen in use.
 
 ## What the iPhone needs to know
 
-- Send `profileSource` on every dictation: `"prefix"` when a voice prefix picked the profile (with
-  that profile's `profileID`), `"chosen"` when the person or a Shortcut picked one, `"automatic"`
-  when the phone is on Automatic (then the Mac's per-app rules decide; `profileID` may be nil).
-- Voice prefixes arrive in `ProfileSummary.voicePrefixes`; match with `VoicePrefix.match` and strip
-  them before cleanup/sending.
-- Profiles named "Claude prompt" on older Macs are renamed "Claude" by the upgrade (same id).
+- Automations arrive as `ProfileSummary`s (`broadcastProfiles`, and in `welcome`) — list them under
+  **Send to › Automations**; picking one sends `.selection(SendSelection(target: .automation(id:name:)))`
+  and each dictation carries `target: .automation(...)`. `isDefault` is always false now.
+- Voice prefixes arrive in `ProfileSummary.voicePrefixes`; match with `VoicePrefix.match`, strip
+  them, and send that dictation with the automation as its target.
+- Apps come from `.targets([LiveTarget])` (docs/TARGETS.md), not from profiles.
