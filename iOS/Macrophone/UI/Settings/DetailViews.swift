@@ -13,7 +13,10 @@ struct DictionaryView: View {
         List {
             Section {
                 HStack(spacing: 10) {
-                    TextField(full ? "The dictionary is full" : "Add a word or name", text: $draft)
+                    // Vertical, so a long name wraps at huge text sizes instead of clipping; Return adds it.
+                    TextField(full ? "Dictionary full" : "Add a word or name", text: $draft, axis: .vertical)
+                        .lineLimit(1...3)
+                        .onChange(of: draft) { _, d in if d.contains("\n") { draft = d.replacingOccurrences(of: "\n", with: ""); add() } }
                         .focused($focused)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -27,7 +30,9 @@ struct DictionaryView: View {
                         .accessibilityLabel("Add word")
                 }
             } footer: {
-                Text("Words like “kubectl” or “TPA” that you want heard and written exactly this way. Spelled as you type them.")
+                Text(full
+                     ? "That's all 50. To add another, swipe a word left to remove it."
+                     : "Words like “kubectl” or “TPA” that you want heard and written exactly this way. Spelled as you type them.")
             }
             .listRowBackground(Ink.raised)
 

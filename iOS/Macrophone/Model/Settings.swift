@@ -90,3 +90,20 @@ extension Bundle {
     var shortVersion: String { infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0" }
     var buildNumber: String { infoDictionary?["CFBundleVersion"] as? String ?? "1" }
 }
+
+/// iOS tells apps only "iPhone". The Mac's own name usually says whose it is — "Sameer's MacBook Pro" —
+/// so that's the one honest guess: "Sameer's iPhone".
+enum DeviceNameSuggestion {
+    static func from(macName: String?) -> String? {
+        guard let mac = macName?.trimmingCharacters(in: .whitespaces) else { return nil }
+        for apostrophe in ["’s ", "'s "] {
+            if let r = mac.range(of: apostrophe), r.lowerBound > mac.startIndex {
+                let owner = mac[..<r.lowerBound].trimmingCharacters(in: .whitespaces)
+                let rest = mac[r.upperBound...].lowercased()
+                guard !owner.isEmpty, owner.count <= 30, rest.contains("mac") || rest.contains("imac") else { continue }
+                return owner + apostrophe.trimmingCharacters(in: .whitespaces) + " iPhone"
+            }
+        }
+        return nil
+    }
+}

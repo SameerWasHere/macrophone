@@ -41,7 +41,11 @@ struct PairingPanel: View {
     @EnvironmentObject var model: AppModel
     var onDone: () -> Void
     var compact = false
+    /// The success screen's button: "Continue" in setup, "Start Dictating" from the sheet.
+    var doneTitle = "Start Dictating"
     @State private var useCode = false
+    @State private var deviceName = ""
+    @FocusState private var nameFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -76,10 +80,11 @@ struct PairingPanel: View {
                 guard let invite = PairingInvite(string: code) else { return }
                 Task { await model.pair(invite) }
             }
-            .frame(height: compact ? 260 : 300)
-            Button("Use a code instead") { useCode = true }
+            .frame(minHeight: compact ? 260 : 300)
+            Button("Use a Code Instead") { useCode = true }
                 .buttonStyle(PillButtonStyle(kind: .secondary, tint: Light.cyan))
             networkNote
+            if !compact { macAppNote }
         }
     }
 
@@ -117,7 +122,7 @@ struct PairingPanel: View {
                 }
             }
             .glass(Radius.medium)
-            Button("Scan the QR code instead") { useCode = false }
+            Button("Scan the QR Code Instead") { useCode = false }
                 .buttonStyle(PillButtonStyle(kind: .quiet, tint: Light.cyan))
             networkNote
         }
@@ -158,25 +163,83 @@ struct PairingPanel: View {
         .frame(maxWidth: .infinity, minHeight: 240)
     }
 
+    /// Paired — and, since iOS only tells apps "iPhone", the one question worth asking here:
+    /// what the Mac should call this phone.
     private func success(_ name: String) -> some View {
-        VStack(spacing: 16) {
+        let suggestion = DeviceNameSuggestion.from(macName: name)
+        return VStack(spacing: 16) {
             DeliveredCheck(visible: true).scaleEffect(1.6).padding(.bottom, 8)
             Text("Paired with \(name)").font(.serif(.title2)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Text("What you say on this iPhone now lands on that Mac.")
                 .font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
-            Button("Start Dictating") { model.resetPairing(); onDone() }
-                .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("What should your Mac call this iPhone?")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Ink.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                TextField("iPhone", text: $deviceName)
+                    .font(.body)
+                    .foregroundStyle(Ink.ink)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($nameFocused)
+                    .onSubmit { nameFocused = false }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 48)
+                    .background(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(Ink.sunk))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+                        .strokeBorder(nameFocused ? Light.cyan.opacity(0.6) : Ink.line, lineWidth: 1))
+                    .accessibilityLabel("This iPhone's name")
+                    .accessibilityIdentifier("device-name")
+                if let suggestion, suggestion != deviceName {
+                    Button { withAnimation(Motion.snap) { deviceName = suggestion } } label: {
+                        ChipLabel("Use “\(suggestion)”", systemImage: "sparkles")
+                    }
+                    .buttonStyle(ChipButtonStyle(tint: Light.cyan, filled: true))
+                    .accessibilityLabel("Use “\(suggestion)”")
+                    .accessibilityHint("Fills in the name.")
+                }
+                Text("It shows next to each dictation on your Mac. You can change it later in Settings.")
+                    .font(.footnote).foregroundStyle(Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glass(Radius.medium)
+            Button(doneTitle) {
+                nameFocused = false
+                model.renameDevice(deviceName)
+                model.resetPairing()
+                onDone()
+            }
+            .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
         }
         .frame(maxWidth: .infinity, minHeight: 260)
+        .onAppear { if deviceName.isEmpty { deviceName = model.settings.deviceName } }
     }
 
     private func failure(_ message: String) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 34)).foregroundStyle(Light.rose)
+                .accessibilityHidden(true)
             Text(message).font(.serif(.title3)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Try Again") { model.resetPairing() }
                 .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+            if model.pairingMayNeedLocalNetwork {
+                VStack(spacing: 8) {
+                    Text("Still stuck? Make sure Local Network is on for Macrophone.")
+                        .font(.footnote).foregroundStyle(Ink.tertiary).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                    .buttonStyle(PillButtonStyle(kind: .quiet, tint: Light.cyan))
+                }
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 240)
     }
@@ -187,6 +250,19 @@ struct PairingPanel: View {
             Text(body).font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var macAppNote: some View {
+        Link(destination: Product.website) {
+            (Text("No Mac app yet? It's free at ") + Text(Product.macDownloadDisplay).foregroundColor(Light.cyan))
+                .font(.footnote)
+                .foregroundStyle(Ink.tertiary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("No Mac app yet? Get Macrophone for Mac, free, on the website")
     }
 
     private var networkNote: some View {

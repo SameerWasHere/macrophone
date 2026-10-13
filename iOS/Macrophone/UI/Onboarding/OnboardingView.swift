@@ -14,7 +14,12 @@ struct OnboardingView: View {
     @AppStorage("onboarding.step") private var stepRaw = 0
     @State private var looking = false
     @State private var denied: String?
+    /// Looked for a while and found nothing: say what else to check.
+    @State private var lookingLong = false
+    /// iPhone SE-class heights: smaller pictures so every step's buttons are on screen.
+    @State private var compact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     private var step: OnboardingStep { OnboardingStep(rawValue: stepRaw) ?? .welcome }
 
@@ -26,19 +31,23 @@ struct OnboardingView: View {
                     VStack(spacing: 0) {
                         content
                             .id(step)
-                            .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                                    removal: .move(edge: .leading).combined(with: .opacity)))
+                            .transition(reduceMotion ? .opacity : .asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                                                              removal: .move(edge: .leading).combined(with: .opacity)))
                     }
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)
                     .frame(minHeight: geo.size.height * 0.92, alignment: .center)
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .onAppear { compact = geo.size.height < 620 }
+                .onChange(of: geo.size.height) { _, h in compact = h < 620 }
             }
         }
         .background(GroundBackground(glow: step == .test && recorder.isActive ? Light.ember : Light.cyan))
         .onAppear(perform: skipFinishedSteps)
         .onChange(of: stepRaw) { _, _ in skipFinishedSteps() }
+        // Back from Settings with the permission turned on: carry on from here.
+        .onChange(of: scenePhase) { _, phase in if phase == .active { skipFinishedSteps() } }
         .onChange(of: model.discoveredMacs.count) { _, n in
             if step == .findMac, looking, n > 0 {
                 Task { try? await Task.sleep(nanoseconds: 1_200_000_000); if step == .findMac { advance() } }
@@ -61,8 +70,12 @@ struct OnboardingView: View {
                         .frame(width: s == step ? 18 : 6, height: 6)
                 }
             }
-            .accessibilityElement()
-            .accessibilityLabel("Step \(step.rawValue + 1) of \(OnboardingStep.allCases.count)")
+            .frame(minHeight: 44)
+            .accessibilityRepresentation {
+                Rectangle().fill(.clear).frame(width: 90, height: 44)
+                    .accessibilityElement()
+                    .accessibilityLabel("Step \(step.rawValue + 1) of \(OnboardingStep.allCases.count)")
+            }
             Spacer()
             Button(step == .test ? "Finish" : "Skip") {
                 if step == .test { finish() } else { advance() }
@@ -91,7 +104,7 @@ struct OnboardingView: View {
     // MARK: Steps
 
     private var welcome: some View {
-        page(hero: AnyView(DemoVignette().padding(.top, 20)),
+        page(hero: AnyView(DemoVignette().scaleEffect(compact ? 0.82 : 1).frame(height: compact ? 172 : 210).padding(.top, compact ? 4 : 20)),
              kicker: "Macrophone",
              title: "Talk on your iPhone. It types on your Mac.",
              body: "Your iPhone becomes a wireless microphone. It turns your voice into text right here, then sends it to your Mac — into Claude, a terminal, or wherever you're working.") {
@@ -104,14 +117,18 @@ struct OnboardingView: View {
              kicker: "Step 1 · Microphone",
              title: "It listens only while you ask it to.",
              body: "Macrophone uses the microphone while you tap or hold the button — never in the background. The sound is turned into text and thrown away. No audio is ever kept.") {
-            if let denied { note(denied) }
-            Button("Allow Microphone") {
-                Task {
-                    let ok = await Recorder.requestMic()
-                    if ok { advance() } else { denied = "Microphone is off. You can turn it on later in Settings › Macrophone." }
+            if Recorder.micStatus == .denied {
+                note("The microphone is off for Macrophone. Turn it on in Settings, then come back — or skip for now.")
+                openSettingsButton
+            } else {
+                Button("Allow Microphone") {
+                    Task {
+                        _ = await Recorder.requestMic()
+                        if Recorder.micStatus == .granted { advance() } else { denied = "mic" }
+                    }
                 }
+                .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
             }
-            .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
         }
     }
 
@@ -120,14 +137,20 @@ struct OnboardingView: View {
              kicker: "Step 2 · Speech recognition",
              title: "Your words are transcribed on this iPhone.",
              body: "iOS will ask to allow speech recognition. Macrophone only uses languages your iPhone can transcribe by itself, so what you say isn't sent to Apple or anyone else.") {
-            if let denied { note(denied) }
-            Button("Allow Speech Recognition") {
-                Task {
-                    let ok = await Recorder.requestSpeech()
-                    if ok { advance() } else { denied = "Speech recognition is off. You can turn it on later in Settings › Macrophone." }
+            if Recorder.speechStatus == .denied || Recorder.speechStatus == .restricted {
+                note(Recorder.speechStatus == .restricted
+                     ? "Speech recognition is turned off on this iPhone (Screen Time or a profile). You can skip for now."
+                     : "Speech recognition is off for Macrophone. Turn it on in Settings, then come back — or skip for now.")
+                if Recorder.speechStatus == .denied { openSettingsButton }
+            } else {
+                Button("Allow Speech Recognition") {
+                    Task {
+                        _ = await Recorder.requestSpeech()
+                        if Recorder.speechStatus == .authorized { advance() } else { denied = "speech" }
+                    }
                 }
+                .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
             }
-            .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
         }
     }
 
@@ -168,6 +191,10 @@ struct OnboardingView: View {
                 Button("Look for My Mac") {
                     looking = true
                     model.startLink()
+                    Task {
+                        try? await Task.sleep(nanoseconds: 12_000_000_000)
+                        if model.discoveredMacs.isEmpty { withAnimation { lookingLong = true } }
+                    }
                     if !model.discoveredMacs.isEmpty {
                         Task { try? await Task.sleep(nanoseconds: 1_200_000_000); advance() }
                     }
@@ -181,6 +208,10 @@ struct OnboardingView: View {
                  body: model.discoveredMacs.isEmpty
                     ? "Open Macrophone on your Mac. Keep both on the same Wi-Fi, or close together with Wi-Fi turned on."
                     : "Next, pair them so only your iPhone can send to it.") {
+                if model.discoveredMacs.isEmpty, lookingLong {
+                    note("Still nothing? Check that Local Network is on for Macrophone in Settings.")
+                    openSettingsButton
+                }
                 Button("Continue") { advance() }
                     .buttonStyle(PillButtonStyle(kind: model.discoveredMacs.isEmpty ? .secondary : .primary, tint: Ink.ink))
             }
@@ -189,17 +220,22 @@ struct OnboardingView: View {
 
     private var pair: some View {
         VStack(spacing: 18) {
-            VStack(spacing: 8) {
-                Kicker("Step 5 · Pair")
-                Text("Scan the code on your Mac.")
-                    .font(.serif(.title)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Macrophone on your Mac shows a QR code. Camera access is only used for this.")
-                    .font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+            // The heading is for scanning; once pairing is under way the panel speaks for itself.
+            if model.pairing == .idle {
+                VStack(spacing: 8) {
+                    Kicker("Step 5 · Pair")
+                    Text("Scan the code on your Mac.")
+                        .font(.serif(.title)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("In Macrophone on your Mac, choose Pair iPhone. The camera is used only for this.")
+                        .font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 16)
+                .transition(.opacity)
             }
-            .padding(.top, 16)
-            PairingPanel(onDone: { advance() }, compact: true)
+            PairingPanel(onDone: { advance() }, compact: true, doneTitle: "Continue")
+                .padding(.top, model.pairing == .idle ? 0 : 24)
         }
     }
 
@@ -208,7 +244,7 @@ struct OnboardingView: View {
     private func page<Actions: View>(hero: AnyView, kicker: String, title: String, body: String,
                                      @ViewBuilder actions: () -> Actions) -> some View {
         VStack(spacing: 22) {
-            hero.frame(minHeight: 200)
+            hero.frame(minHeight: compact ? 150 : 200)
             VStack(spacing: 12) {
                 Kicker(kicker)
                 Text(title)
@@ -227,6 +263,13 @@ struct OnboardingView: View {
         .padding(.top, 12)
     }
 
+    private var openSettingsButton: some View {
+        Button("Open Settings") {
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+        }
+        .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+    }
+
     private func symbolHero(_ name: String, _ color: Color) -> some View {
         ZStack {
             Circle().fill(RadialGradient(colors: [color.opacity(0.28), .clear], center: .center, startRadius: 4, endRadius: 110))
@@ -235,6 +278,8 @@ struct OnboardingView: View {
                 .overlay(Circle().strokeBorder(Ink.lineStrong))
             Image(systemName: name).font(.system(size: 40, weight: .medium)).foregroundStyle(color)
         }
+        .scaleEffect(compact ? 0.72 : 1)
+        .frame(height: compact ? 160 : 220)
         .accessibilityHidden(true)
     }
 
@@ -323,11 +368,11 @@ private struct OnboardingTest: View {
         VStack(spacing: 18) {
             VStack(spacing: 10) {
                 Kicker("Step 6 · Try it")
-                Text(worked ? "It works." : "Say something to your Mac.")
+                Text(worked ? "It works." : (model.isPaired ? "Say something to your Mac." : "Try it here first."))
                     .font(.serif(.title)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(worked
-                     ? (model.isPaired ? "Look at your Mac — your words are on its clipboard." : "Your words are on this iPhone's clipboard. Pair a Mac any time in Settings.")
+                     ? (model.isPaired ? "Look at your Mac — your words are there." : "Your words are on this iPhone's clipboard, ready to paste. Pair your Mac any time from the top of the main screen.")
                      : "Tap the button, say “Hello from my iPhone,” then tap again.")
                     .font(.body).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

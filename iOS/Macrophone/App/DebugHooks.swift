@@ -31,6 +31,7 @@ import SwiftUI
 /// MACROPHONE_UNPAIR=1                       forget the paired Mac (tells it, if reachable)
 /// MACROPHONE_RESEND_LATEST=1                 resend the last dictation (same id) after a few seconds
 /// MACROPHONE_RECORD=<seconds>                really record from the mic for that long, then stop
+/// MACROPHONE_PAIRING=connecting|code|paired|failed|expired  the pairing panel in that phase
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
@@ -140,6 +141,18 @@ enum DebugHooks {
                 try? await Task.sleep(nanoseconds: UInt64(secs * 1e9))
                 model.stopRecording()
             }
+        }
+        if let phase = env["MACROPHONE_PAIRING"] {
+            let mac = model.pairedMac?.name ?? "Sameer's MacBook Pro"
+            switch phase {
+            case "connecting": model.pairing = .connecting(mac)
+            case "code": model.pairing = .showingCode("482913", mac)
+            case "paired": model.pairing = .paired(mac)
+            case "failed": model.pairing = .connecting(mac); model.debugFailPairing()
+            case "expired": model.pairing = .failed("That QR code is out of date. Scan the one on your Mac now.")
+            default: break
+            }
+            if model.sheet == nil, !model.showOnboarding { model.sheet = .pairing }
         }
         if let text = env["MACROPHONE_FAKE_RECORDING"] {
             model.debugSimulateRecording(text)

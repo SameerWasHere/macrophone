@@ -116,9 +116,9 @@ final class AppModel: ObservableObject {
         }
         refreshHistory()
         refreshAvailability()
-        log.add("app launched, version \(Bundle.main.shortVersion) (\(Bundle.main.buildNumber)), \(queue.count) queued")
-        log.add("language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable")")
-        log.add("targets cached: \(profiles.count), shared with controls: \(SharedStore.read() == nil ? "no" : "yes")")
+        // One line (each write rewrites the log file) and no keychain read: launch stays light.
+        log.add("app launched, version \(Bundle.main.shortVersion) (\(Bundle.main.buildNumber)), \(queue.count) queued; "
+                + "language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable"); targets cached: \(profiles.count)")
     }
 
     private static func makeClient(store: KeychainPairingStore, name: String, log: DiagnosticLog) -> LinkClient {
@@ -568,14 +568,31 @@ final class AppModel: ObservableObject {
         if !queue.isEmpty { log.add("paired with \(queue.count) waiting") }
     }
 
+    /// The last pairing failed for a reason the local network permission could explain.
+    @Published private(set) var pairingMayNeedLocalNetwork = false
+
     private func pairingFailed(_ error: Error) {
-        let message = (error as? LinkError)?.userMessage ?? "Couldn't pair. Make sure Macrophone is open on your Mac."
+        let mac: String
+        if case .connecting(let name) = pairing { mac = name } else if case .showingCode(_, let name) = pairing { mac = name } else { mac = "your Mac" }
+        let reach = "Couldn't reach \(mac). Keep Macrophone open on your Mac, with both on the same Wi-Fi, then try again."
+        let message: String
+        switch error as? LinkError {
+        case .macNotFound?, .timedOut?, .connectionFailed?:
+            message = reach
+            pairingMayNeedLocalNetwork = true
+        case let e?:
+            message = e.userMessage
+            pairingMayNeedLocalNetwork = false
+        case nil:
+            message = reach
+            pairingMayNeedLocalNetwork = true
+        }
         pairing = .failed(message)
         log.add("pairing failed: \(String(describing: error))")
         Haptics.error()
     }
 
-    func resetPairing() { pairing = .idle }
+    func resetPairing() { pairing = .idle; pairingMayNeedLocalNetwork = false }
 
     func unpair() async {
         guard let mac = client.activeMac else { return }
@@ -736,6 +753,8 @@ final class AppModel: ObservableObject {
     }
 
     func debugSetStatus(_ s: DeliveryStatus) { status = s; bumpPulse() }
+
+    func debugFailPairing() { pairingFailed(LinkError.macNotFound) }
 
     var debugProfilesLocked = false
 

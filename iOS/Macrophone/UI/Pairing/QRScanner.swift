@@ -7,6 +7,7 @@ struct QRScanner: View {
     var onFound: (String) -> Void
     @State private var access: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
     @State private var hasCamera = AVCaptureDevice.default(for: .video) != nil
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -21,7 +22,7 @@ struct QRScanner: View {
             case _ where fakeCamera:
                 EmptyView()
             case (false, _):
-                message("No camera here", "Use a code instead, or open the pairing link on this iPhone.")
+                message("No camera here", "Use a code instead.")
             case (true, .authorized):
                 CameraPreview(onFound: onFound)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.large, style: .continuous))
@@ -39,6 +40,10 @@ struct QRScanner: View {
             }
         }
         .overlay(RoundedRectangle(cornerRadius: Radius.large, style: .continuous).strokeBorder(Ink.line))
+        // Back from Settings with the camera allowed: show it without leaving the screen.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { access = AVCaptureDevice.authorizationStatus(for: .video) }
+        }
         .task {
             guard !fakeCamera, hasCamera, access == .notDetermined else { return }
             _ = await AVCaptureDevice.requestAccess(for: .video)
@@ -59,7 +64,8 @@ struct QRScanner: View {
     private func message(_ title: String, _ body: String) -> some View {
         VStack(spacing: 6) {
             Image(systemName: "qrcode.viewfinder").font(.system(size: 34, weight: .light)).foregroundStyle(Ink.tertiary)
-            Text(title).font(.headline).foregroundStyle(Ink.ink)
+            Text(title).font(.headline).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Text(body).font(.subheadline).foregroundStyle(Ink.tertiary).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }

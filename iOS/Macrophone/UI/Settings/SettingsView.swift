@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var confirmClear = false
     @State private var name = ""
     @FocusState private var nameFocused: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
     var initialPath: [SettingsRoute] = []
     @State private var path: [SettingsRoute] = []
 
@@ -123,6 +124,9 @@ struct SettingsView: View {
                         Text(connectionWord).font(.caption).foregroundStyle(connectionColor)
                     }
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Paired Mac")
+                .accessibilityValue("\(mac.name), \(connectionWord.lowercased())")
                 Button("Unpair This Mac", role: .destructive) { confirmUnpair = true }
                     .foregroundStyle(Light.rose)
             } else {
@@ -130,21 +134,34 @@ struct SettingsView: View {
                     Label("Pair Your Mac", systemImage: "qrcode.viewfinder")
                 }
             }
-            HStack {
-                Text("This iPhone's name")
-                Spacer()
-                TextField("iPhone", text: $name)
-                    .multilineTextAlignment(.trailing)
-                    .foregroundStyle(Ink.secondary)
-                    .focused($nameFocused)
-                    .submitLabel(.done)
-                    .onSubmit(commitName)
-                    .textInputAutocapitalization(.words)
+            let field = TextField("iPhone", text: $name)
+                .foregroundStyle(Ink.secondary)
+                .focused($nameFocused)
+                .submitLabel(.done)
+                .onSubmit(commitName)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .accessibilityLabel("This iPhone's name")
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("This iPhone's name")
+                    field
+                }
+            } else {
+                HStack {
+                    Text("This iPhone's name")
+                    Spacer()
+                    field.multilineTextAlignment(.trailing)
+                }
+            }
+            if let suggestion = DeviceNameSuggestion.from(macName: model.pairedMac?.name), suggestion != settings.deviceName, !nameFocused {
+                Button("Use “\(suggestion)”") { name = suggestion; commitName() }
+                    .foregroundStyle(Light.cyan)
             }
         } header: {
             Text("Mac")
         } footer: {
-            Text("Your Mac shows this name next to each dictation. iOS doesn't tell apps your iPhone's own name, so set it here.")
+            Text("What your Mac calls this iPhone. It shows next to each dictation, and your Mac picks up a new name the next time this iPhone connects.")
         }
         .listRowBackground(Ink.raised)
         .confirmationDialog("Unpair \(model.macName)?", isPresented: $confirmUnpair, titleVisibility: .visible) {
@@ -239,21 +256,33 @@ struct CleanupDial: View {
             get: { Double(levels.firstIndex(of: enabled ? level : .off) ?? 0) },
             set: { level = levels[Int($0.rounded())] }
         )
+        let current = enabled ? level : .off
         VStack(spacing: 6) {
             Slider(value: index, in: 0...Double(levels.count - 1), step: 1)
                 .tint(enabled ? Light.teal : Ink.tertiary)
                 .disabled(!enabled)
                 .accessibilityLabel("Cleanup")
                 .accessibilityValue(enabled ? level.title : "Off, unavailable")
-            HStack {
-                ForEach(Array(levels.enumerated()), id: \.offset) { i, l in
-                    Button(l.title) { if enabled { level = l } }
-                        .buttonStyle(.plain)
-                        .font(.footnote.weight((enabled ? level : .off) == l ? .semibold : .regular))
-                        .foregroundStyle((enabled ? level : .off) == l ? Ink.ink : Ink.tertiary)
-                        .frame(maxWidth: .infinity, alignment: i == 0 ? .leading : (i == levels.count - 1 ? .trailing : .center))
-                        .accessibilityHidden(true)
+            // The four stops under the slider; under huge type, just the one that's picked.
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    ForEach(Array(levels.enumerated()), id: \.offset) { i, l in
+                        Button(l.title) { if enabled { level = l } }
+                            .buttonStyle(.plain)
+                            .font(.footnote.weight(current == l ? .semibold : .regular))
+                            .foregroundStyle(current == l ? Ink.ink : Ink.tertiary)
+                            .fixedSize()
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: i == 0 ? .leading : (i == levels.count - 1 ? .trailing : .center))
+                            .contentShape(Rectangle())
+                            .accessibilityLabel("\(l.title) cleanup")
+                            .accessibilityAddTraits(current == l ? .isSelected : [])
+                    }
                 }
+                Text(current.title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Ink.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityHidden(true)
             }
         }
         .opacity(enabled ? 1 : 0.55)
