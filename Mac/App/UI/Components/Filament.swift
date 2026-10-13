@@ -2,9 +2,9 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
-/// The Filament (docs/DESIGN.md): a tapered luminous line. Hairline at the tips, swelling
-/// toward the middle; `peak` raises a single voice peak with a dip either side (the mark),
-/// 0 draws it calm and flat. Pure geometry — static, so it costs nothing while it sits still.
+/// The Filament — the Thread from SameerOS: a tapered luminous ribbon lying in one soft S,
+/// hairline at the tips, full in the middle. `peak` is how far the S swings (0 = flat, 1 = the
+/// full swell). Pure geometry — static, so it costs nothing while it sits still.
 struct FilamentShape: Shape {
     /// 0 = flat, 1 = the mark's full voice peak.
     var peak: Double
@@ -17,9 +17,9 @@ struct FilamentShape: Shape {
         set { peak = newValue }
     }
 
+    /// One S rising left to right, still at the tips (the Thread's resting curve), peak ≈ 1.
     static func centre(_ u: Double) -> Double {
-        func g(_ c: Double, _ w: Double) -> Double { exp(-pow((u - c) / w, 2)) }
-        return g(0.5, 0.085) - 0.42 * g(0.395, 0.06) - 0.42 * g(0.605, 0.06) + 0.12 * g(0.27, 0.07) + 0.12 * g(0.73, 0.07)
+        -sin(2 * .pi * (u - 0.5)) * pow(sin(.pi * u), 1.25) / 0.66
     }
 
     func path(in rect: CGRect) -> Path {
@@ -35,9 +35,7 @@ struct FilamentShape: Shape {
             let dy = -amp * peak * (Self.centre(min(1, u + du)) - Self.centre(max(0, u - du))) / (2 * du * Double(rect.width))
             let len = sqrt(1 + dy * dy)
             let nx = CGFloat(-dy / len), ny = CGFloat(1 / len)
-            let swell = pow(sin(.pi * u), 1.6)
-            let bump = exp(-pow((u - 0.5) / 0.16, 2))
-            let half = (thin + (thick - thin) * CGFloat(0.55 * swell + 0.45 * bump * max(peak, 0.35))) / 2
+            let half = (thin + (thick - thin) * CGFloat(pow(sin(.pi * u), 0.7))) / 2
             top.append(CGPoint(x: x + nx * half, y: y - ny * half))
             bottom.append(CGPoint(x: x - nx * half, y: y + ny * half))
         }
@@ -64,28 +62,39 @@ struct FilamentView: View {
         if let tint {
             return LinearGradient(colors: [tint.opacity(0.65), tint, tint.opacity(0.65)], startPoint: .leading, endPoint: .trailing)
         }
-        return LinearGradient(stops: Light.spectrumStops, startPoint: .leading, endPoint: .trailing)
+        return LinearGradient(stops: Self.threadStops, startPoint: .leading, endPoint: .trailing)
     }
+
+    /// The Thread's spectrum, cool to warm — violet, cyan, mint, gold, coral (as in SameerOS).
+    static let threadStops: [Gradient.Stop] = [
+        .init(color: Light.violet, location: 0), .init(color: Light.cyan, location: 0.25), .init(color: Light.mint, location: 0.5),
+        .init(color: Light.gold, location: 0.75), .init(color: Color(red: 0.914, green: 0.502, blue: 0.416), location: 1),
+    ]
+
+    /// The Thread is a ribbon, not a hairline: callers pass the old line weights.
+    private var t: CGFloat { thick * 2.4 }
 
     var body: some View {
         ZStack {
             if dashed {
                 // Error: the line broken into dashes.
-                FilamentShape(peak: 0, thin: thick * 0.6, thick: thick * 0.6)
+                FilamentShape(peak: 0, thin: thick * 0.8, thick: thick * 0.8)
                     .fill(fill)
                     .mask(DashMask())
             } else {
-                FilamentShape(peak: peak, thin: thick * 0.9, thick: thick * 3.2)
+                // Halo and glow, the body, then the white-hot core.
+                FilamentShape(peak: peak, thin: t * 0.6, thick: t * 2.6)
                     .fill(fill)
-                    .blur(radius: thick * 1.6)
+                    .blur(radius: t * 1.4)
                     .opacity(glow)
-                FilamentShape(peak: peak, thin: thick * 0.25, thick: thick)
+                FilamentShape(peak: peak, thin: 0.2, thick: t)
                     .fill(fill)
-                FilamentShape(peak: peak, thin: 0.1, thick: thick * 0.32)
-                    .fill(LinearGradient(stops: [.init(color: .white.opacity(0), location: 0.2),
-                                                 .init(color: .white.opacity(0.8), location: 0.5),
-                                                 .init(color: .white.opacity(0), location: 0.8)],
+                FilamentShape(peak: peak, thin: 0.05, thick: t * 0.36)
+                    .fill(LinearGradient(stops: [.init(color: .white.opacity(0.15), location: 0.1),
+                                                 .init(color: .white.opacity(0.75), location: 0.5),
+                                                 .init(color: .white.opacity(0.15), location: 0.9)],
                                          startPoint: .leading, endPoint: .trailing))
+                    .blendMode(.plusLighter)
             }
         }
         .drawingGroup()
