@@ -31,12 +31,15 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID)
     /// The Send-to choice was changed on the Mac. Apply it (don't send it back).
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID)
+    /// Where a dictation finally landed on the Mac (after the countdown and the paste).
+    func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String)
 }
 
 public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {}
     func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {}
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {}
+    func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String) {}
 }
 
 /// The iPhone end of the link: browses for Macs, pairs, and keeps one encrypted session to
@@ -352,6 +355,11 @@ public final class LinkClient: @unchecked Sendable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.delegate?.linkClient(self, targets: list, macID: macID)
+            }
+        case let .landed(id, result, detail):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, landed: id, result: result, detail: detail)
             }
         case let .selection(sel):
             Task { @MainActor [weak self] in

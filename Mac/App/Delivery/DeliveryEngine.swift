@@ -59,6 +59,7 @@ final class DeliveryEngine {
         d.profileName = route.name
         let item = HistoryItem(dictation: d, receivedAt: Date(), delayed: delayed, profileName: route.name, outcome: .pending, detail: "")
         app.record(item)
+        app.noteSender(d.id, peer: peer.id)
         let kind: String
         switch route {
         case .clipboard: kind = "clipboard"

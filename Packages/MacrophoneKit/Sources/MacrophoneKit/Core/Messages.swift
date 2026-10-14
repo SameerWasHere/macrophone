@@ -62,6 +62,21 @@ public enum HandshakeFailure: String, Codable, Sendable, Error {
     case protocolError
 }
 
+/// What finally happened on the Mac, after the countdown and the paste — sent back to the phone
+/// that dictated it, so the phone can say "In Claude — sent" or exactly why it didn't land.
+public enum LandingResult: String, Codable, Sendable {
+    /// Pasted into the app and the send key pressed.
+    case sent
+    /// Pasted into the app (Send after pasting off — or sent but not confirmed: see `detail`).
+    case pasted
+    /// On the Mac's clipboard: what Clipboard asks for, or a fallback when pasting couldn't happen.
+    case copied
+    /// Someone pressed Cancel on the Mac during the countdown.
+    case cancelled
+    /// Didn't land anywhere.
+    case failed
+}
+
 /// What the Mac did with a dictation.
 public enum DeliveryOutcome: String, Codable, Sendable {
     case delivered
@@ -78,6 +93,9 @@ public enum Message: Codable, Sendable {
     case welcome(macName: String, appVersion: String)
     /// `detail` is a short human line, e.g. "Pasted into Claude" or "Copied to clipboard".
     case ack(id: UUID, outcome: DeliveryOutcome, detail: String?)
+    /// Mac → phone, after delivery finishes: where it actually landed. `detail` is one plain line
+    /// ("Sent to Claude", "The message box wasn't found — it's on your Mac's clipboard").
+    case landed(id: UUID, result: LandingResult, detail: String)
     /// Mac → phone: the open apps/windows with somewhere to type, newest first. Sent after
     /// welcome and whenever the list changes.
     case targets([LiveTarget])

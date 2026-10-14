@@ -8,6 +8,7 @@ import MacrophoneKit
 //   mpctl pair-code [--mac <name>]           # the phone side, by confirmation code
 //   mpctl send "hello world" [--count 5] [--resend]
 //   mpctl serve --commands                    # …and type "select com.apple.MobileSMS send" to change the choice on the "Mac"
+//   mpctl serve --land failed|copied|cancelled  # report that result for every dictation (default: what the target implies)
 //   mpctl targets / mpctl select <bundleID|clipboard|front> [--send]
 //   mpctl browse
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
@@ -63,6 +64,29 @@ final class ServeDelegate: LinkServerDelegate {
         received += 1
         let route = dictation.target.map { " → \($0.displayName)\(dictation.send == true ? " + send" : "")\(dictation.targetSpoken == true ? " (said)" : "")" } ?? ""
         stdout("RECEIVED #\(received)\(delayed ? " (delayed)" : "")\(route) [\(dictation.cleanupLevel.rawValue)]: \(dictation.text)")
+        // Then, like the Mac after its countdown and paste: where it landed (--land <result> forces one).
+        let forced = flag("--land").flatMap(LandingResult.init(rawValue:))
+        let name = dictation.target?.displayName ?? "Clipboard"
+        let result: LandingResult = forced ?? {
+            switch dictation.target {
+            case .app?, .frontApp?: return dictation.send == true && !delayed ? .sent : .pasted
+            default: return .copied
+            }
+        }()
+        let detail: String
+        switch result {
+        case .sent: detail = "Sent to \(name)"
+        case .pasted: detail = "Pasted into \(name)"
+        case .copied: detail = dictation.target.map { if case .clipboard = $0 { return "Copied to clipboard" } else { return "\(name) isn't open — copied to your Mac's clipboard instead" } } ?? "Copied to clipboard"
+        case .cancelled: detail = "Cancelled on the Mac"
+        case .failed: detail = "The message box in \(name) wasn't found"
+        }
+        let id = dictation.id, phone = peer.id
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            server.reportLanding(id, result: result, detail: detail, to: phone)
+            stdout("LANDED \(result.rawValue): \(detail)")
+        }
         return (.delivered, "Printed by mpctl")
     }
     func linkServer(_ server: LinkServer, listenerChanged state: LinkServer.ListenerState) {
@@ -91,6 +115,9 @@ final class PhoneDelegate: LinkClientDelegate {
         for m in macs { stdout("FOUND \(m.name) id=\(m.macID?.uuidString ?? "?")\(m.isPeerToPeer ? " (peer-to-peer)" : "")") }
     }
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) { stdout("UNPAIRED by Mac") }
+    func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String) {
+        stdout("LANDED on Mac: \(result.rawValue) — \(detail)")
+    }
     func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {
         stdout("TARGETS \(targets.map(\.title).joined(separator: " | "))")
     }
@@ -220,6 +247,8 @@ func run() async -> Int32 {
                 stdout("SEND FAILED: \(error)")
             }
         }
+        // --landing: stay connected long enough to hear where it landed.
+        if has("--landing") { try? await Task.sleep(nanoseconds: 3_000_000_000) }
         client.stop()
         return failures == 0 ? 0 : 1
 

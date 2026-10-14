@@ -186,6 +186,13 @@ public final class LinkServer: @unchecked Sendable {
         for s in all { Task { try? await s.send(.targets(targets)) } }
     }
 
+    /// Tell the phone that sent dictation `id` where it finally landed. If that phone has
+    /// disconnected meanwhile, it times out on its own and says the Mac didn't confirm.
+    public func reportLanding(_ id: UUID, result: LandingResult, detail: String, to peerID: UUID) {
+        guard let s = lock.sync({ sessions[peerID] }) else { return }
+        Task { try? await s.send(.landed(id: id, result: result, detail: detail)) }
+    }
+
     /// The Send-to choice changed on the Mac (or arrived from one phone): tell every phone
     /// except `except`.
     public func broadcastSelection(_ selection: SendSelection, except: UUID? = nil) {
@@ -392,7 +399,7 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, selectionChanged: sel, from: from) }
             case .refreshTargets:
                 notify { $0.linkServerRefreshTargets(self) }
-            case .welcome, .ack, .targets:
+            case .welcome, .ack, .targets, .landed:
                 break
             }
         }

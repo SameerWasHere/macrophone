@@ -150,11 +150,35 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         history = historyStore.all
     }
 
+    /// Which phone sent each recent dictation, so its final outcome can be reported back.
+    private var senders: [(id: UUID, peer: UUID)] = []
+
+    func noteSender(_ id: UUID, peer: UUID) {
+        senders.append((id, peer))
+        if senders.count > 100 { senders.removeFirst(senders.count - 100) }
+    }
+
     func updateOutcome(_ id: UUID, _ outcome: HistoryItem.Outcome, _ detail: String) {
+        reportLanding(id, outcome, detail)
         guard var item = historyStore.all.first(where: { $0.id == id }) ?? (historyStore.latest?.id == id ? historyStore.latest : nil) else { return }
         item.outcome = outcome
         item.detail = detail
         update(item)
+    }
+
+    /// Tells the phone where its dictation finally landed (a retry after a failure reports again).
+    private func reportLanding(_ id: UUID, _ outcome: HistoryItem.Outcome, _ detail: String) {
+        guard let peer = senders.last(where: { $0.id == id })?.peer else { return }
+        let result: LandingResult
+        switch outcome {
+        case .pasted: result = detail.hasPrefix("Sent to") ? .sent : .pasted
+        case .copied: result = .copied
+        case .cancelled: result = .cancelled
+        case .failed: result = .failed
+        case .pending: return
+        }
+        server.reportLanding(id, result: result, detail: detail, to: peer)
+        log.add("told the phone: \(result.rawValue)")
     }
 
     func deleteHistoryItem(_ id: UUID) {
