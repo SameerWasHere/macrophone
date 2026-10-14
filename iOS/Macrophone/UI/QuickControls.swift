@@ -12,7 +12,6 @@ import SwiftUI
 //   │ Clipboard  Where I'm typing  Claude  …       │  .glassProminent (tinted), on a material plate
 //   ├──────────────────────────────────────────────┤
 //   │ Send after pasting                     [ ●]  │  a native Toggle
-//   │ Presses Return in Claude after pasting       │
 //   ├──────────────────────────────────────────────┤
 //   │ Cleanup                                      │
 //   │ [ Off | Light | Medium | Heavy | Custom ]    │  a native segmented Picker
@@ -300,7 +299,7 @@ private struct UnpairedPlace: View {
 
 // MARK: Send after pasting
 
-/// The native switch, with the whole name and one line saying what it does for this place.
+/// The native switch with its whole name (what it does for this place is the VoiceOver hint).
 struct SendAfterPastingRow: View {
     @EnvironmentObject var model: AppModel
     var target: TargetRef
@@ -310,17 +309,13 @@ struct SendAfterPastingRow: View {
         let enabled = target.canSend
         let on = enabled && model.sendSetting(for: target)
         let detail = Places.sendDetail(target, in: model)
+        // One line only: a second line that changed with the place made the panel jump.
         Toggle(isOn: Binding(get: { on }, set: { set($0) })) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Send after pasting")
-                    .font(.body)
-                    .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(enabled ? Ink.secondary : Ink.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("Send after pasting")
+                .font(.body)
+                .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
         }
+        .accessibilityHint(detail)
         .toggleStyle(.switch)
         .tint(Light.cyan)
         .disabled(!enabled)
