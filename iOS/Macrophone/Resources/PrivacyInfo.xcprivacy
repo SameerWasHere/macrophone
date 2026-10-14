@@ -18,6 +18,15 @@
 				<string>CA92.1</string>
 			</array>
 		</dict>
+		<dict>
+			<!-- CACurrentMediaTime (the Filament's animation clock, measured inside the app). -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>
