@@ -155,6 +155,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         // Status: who's connected, when the last dictation came in.
         menu.addItem(statusHeader())
+        // A phone watching a window: say which, and offer to stop it.
+        for (peerID, appName) in model.watching.sorted(by: { $0.value < $1.value }) {
+            let who = model.peers.first { $0.id == peerID }.map(model.displayName) ?? "Your iPhone"
+            let mi = action("\(who) is watching \(appName) — Stop", #selector(stopWatching(_:)), symbol: "eye")
+            mi.representedObject = peerID.uuidString
+            mi.toolTip = "Your iPhone is showing \(appName)'s window. Stop sends it no more pictures."
+            menu.addItem(mi)
+        }
         menu.addItem(.separator())
 
         // The way into the app — first, with an icon, so it's never missed.
@@ -239,6 +247,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         menu.addItem(action("Quit Macrophone", #selector(quit), key: "q"))
+    }
+
+    @objc private func stopWatching(_ sender: NSMenuItem) {
+        guard let s = sender.representedObject as? String, let id = UUID(uuidString: s) else { return }
+        model.stopWatching(id)
     }
 
     private func statusHeader() -> NSMenuItem {

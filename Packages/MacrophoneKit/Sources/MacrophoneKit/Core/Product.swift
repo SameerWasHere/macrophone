@@ -17,7 +17,7 @@ public enum Product {
     public static let apiPort: UInt16 = 47_820
 }
 
-extension NSLock {
+public extension NSLock {
     /// Scoped locking that's safe to call from async code (never held across an await).
     @inline(__always)
     func sync<T>(_ body: () throws -> T) rethrows -> T {

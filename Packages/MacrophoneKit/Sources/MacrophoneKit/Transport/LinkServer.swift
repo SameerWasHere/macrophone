@@ -25,6 +25,11 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServerRefreshTargets(_ server: LinkServer)
     /// The current list, sent to a phone right after its welcome.
     func liveTargets(_ server: LinkServer) -> [LiveTarget]
+    /// A phone wants to see a place's window (nil = it stopped looking). Also called with nil
+    /// when that phone disconnects.
+    func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID)
+    /// A one-tap action on the window that phone is watching.
+    func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID)
 }
 
 public extension LinkServerDelegate {
@@ -32,6 +37,8 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {}
     func linkServerRefreshTargets(_ server: LinkServer) {}
     func liveTargets(_ server: LinkServer) -> [LiveTarget] { [] }
+    func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {}
 }
 
 /// True for exactly one caller.
@@ -191,6 +198,14 @@ public final class LinkServer: @unchecked Sendable {
     public func reportLanding(_ id: UUID, result: LandingResult, detail: String, to peerID: UUID) {
         guard let s = lock.sync({ sessions[peerID] }) else { return }
         Task { try? await s.send(.landed(id: id, result: result, detail: detail)) }
+    }
+
+    /// Send one message to one phone and wait until it's on the wire (watching uses this, so a
+    /// slow link gets fewer pictures instead of a backlog). False if that phone isn't connected.
+    @discardableResult
+    public func send(_ message: Message, to peerID: UUID) async -> Bool {
+        guard let s = lock.sync({ sessions[peerID] }) else { return false }
+        do { try await s.send(message); return true } catch { return false }
     }
 
     /// The Send-to choice changed on the Mac (or arrived from one phone): tell every phone
@@ -355,7 +370,10 @@ public final class LinkServer: @unchecked Sendable {
                 return mine
             }
             session.close()
-            if mine { notify { $0.linkServer(self, peerDisconnected: phoneID) } }
+            if mine {
+                notify { $0.linkServer(self, watch: nil, from: phoneID) }
+                notify { $0.linkServer(self, peerDisconnected: phoneID) }
+            }
         }
 
         while true {
@@ -399,7 +417,11 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, selectionChanged: sel, from: from) }
             case .refreshTargets:
                 notify { $0.linkServerRefreshTargets(self) }
-            case .welcome, .ack, .targets, .landed:
+            case let .watch(target):
+                notify { $0.linkServer(self, watch: target, from: phoneID) }
+            case let .watchAction(action):
+                notify { $0.linkServer(self, watchAction: action, from: phoneID) }
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame:
                 break
             }
         }

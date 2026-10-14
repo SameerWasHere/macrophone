@@ -14,6 +14,7 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
+    @ObservedObject var watcher: Watcher
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -33,6 +34,9 @@ struct MainView: View {
         isRecording || recorder.phase == .finishing || model.processing
     }
 
+    /// The top bar, header and controls: at rest, when nothing else has the area.
+    private var showSettings: Bool { !showLiveWords && !watcher.isOpen }
+
     var body: some View {
         GeometryReader { geo in
             VStack(spacing: 0) {
@@ -46,17 +50,30 @@ struct MainView: View {
                         Spacer(minLength: compact ? 8 : 12)
                         quickControls
                     }
-                    .opacity(showLiveWords ? 0 : 1)
-                    .allowsHitTesting(!showLiveWords)
-                    .accessibilityHidden(showLiveWords)
+                    .opacity(showSettings ? 1 : 0)
+                    .allowsHitTesting(showSettings)
+                    .accessibilityHidden(!showSettings)
+                    // Watching: the window takes the area (Done brings the settings back).
+                    if watcher.isOpen && !showLiveWords {
+                        WatchPanel(watcher: watcher, compact: compact).transition(.opacity)
+                    }
                     if showLiveWords {
-                        transcriptArea.transition(.opacity)
+                        VStack(spacing: 0) {
+                            if watcher.isOpen {
+                                WatchStrip(watcher: watcher, compact: compact)
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 8)
+                            }
+                            transcriptArea
+                        }
+                        .transition(.opacity)
                     }
                 }
                 // Whatever is above takes the room that's left — it can never push the mic.
                 .frame(minHeight: 0, maxHeight: .infinity)
                 .clipped()
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
+                .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isOpen)
                 // The Thread: one band, the same place in every state.
                 threadBand
                 // Room between the Thread and the mic.

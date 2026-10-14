@@ -33,6 +33,10 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID)
     /// Where a dictation finally landed on the Mac (after the countdown and the paste).
     func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String)
+    /// Watching: how it's going on the Mac.
+    func linkClient(_ client: LinkClient, watchState: WatchState)
+    /// Watching: a new picture of the window.
+    func linkClient(_ client: LinkClient, watchFrame: WatchFrame)
 }
 
 public extension LinkClientDelegate {
@@ -40,6 +44,8 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {}
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {}
     func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String) {}
+    func linkClient(_ client: LinkClient, watchState: WatchState) {}
+    func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {}
 }
 
 /// The iPhone end of the link: browses for Macs, pairs, and keeps one encrypted session to
@@ -366,6 +372,16 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, selectionChanged: sel, macID: macID)
             }
+        case let .watchState(state):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, watchState: state)
+            }
+        case let .watchFrame(frame):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, watchFrame: frame)
+            }
         case .ping:
             Task { try? await s.send(.pong) }
         case .unpair:
@@ -377,7 +393,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction:
             break
         }
     }
@@ -457,6 +473,20 @@ public final class LinkClient: @unchecked Sendable {
     public func refreshTargets() {
         guard let s = lock.sync({ session }) else { return }
         Task { try? await s.send(.refreshTargets) }
+    }
+
+    /// Start watching a place's window on the Mac (nil stops). Returns false when not connected.
+    @discardableResult
+    public func watch(_ target: TargetRef?) -> Bool {
+        guard let s = lock.sync({ session }) else { return false }
+        Task { try? await s.send(.watch(target)) }
+        return true
+    }
+
+    /// A one-tap action on the watched window.
+    public func watchAction(_ action: WatchAction) {
+        guard let s = lock.sync({ session }) else { return }
+        Task { try? await s.send(.watchAction(action)) }
     }
 
     // MARK: Pairing

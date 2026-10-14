@@ -11,6 +11,8 @@ import MacrophoneKit
 //   mpctl serve --land failed|copied|cancelled  # report that result for every dictation (default: what the target implies)
 //   mpctl targets / mpctl select <bundleID|clipboard|front> [--send]
 //   mpctl browse
+//   mpctl watch [--target <bundleID|front>] [--window <key>] [--seconds 6] [--save DIR] [--action returnKey]
+//   mpctl serve --watch-state permission|unavailable   # answer every watch with that state instead of the demo window
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -104,6 +106,46 @@ final class ServeDelegate: LinkServerDelegate {
          LiveTarget(bundleID: "com.apple.MobileSMS", appName: "Messages"),
          LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "claude — ~/app", windowKey: "41")]
     }
+
+    // Watching: the drawn demo window, a frame each time it changes.
+    var watches: [UUID: Task<Void, Never>] = [:]
+    let demo = DemoWindow()
+
+    func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {
+        watches[peerID]?.cancel()
+        watches[peerID] = nil
+        guard let target else { stdout("WATCH stopped"); return }
+        stdout("WATCH \(target.displayName)")
+        let demo = self.demo
+        let forced = flag("--watch-state")
+        watches[peerID] = Task {
+            if forced == "permission" { await server.send(.watchState(.needsPermission), to: peerID); return }
+            if forced == "unavailable" {
+                await server.send(.watchState(.unavailable("\(target.displayName)'s window is minimized", canReveal: true)), to: peerID)
+                return
+            }
+            await server.send(.watchState(.live(appName: target.displayName)), to: peerID)
+            var seq = 0, n = 0
+            var last: Data?
+            while !Task.isCancelled {
+                n += 1
+                if n % 2 == 0 { demo.tick() }
+                if let jpeg = demo.jpeg(), jpeg != last {
+                    last = jpeg
+                    seq += 1
+                    let frame = WatchFrame(seq: seq, jpeg: jpeg, width: demo.width, height: demo.height,
+                                           appName: target.displayName, bundleID: target.bundleID, focus: demo.focus)
+                    await server.send(.watchFrame(frame), to: peerID)
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+    }
+
+    func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {
+        stdout("WATCH ACTION \(action.rawValue)")
+        demo.apply(action)
+    }
 }
 
 // MARK: phone
@@ -123,6 +165,17 @@ final class PhoneDelegate: LinkClientDelegate {
     }
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {
         stdout("SELECTION from Mac: \(selection.target.displayName)\(selection.send ? " + send" : "")")
+    }
+    var frames = 0
+    func linkClient(_ client: LinkClient, watchState: WatchState) { stdout("WATCH STATE \(watchState)") }
+    func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {
+        frames += 1
+        stdout("WATCH FRAME #\(watchFrame.seq) \(watchFrame.width)x\(watchFrame.height) \(watchFrame.jpeg.count / 1024) KB\(watchFrame.focus.map { " focus \($0)" } ?? "")")
+        if let dir = flag("--save") {
+            let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(watchFrame.seq).jpg")
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? watchFrame.jpeg.write(to: url)
+        }
     }
 }
 
@@ -272,6 +325,32 @@ func run() async -> Int32 {
         try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "1.5") ?? 1.5) * 1e9))
         client.stop()
         return 0
+
+    case "watch":
+        let (client, d) = makeClient()
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        let target: TargetRef
+        switch flag("--target") ?? "front" {
+        case "front": target = .frontApp
+        case "clipboard": target = .clipboard
+        case let bid: target = .app(bundleID: bid, windowKey: flag("--window"), name: bid)
+        }
+        client.watch(target)
+        let seconds = Double(flag("--seconds") ?? "6") ?? 6
+        if let a = flag("--action").flatMap(WatchAction.init(rawValue:)) {
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
+            stdout("ACTION \(a.rawValue)")
+            client.watchAction(a)
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
+        } else {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
+        }
+        client.watch(nil)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        client.stop()
+        stdout("FRAMES \(d.frames)")
+        return d.frames > 0 ? 0 : 1
 
     case "unpair":
         let (client, _) = makeClient()

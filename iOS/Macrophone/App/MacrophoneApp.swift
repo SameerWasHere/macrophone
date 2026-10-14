@@ -41,7 +41,7 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Ink.ground.ignoresSafeArea()
-            MainView(recorder: recorder)
+            MainView(recorder: recorder, watcher: model.watcher)
                 .opacity(model.showOnboarding ? 0 : 1)
             if model.showOnboarding {
                 OnboardingView(recorder: recorder)

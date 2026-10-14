@@ -25,6 +25,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     let popup = PopupController()
     let api: LocalAPIServer
     private(set) var delivery: DeliveryEngine!
+    /// A phone watching the window it sends to (WatchService).
+    private(set) var watch: WatchService!
+    /// Phone → the app it's watching, for the menu.
+    @Published private(set) var watching: [UUID: String] = [:]
 
     @Published private(set) var history: [HistoryItem] = []
     /// What Send to can pick from right now (newest first).
@@ -77,6 +81,11 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         api = LocalAPIServer(token: token, status: .init(app_version: AppPaths.appVersion, history_enabled: s.historyEnabled, phones: []))
 
         delivery = DeliveryEngine(app: self)
+        watch = WatchService(app: self)
+        watch.onChange = { [weak self] in
+            guard let self, self.watching != self.watch.watching else { return }
+            self.watching = self.watch.watching
+        }
         server.log = log
         server.delegate = self
         history = historyStore.all
@@ -513,4 +522,18 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     }
 
     func liveTargets(_ server: LinkServer) -> [LiveTarget] { targets }
+
+    func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {
+        watch.set(target.map(Self.named), for: peerID)
+    }
+
+    func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {
+        watch.perform(action, for: peerID)
+    }
+
+    /// The menu's Stop: stop sending this phone pictures and tell it.
+    func stopWatching(_ peerID: UUID) {
+        watch.stop(peerID)
+        Task { await server.send(.watchState(.stopped), to: peerID) }
+    }
 }

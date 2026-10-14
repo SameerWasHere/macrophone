@@ -69,6 +69,8 @@ final class AppModel: ObservableObject {
 
     let settings = Settings()
     let recorder = Recorder()
+    /// The picked app's window, live (Watching).
+    let watcher = Watcher()
     let queue = DeliveryQueue(url: AppFiles.queue)
     let log = DiagnosticLog(url: AppFiles.log)
     private let history: HistoryStore<HistoryItem>
@@ -127,6 +129,9 @@ final class AppModel: ObservableObject {
         linkState = client.state
         pairedMac = client.activeMac
         recorder.log = log
+        watcher.log = log
+        watcher.sendWatch = { [weak self] t in self?.client.watch(t) ?? false }
+        watcher.sendAction = { [weak self] a in self?.client.watchAction(a) }
         recorder.onFinish = { [weak self] outcome in self?.recordingFinished(outcome) }
         recorder.$phase.sink { [weak self] in self?.recorderPhase = $0 }.store(in: &bag)
         recorder.$softCapReached.filter { $0 }.sink { [weak self] _ in
@@ -234,6 +239,7 @@ final class AppModel: ObservableObject {
             if pendingStart { pendingStart = false; Task { await startRecording(override: recordingOverride) } }
         case .background:
             sceneActive = false
+            watcher.pause()
             enterBackground()
         default:
             break
@@ -571,6 +577,10 @@ final class AppModel: ObservableObject {
         status = .landed(l)
         if l.isSuccess { Haptics.success() } else { Haptics.error() }
         bumpPulse()
+        // Sent into an app: show its window, so the answer can be read (and approved) from here.
+        if result == .sent, settings.watchAfterSending, let t = it.dictation.target, t != .clipboard, sceneActive {
+            watcher.follow(t)
+        }
     }
 
     /// This Mac has told the phone where a dictation landed before (so silence means something).
@@ -974,6 +984,7 @@ extension AppModel: LinkClientDelegate {
         linkState = state
         pairedMac = client.activeMac
         if case .connected = state { flushQueue() } else { targetsCurrent = false }
+        if case .connected = state { watcher.linkChanged(connected: true) } else { watcher.linkChanged(connected: false) }
     }
 
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac]) {
@@ -1027,6 +1038,16 @@ extension AppModel: LinkClientDelegate {
         default: if !waiting { return }
         }
         showLanding(id, late: awaitingLanding?.late ?? (item(id)?.wasDelayed ?? false))
+    }
+
+    func linkClient(_ client: LinkClient, watchState: WatchState) {
+        guard client === self.client else { return }
+        watcher.received(watchState)
+    }
+
+    func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {
+        guard client === self.client else { return }
+        watcher.received(watchFrame)
     }
 
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {

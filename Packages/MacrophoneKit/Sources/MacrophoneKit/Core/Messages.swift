@@ -104,6 +104,14 @@ public enum Message: Codable, Sendable {
     /// Either way: the shared Send-to choice changed. The phone sends its own right after
     /// welcome, so on reconnect the phone's choice wins.
     case selection(SendSelection)
+    /// Phone → Mac: show this place's window (nil = stop watching).
+    case watch(TargetRef?)
+    /// Phone → Mac: a one-tap action on the watched window.
+    case watchAction(WatchAction)
+    /// Mac → phone: how watching is going.
+    case watchState(WatchState)
+    /// Mac → phone: the window, when it changed.
+    case watchFrame(WatchFrame)
     // Either way
     case ping
     case pong

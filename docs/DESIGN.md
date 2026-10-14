@@ -68,6 +68,20 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   sit on the ground); a tinted pick's label is dark ink; Increase Contrast adds a firm 1pt edge.
   The mic is a disc inside the spectrum ring, ember while it listens (same size, never moves).
 
+- **Watching (phone, Oct 14 2026):** the picked app's window, live, in the area above the Thread
+  (the mic, the Thread and the status line don't move). It opens by itself after a dictation is
+  *sent* into an app (Settings › Show the app after sending, on by default) or from **Watch** beside
+  the Send to name; Done closes it. Top to bottom: a mono kicker ("● LIVE · CLAUDE", cyan dot) with
+  Done, the window on a raised plate (radius 14, hairline) — opening on the column you type in
+  (the Mac sends the composer's frame as `focus`) at the bottom, staying pinned as pictures arrive
+  until you pinch or drag; double-tap zooms in there or back — then glass actions: ↑ ↓ (scroll a
+  page), **Approve / Stop** for terminals and agent apps (`WatchApps`; Return / Esc elsewhere), and
+  **Copy** (the words on screen, read on the phone with Vision). Holding the mic shrinks the window
+  to a strip (the bottom of it) above the transcript. States over the dimmed picture: Opening,
+  Paused to save battery (two idle minutes or the app left the screen; Resume), Mac not connected,
+  Screen Recording needed (one button opens the setting on the Mac), unavailable with why
+  ("Claude's window is minimized or on another desktop" + Show it on my Mac).
+
 ## Voice of the words
 
 Plain, short, sentence case, no jargon, never cut with "…" (wrap instead). Status lines say

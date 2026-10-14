@@ -3,9 +3,10 @@ import Foundation
 import Network
 
 /// Length-prefixed frames over one NWConnection, with async send/receive.
-/// Frames are capped at 1 MB — a dictation is a few KB at most.
+/// Frames are capped at 2 MB — a dictation is a few KB; a watched window's picture a few
+/// hundred (the Mac keeps each under 900 KB of JPEG).
 public final class FramedConnection: @unchecked Sendable {
-    public static let maxFrame = 1 << 20
+    public static let maxFrame = 2 << 20
 
     public let connection: NWConnection
     private let queue: DispatchQueue

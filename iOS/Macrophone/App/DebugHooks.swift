@@ -44,6 +44,8 @@ import UIKit
 /// MACROPHONE_RESEND_LATEST=1                 resend the last dictation (same id) after a few seconds
 /// MACROPHONE_RECORD=<seconds>                really record from the mic for that long, then stop
 /// MACROPHONE_PAIRING=connecting|code|paired|failed|expired  the pairing panel in that phase
+/// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
+/// MACROPHONE_WATCH_ACTIONS=a,b,c             …then tap these (scrollUp, returnKey, escape, copy) 2 s apart
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
@@ -196,6 +198,22 @@ enum DebugHooks {
             Task {
                 for _ in 0..<40 where !model.discoveredMacs.contains(where: { $0.name == name }) { try? await Task.sleep(nanoseconds: 250_000_000) }
                 if let mac = model.discoveredMacs.first(where: { $0.name == name }) { await model.pairWithCode(mac) }
+            }
+        }
+        if env["MACROPHONE_WATCH"] == "1" {
+            Task {
+                for _ in 0..<60 where !model.isConnected { try? await Task.sleep(nanoseconds: 250_000_000) }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                model.watcher.open(model.selection.target)
+                for a in (env["MACROPHONE_WATCH_ACTIONS"] ?? "").split(separator: ",").map(String.init) {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if a == "copy" {
+                        let n = await model.watcher.copyVisibleText()
+                        model.explain("Copied \(n) lines from \(model.watcher.name)", for: 30)
+                    } else if let action = WatchAction(rawValue: a) {
+                        model.watcher.perform(action)
+                    }
+                }
             }
         }
         if env["MACROPHONE_RESEND_LATEST"] == "1" {

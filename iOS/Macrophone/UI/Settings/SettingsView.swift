@@ -67,12 +67,19 @@ struct SettingsView: View {
                 }
             }
             .disabled(!settings.selection.target.canSend)
+            Toggle(isOn: $settings.watchAfterSending) {
+                HStack(spacing: 10) {
+                    Image(systemName: "eye").foregroundStyle(Light.cyan).accessibilityHidden(true)
+                    Text("Show the app after sending").fixedSize(horizontal: false, vertical: true)
+                }
+            }
         } header: {
             Text("Send to")
         } footer: {
-            Text(settings.selection.target.canSend
+            Text((settings.selection.target.canSend
                  ? "Your Mac presses the app's send key after pasting, after a short countdown you can cancel. The choice is the same on your Mac: change it in either place."
                  : "\(settings.selection.target.displayName) can't send — sending after pasting is for apps. The choice is the same on your Mac: change it in either place.")
+                 + " After sending, your iPhone shows that app's window live, so you can read the answer and approve or stop it. Only that window, and only while you look.")
         }
         .listRowBackground(Ink.raised)
     }

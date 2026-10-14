@@ -145,23 +145,40 @@ struct PlacesRow: View {
         let selected = places.first { $0.holds(current) }?.id
         let notOpen = model.isNotOpen(current)
         VStack(alignment: .leading, spacing: compact ? 8 : 10) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("SEND TO")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Ink.tertiary)
-                (Text(current.displayName).foregroundColor(Ink.ink)
-                 + (notOpen ? Text("  Not open on your Mac").font(.subheadline).foregroundColor(Light.ochre) : Text("")))
-                    .font(.headline)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
-                    .animation(Motion.snap, value: current)
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("SEND TO")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Ink.tertiary)
+                    (Text(current.displayName).foregroundColor(Ink.ink)
+                     + (notOpen ? Text("  Not open on your Mac").font(.subheadline).foregroundColor(Light.ochre) : Text("")))
+                        .font(.headline)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .contentTransition(.opacity)
+                        .animation(Motion.snap, value: current)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Send to: \(current.displayName)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : ""))
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("send-to")
+                Spacer(minLength: 0)
+                // See the picked app's window on the Mac (an app or Where I'm typing, while connected).
+                if current != .clipboard, model.isConnected, !notOpen {
+                    Button {
+                        Haptics.tick()
+                        model.watcher.open(current)
+                    } label: {
+                        Label("Watch", systemImage: "eye").font(.subheadline.weight(.semibold)).fixedSize()
+                    }
+                    .nativeGlassButton()
+                    .controlSize(.small)
+                    .accessibilityHint("Shows \(Places.appName(current, in: model))'s window on your Mac, live.")
+                    .accessibilityIdentifier("watch")
+                    .transition(.opacity)
+                }
             }
             .padding(.horizontal, 16)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Send to: \(current.displayName)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : ""))
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("send-to")
 
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {

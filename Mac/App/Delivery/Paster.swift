@@ -328,7 +328,7 @@ enum Paster {
 
     /// Brings the app forward with this window on top (switching desktops if that's where it
     /// is) and returns the window.
-    private static func bringToFront(_ running: NSRunningApplication, windowID: CGWindowID?, required: Bool, name: String) async throws -> AXUIElement? {
+    static func bringToFront(_ running: NSRunningApplication, windowID: CGWindowID?, required: Bool, name: String) async throws -> AXUIElement? {
         let ax = AX.app(running.processIdentifier)
         let bid = running.bundleIdentifier
         // Raise the window first, so activating the app brings this one.
