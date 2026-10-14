@@ -1,8 +1,11 @@
 # Macrophone
 
-Free iPhone app + companion Mac app: dictate on the phone, text lands on the Mac (clipboard,
-the focused app, a chosen app, a script, a webhook, or an agent via the local API / CLI / MCP).
-The spec is `docs/SPEC.md`. Push to `main`.
+Free iPhone app + companion Mac app: dictate on the phone, pick any app open on the Mac (or the
+clipboard, or wherever you're typing), and the text is pasted there — or pasted and sent — at the
+cleanup level you choose (Off · Light · Medium · Heavy · Custom). Agents can pull dictations through
+a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automations, snippets,
+templates and the Delivery pane were removed on purpose — don't bring them back unasked).
+The original spec is `docs/SPEC.md`. Push to `main`.
 
 ## Layout
 
