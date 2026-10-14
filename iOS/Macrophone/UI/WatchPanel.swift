@@ -9,8 +9,8 @@ import UIKit
 //   │  the window, pinned to its newest output │  tap = a click there on the Mac;
 //   │  (centred on the column you type in)     │  pinch to zoom, drag to look around
 //   └──────────────────────────────────── [Newest] (once you've moved away)
-//   [↑] [↓]   [Approve]  [Stop]  [Copy]           Approve only while a question is on screen;
-//                                                 Stop only in Claude, Codex and terminals
+//   [ Esc ] [ ↑ ] [ ↓ ] [ Return ]                 the same keys in every app: move through a
+//                                                 menu, confirm, back out
 //
 // The mic, the Thread and the status line don't move. Holding the mic shrinks the window to a
 // strip at the top, so the question stays in view while the words take the rest.
@@ -112,7 +112,7 @@ struct WatchWindow: View {
             Ink.raised
             if let image = watcher.image {
                 WindowViewer(image: image, focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
-                             onVisible: { watcher.visibleRect = $0 }, onTouch: { watcher.touch() },
+                             onTouch: { watcher.touch() },
                              onTap: { watcher.click($0) }, onAdjusted: { moved in if moved != adjusted { adjusted = moved } })
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? "Tap to click there on your Mac. Pinch to zoom." : "")
@@ -230,87 +230,31 @@ struct WatchStrip: View {
     }
 }
 
-/// Scroll up, scroll down, Return (Approve), Esc (Stop), Copy.
+/// Esc · ↑ · ↓ · Return — the same four keys in every app (Sameer, Oct 14 2026: "basic things
+/// that allow the user to navigate very quickly or confirm things very quickly").
 struct WatchActions: View {
-    @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            row(words: true)
-            row(words: false)
+        HStack(spacing: 8) {
+            key(.escape, label: Text("Esc"), name: "Escape")
+            key(.arrowUp, label: Image(systemName: "arrow.up"), name: "Up arrow")
+            key(.arrowDown, label: Image(systemName: "arrow.down"), name: "Down arrow")
+            key(.returnKey, label: Image(systemName: "return"), name: "Return")
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
-    private func row(words: Bool) -> some View {
-        HStack(spacing: 8) {
-            icon("arrow.up", "Scroll up", .scrollUp)
-            icon("arrow.down", "Scroll down", .scrollDown)
-            Spacer(minLength: 0)
-            // Only while a question is on screen ("Do you want to make this edit?", "Allow once").
-            if let a = watcher.approval {
-                Button { watcher.approve() } label: {
-                    Text("Approve").font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
-                }
-                .watchProminentButton()
-                .accessibilityHint(a.point == nil ? "Presses Return in \(watcher.name) — picks “\(a.label)”."
-                                                  : "Clicks “\(a.label)” in \(watcher.name).")
-                .accessibilityIdentifier("watch-approve")
-                .transition(.scale(scale: 0.85).combined(with: .opacity))
-            }
-            if watcher.agentLike {
-                action("Stop", "stop.fill", .escape, words: words,
-                       hint: "Presses Esc in \(watcher.name) — stops what it's doing.")
-            }
-            Button { copy() } label: { label("Copy", "doc.on.doc", words: words) }
-                .nativeGlassButton()
-                .accessibilityLabel("Copy")
-                .accessibilityHint("Copies the words on screen to this iPhone.")
-                .accessibilityIdentifier("watch-copy")
-        }
-        .animation(Motion.snap, value: watcher.approval)
-    }
-
-    private func icon(_ symbol: String, _ name: String, _ a: WatchAction) -> some View {
+    private func key<L: View>(_ a: WatchAction, label: L, name: String) -> some View {
         Button { watcher.perform(a) } label: {
-            Image(systemName: symbol).font(.body.weight(.semibold)).frame(width: 22, height: 22)
+            label
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 28)
         }
         .nativeGlassButton()
-        .buttonBorderShape(.circle)
         .accessibilityLabel(name)
+        .accessibilityHint("Presses \(name) in \(watcher.name) on your Mac.")
         .accessibilityIdentifier("watch-\(a.rawValue)")
-    }
-
-    private func action(_ title: String, _ symbol: String, _ a: WatchAction, words: Bool, hint: String) -> some View {
-        Button { watcher.perform(a) } label: { label(title, symbol, words: words) }
-            .nativeGlassButton()
-            .accessibilityLabel(title)
-            .accessibilityHint(hint)
-            .accessibilityIdentifier("watch-\(a.rawValue)")
-    }
-
-    @ViewBuilder private func label(_ title: String, _ symbol: String, words: Bool) -> some View {
-        if words {
-            // Words alone: "Approve" and "Stop" have to read at a glance (icons alone didn't).
-            Text(title).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
-        } else {
-            Image(systemName: symbol).font(.body.weight(.semibold)).frame(width: 22, height: 22)
-        }
-    }
-
-    private func copy() {
-        Haptics.tick()
-        Task {
-            let n = await watcher.copyVisibleText()
-            if n > 0 {
-                Haptics.success()
-                model.explain(n == 1 ? "Copied the line on screen" : "Copied \(n) lines from \(watcher.name)")
-            } else {
-                Haptics.warning()
-                model.explain("No words to copy on screen — zoom in on them, then Copy")
-            }
-        }
     }
 }
 
@@ -335,7 +279,6 @@ struct WindowViewer: UIViewRepresentable {
     var focus: CGRect?
     var recenter: Int
     var interactive: Bool
-    var onVisible: (CGRect) -> Void
     var onTouch: () -> Void
     var onTap: (CGPoint) -> Void
     var onAdjusted: (Bool) -> Void
@@ -352,7 +295,6 @@ struct WindowViewer: UIViewRepresentable {
     }
 
     private func wire(_ v: ViewerScrollView) {
-        v.onVisible = onVisible
         v.onTouch = onTouch
         v.onTap = onTap
         v.onAdjusted = onAdjusted
@@ -367,7 +309,6 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     private var adjusted = false { didSet { if adjusted != oldValue { onAdjusted(adjusted) } } }
     private var lastRecenter: Int?
     private var lastBounds: CGSize = .zero
-    var onVisible: (CGRect) -> Void = { _ in }
     var onTouch: () -> Void = {}
     var onTap: (CGPoint) -> Void = { _ in }
     var onAdjusted: (Bool) -> Void = { _ in }
@@ -458,7 +399,6 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         }
         if animated { UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply) }
         else { apply() }
-        reportVisible()
     }
 
     /// A picture smaller than the view sits in the middle of it.
@@ -466,13 +406,6 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         let w = imageSize.width * zoomScale, h = imageSize.height * zoomScale
         let dx = max(0, (bounds.width - w) / 2), dy = max(0, (bounds.height - h) / 2)
         contentInset = UIEdgeInsets(top: dy, left: dx, bottom: dy, right: dx)
-    }
-
-    private func reportVisible() {
-        guard imageSize.width > 0 else { return }
-        let r = convert(bounds, to: imageView)
-        onVisible(CGRect(x: r.minX / imageSize.width, y: r.minY / imageSize.height,
-                         width: r.width / imageSize.width, height: r.height / imageSize.height))
     }
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
@@ -515,6 +448,5 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { adjusted = true; onTouch() }
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) { adjusted = true; onTouch() }
-    func scrollViewDidZoom(_ scrollView: UIScrollView) { centerIfSmall(); reportVisible() }
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { reportVisible() }
+    func scrollViewDidZoom(_ scrollView: UIScrollView) { centerIfSmall() }
 }

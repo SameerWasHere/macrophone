@@ -45,8 +45,7 @@ import UIKit
 /// MACROPHONE_RECORD=<seconds>                really record from the mic for that long, then stop
 /// MACROPHONE_PAIRING=connecting|code|paired|failed|expired  the pairing panel in that phase
 /// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
-/// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: scrollUp, returnKey, escape, copy,
-///                                            approve (waits up to 20 s for the question, then taps it), offered (only waits),
+/// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
 ///                                            tap@0.2@0.5 (a click there)
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -209,15 +208,9 @@ enum DebugHooks {
                 model.watcher.open(model.selection.target)
                 for a in (env["MACROPHONE_WATCH_ACTIONS"] ?? "").split(separator: ",").map(String.init) {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    if a == "approve" || a == "offered" {
-                        for _ in 0..<80 where model.watcher.approval == nil { try? await Task.sleep(nanoseconds: 250_000_000) }
-                        if a == "approve" { model.watcher.approve() }
-                    } else if a.hasPrefix("tap@") {
+                    if a.hasPrefix("tap@") {
                         let xy = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if xy.count == 2 { model.watcher.click(CGPoint(x: xy[0], y: xy[1])) }
-                    } else if a == "copy" {
-                        let n = await model.watcher.copyVisibleText()
-                        model.explain("Copied \(n) lines from \(model.watcher.name)", for: 30)
                     } else if let action = WatchAction(rawValue: a) {
                         model.watcher.perform(action)
                     }

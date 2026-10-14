@@ -44,35 +44,19 @@ public enum WatchState: Codable, Sendable, Equatable {
 }
 
 /// A one-tap action on the watched window. Each brings the window forward first.
+/// The phone's key row is Esc · ↑ · ↓ · Return (Oct 14 2026): the same keys in every app — move
+/// through a menu, confirm, back out.
 public enum WatchAction: String, Codable, Sendable, CaseIterable {
     case scrollUp
     case scrollDown
-    /// Return — approves a prompt in Claude Code, sends in most chat apps.
+    case arrowUp
+    case arrowDown
+    /// Return — picks the highlighted choice in Claude Code, sends in most chat apps.
     case returnKey
-    /// Esc — stops Claude Code.
+    /// Esc — backs out, or stops Claude Code.
     case escape
     /// Bring the window forward (it was minimized or on another desktop).
     case reveal
     /// Open Privacy & Security › Screen Recording on the Mac.
     case openScreenRecordingSettings
-}
-
-public enum WatchApps {
-    /// Terminals, where Claude Code and other agents run: Return approves, Esc stops.
-    public static let terminals: Set<String> = [
-        "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "dev.warp.Warp-Stable",
-        "dev.warp.Warp", "net.kovidgoyal.kitty", "io.alacritty", "org.alacritty", "com.github.wez.wezterm",
-        "co.zeit.hyper", "org.tabby", "com.raphaelamorim.rio",
-    ]
-
-    /// Agent apps whose permission prompts take Return / Esc.
-    public static let agents: Set<String> = [
-        "com.anthropic.claudefordesktop", "com.openai.codex", "com.todesktop.230313mzl4w4u92", // Cursor
-        "com.microsoft.VSCode", "com.exafunction.windsurf",
-    ]
-
-    public static func isAgentLike(_ bundleID: String?) -> Bool {
-        guard let b = bundleID else { return false }
-        return terminals.contains(b) || agents.contains(b)
-    }
 }

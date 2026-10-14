@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 
 /// Watching (Oct 14 2026): a connected phone asks to see the window of the place it sends to, and
 /// this sends it pictures of that one window — about two a second, and only when it changed —
-/// plus four one-tap actions (scroll up, scroll down, Return, Esc). Never the whole screen,
+/// plus the phone's keys (Esc, ↑, ↓, Return) and clicks where it's tapped. Never the whole screen,
 /// never another window; it stops when the phone stops looking or goes away.
 ///
 /// Needs Screen Recording for the pictures (the phone says so and can open the setting here) and
@@ -265,6 +265,8 @@ final class WatchService {
             switch action {
             case .returnKey: Keys.press(CGKeyCode(kVK_Return), flags: [])
             case .escape: Keys.press(CGKeyCode(kVK_Escape), flags: [])
+            case .arrowUp: Keys.press(CGKeyCode(kVK_UpArrow), flags: [.maskNumericPad, .maskSecondaryFn])
+            case .arrowDown: Keys.press(CGKeyCode(kVK_DownArrow), flags: [.maskNumericPad, .maskSecondaryFn])
             case .scrollUp, .scrollDown: await Self.scroll(window: wid, up: action == .scrollUp)
             case .reveal, .openScreenRecordingSettings: break
             }

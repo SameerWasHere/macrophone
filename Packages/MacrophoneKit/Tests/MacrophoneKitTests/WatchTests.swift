@@ -28,11 +28,4 @@ final class WatchTests: XCTestCase {
             }
         }
     }
-
-    func testAgentLikeApps() {
-        XCTAssertTrue(WatchApps.isAgentLike("com.apple.Terminal"))
-        XCTAssertTrue(WatchApps.isAgentLike("com.anthropic.claudefordesktop"))
-        XCTAssertFalse(WatchApps.isAgentLike("com.apple.MobileSMS"))
-        XCTAssertFalse(WatchApps.isAgentLike(nil))
-    }
 }

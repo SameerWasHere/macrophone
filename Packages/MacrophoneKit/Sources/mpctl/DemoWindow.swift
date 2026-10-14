@@ -50,7 +50,7 @@ final class DemoWindow: @unchecked Sendable {
                     next += 1
                 } else { lines.append("") }
             case .escape: lines.append(contentsOf: ["", "⎿ Interrupted by user"])
-            case .reveal, .openScreenRecordingSettings: break
+            case .arrowUp, .arrowDown, .reveal, .openScreenRecordingSettings: break
             }
         }
     }

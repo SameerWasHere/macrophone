@@ -75,11 +75,9 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   Done, the window on a raised plate (radius 14, hairline) — opening on the column you type in
   (the Mac sends the composer's frame as `focus`) at the bottom, staying pinned as pictures arrive
   until you pinch or drag (then a **Newest** button brings it back). **A tap is a click there on
-  the Mac** (a cyan ring shows where), so you can switch sessions in Claude's sidebar. Then glass
-  actions: ↑ ↓ (scroll a page), **Approve** — only while a question is on screen (the phone reads
-  the picture with Vision: a terminal agent's "Do you want…? ❯ 1. Yes" → Return; an app's "Allow
-  once" / "Approve" / "Accept" button → a click on it; prominent cyan) — **Stop** (Esc) in Claude,
-  Codex, Cursor and terminals (`WatchApps`), and **Copy** (the words on screen). Holding the mic shrinks the window
+  the Mac** (a cyan ring shows where), so you can switch sessions in Claude's sidebar. Under it, **four keys, the same in every app: Esc · ↑ · ↓ · Return**
+  (Sameer: basic keys to move through a menu, confirm or back out — Approve / Stop / Copy were
+  removed the same day; a key brings the view back to the newest output). Holding the mic shrinks the window
   to a strip (the bottom of it) above the transcript. States over the dimmed picture: Opening,
   Paused to save battery (two idle minutes or the app left the screen; Resume), Mac not connected,
   Screen Recording needed (one button opens the setting on the Mac), unavailable with why

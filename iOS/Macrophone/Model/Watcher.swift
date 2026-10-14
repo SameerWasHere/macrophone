@@ -1,10 +1,9 @@
 import MacrophoneKit
 import SwiftUI
 import UIKit
-import Vision
 
 /// Watching (Oct 14 2026): the picked app's window on the Mac, live, in the area above the
-/// Thread — with scroll, Return, Esc and Copy. It opens after a dictation is sent into an app
+/// Thread — a tap clicks there, and a key row sends Esc, ↑, ↓ and Return. It opens after a dictation is sent into an app
 /// (Settings › Show the app after sending) or from the Watch button by Send to; it pauses after
 /// two idle minutes or when the app leaves the screen, and Done closes it.
 @MainActor
@@ -34,20 +33,6 @@ final class Watcher: ObservableObject {
     @Published private(set) var target: TargetRef?
     /// Bumped when the person asks for the view to go back to the newest output.
     @Published private(set) var recenter = 0
-    /// A question on screen that Approve answers ("Do you want to make this edit? ❯ 1. Yes",
-    /// an "Allow once" button) — read off the picture here. Nil = Approve isn't offered.
-    @Published private(set) var approval: Approval?
-
-    struct Approval: Equatable {
-        /// The words it found ("1. Yes", "Allow once").
-        var label: String
-        /// Where to click, as a fraction of the window; nil = press Return (a terminal's menu).
-        var point: CGPoint?
-    }
-
-    /// The part of the picture on screen (fractions of it), for Copy.
-    var visibleRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-
     /// Sends the watch request to the Mac; false when it isn't connected.
     var sendWatch: (TargetRef?) -> Bool = { _ in false }
     var sendAction: (WatchAction) -> Void = { _ in }
@@ -56,15 +41,7 @@ final class Watcher: ObservableObject {
 
     private var idleTask: Task<Void, Never>?
     private var newestSeq = 0
-    private var scanning = false
-    private var rescan = false
-    private var lastScan = Date.distantPast
-    /// Just answered: don't offer Approve again until the app has had a moment.
-    private var quietUntil = Date.distantPast
     static let idleLimit: TimeInterval = 120
-
-    /// Terminals and agent apps: Return approves, Esc stops.
-    var agentLike: Bool { WatchApps.isAgentLike(bundleID ?? target?.bundleID) }
 
     /// "Claude" — what the header calls it before the Mac has answered.
     var name: String {
@@ -82,7 +59,6 @@ final class Watcher: ObservableObject {
         self.target = target
         if switching {
             image = nil
-            approval = nil
             appName = ""
             bundleID = target.bundleID
             focus = nil
@@ -96,7 +72,6 @@ final class Watcher: ObservableObject {
     func close() {
         guard isOpen else { return }
         isOpen = false
-        approval = nil
         idleTask?.cancel()
         _ = sendWatch(nil)
         log?.add("watching closed")
@@ -114,7 +89,6 @@ final class Watcher: ObservableObject {
         guard isOpen, phase != .paused else { return }
         idleTask?.cancel()
         _ = sendWatch(nil)
-        approval = nil
         phase = .paused
         log?.add("watching paused")
     }
@@ -139,8 +113,8 @@ final class Watcher: ObservableObject {
         touch()
         Haptics.tick()
         sendAction(action)
-        if action == .scrollDown || action == .returnKey || action == .escape { recenter &+= 1 }
-        if action == .returnKey || action == .escape { settleApproval() }
+        // The answer to a key shows at the bottom of the window: go back there.
+        recenter &+= 1
     }
 
     /// A tap on the picture: click there on the Mac.
@@ -148,22 +122,6 @@ final class Watcher: ObservableObject {
         touch()
         Haptics.tick()
         sendClick(p)
-    }
-
-    /// Answer the question on screen: press Return in a terminal, click the button elsewhere.
-    func approve() {
-        guard let a = approval else { return }
-        touch()
-        Haptics.tick()
-        if let p = a.point { sendClick(p) } else { sendAction(.returnKey) }
-        recenter &+= 1
-        settleApproval()
-        log?.add("watching: approved")
-    }
-
-    private func settleApproval() {
-        approval = nil
-        quietUntil = Date().addingTimeInterval(1.5)
     }
 
     func showNewest() {
@@ -201,27 +159,6 @@ final class Watcher: ObservableObject {
             self.bundleID = frame.bundleID
             self.focus = frame.focus
             self.phase = .live
-            self.scanForQuestion()
-        }
-    }
-
-    /// Reads the newest picture for a question Approve can answer — at most about once a second,
-    /// off the main thread.
-    private func scanForQuestion() {
-        guard !scanning else { rescan = true; return }
-        scanning = true
-        Task {
-            let wait = max(0, 1.0 - Date().timeIntervalSince(lastScan))
-            if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1e9)) }
-            if let cg = image?.cgImage, isOpen, phase == .live {
-                let terminal = WatchApps.terminals.contains(bundleID ?? "")
-                let found = await Task.detached(priority: .utility) { QuestionReader.find(in: cg, terminal: terminal) }.value
-                lastScan = Date()
-                let next = Date() < quietUntil ? nil : found
-                if next != approval { approval = next }
-            }
-            scanning = false
-            if rescan { rescan = false; scanForQuestion() }
         }
     }
 
@@ -239,72 +176,5 @@ final class Watcher: ObservableObject {
     func follow(_ target: TargetRef) {
         if isOpen, self.target == target, phase != .paused { recenter &+= 1; return }
         open(target)
-    }
-
-    // MARK: Copy
-
-    /// The words in the part of the window on screen, read here on the iPhone. Returns the number
-    /// of lines copied (0 = nothing readable).
-    func copyVisibleText() async -> Int {
-        touch()
-        guard let cg = image?.cgImage else { return 0 }
-        let r = visibleRect.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
-        let crop = CGRect(x: r.minX * CGFloat(cg.width), y: r.minY * CGFloat(cg.height),
-                          width: r.width * CGFloat(cg.width), height: r.height * CGFloat(cg.height)).integral
-        let part = cg.cropping(to: crop) ?? cg
-        let lines: [String] = await Task.detached(priority: .userInitiated) {
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            try? VNImageRequestHandler(cgImage: part).perform([request])
-            let observations = request.results ?? []
-            // Top to bottom (Vision's origin is bottom-left).
-            return observations.sorted { $0.boundingBox.minY > $1.boundingBox.minY }
-                .compactMap { $0.topCandidates(1).first?.string }
-        }.value
-        guard !lines.isEmpty else { return 0 }
-        UIPasteboard.general.string = lines.joined(separator: "\n")
-        return lines.count
-    }
-}
-
-/// Finds a question waiting for a yes in a window's picture: a terminal agent's menu ("Do you
-/// want to make this edit? ❯ 1. Yes") or an app's approve button ("Allow once"). Only the lower
-/// part of the window is read — that's where the newest output and its question are.
-enum QuestionReader {
-    /// Buttons that approve, best first (matched as the button's whole text).
-    static let buttons = ["allow once", "allow for this chat", "allow for this session", "allow for session",
-                          "always allow", "allow always", "approve", "accept", "allow", "yes, allow", "yes"]
-
-    nonisolated static func find(in image: CGImage, terminal: Bool) -> Watcher.Approval? {
-        let top = 0.3
-        let rect = CGRect(x: 0, y: Double(image.height) * top, width: Double(image.width), height: Double(image.height) * (1 - top)).integral
-        guard let part = image.cropping(to: rect) else { return nil }
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-        try? VNImageRequestHandler(cgImage: part).perform([request])
-        let lines: [(text: String, center: CGPoint)] = (request.results ?? []).compactMap { o in
-            guard let t = o.topCandidates(1).first?.string else { return nil }
-            let b = o.boundingBox  // normalized to the part, origin bottom-left
-            return (t, CGPoint(x: b.midX, y: top + (1 - b.midY) * (1 - top)))
-        }
-        // A terminal agent's menu: "1. Yes" under a question.
-        let yes = lines.last { l in
-            l.text.range(of: #"^\W{0,3}\s*1[.)]\s*Yes\b"#, options: [.regularExpression, .caseInsensitive]) != nil
-        }
-        let asking = lines.contains { l in
-            let t = l.text.lowercased()
-            return t.contains("do you want") || t.contains("would you like") || t.contains("(esc)") || t.contains("proceed?")
-        }
-        if let yes, asking { return Watcher.Approval(label: "1. Yes", point: terminal ? nil : yes.center) }
-        guard !terminal else { return nil }
-        // An app's approve button.
-        for word in buttons {
-            if let b = lines.last(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == word }) {
-                return Watcher.Approval(label: b.text, point: b.center)
-            }
-        }
-        return nil
     }
 }
