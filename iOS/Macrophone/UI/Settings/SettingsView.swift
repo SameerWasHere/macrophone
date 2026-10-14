@@ -93,8 +93,8 @@ struct SettingsView: View {
     private var cleanupSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
-                // The same five steps as by the mic.
-                CleanupSteps(settings: settings) { path.append(.customCleanup) }
+                // The same five levels as by the mic.
+                CleanupPicker(settings: settings)
                 Text(cleanupDisabledReason ?? levelSummary)
                     .font(.footnote)
                     .foregroundStyle(cleanupDisabledReason == nil ? Ink.secondary : Light.ochre)

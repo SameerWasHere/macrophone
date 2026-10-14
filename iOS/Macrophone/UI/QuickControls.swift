@@ -1,196 +1,71 @@
 import MacrophoneKit
 import SwiftUI
-import UIKit
 
-// The controls by the mic (Oct 13 2026, the elegance pass). Sameer: "The selecting where it goes
-// and other toggles can be way better and more intuitive." The three things he changes on the fly
-// are each glanceable and one tap, with no sheet for the common case:
+// The controls by the mic (Oct 13 2026, the native pass). Sameer: "These selectors are bad overall
+// in clarity, looks and in placement on the screen for easy reach. This is not native Liquid Glass."
+// So: one grouped panel in thumb reach, above the Thread, built from Apple's own controls —
 //
 //   ┌──────────────────────────────────────────────┐
-//   │  (📋) (⌖) [ Claude ] (💬) (>_) (📝)   (⋯)     │  the dock: the Mac's open apps
-//   │                ━━                            │  the lit one is where it goes
-//   │  Send to Claude ⌄        Send after pasting [ ●] │
-//   │  ✦ Cleanup  Off  Light [Medium] Heavy  Custom │
+//   │ SEND TO                                      │
+//   │ Claude                                       │
+//   │ [📋] [⌖] [✦] [💬] [>_] [📝] →               │  native glass buttons; the pick is
+//   │ Clipboard  Where I'm typing  Claude  …       │  .glassProminent (tinted), on a material plate
+//   ├──────────────────────────────────────────────┤
+//   │ Send after pasting                     [ ●]  │  a native Toggle
+//   │ Presses Return in Claude after pasting       │
+//   ├──────────────────────────────────────────────┤
+//   │ Cleanup                                      │
+//   │ [ Off | Light | Medium | Heavy | Custom ]    │  a native segmented Picker
+//   │ Medium — fixes grammar and false starts      │
 //   └──────────────────────────────────────────────┘
 //
-// 1. Where — a dock of the Mac's open apps as their own icons, like the Mac's Dock: Clipboard and
-//    Where I'm typing first, then the apps newest first. The pick is lifted and lit with a bar
-//    under it; a tap picks another. An app with several windows wears a count and a long-press
-//    lists them; the end-cap (and the name under the dock) opens every place and window. While he
-//    talks, an app said first lights in ember.
-// 2. Send after pasting — a labelled on/off switch. Remembered per place and
-//    synced with the Mac (`SendSelection`). Where it can't apply it says why.
-// 3. Cleanup — Off · Light · Medium · Heavy · Custom, all five visible, one tap each. Custom follows
-//    his own instructions (Medium's until he edits them): tapping it again, or a long-press, opens them.
-//
-// Every change ticks, applies to the next dictation (or the one being recorded) and goes to the Mac
-// at once, and the status line under the mic says in a sentence what it now does.
+// Every change ticks, applies to the next dictation and goes to the Mac at once; the status line
+// under the mic says in a sentence what it now does.
 
-// MARK: Places on the dock
+// MARK: Places
 
-/// One icon on the dock: a place, or an app standing for its windows.
-struct DockPlace: Identifiable, Equatable {
+/// One button in the Send to row: a place, or an app standing for its windows.
+struct PlaceOption: Identifiable, Equatable {
     enum Kind: Equatable { case clipboard, front, app, closed }
     var id: String
     var kind: Kind
     /// What a tap picks (for an app with several windows, its newest).
     var target: TargetRef
+    /// The full name ("Terminal — claude"), for VoiceOver and the window menu.
     var name: String
+    /// The one-line name under the icon ("Terminal").
+    var shortName: String
     var icon: Data?
-    /// An app's windows with somewhere to type, newest first (two or more get a count and a menu).
+    /// An app's windows with somewhere to type, newest first (two or more get a menu).
     var windows: [LiveTarget] = []
 
     func holds(_ t: TargetRef) -> Bool { target == t || windows.contains { t.matches($0) } }
 }
 
 extension AppModel {
-    /// Clipboard, Where I'm typing, the picked app if it closed (so the pick is always on the dock),
-    /// then the Mac's open apps — one icon per app, newest first.
-    func dockPlaces(current: TargetRef) -> [DockPlace] {
-        var out = [DockPlace(id: "clipboard", kind: .clipboard, target: .clipboard, name: "Clipboard"),
-                   DockPlace(id: "front", kind: .front, target: .frontApp, name: "Where I'm typing")]
+    /// Clipboard, Where I'm typing, the picked app if it closed (so the pick is always in the row),
+    /// then the Mac's open apps — one button per app, newest first.
+    func placeOptions(current: TargetRef) -> [PlaceOption] {
+        var out = [PlaceOption(id: "clipboard", kind: .clipboard, target: .clipboard, name: "Clipboard", shortName: "Clipboard"),
+                   PlaceOption(id: "front", kind: .front, target: .frontApp, name: "Where I'm typing", shortName: "Where I'm typing")]
         if case .app = current, liveTarget(for: current) == nil {
-            out.append(DockPlace(id: "closed", kind: .closed, target: current, name: current.displayName))
+            out.append(PlaceOption(id: "closed", kind: .closed, target: current, name: current.displayName,
+                                   shortName: Places.appName(current, in: self)))
         }
         var index: [String: Int] = [:]
         for t in liveTargets {
             if let i = index[t.bundleID] { out[i].windows.append(t); continue }
             index[t.bundleID] = out.count
-            out.append(DockPlace(id: "app:\(t.bundleID)", kind: .app, target: t.ref, name: t.appName, icon: t.icon, windows: [t]))
+            out.append(PlaceOption(id: "app:\(t.bundleID)", kind: .app, target: t.ref, name: t.appName,
+                                   shortName: t.appName, icon: t.icon, windows: [t]))
         }
         return out
     }
 }
 
-// MARK: The controls
-
-/// The dock, then where it goes and Send after pasting, then cleanup. Lives in a fixed slot (see
-/// MainView), so nothing here can move the mic.
-struct QuickControls: View {
-    @EnvironmentObject var model: AppModel
-    @ObservedObject var settings: Settings
-    @ObservedObject var recorder: Recorder
-    var recording: Bool
-    /// iPhone SE-class heights: a smaller dock and tighter rows.
-    var compact = false
-    @Environment(\.dynamicTypeSize) private var typeSize
-    @AppStorage("onboarding.macNudgeDismissed") private var macNudgeDismissed = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        let live: (target: TargetRef, send: Bool, byVoice: Bool) = recording ? model.liveRoute(recorder.transcript)
-            : (model.selection.target, model.selection.send, false)
-        VStack(spacing: compact ? 3 : 6) {
-            if model.isPaired {
-                PlaceDock(current: live.target, said: live.byVoice, compact: compact)
-                placeLine(live.target, said: live.byVoice)
-            } else if showNudge {
-                Spacer(minLength: 0)
-                MacAppNudge { withAnimation(Motion.pick(Motion.depart, reduce: reduceMotion)) { macNudgeDismissed = true } }
-                    .transition(.opacity)
-                Spacer(minLength: 0)
-            } else {
-                UnpairedPlace()
-            }
-            CleanupSteps(settings: settings, compact: compact, recording: recording) { model.sheet = .customCleanup }
-        }
-        .padding(.horizontal, 16)
-        // Quieter while recording, but still live: a change applies to the words being spoken.
-        .opacity(recording ? 0.72 : 1)
-        .animation(.easeInOut(duration: 0.25), value: recording)
-    }
-
-    /// The first dictations without a Mac: it worked here; this is how to get it there.
-    private var showNudge: Bool { !model.isPaired && model.latest?.delivery == .copiedOnPhone && !macNudgeDismissed }
-
-    @ViewBuilder private func placeLine(_ target: TargetRef, said: Bool) -> some View {
-        if typeSize.isAccessibilitySize {
-            VStack(spacing: 6) {
-                PlaceName(target: target, said: said)
-                SendSwitch(settings: settings, target: target)
-            }
-        } else {
-            HStack(spacing: 10) {
-                PlaceName(target: target, said: said)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                SendSwitch(settings: settings, target: target)
-            }
-        }
-    }
-}
-
-// MARK: Where
-
-/// The Mac's open apps as their icons, Clipboard and Where I'm typing first.
-struct PlaceDock: View {
-    @EnvironmentObject var model: AppModel
-    var current: TargetRef
-    var said: Bool
-    var compact = false
-    @State private var width: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The lit glass under the pick morphs from icon to icon (`glassEffectID`, iOS 26+).
-    @Namespace private var glass
-
-    var body: some View {
-        let places = model.dockPlaces(current: current)
-        let selected = places.first { $0.holds(current) }?.id
-        let notOpen = model.isNotOpen(current)
-        let tint = said ? Light.ember : (notOpen ? Light.ochre : Light.cyan)
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                // One glass container: the pick's lit glass and the end-cap render together, and the
-                // pick flows to the next icon like liquid.
-                GlassGroup(spacing: 2) {
-                    HStack(spacing: 2) {
-                        ForEach(places) { p in
-                            DockIcon(place: p, selected: p.id == selected, tint: tint, current: current, compact: compact,
-                                     glass: glass, onPick: { pick($0) }, onMore: { model.sheet = .sendTo })
-                                .id(p.id)
-                        }
-                        AllPlacesCap { model.sheet = .sendTo }
-                    }
-                    .padding(.horizontal, 10)
-                    // A few places sit centred; many scroll, the pick kept in view.
-                    .frame(minWidth: width)
-                    .scrollTargetLayout()
-                }
-            }
-            .scrollIndicators(.hidden)
-            .scrollTargetBehavior(.viewAligned)
-            // The pick's glass bubble may rise a little above the row: not cut at the top or bottom
-            // (the mask reaches past them), only faded at the sides.
-            .scrollClipDisabled()
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .mask {
-                LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.05),
-                                       .init(color: .black, location: 0.95), .init(color: .clear, location: 1)],
-                               startPoint: .leading, endPoint: .trailing)
-                    .padding(.vertical, -12)
-            }
-            .onAppear { if let selected { proxy.scrollTo(selected, anchor: .center) } }
-            .onChange(of: selected) { _, id in
-                guard let id else { return }
-                withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .snappy(duration: 0.4)) { proxy.scrollTo(id, anchor: .center) }
-            }
-        }
-        .frame(height: PlaceDock.height(compact))
-        .opacity(model.isConnected ? 1 : 0.78)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Places on your Mac")
-        .accessibilityIdentifier("place-dock")
-    }
-
-    static func height(_ compact: Bool) -> CGFloat { compact ? 48 : 58 }
-
-    private func pick(_ t: TargetRef) {
-        guard t != model.selection.target else { return }
-        Haptics.tick()
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Motion.snap) { model.pick(t) }
-        model.explain(Self.sentence(for: t, send: model.selection.send))
-    }
-
-    /// What the next dictation will do, in a sentence.
+/// The words for places.
+enum Places {
+    /// What the next dictation will do, in a sentence (the status line).
     static func sentence(for t: TargetRef, send: Bool) -> String {
         switch t {
         case .clipboard: return "Copies to your Mac's clipboard, to paste yourself"
@@ -198,51 +73,161 @@ struct PlaceDock: View {
         case .app: return send ? "Pastes into \(t.displayName), then sends" : "Pastes into \(t.displayName) — you press send"
         }
     }
+
+    /// The app's own name for a target ("Terminal" for "Terminal — claude").
+    @MainActor static func appName(_ t: TargetRef, in model: AppModel) -> String {
+        if let live = model.liveTarget(for: t) { return live.appName }
+        let name = t.displayName
+        return name.components(separatedBy: " — ").first ?? name
+    }
+
+    /// The line under Send after pasting: what the switch does here, or why it can't.
+    @MainActor static func sendDetail(_ t: TargetRef, in model: AppModel) -> String {
+        switch t {
+        case .clipboard: return "Clipboard only copies — pick an app to send"
+        case .frontApp: return "Presses Return where you're typing, after pasting"
+        case .app: return "Presses Return in \(appName(t, in: model)) after pasting"
+        }
+    }
 }
 
-/// One icon. Unpicked ones sit back; the pick is lifted, lit, with a bar under it like the Dock's.
-private struct DockIcon: View {
-    var place: DockPlace
-    var selected: Bool
-    var tint: Color
+// MARK: The panel
+
+/// Send to, Send after pasting, Cleanup — one grouped panel. Paired or not, it sits above the
+/// Thread in a flexible area (see MainView), so nothing here can move the mic.
+struct QuickControls: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var settings: Settings
+    var compact = false
+    @AppStorage("onboarding.macNudgeDismissed") private var macNudgeDismissed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let target = model.selection.target
+        VStack(spacing: 0) {
+            if model.isPaired {
+                PlacesRow(current: target, compact: compact)
+                PanelDivider()
+                SendAfterPastingRow(target: target, compact: compact)
+            } else if showNudge {
+                MacAppNudge { withAnimation(Motion.pick(Motion.depart, reduce: reduceMotion)) { macNudgeDismissed = true } }
+                    .transition(.opacity)
+            } else {
+                UnpairedPlace()
+            }
+            PanelDivider()
+            CleanupRow(settings: settings, compact: compact) { model.sheet = .customCleanup }
+        }
+        .controlPanel()
+        .padding(.horizontal, 16)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+    }
+
+    /// The first dictations without a Mac: it worked here; this is how to get it there.
+    private var showNudge: Bool { !model.isPaired && model.latest?.delivery == .copiedOnPhone && !macNudgeDismissed }
+}
+
+/// A hairline between the panel's rows, inset like a grouped list's.
+struct PanelDivider: View {
+    var body: some View { Divider().overlay(Ink.line).padding(.leading, 16) }
+}
+
+// MARK: Send to
+
+/// "SEND TO", the picked place's name, and a row of buttons — one per place.
+struct PlacesRow: View {
+    @EnvironmentObject var model: AppModel
     var current: TargetRef
     var compact = false
-    var glass: Namespace.ID
-    var onPick: (TargetRef) -> Void
-    var onMore: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        let places = model.placeOptions(current: current)
+        let selected = places.first { $0.holds(current) }?.id
+        let notOpen = model.isNotOpen(current)
+        VStack(alignment: .leading, spacing: compact ? 8 : 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("SEND TO")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Ink.tertiary)
+                (Text(current.displayName).foregroundColor(Ink.ink)
+                 + (notOpen ? Text("  Not open on your Mac").font(.subheadline).foregroundColor(Light.ochre) : Text("")))
+                    .font(.headline)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+                    .animation(Motion.snap, value: current)
+            }
+            .padding(.horizontal, 16)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Send to: \(current.displayName)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : ""))
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("send-to")
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(places) { p in
+                            PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact) { pick($0) }
+                                .id(p.id)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
+                }
+                .scrollIndicators(.hidden)
+                // Only as far as it takes to bring the pick into view (Clipboard stays put when it's visible).
+                .onAppear { if let selected { proxy.scrollTo(selected) } }
+                .onChange(of: selected) { _, id in
+                    guard let id else { return }
+                    withAnimation(Motion.pick(.snappy(duration: 0.35), reduce: reduceMotion)) { proxy.scrollTo(id) }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Places on your Mac")
+            .accessibilityIdentifier("places")
+        }
+        .padding(.top, compact ? 10 : 14)
+        .padding(.bottom, compact ? 6 : 10)
+        .opacity(model.isConnected ? 1 : 0.8)
+    }
+
+    private func pick(_ t: TargetRef) {
+        guard t != model.selection.target else { return }
+        Haptics.tick()
+        withAnimation(Motion.pick(Motion.snap, reduce: reduceMotion)) { model.pick(t) }
+        model.explain(Places.sentence(for: t, send: model.selection.send))
+    }
+}
+
+/// One place: its icon with its name under it, as a native button. The pick is the prominent
+/// (tinted) one, so which is selected is the button itself.
+private struct PlaceButton: View {
+    var place: PlaceOption
+    var selected: Bool
+    var current: TargetRef
+    var compact = false
+    var onPick: (TargetRef) -> Void
 
     var body: some View {
         Button {
             // An app already picked keeps its window; otherwise its newest.
             if !place.holds(current) { onPick(place.target) }
         } label: {
-            VStack(spacing: 5) {
-                ZStack {
-                    pickGlow
-                    TargetIcon(target: place.target, icon: place.icon, size: compact ? 30 : 36)
-                        .saturation(place.kind == .closed ? 0 : 1)
-                        // The glass sits under the icon itself, so the container draws it behind.
-                        .modifier(PickGlass(on: selected, tint: tint, id: "dock-pick", ns: glass, shape: Circle(),
-                                            padding: compact ? 3 : 4))
-                        .overlay(alignment: .topTrailing) { badge }
-                }
-                .frame(width: compact ? 42 : 48, height: compact ? 38 : 46)
-                .scaleEffect(selected ? 1.12 : 0.86)
-                Capsule()
-                    .fill(selected ? tint : Ink.ink.opacity(0))
-                    .frame(width: selected ? 16 : 4, height: 3)
-                    .shadow(color: tint.opacity(selected ? 0.9 : 0), radius: 4)
+            VStack(spacing: 4) {
+                TargetIcon(target: place.target, icon: place.icon, size: compact ? 28 : 32, onTint: selected)
+                    .saturation(place.kind == .closed ? 0 : 1)
+                Text(place.kind == .closed ? "Not open" : place.shortName)
+                    .font(.caption2.weight(selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? Ink.ground : (place.kind == .closed ? Light.ochre : Ink.secondary))
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .frame(width: compact ? 46 : 52, height: compact ? 46 : 56)
-            // Increase Contrast: the others stay nearly whole; the bar and the size still say which.
-            .opacity(selected ? 1 : (place.kind == .closed ? 0.4 : (contrast == .increased ? 0.88 : 0.6)))
-            .contentShape(Rectangle())
+            .frame(minWidth: compact ? 44 : 50)
         }
-        .buttonStyle(DockPressStyle())
-        .animation(Motion.pick(Motion.snap, reduce: reduceMotion), value: selected)
+        .placeButtonStyle(selected: selected)
+        .controlSize(.small)
+        .opacity(place.kind == .closed && !selected ? 0.55 : 1)
         .contextMenu {
             if place.windows.count > 1 {
                 Section("\(place.name) windows") {
@@ -254,42 +239,10 @@ private struct DockIcon: View {
                     }
                 }
             }
-            Button(action: onMore) { Label("All places", systemImage: "square.grid.2x2") }
         }
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint(selected ? "" : "Sends your dictations here.")
-    }
-
-    /// Below iOS 26 (or with Reduce Transparency) the pick has a soft glow; above, a bubble of glass.
-    @ViewBuilder private var pickGlow: some View {
-        if #available(iOS 26.0, *), !reduceTransparency {
-            EmptyView()
-        } else {
-            Circle()
-                .fill(RadialGradient(colors: [tint.opacity(0.38), tint.opacity(0)], center: .center, startRadius: 2, endRadius: 30))
-                .frame(width: 60, height: 60)
-                .opacity(selected ? 1 : 0)
-        }
-    }
-
-    @ViewBuilder private var badge: some View {
-        if place.kind == .closed {
-            Image(systemName: "moon.zzz.fill")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(Light.ochre)
-                .padding(3)
-                .background(Circle().fill(Ink.ground))
-                .offset(x: 6, y: -6)
-        } else if place.windows.count > 1 {
-            Text("\(place.windows.count)")
-                .font(.system(size: 10, weight: .bold).monospacedDigit())
-                .foregroundStyle(Ink.ink)
-                .frame(minWidth: 15, minHeight: 15)
-                .background(Circle().fill(Ink.raised))
-                .overlay(Circle().strokeBorder(Ink.lineStrong, lineWidth: 1))
-                .offset(x: 6, y: -6)
-        }
     }
 
     private var label: String {
@@ -300,84 +253,17 @@ private struct DockIcon: View {
     }
 }
 
-/// A press settles the icon in, like the Dock.
-private struct DockPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(Motion.snap, value: configuration.isPressed)
-    }
-}
-
-/// The end-cap: every place, every window.
-private struct AllPlacesCap: View {
-    var action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Ink.secondary)
-                .frame(width: 36, height: 36)
-                .glassPlate(Circle(), interactive: true)
-                .frame(width: 50, height: 58)
-                .offset(y: -4)
-                .contentShape(Rectangle())
+private extension View {
+    /// Native glass buttons on iOS 26+ (the pick `.glassProminent`, tinted cyan); bordered below.
+    @ViewBuilder func placeButtonStyle(selected: Bool) -> some View {
+        let shape = ButtonBorderShape.roundedRectangle(radius: 16)
+        if #available(iOS 26.0, *) {
+            if selected { buttonStyle(.glassProminent).buttonBorderShape(shape).tint(Light.cyan) }
+            else { buttonStyle(.glass).buttonBorderShape(shape) }
+        } else {
+            if selected { buttonStyle(.borderedProminent).buttonBorderShape(shape).tint(Light.cyan) }
+            else { buttonStyle(.bordered).buttonBorderShape(shape).tint(Ink.ink) }
         }
-        .buttonStyle(DockPressStyle())
-        .accessibilityLabel("All places")
-        .accessibilityHint("Shows every place on your Mac and its windows.")
-        .accessibilityIdentifier("all-places")
-    }
-}
-
-/// "Send to Claude ⌄" under the dock: where it goes, in words; a tap opens every place.
-struct PlaceName: View {
-    @EnvironmentObject var model: AppModel
-    var target: TargetRef
-    var said: Bool
-
-    var body: some View {
-        let name = target.displayName
-        let notOpen = model.isNotOpen(target)
-        Button { model.sheet = .sendTo } label: {
-            // Whole words always: the lead word goes first, then a size, then two lines. Never "…".
-            ViewThatFits(in: .horizontal) {
-                row(lead: true, name: name, notOpen: notOpen, font: .subheadline)
-                row(lead: false, name: name, notOpen: notOpen, font: .subheadline)
-                row(lead: false, name: name, notOpen: notOpen, font: .footnote)
-                row(lead: false, name: name, notOpen: notOpen, font: .footnote, wrap: true)
-                row(lead: false, name: name, notOpen: notOpen, font: .caption, wrap: true)
-                // A very long window title: three small lines, shrunk to fit whole rather than cut.
-                row(lead: false, name: name, notOpen: notOpen, font: .caption2, wrap: true, lines: 3)
-                    .minimumScaleFactor(0.6)
-            }
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-            .animation(Motion.snap, value: name)
-        }
-        .buttonStyle(.plain)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-        .accessibilityLabel(accessibility(name: name, notOpen: notOpen))
-        .accessibilityHint("Shows every place on your Mac and its windows.")
-        .accessibilityIdentifier("send-to")
-    }
-
-    private func row(lead: Bool, name: String, notOpen: Bool, font: Font, wrap: Bool = false, lines: Int = 2) -> some View {
-        var t = Text(name).font(font.weight(.semibold)).foregroundColor(notOpen ? Ink.secondary : Ink.ink)
-        if lead { t = Text(said ? "You said " : "Send to ").font(font).foregroundColor(said ? Light.ember : Ink.tertiary) + t }
-        // The status line says the rest ("Claude isn't open on your Mac — it'll be copied instead").
-        if notOpen { t = t + Text(" · closed").font(font).foregroundColor(Light.ochre) }
-        t = t + Text("  ") + Text(Image(systemName: "chevron.down")).font(.caption2.weight(.bold)).foregroundColor(Ink.tertiary)
-        return t
-            .lineLimit(wrap ? lines : 1)
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: !wrap, vertical: lines < 3)
-            .contentTransition(.opacity)
-    }
-
-    private func accessibility(name: String, notOpen: Bool) -> String {
-        if said { return "Sending this one to \(name), because you said it" }
-        return "Send to: \(name)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : "")
     }
 }
 
@@ -390,11 +276,10 @@ private struct UnpairedPlace: View {
                 Image(systemName: "iphone")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Light.teal)
-                    .frame(width: 36, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Light.teal.opacity(0.14)))
+                    .frame(width: 32, height: 32)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Copies on this iPhone").font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink)
+                    Text("Copies on this iPhone").font(.body.weight(.semibold)).foregroundStyle(Ink.ink)
                     Text("Pair your Mac to send to its apps").font(.footnote).foregroundStyle(Light.cyan)
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -402,14 +287,11 @@ private struct UnpairedPlace: View {
                 Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(Ink.tertiary)
                     .accessibilityHidden(true)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .glassPlate(RoundedRectangle(cornerRadius: 18, style: .continuous), interactive: true)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .frame(maxHeight: .infinity)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityLabel("Send to: this iPhone's clipboard. Pair your Mac to choose where it goes.")
         .accessibilityHint("Pairs this iPhone with Macrophone on your Mac.")
         .accessibilityIdentifier("send-to")
@@ -418,276 +300,166 @@ private struct UnpairedPlace: View {
 
 // MARK: Send after pasting
 
-/// "Send after pasting" and a real on/off switch — unmistakable either way. Where it can't apply
-/// (Clipboard) the switch sits greyed out, and a tap says why.
-struct SendSwitch: View {
+/// The native switch, with the whole name and one line saying what it does for this place.
+struct SendAfterPastingRow: View {
     @EnvironmentObject var model: AppModel
-    @ObservedObject var settings: Settings
-    /// The place it applies to: the choice, or an app said first while recording.
     var target: TargetRef
+    var compact = false
 
     var body: some View {
-        let enabled = disabledReason(target) == nil
+        let enabled = target.canSend
         let on = enabled && model.sendSetting(for: target)
-        HStack(spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                Text("Send after pasting").lineLimit(1).fixedSize()
-                Text("Send").lineLimit(1).fixedSize()
+        let detail = Places.sendDetail(target, in: model)
+        Toggle(isOn: Binding(get: { on }, set: { set($0) })) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Send after pasting")
+                    .font(.body)
+                    .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(enabled ? Ink.secondary : Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(!enabled ? Ink.tertiary : (on ? Ink.ink : Ink.secondary))
-            .accessibilityHidden(true)
-            Toggle("Send after pasting", isOn: Binding(get: { on }, set: { set($0) }))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(Light.cyan)
-                .disabled(!enabled)
-                .fixedSize()
-                // Greyed out for Clipboard: the label says why, since a hint isn't read on a dimmed control.
-                .accessibilityLabel(enabled ? "Send after pasting" : "Send after pasting, \(disabledReason(target) ?? "unavailable")")
-                .accessibilityHint(enabled ? "When on, your Mac presses send after pasting into \(target.displayName)."
-                                           : "\(longReason(target)).")
-                .accessibilityIdentifier("send-toggle")
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 6)
-        .frame(minHeight: 40)
-        // A capsule of Liquid Glass that takes the connected-Mac light while it's on.
-        .glassPlate(Capsule(), lit: on ? Light.cyan : nil, amount: 0.2)
-        .animation(Motion.snap, value: on)
-        .padding(.vertical, 2)
-        // The whole plate is the switch: a tap on its words (or anywhere beside the knob) flips it.
-        // Greyed out, the plate explains instead.
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if enabled { set(!on) } else { model.explain(longReason(target)) }
-        }
+        .toggleStyle(.switch)
+        .tint(Light.cyan)
+        .disabled(!enabled)
+        .padding(.horizontal, 16)
+        .padding(.vertical, compact ? 8 : 11)
+        // VoiceOver reads the switch with both lines: what it is, and what it does here (or why not).
+        .accessibilityIdentifier("send-toggle")
     }
 
     private func set(_ new: Bool) {
         Haptics.tick()
         withAnimation(Motion.snap) { model.setSend(new, for: target) }
-        model.explain(PlaceDock.sentence(for: target, send: new))
-    }
-
-    private func disabledReason(_ t: TargetRef) -> String? {
-        t.canSend ? nil : "Clipboard can't send"
-    }
-
-    private func longReason(_ t: TargetRef) -> String {
-        "Clipboard only copies — pick an app to paste and send"
+        model.explain(Places.sentence(for: target, send: new))
     }
 }
 
 // MARK: Cleanup
 
-/// Off · Light · Medium · Heavy · Custom, all visible, one tap each. The pick slides; the status line
-/// says what it does. Custom wears a pencil while it's picked: tapping it again (or a long-press)
-/// opens its instructions.
-struct CleanupSteps: View {
+/// The five levels as a native segmented control (by the mic and in Settings).
+struct CleanupPicker: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        let available = CleanupWords.available(model, settings)
+        Picker("Cleanup", selection: Binding(get: { available ? settings.cleanupLevel : .off }, set: { pick($0) })) {
+            ForEach(CleanupLevel.allCases) { l in Text(l.title).tag(l) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .disabled(!available)
+        .accessibilityIdentifier("cleanup-level")
+    }
+
+    private func pick(_ l: CleanupLevel) {
+        guard l != settings.cleanupLevel else { return }
+        Haptics.tick()
+        model.setCleanupLevel(l)
+        model.explain(CleanupWords.sentence(for: l, edited: model.customInstructionsEdited))
+    }
+}
+
+/// "Cleanup", the five levels, and one line saying what the picked one does (with Edit
+/// instructions beside it for Custom).
+struct CleanupRow: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
     var compact = false
-    /// While recording the editor waits (a sheet would cover the mic); the tap says so instead.
-    var recording = false
-    /// Opens the Custom instructions (a sheet by the mic, a push in Settings).
+    /// Opens the Custom instructions.
     var onEditCustom: () -> Void
-    @Namespace private var pill
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let available = model.cleanupAvailability.isAvailable && settings.isEnglish
+        let available = CleanupWords.available(model, settings)
         let level = available ? settings.cleanupLevel : .off
-        // Whole words always: the lead word goes first, then the lead itself, then a size.
-        ViewThatFits(in: .horizontal) {
-            // The word only where the steps still breathe; else the wand alone says what the row is.
-            row(level: level, available: available, lead: .word, font: .footnote, room: 11)
-            row(level: level, available: available, lead: .glyph, font: .footnote, room: 6)
-            row(level: level, available: available, lead: .none, font: .footnote, room: 5)
-            row(level: level, available: available, lead: .none, font: .caption, room: 4)
-        }
-        .padding(3)
-        .glassPlate(Capsule())
-        .padding(.vertical, 1)
-        // Five words in a row: capped like the rest of the chrome, with the Large Content Viewer.
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("cleanup-level")
-        .overlay {
-            // Unavailable: the whole control is one explanation.
-            if !available {
-                Button { model.explain(unavailableReason) } label: { Color.clear.contentShape(Rectangle()) }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Cleanup off: unavailable")
-                    .accessibilityHint(unavailableReason)
-                    .accessibilityIdentifier("cleanup-unavailable")
-            }
-        }
-    }
-
-    private enum Lead { case word, glyph, none }
-
-    private func row(level: CleanupLevel, available: Bool, lead: Lead, font: Font, room: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            if lead != .none {
-                HStack(spacing: 5) {
-                    Image(systemName: "wand.and.stars").font(.caption.weight(.semibold)).foregroundStyle(Light.teal)
-                    if lead == .word { Text("Cleanup").font(.footnote.weight(.medium)).foregroundStyle(Ink.secondary).fixedSize() }
-                }
-                .padding(.leading, 10)
-                .padding(.trailing, 4)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Cleanup")
+        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+            Text("Cleanup")
+                .font(.body)
+                .foregroundStyle(Ink.ink)
                 .accessibilityAddTraits(.isHeader)
-            }
-            // The pick is a lens of bright glass that flows from step to step (iOS 26+).
-            GlassGroup(spacing: 0) {
-                HStack(spacing: 0) {
-                    ForEach(CleanupLevel.allCases) { l in
-                        step(l, on: l == level, enabled: available, font: font, room: room)
-                    }
+            CleanupPicker(settings: settings)
+            HStack(alignment: .center, spacing: 10) {
+                Text(available ? CleanupWords.line(level, edited: model.customInstructionsEdited)
+                               : CleanupWords.unavailableReason(model, settings))
+                    .font(.footnote)
+                    .foregroundStyle(available ? Ink.secondary : Light.ochre)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentTransition(.opacity)
+                if available, level == .custom {
+                    Button("Edit instructions", action: onEditCustom)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Ink.ink)
+                        .controlSize(.small)
+                        .nativeGlassButton()
+                        .accessibilityIdentifier("edit-custom")
                 }
             }
-            .opacity(available ? 1 : 0.5)
+            // Room for two lines either way, so a level change can't make the panel jump.
+            .frame(minHeight: twoLines, alignment: .topLeading)
+            .animation(.easeInOut(duration: 0.2), value: level)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, compact ? 10 : 12)
+        .padding(.bottom, compact ? 6 : 8)
+    }
+
+    @ScaledMetric(relativeTo: .footnote) private var twoLines: CGFloat = 28
+}
+
+/// The words for cleanup.
+enum CleanupWords {
+    @MainActor static func available(_ model: AppModel, _ settings: Settings) -> Bool {
+        model.cleanupAvailability.isAvailable && settings.isEnglish
+    }
+
+    /// "Medium — fixes grammar and false starts".
+    static func line(_ l: CleanupLevel, edited: Bool) -> String {
+        switch l {
+        case .off: return "Off — sent exactly as heard"
+        case .custom: return edited ? "Custom — follows your own instructions" : "Custom — Medium's instructions until you edit them"
+        default:
+            var s = l.summary
+            if s.hasPrefix("Also ") { s.removeFirst(5) }
+            if s.hasSuffix(".") { s.removeLast() }
+            return "\(l.title) — \(s.prefix(1).lowercased() + s.dropFirst())"
         }
     }
 
-    private func step(_ l: CleanupLevel, on: Bool, enabled: Bool, font: Font, room: CGFloat) -> some View {
-        Button {
-            guard enabled else { return }
-            if on {
-                // Custom picked already: the tap opens its instructions.
-                if l == .custom {
-                    if recording { model.explain("Edit your instructions once this one's sent"); return }
-                    Haptics.tick()
-                    onEditCustom()
-                }
-                return
-            }
-            Haptics.tick()
-            withAnimation(Motion.pick(.snappy(duration: 0.3), reduce: reduceMotion)) { model.setCleanupLevel(l) }
-            model.explain(Self.sentence(for: l, edited: model.customInstructionsEdited))
-        } label: {
-            HStack(spacing: 3) {
-                Text(l.title)
-                    .font(font.weight(on ? .semibold : .medium))
-                    .lineLimit(1)
-                    .fixedSize()
-                if l == .custom, on {
-                    Image(systemName: "pencil")
-                        .font(.caption2.weight(.bold))
-                        .transition(.opacity.combined(with: .scale(scale: 0.6)))
-                        .accessibilityHidden(true)
-                }
-            }
-            .foregroundStyle(on ? Ink.ground : Ink.secondary)
-            .padding(.horizontal, room)
-            .frame(maxWidth: .infinity, minHeight: compact ? 34 : 38)
-            .modifier(PickGlass(on: on, tint: Ink.ink, amount: 0.88, id: "cleanup-pick", ns: pill, shape: Capsule()))
-            .background {
-                if on { CleanupPick(ns: pill) }
-            }
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            if l == .custom, enabled, !recording {
-                Button { onEditCustom() } label: { Label("Edit Custom Instructions", systemImage: "pencil") }
-            }
-        }
-        .accessibilityLabel("\(l.title) cleanup")
-        .accessibilityValue(l == .custom && model.customInstructionsEdited ? "Your own instructions" : l.summary)
-        .accessibilityAddTraits(on ? .isSelected : [])
-        .accessibilityHint(l == .custom ? (on ? "Opens its instructions." : "Then tap it again to edit its instructions.") : "")
-        .modifier(EditInstructionsAction(active: l == .custom && enabled && !recording, action: onEditCustom))
-        .accessibilityShowsLargeContentViewer { Text("\(l.title) cleanup") }
-        .accessibilityIdentifier("cleanup-\(l.rawValue)")
-    }
-
-    /// What the next dictation's cleanup will do, in a sentence.
+    /// What the next dictation's cleanup will do, in a sentence (the status line).
     static func sentence(for l: CleanupLevel, edited: Bool) -> String {
         switch l {
         case .off: return "Cleanup off — sent exactly as heard"
-        case .custom: return edited ? "Custom cleanup — your own instructions. Tap Custom again to edit them"
-                                    : "Custom cleanup — Medium's instructions until you edit them. Tap Custom again to edit"
+        case .custom: return edited ? "Custom cleanup — your own instructions"
+                                    : "Custom cleanup — Medium's instructions until you edit them"
         default: return "\(l.title) cleanup — \(l.summary.dropLast())"
         }
     }
 
-    private var unavailableReason: String {
+    @MainActor static func unavailableReason(_ model: AppModel, _ settings: Settings) -> String {
         if !settings.isEnglish { return "Cleanup works in English only for now — your words are sent exactly as heard" }
         return model.cleanupAvailability.explanation + " Until then, your words are sent exactly as heard."
     }
 }
 
-/// The pick's Liquid Glass (iOS 26+): a lit glass shape under the picked view, carrying one
-/// `glassEffectID` so inside a `GlassGroup` the same glass flows to the next pick. Nothing below
-/// iOS 26 or with Reduce Transparency (the fallback draws its own pill or glow).
-private struct PickGlass<S: Shape>: ViewModifier {
-    var on: Bool
-    var tint: Color
-    var amount: Double = 0.32
-    var id: String
-    var ns: Namespace.ID
-    var shape: S
-    var padding: CGFloat = 0
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+// MARK: The panel's container
+
+private struct ControlPanel: ViewModifier {
     @Environment(\.colorSchemeContrast) private var contrast
-
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *), !reduceTransparency, on {
-            content
-                .padding(padding)
-                .glassEffect(.regular.tint(tint.opacity(amount)).interactive(), in: shape)
-                .glassEffectID(id, in: ns)
-                .overlay { if contrast == .increased { shape.stroke(tint.opacity(0.9), lineWidth: 1) } }
-                .padding(-padding)
-        } else {
-            content
-        }
+        // A material plate, like a sheet's: the controls on it are the glass (glass on glass blurs
+        // twice and merges the buttons into the panel).
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        content
+            .background(.regularMaterial, in: shape)
+            .overlay(shape.strokeBorder(contrast == .increased ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
     }
 }
 
-/// The picked cleanup step below iOS 26 (or with Reduce Transparency): a solid pill that slides.
-private struct CleanupPick: View {
-    var ns: Namespace.ID
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var body: some View {
-        if #available(iOS 26.0, *), !reduceTransparency {
-            EmptyView()
-        } else {
-            Capsule().fill(Ink.ink).matchedGeometryEffect(id: "pick", in: ns)
-        }
-    }
-}
-
-/// VoiceOver's "Edit instructions" on the Custom step.
-private struct EditInstructionsAction: ViewModifier {
-    var active: Bool
-    var action: () -> Void
-    func body(content: Content) -> some View {
-        if active { content.accessibilityAction(named: "Edit instructions", action) } else { content }
-    }
-}
-
-/// The controls at their tallest, for the fixed slot: the dock, the name line beside the toggle,
-/// the cleanup steps (stacked at accessibility sizes).
-struct QuickControlsTemplate: View {
-    var compact = false
-    @Environment(\.dynamicTypeSize) private var typeSize
-    var body: some View {
-        VStack(spacing: compact ? 3 : 6) {
-            Color.clear.frame(height: PlaceDock.height(compact))
-            if typeSize.isAccessibilitySize {
-                Text("A\nB").font(.footnote).frame(minHeight: 44)
-                Color.clear.frame(height: 44)
-            } else {
-                Text("A\nB").font(.footnote).frame(minHeight: 44)
-            }
-            Text("A").font(.footnote).frame(minHeight: compact ? 34 : 38).padding(3).padding(.vertical, 1)
-                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        }
-        .frame(maxWidth: .infinity)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-    }
+extension View {
+    /// The controls' grouped panel: a regular-material plate with a hairline.
+    func controlPanel() -> some View { modifier(ControlPanel()) }
 }

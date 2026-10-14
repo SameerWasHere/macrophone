@@ -5,10 +5,10 @@ import SwiftUI
 ///
 /// - **The bottom, fixed:** the mic and the status line, near the foot of the screen. Their slot
 ///   never changes size, so **the mic never moves** — idle, held, recording, sending, delivered.
-/// - **Everything above, one area:** idle, it holds the top bar, the words and the Thread, and the
-///   quick controls (where it goes, send after pasting, cleanup). While the mic is open — and until
-///   the words have gone out — all of that steps aside and the area is the transcript: as much of
-///   what you're saying as fits, with the Thread breathing just above the mic.
+/// - **Everything above, one area:** idle, it holds the top bar and the header at the top, then —
+///   in thumb reach, just above the Thread — the controls panel (Send to, Send after pasting,
+///   Cleanup). While the mic is open — and until the words have gone out — all of that steps aside
+///   and the area is the transcript: as much of what you're saying as fits, from the top down.
 ///
 /// The last dictation isn't on this screen any more (Oct 13 2026): it's in History.
 struct MainView: View {
@@ -40,11 +40,11 @@ struct MainView: View {
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
                         topBar
-                        quickControls
-                        Spacer(minLength: 0)
-                        idleWords
+                        header
                             .padding(.horizontal, 24)
-                            .padding(.bottom, 4)
+                            .padding(.top, compact ? 8 : 18)
+                        Spacer(minLength: compact ? 8 : 12)
+                        quickControls
                     }
                     .opacity(showLiveWords ? 0 : 1)
                     .allowsHitTesting(!showLiveWords)
@@ -53,7 +53,8 @@ struct MainView: View {
                         transcriptArea.transition(.opacity)
                     }
                 }
-                .frame(maxHeight: .infinity)
+                // Whatever is above takes the room that's left — it can never push the mic.
+                .frame(minHeight: 0, maxHeight: .infinity)
                 .clipped()
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
                 // The Thread: one band, the same place in every state.
@@ -114,15 +115,15 @@ struct MainView: View {
 
     @ViewBuilder private var topButtons: some View {
         Button { model.sheet = .history } label: {
-            Image(systemName: "clock.arrow.circlepath")
+            Image(systemName: "clock.arrow.circlepath").topBarGlyph()
         }
-        .buttonStyle(IconButtonStyle())
+        .circleGlassButton()
         .accessibilityLabel("History")
         .accessibilityShowsLargeContentViewer { Label("History", systemImage: "clock.arrow.circlepath") }
         Button { model.sheet = .settings } label: {
-            Image(systemName: "gearshape")
+            Image(systemName: "gearshape").topBarGlyph()
         }
-        .buttonStyle(IconButtonStyle())
+        .circleGlassButton()
         .accessibilityLabel("Settings")
         .accessibilityShowsLargeContentViewer { Label("Settings", systemImage: "gearshape") }
     }
@@ -176,36 +177,21 @@ struct MainView: View {
         }
     }
 
-    private var idleWords: some View {
+    /// The header at the top of the page: the line, and how to use the mic.
+    private var header: some View {
         let line = model.isPaired ? "Speak, and it's on your Mac." : "Speak, and it's on your clipboard."
-        let hint = "Tap to talk, tap again to send. Or hold, and let go."
-        return ViewThatFits(in: .vertical) {
-            VStack(spacing: 10) { idleLine(line, compact ? .title3 : .title2); idleHint(hint) }
-            idleLine(line, compact ? .title3 : .title2)
-            idleLine(line, .headline)
-            // Huge text in a short area: the line, shrunk to fit whole rather than cut off.
-            Text(line).font(.serif(.headline)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
-                .lineLimit(3).minimumScaleFactor(0.4)
+        return VStack(spacing: 8) {
+            Text(line)
+                .font(.serif(compact ? .title3 : .title2))
+                .foregroundStyle(Ink.ink)
+            Text("Tap to talk, tap again to send. Or hold, and let go.")
+                .font(compact ? .footnote : .subheadline)
+                .foregroundStyle(Ink.tertiary)
         }
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity)
-        .padding(.bottom, 8)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
-    }
-
-    private func idleLine(_ s: String, _ style: Font.TextStyle) -> some View {
-        Text(s)
-            .font(.serif(style))
-            .foregroundStyle(Ink.ink)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func idleHint(_ s: String) -> some View {
-        Text(s)
-            .font(.subheadline)
-            .foregroundStyle(Ink.tertiary)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var timer: some View {
@@ -229,14 +215,8 @@ struct MainView: View {
     // MARK: Quick controls, the mic, the status line
 
     private var quickControls: some View {
-        FixedSlot {
-            QuickControlsTemplate(compact: compact)
-        } content: {
-            QuickControls(settings: model.settings, recorder: recorder, recording: isRecording, compact: compact)
-        }
-        .padding(.top, compact ? 10 : 22)
-        .padding(.bottom, 4)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+        QuickControls(settings: model.settings, compact: compact)
+            .padding(.bottom, compact ? 10 : 18)
     }
 
     private var statusSlot: some View {
@@ -376,6 +356,13 @@ struct LiveWords: View {
     }
 }
 
+extension Image {
+    /// A top-bar glyph, sized for the native circular glass button.
+    func topBarGlyph() -> some View {
+        font(.system(size: 17, weight: .semibold)).foregroundStyle(Ink.ink).frame(width: 28, height: 28)
+    }
+}
+
 /// The paired Mac and its connection, top left. Taps through to pairing when unpaired.
 struct MacPill: View {
     @EnvironmentObject var model: AppModel
@@ -393,16 +380,10 @@ struct MacPill: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(minHeight: 36)
-            // Interactive Liquid Glass (iOS 26+): it answers the finger like a system control.
-            .glassPlate(Capsule(), interactive: true)
-            // The plate is 36pt; the hit area is the full 44.
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 2)
         }
-        .buttonStyle(.plain)
+        .nativeGlassButton()
+        .buttonBorderShape(.capsule)
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityLabel(accessibility)
         .accessibilityHint(model.isPaired ? "Opens Settings." : "Pairs this iPhone with Macrophone on your Mac.")
@@ -433,7 +414,7 @@ struct MacPill: View {
     }
 }
 
-/// In the quick controls' first line, after the first dictations made without a Mac: the free
+/// In the controls panel's first row, after the first dictations made without a Mac: the free
 /// Mac app, one tap to send yourself the link. Closed for good with ×; gone once a Mac is paired.
 struct MacAppNudge: View {
     var onDismiss: () -> Void
@@ -456,7 +437,7 @@ struct MacAppNudge: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Ink.ink)
                 }
-                .padding(.leading, 14)
+                .padding(.leading, 16)
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
@@ -474,7 +455,7 @@ struct MacAppNudge: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Hide this")
         }
-        .background(RoundedRectangle(cornerRadius: 19, style: .continuous).fill(Light.cyan.opacity(0.08)).padding(.vertical, 3))
-        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).strokeBorder(Light.cyan.opacity(0.35), lineWidth: 1).padding(.vertical, 3))
+        .padding(.vertical, 6)
+        .padding(.trailing, 4)
     }
 }

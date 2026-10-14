@@ -127,45 +127,21 @@ extension View {
     func glass(_ radius: CGFloat = Radius.medium) -> some View { modifier(GlassPanel(radius: radius)) }
 }
 
-// MARK: Liquid Glass (iOS 26+), with the material look as the fallback
-
-/// A control's plate in any shape: native Liquid Glass on iOS 26+ (`.glassEffect`), optionally lit
-/// with a meaning colour and interactive (it answers a touch); below iOS 26, or under Reduce
-/// Transparency, the faint fill and hairline the controls always wore. Increase Contrast adds a
-/// firm edge either way.
-struct GlassPlate<S: InsettableShape>: ViewModifier {
-    var shape: S
-    var lit: Color? = nil
-    /// How strongly the light tints the glass.
-    var amount: Double = 0.28
-    var interactive = false
-    @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    func body(content: Content) -> some View {
-        let high = contrast == .increased
-        let edge = lit.map { $0.opacity(high ? 0.9 : 0.5) } ?? (high ? Ink.ink.opacity(0.45) : Ink.line)
-        if #available(iOS 26.0, *), !reduceTransparency {
-            content
-                .glassEffect(Glass.regular.tint(lit?.opacity(amount)).interactive(interactive), in: shape)
-                .overlay { if high || lit != nil { shape.strokeBorder(edge.opacity(high ? 1 : 0.6), lineWidth: 1) } }
-        } else {
-            content
-                .background(shape.fill(lit.map { $0.opacity(0.16) } ?? (reduceTransparency ? Ink.raised : Ink.ink.opacity(0.05))))
-                .overlay(shape.strokeBorder(edge, lineWidth: 1))
-        }
-    }
-}
+// MARK: Liquid Glass (iOS 26+), with the system's bordered look as the fallback
 
 extension View {
-    func glassPlate<S: InsettableShape>(_ shape: S, lit: Color? = nil, amount: Double = 0.28, interactive: Bool = false) -> some View {
-        modifier(GlassPlate(shape: shape, lit: lit, amount: amount, interactive: interactive))
+    /// A native glass button (`.glass` on iOS 26+, `.bordered` below).
+    @ViewBuilder func nativeGlassButton() -> some View {
+        if #available(iOS 26.0, *) { buttonStyle(.glass) } else { buttonStyle(.bordered).tint(Ink.ink) }
     }
 
-    /// `glassEffectID` on iOS 26+ (so a glass shape morphs from one view to the next inside a
-    /// `GlassGroup`); nothing below.
-    @ViewBuilder func glassID(_ id: String, in ns: Namespace.ID) -> some View {
-        if #available(iOS 26.0, *) { glassEffectID(id, in: ns) } else { self }
+    /// The round icon buttons in the top bar: native circular glass on iOS 26+.
+    @ViewBuilder func circleGlassButton() -> some View {
+        if #available(iOS 26.0, *) {
+            buttonStyle(.glass).buttonBorderShape(.circle)
+        } else {
+            buttonStyle(IconButtonStyle())
+        }
     }
 
     /// Toolbar confirm buttons (Done): prominent glass on iOS 26+.
@@ -178,21 +154,7 @@ extension View {
     }
 }
 
-/// `GlassEffectContainer` on iOS 26+: glass shapes inside it render together and morph into one
-/// another; a plain group below.
-struct GlassGroup<Content: View>: View {
-    var spacing: CGFloat? = nil
-    @ViewBuilder var content: Content
-    var body: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) { content }
-        } else {
-            content
-        }
-    }
-}
-
-/// The round icon buttons in the top bar: a 44pt circle of interactive glass on iOS 26+.
+/// The top bar's round icon buttons below iOS 26: a 44pt circle with a hairline.
 struct IconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -209,15 +171,9 @@ private struct IconPlate: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *), !reduceTransparency {
-            content
-                .glassEffect(.regular.interactive(), in: Circle())
-                .overlay { if contrast == .increased { Circle().strokeBorder(Ink.ink.opacity(0.45), lineWidth: 1) } }
-        } else {
-            content
-                .background(Circle().fill(reduceTransparency ? Ink.raised : Ink.ink.opacity(pressed ? 0.12 : 0.05)))
-                .overlay(Circle().strokeBorder(contrast == .increased ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
-        }
+        content
+            .background(Circle().fill(reduceTransparency ? Ink.raised : Ink.ink.opacity(pressed ? 0.12 : 0.05)))
+            .overlay(Circle().strokeBorder(contrast == .increased ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
     }
 }
 

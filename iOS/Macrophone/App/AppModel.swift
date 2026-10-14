@@ -50,7 +50,7 @@ struct Route: Equatable {
 }
 
 enum AppSheet: String, Identifiable {
-    case history, settings, pairing, sendTo, customCleanup
+    case history, settings, pairing, customCleanup
     var id: String { rawValue }
 }
 

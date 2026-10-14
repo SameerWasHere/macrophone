@@ -16,6 +16,23 @@ final class MacrophoneUITests: XCTestCase {
         return app
     }
 
+    /// "Send to: Claude" — the panel's header line.
+    private func sendTo(_ app: XCUIApplication) -> XCUIElement { app.descendants(matching: .any)["send-to"] }
+    /// The native Send after pasting switch.
+    private func sendSwitch(_ app: XCUIApplication) -> XCUIElement { app.switches["send-toggle"] }
+    /// A cleanup level's segment.
+    private func level(_ app: XCUIApplication, _ title: String) -> XCUIElement {
+        app.segmentedControls["cleanup-level"].buttons[title]
+    }
+    /// Flips the switch itself (the row is the element; the switch sits at its trailing end).
+    /// Waits for the controls to be back (they step aside until a dictation has gone out), then taps.
+    private func tapWhenBack(_ e: XCUIElement) {
+        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: e)
+        waitForExpectations(timeout: 15)
+        e.tap()
+    }
+    private func flip(_ e: XCUIElement) { e.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap() }
+
     private func statusContains(_ app: XCUIApplication, _ text: String, timeout: TimeInterval = 20) -> Bool {
         app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: timeout)
     }
@@ -72,7 +89,7 @@ final class MacrophoneUITests: XCTestCase {
         sleep(3)
         same(idle, frame(app, "Stop and send"), "recording (an app said first) keeps the button in place")
         // While the mic is open the controls step aside: the transcript has the whole area.
-        XCTAssertFalse(app.descendants(matching: .any)["send-toggle"].isHittable, "the controls are hidden while recording")
+        XCTAssertFalse(app.switches["send-toggle"].isHittable, "the controls are hidden while recording")
         XCTAssertFalse(app.buttons["History"].isHittable, "the top bar is hidden while recording")
         app.buttons["Stop and send"].tap()
         same(idle, frame(app, "Start dictation"), "sending keeps the button in place")
@@ -174,54 +191,55 @@ final class MacrophoneUITests: XCTestCase {
                     "MACROPHONE_ROUTE_PROBE": "1", "MACROPHONE_CLEANUP_AVAILABLE": "1", "MACROPHONE_FAKE_CLEANUP": "1"]
         var app = launch(base.merging(["MACROPHONE_SIM_RECORD": "running late, start without me"]) { $1 })
         // A fresh install sends to Clipboard, and Clipboard can't send.
-        let chip = app.buttons["send-to"]
+        let chip = sendTo(app)
         XCTAssertTrue(chip.waitForExistence(timeout: 8))
         XCTAssertTrue(chip.label.contains("Clipboard"), chip.label)
-        XCTAssertTrue(app.descendants(matching: .any)["send-toggle"].label.contains("Clipboard can't send"), app.descendants(matching: .any)["send-toggle"].label)
-        // The full list is one tap away: the places and every window — and no automations.
-        chip.tap()
-        XCTAssertTrue(app.navigationBars["Send To"].waitForExistence(timeout: 3))
-        for name in ["Clipboard", "Where I'm typing", "Claude", "Messages", "Terminal — claude"] {
-            XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch.exists, "the picker lists \(name)")
+        XCTAssertFalse(sendSwitch(app).isEnabled, "Send after pasting is greyed out for Clipboard")
+        // Every place is a button in the row — and no full list behind it.
+        for name in ["Clipboard", "Where I'm typing", "Claude", "Messages", "Terminal"] {
+            XCTAssertTrue(app.buttons[name].exists, "the row shows \(name)")
         }
-        app.swipeUp()
-        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'automation'")).firstMatch.exists, "no Automations section")
-        app.buttons["Done"].tap()
-        // Where: Messages, one tap on the dock.
+        XCTAssertFalse(app.buttons["all-places"].exists, "no All places end-cap")
+        // Where: Messages, one tap.
         let messages = app.buttons["Messages"]
-        XCTAssertTrue(messages.waitForExistence(timeout: 3), "the dock shows the Mac's open apps")
         messages.tap()
-        XCTAssertTrue(app.buttons["send-to"].label.contains("Messages"), app.buttons["send-to"].label)
-        XCTAssertTrue(messages.isSelected, "the picked app is lit")
+        XCTAssertTrue(sendTo(app).label.contains("Messages"), sendTo(app).label)
+        XCTAssertTrue(messages.isSelected, "the picked app is the prominent button")
         // Send after pasting: one tap, and the status line says what it does now.
-        let send = app.descendants(matching: .any)["send-toggle"]
+        let send = sendSwitch(app)
         XCTAssertTrue(["Off", "0"].contains("\(send.value ?? "")"), "\(send.value ?? "nil")")
-        send.tap()
-        expectation(for: NSPredicate(format: "value == '1' OR value == 'On'"), evaluatedWith: send)
-        waitForExpectations(timeout: 3)
+        XCTAssertTrue(send.label.contains("Presses Return in Messages after pasting"), send.label)
+        flip(send)
+        // The status line first: it says what changed for a few seconds only.
         XCTAssertTrue(statusContains(app, "Pastes into Messages, then sends", timeout: 3))
-        // Cleanup: Light, one tap.
-        app.buttons["cleanup-light"].tap()
-        XCTAssertTrue(app.buttons["cleanup-light"].isSelected)
+        XCTAssertTrue(["On", "1"].contains("\(send.value ?? "")"), "\(send.value ?? "nil")")
+        // Cleanup: Light, one tap on its segment.
+        level(app, "Light").tap()
+        XCTAssertTrue(level(app, "Light").isSelected)
         XCTAssertTrue(statusContains(app, "Light cleanup — Removes filler", timeout: 3))
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Light — removes filler'")).firstMatch.waitForExistence(timeout: 3),
+                      "the panel says what the level does")
         dictate(app)
         XCTAssertTrue(probe(app, contains: "target=app:com.apple.MobileSMS# send=1 cleanup=light said=0"))
         // Back to paste only, Heavy cleanup: the next one follows.
-        app.descendants(matching: .any)["send-toggle"].tap()
-        app.buttons["cleanup-heavy"].tap()
+        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: sendSwitch(app))
+        waitForExpectations(timeout: 15)
+        flip(sendSwitch(app))
+        level(app, "Heavy").tap()
         dictate(app)
         XCTAssertTrue(probe(app, contains: "target=app:com.apple.MobileSMS# send=0 cleanup=heavy"))
         // Custom: unedited, the cleaner is told Medium's instructions.
-        app.buttons["cleanup-custom"].tap()
-        XCTAssertTrue(app.buttons["cleanup-custom"].isSelected)
+        XCTAssertFalse(app.buttons["edit-custom"].exists, "Edit instructions only with Custom")
+        tapWhenBack(level(app, "Custom"))
+        XCTAssertTrue(level(app, "Custom").isSelected)
         XCTAssertTrue(statusContains(app, "Custom cleanup — Medium's instructions", timeout: 3))
         dictate(app)
         XCTAssertTrue(probe(app, contains: "cleanup=custom said=0"))
         XCTAssertTrue(probe(app, contains: "instructions=You clean up speech-to-text transcripts."))
-        // Edited (tap Custom again): the next dictation follows his words.
-        app.buttons["cleanup-custom"].tap()
+        // Edited (Edit instructions): the next dictation follows his words.
+        tapWhenBack(app.buttons["edit-custom"])
         let editor = app.textViews["custom-instructions"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 3), "tapping the picked Custom opens its instructions")
+        XCTAssertTrue(editor.waitForExistence(timeout: 3), "Edit instructions opens them")
         replaceText(editor, with: "Write it all in capital letters.")
         XCTAssertEqual(app.staticTexts["custom-count"].label, "32 characters")
         app.navigationBars["Custom Cleanup"].buttons["Done"].tap()
@@ -229,9 +247,8 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(probe(app, contains: "cleanup=custom said=0"))
         XCTAssertTrue(probe(app, contains: "instructions=Write it all in capital letters."))
         // Emptied, it falls back to the default.
-        app.buttons["cleanup-custom"].press(forDuration: 1.0)
-        app.buttons["Edit Custom Instructions"].tap()
-        XCTAssertTrue(editor.waitForExistence(timeout: 3), "a long-press opens them too")
+        tapWhenBack(app.buttons["edit-custom"])
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
         XCTAssertEqual(editor.value as? String, "Write it all in capital letters.", "saved as typed")
         replaceText(editor, with: "")
         app.navigationBars["Custom Cleanup"].buttons["Done"].tap()
@@ -242,12 +259,12 @@ final class MacrophoneUITests: XCTestCase {
         app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac", "MACROPHONE_ROUTE_PROBE": "1",
                       "MACROPHONE_CLEANUP_AVAILABLE": "1", "MACROPHONE_CLEANUP": "off",
                       "MACROPHONE_SIM_RECORD": "Claude, tell Sam I'm late"])
-        XCTAssertTrue(app.buttons["send-to"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["send-to"].label.contains("Messages"), "the pick is remembered")
+        XCTAssertTrue(sendTo(app).waitForExistence(timeout: 8))
+        XCTAssertTrue(sendTo(app).label.contains("Messages"), "the pick is remembered")
         dictate(app)
         XCTAssertTrue(probe(app, contains: "target=app:com.anthropic.claudefordesktop# send=0 cleanup=off said=1 text=Tell Sam I'm late"))
         XCTAssertTrue(statusContains(app, "Copied on iPhone") || statusContains(app, "Claude", timeout: 1))
-        XCTAssertTrue(app.buttons["send-to"].label.contains("Messages"), "a spoken name is for that one dictation")
+        XCTAssertTrue(sendTo(app).label.contains("Messages"), "a spoken name is for that one dictation")
     }
 
     /// Puts the cursor after the last word (scrolled to the end, a tap past it), deletes everything,
@@ -281,7 +298,7 @@ final class MacrophoneUITests: XCTestCase {
         app.navigationBars["Custom Cleanup"].buttons.element(boundBy: 0).tap()
         XCTAssertTrue(link.waitForExistence(timeout: 3))
         XCTAssertTrue(link.label.contains("Your own"), link.label)
-        XCTAssertTrue(app.collectionViews.buttons["cleanup-custom"].isSelected)
+        XCTAssertTrue(app.collectionViews.segmentedControls["cleanup-level"].buttons["Custom"].isSelected)
         link.tap()
         XCTAssertEqual(editor.value as? String, "Keep it short.")
         app.buttons["custom-reset"].tap()
@@ -291,51 +308,50 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue((editor.value as? String ?? "").hasPrefix("You clean up speech-to-text transcripts."), "reset to the default")
     }
 
-    /// The dock: Clipboard and Where I'm typing first, then the Mac's open apps; an app with several
-    /// windows wears a count and its long-press lists them; the end-cap opens every place; a picked
-    /// app that closed stays on the dock, marked.
-    func testDockPlacesAndWindows() {
+    /// The Send to row: Clipboard and Where I'm typing first, then the Mac's open apps, one button
+    /// each; an app with several windows lists them on a long-press; a picked app that closed stays
+    /// in the row, dimmed, "Not open".
+    func testPlacesAndWindows() {
         var app = launch(["MACROPHONE_RESET": "1", "MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac",
                           "MACROPHONE_FAKE_TARGETS": "long"])
         XCTAssertTrue(app.buttons["Clipboard"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Clipboard"].isSelected, "a fresh install sends to Clipboard")
         XCTAssertTrue(app.buttons["Where I'm typing"].exists)
         let terminal = app.buttons["Terminal, 2 windows"]
-        XCTAssertTrue(terminal.exists, "one icon per app, its windows counted")
+        XCTAssertTrue(terminal.exists, "one button per app, its windows counted")
         terminal.press(forDuration: 1.0)
         let window = app.buttons["claude"]
         XCTAssertTrue(window.waitForExistence(timeout: 3), "the long-press lists the windows")
         window.tap()
-        XCTAssertTrue(app.buttons["send-to"].label.contains("Terminal — claude"), app.buttons["send-to"].label)
+        XCTAssertTrue(sendTo(app).label.contains("Terminal — claude"), sendTo(app).label)
         XCTAssertTrue(app.buttons["Terminal, 2 windows"].isSelected)
-        app.buttons["all-places"].tap()
-        XCTAssertTrue(app.navigationBars["Send To"].waitForExistence(timeout: 3), "the end-cap opens every place")
-        app.buttons["Done"].tap()
         app.terminate()
-        // Relaunched with Terminal gone from the Mac: still picked, on the dock, marked.
+        // Relaunched with Terminal gone from the Mac: still picked, in the row, marked.
         app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac", "MACROPHONE_FAKE_TARGETS": "none"])
         let closed = app.buttons["Terminal — claude, not open on your Mac"]
-        XCTAssertTrue(closed.waitForExistence(timeout: 8), "the closed pick stays on the dock")
+        XCTAssertTrue(closed.waitForExistence(timeout: 8), "the closed pick stays in the row")
         XCTAssertTrue(closed.isSelected)
-        XCTAssertTrue(app.buttons["send-to"].label.contains("not open on your Mac"))
+        XCTAssertTrue(sendTo(app).label.contains("not open on your Mac"))
     }
 
-    /// A control that can't apply says why when tapped; each cleanup step says what it does.
+    /// Each control says what it does in words; one that can't apply says why.
     func testControlsExplainThemselves() {
         let app = launch(["MACROPHONE_RESET": "1", "MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac",
                           "MACROPHONE_CLEANUP_AVAILABLE": "1", "MACROPHONE_SEND_TO": "clipboard"])
-        let send = app.descendants(matching: .any)["send-toggle"]
+        let send = sendSwitch(app)
         XCTAssertTrue(send.waitForExistence(timeout: 8))
-        XCTAssertTrue(send.label.contains("Clipboard can't send"), send.label)
-        send.tap()
-        XCTAssertTrue(statusContains(app, "Clipboard only copies", timeout: 3))
-        app.buttons["cleanup-heavy"].tap()
+        XCTAssertFalse(send.isEnabled)
+        XCTAssertTrue(send.label.contains("Clipboard only copies — pick an app to send"), send.label)
+        level(app, "Heavy").tap()
         XCTAssertTrue(statusContains(app, "Heavy cleanup — Rewrites rambling speech", timeout: 3))
-        XCTAssertTrue(app.buttons["cleanup-heavy"].isSelected)
+        XCTAssertTrue(level(app, "Heavy").isSelected)
         app.buttons["Where I'm typing"].tap()
         XCTAssertTrue(statusContains(app, "Pastes where you're typing on your Mac", timeout: 3))
-        app.buttons["cleanup-custom"].tap()
-        XCTAssertTrue(statusContains(app, "Tap Custom again to edit", timeout: 3))
+        XCTAssertTrue(send.isEnabled)
+        XCTAssertTrue(send.label.contains("Presses Return where you're typing"), send.label)
+        level(app, "Custom").tap()
+        XCTAssertTrue(statusContains(app, "Custom cleanup — Medium's instructions", timeout: 3))
+        XCTAssertTrue(app.buttons["edit-custom"].waitForExistence(timeout: 3), "Edit instructions beside Custom's line")
     }
 
     func testScreensOpen() {
@@ -347,26 +363,19 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 3))
     }
 
-    func testSendToPickerRemembersTheChoice() {
+    func testSendToRemembersTheChoice() {
         let app = launch(["MACROPHONE_RESET": "1", "MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac"])
-        let chip = app.buttons["send-to"]
-        XCTAssertTrue(chip.waitForExistence(timeout: 8))
-        XCTAssertTrue(chip.label.contains("Clipboard"), chip.label)
-        chip.tap()
-        XCTAssertTrue(app.navigationBars["Send To"].waitForExistence(timeout: 3))
-        XCTAssertFalse(app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Automatic'")).firstMatch.exists, "no Automatic")
-        app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Terminal —'")).firstMatch.tap()
-        XCTAssertTrue(app.buttons["send-to"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["send-to"].label.contains("Terminal"), app.buttons["send-to"].label)
+        XCTAssertTrue(sendTo(app).waitForExistence(timeout: 8))
+        XCTAssertTrue(sendTo(app).label.contains("Clipboard"), sendTo(app).label)
+        app.buttons["Terminal"].tap()
+        XCTAssertTrue(sendTo(app).label.contains("Terminal"), sendTo(app).label)
         app.terminate()
         // Relaunched with Terminal no longer open on the Mac: still picked, marked not open.
         let again = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac", "MACROPHONE_FAKE_TARGETS": "none"])
-        XCTAssertTrue(again.buttons["send-to"].waitForExistence(timeout: 8))
-        XCTAssertTrue(again.buttons["send-to"].label.contains("Terminal"), "the pick is remembered")
-        XCTAssertTrue(again.buttons["send-to"].label.contains("not open on your Mac"), again.buttons["send-to"].label)
-        again.buttons["send-to"].tap()
-        XCTAssertTrue(again.staticTexts["Not open on your Mac — it'll be copied instead"].waitForExistence(timeout: 3)
-                      || again.buttons.containing(NSPredicate(format: "label CONTAINS 'Not open on your Mac'")).firstMatch.exists)
+        XCTAssertTrue(sendTo(again).waitForExistence(timeout: 8))
+        XCTAssertTrue(sendTo(again).label.contains("Terminal"), "the pick is remembered")
+        XCTAssertTrue(sendTo(again).label.contains("not open on your Mac"), sendTo(again).label)
+        XCTAssertTrue(again.staticTexts["Not open"].exists, "the closed app's button says so")
     }
 
     /// iOS only tells apps "iPhone": pairing ends by asking what the Mac should call it, with the
@@ -418,7 +427,7 @@ final class MacrophoneUITests: XCTestCase {
         let paired = ["MACROPHONE_RESET": "1", "MACROPHONE_FAKE_PAIRED": "Sameer's MacBook Pro", "MACROPHONE_FAKE_HISTORY": "1"]
         var found: [String] = []
         let only = ProcessInfo.processInfo.environment["AUDIT_SCREENS"]?.split(separator: ",").map(String.init)
-        for screen in only ?? ["main", "history", "settings", "sendto", "custom", "pairing", "dictionary", "onboarding"] {
+        for screen in only ?? ["main", "history", "settings", "custom", "pairing", "dictionary", "onboarding"] {
             // AUDIT_ENV="KEY=VALUE;KEY=VALUE" adds launch settings (to narrow a finding down).
             var extra: [String: String] = [:]
             for kv in (ProcessInfo.processInfo.environment["AUDIT_ENV"] ?? "").split(separator: ";") {
@@ -461,18 +470,18 @@ final class MacrophoneUITests: XCTestCase {
         guard ProcessInfo.processInfo.environment["MACROPHONE_LIVE"] == "1" else { throw XCTSkip("needs mpctl serve") }
         let app = launch(["MACROPHONE_SCREEN": "main"])
         XCTAssertTrue(statusContains(app, "Ready", timeout: 20), "connected")
-        // The Mac's open apps are on the dock: one tap picks Messages.
+        // The Mac's open apps are in the Send to row: one tap picks Messages.
         let messages = app.buttons["Messages"]
-        XCTAssertTrue(messages.waitForExistence(timeout: 10), "the Mac's open apps are on the dock")
+        XCTAssertTrue(messages.waitForExistence(timeout: 10), "the Mac's open apps are in the row")
         messages.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["send-toggle"].waitForExistence(timeout: 3))
-        let send = app.descendants(matching: .any)["send-toggle"]
-        if !["On", "1"].contains("\(send.value ?? "")") { send.tap() }
+        let send = sendSwitch(app)
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        if !["On", "1"].contains("\(send.value ?? "")") { flip(send) }
         print("LIVE picked Messages + send")
         let changed = NSPredicate(format: "label CONTAINS 'Claude'")
-        expectation(for: changed, evaluatedWith: app.buttons["send-to"])
+        expectation(for: changed, evaluatedWith: sendTo(app))
         waitForExpectations(timeout: 60)
-        print("LIVE chip now: \(app.buttons["send-to"].label)")
+        print("LIVE chip now: \(sendTo(app).label)")
     }
 
     /// Where it landed, in the status line's words (the debug statuses, no Mac needed). The ✓ only

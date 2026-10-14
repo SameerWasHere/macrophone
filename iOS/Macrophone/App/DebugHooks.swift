@@ -185,7 +185,6 @@ enum DebugHooks {
         case "settings", "dictionary", "language", "diagnostics", "settings-custom": model.sheet = .settings
         case "custom": model.sheet = .customCleanup
         case "pairing": model.sheet = .pairing
-        case "sendto": model.sheet = .sendTo
         default: break
         }
         if let s = env["MACROPHONE_OPEN_URL"], let url = URL(string: s) {

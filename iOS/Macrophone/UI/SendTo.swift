@@ -2,9 +2,8 @@ import MacrophoneKit
 import SwiftUI
 import UIKit
 
-// Where dictations go: the glyphs and icons for places, and the full list of them (the sheet behind
-// the dock's name line and its "All places" end-cap — every window lives there). The controls by
-// the mic are in QuickControls.swift.
+// Where dictations go: the glyphs and icons for places, and Settings' full list of them (every
+// window). The controls by the mic are in QuickControls.swift.
 
 enum TargetGlyph {
     static func symbol(for t: TargetRef) -> String {
@@ -43,6 +42,8 @@ struct TargetIcon: View {
     var target: TargetRef
     var icon: Data?
     var size: CGFloat = 20
+    /// On a tinted (picked) button: the glyph in dark ink, so it doesn't wash into the tint.
+    var onTint = false
 
     var body: some View {
         if let img = IconCache.image(icon) {
@@ -50,7 +51,7 @@ struct TargetIcon: View {
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {
-            let tint = Self.tint(target)
+            let tint = onTint ? Ink.ground : Self.tint(target)
             Image(systemName: TargetGlyph.symbol(for: target))
                 .font(.system(size: size * 0.5, weight: .semibold))
                 .foregroundStyle(tint)
@@ -176,23 +177,5 @@ struct SendToList: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-/// The picker as a sheet from the chip.
-struct SendToSheet: View {
-    @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            SendToList(settings: model.settings) { dismiss() }
-                .navigationTitle("Send To")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.doneButtonStyle() }
-                }
-        }
-        .tint(Light.cyan)
     }
 }

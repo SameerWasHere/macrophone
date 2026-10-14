@@ -39,27 +39,34 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
 - **Haptics (phone):** `light` on record start, `soft` on stop, `success` on delivered,
   `warning` on queued, `error` on failure, and a selection `tick` when a control by the mic
   changes (a place, Send after pasting, a cleanup step). Nothing on ordinary navigation taps.
-- **The controls by the mic (phone):** a dock of the Mac's open apps by their own icons (the pick
-  lifted and lit, with a bar under it like the Mac's Dock), "Send to <place>" under it opening
-  every place, a **Send after pasting** toggle (a paper plane that lights), and **Off · Light ·
-  Medium · Heavy** steps. A change is one tap; the status line then says in a sentence what the
-  next dictation will do. A control that can't apply says why when tapped.
-- **Glass (Oct 13 2026, the Liquid Glass pass):** on iOS 26+ the phone uses Apple's native
-  Liquid Glass; below, the old look (`.ultraThinMaterial` over the ground, a 1pt hairline, a soft
-  shadow; radii 14 / 18 / 22). The helpers live in `iOS/Macrophone/UI/Theme.swift` and wrap every
-  API in `if #available(iOS 26.0, *)`: `glassPlate(_:lit:interactive:)` (`.glassEffect` with
-  `Glass.regular`, `.tint`, `.interactive`), `GlassGroup` (`GlassEffectContainer`), `glassID`
-  (`glassEffectID`), `GlassPanel` (`.glass(radius)`), `IconButtonStyle`, `pillStyle` (`.glassProminent`
-  / `.glass`) and `doneButtonStyle` (`.glassProminent`, cyan, dark label). Where it's used: the Mac
-  pill and the History / Settings buttons are interactive glass; the dock's pick sits on a bubble of
-  glass lit in its colour that flows to the next icon (`glassEffectID` in a container); the cleanup
-  steps are a glass track whose pick is a bright glass lens that morphs from step to step; Send after
-  pasting is the native `Toggle` on a glass capsule lit cyan while on; the mic is a disc of glass,
-  ink-dark inside the spectrum ring at rest and ember while it listens (same size, never moves);
-  panels, the pill buttons and the sheets' Done are glass too. Rules: glass carries controls, never
-  the words (the transcript and the idle line sit on the ground); the label of a lit pick is dark
-  ink on a bright lens, never white on a light tint; Reduce Transparency swaps every glass for a
-  solid raised plate, Increase Contrast adds a firm 1pt edge.
+- **The mic screen (phone, Oct 13 2026, the native pass):** top to bottom — the top bar (Mac
+  pill, History, Settings), the header ("Speak, and it's on your Mac." in serif + "Tap to talk, tap
+  again to send. Or hold, and let go."), flexible space, then **the controls panel in thumb reach**
+  just above the Thread, then the mic (never moves) and the status line. While recording the header
+  and panel step aside and the transcript fills the area from the top down.
+- **The controls panel is Apple's own controls, nothing hand-drawn:** one grouped panel (a rounded
+  `.regularMaterial` plate with a hairline — the controls on it are the glass; glass on glass blurs
+  twice and merges the buttons into the panel) with inset hairlines between three
+  rows. **Send to** — "SEND TO" + the picked place's name, prominent; then a horizontal row of
+  native buttons, one per place (Clipboard, Where I'm typing, the Mac's open apps newest first): the
+  icon with the short name under it, `.glass` for the others and `.glassProminent` tinted cyan for
+  the pick (dark label), so the selection *is* the button (`.bordered` / `.borderedProminent`
+  below iOS 26). Long-press an app with several windows → a native context menu of its windows. A
+  picked app that closed stays in the row, dimmed, "Not open". No full list sheet, no end-cap.
+  **Send after pasting** — a native `Toggle` (cyan) with the full name and one line saying what it
+  does for the picked place ("Presses Return in Claude after pasting"; for Clipboard, greyed out:
+  "Clipboard only copies — pick an app to send"). **Cleanup** — the label, a native segmented
+  `Picker` (Off · Light · Medium · Heavy · Custom), and one line for the picked level ("Medium —
+  fixes grammar and false starts"), with an **Edit instructions** `.glass` button beside it for
+  Custom; unavailable → the picker disabled and the line says why. A change ticks; the status line
+  then says in a sentence what the next dictation will do.
+- **Glass:** on iOS 26+ the phone uses Apple's native Liquid Glass through system styles only —
+  `.buttonStyle(.glass)` / `.glassProminent` (the Mac pill, History and Settings as circular glass
+  buttons, the places, Edit instructions, the sheets' Done via `doneButtonStyle`), the segmented
+  picker and switch as the system draws them, `glassEffect` for the other panels (`.glass(radius)`). Below iOS 26: `.bordered` buttons, material panels with a hairline
+  (radii 14 / 18 / 22). Rules: glass carries controls, never the words (the transcript and header
+  sit on the ground); a tinted pick's label is dark ink; Increase Contrast adds a firm 1pt edge.
+  The mic is a disc inside the spectrum ring, ember while it listens (same size, never moves).
 
 ## Voice of the words
 
