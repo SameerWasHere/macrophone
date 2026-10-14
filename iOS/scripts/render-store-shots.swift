@@ -52,13 +52,13 @@ struct Shot {
 }
 
 let shots: [Shot] = [
-    Shot(file: "01-recording", kicker: "Dictate", caption: "Speak into your iPhone.\nIt lands on your Mac.", glow: ember, peak: 0.42),
-    Shot(file: "02-delivered", kicker: "Voice targets", caption: "Say where it goes.\nIt goes straight there.", glow: mint, peak: 0.58),
-    Shot(file: "03-send-to", kicker: "Send to", caption: "Pick where it goes.\nOr just say it.", glow: cyan, peak: 0.36),
-    Shot(file: "04-cleanup", kicker: "Cleanup", caption: "Four levels, or your own.\nIt edits, never answers.", glow: teal, peak: 0.62,
+    Shot(file: "01-watch", kicker: "Watch it work", caption: "Your Mac does the coding.\nYour iPhone runs the session.", glow: cyan, peak: 0.42),
+    Shot(file: "02-reply", kicker: "Answer by voice", caption: "Say the next prompt.\nIt's pasted in and sent.", glow: ember, peak: 0.58),
+    Shot(file: "03-send-to", kicker: "Pick the session", caption: "Every app on your Mac,\none tap away.", glow: teal, peak: 0.36),
+    Shot(file: "04-open-app", kicker: "Open any app", caption: "Something closed?\nOpen it from your iPhone.", glow: mint, peak: 0.62),
+    Shot(file: "05-cleanup", kicker: "Cleanup", caption: "Four levels, or your own.\nIt edits, never answers.", glow: violet, peak: 0.45,
          beforeAfter: ("so um the thing I want is, uh, make the retry logic back off, no wait, back off exponentially and cap it at thirty seconds",
                        "Make the retry logic back off exponentially and cap it at 30 seconds.", "Medium")),
-    Shot(file: "05-history", kicker: "History", caption: "Raw and cleaned,\nkept on your iPhone.", glow: violet, peak: 0.45),
     Shot(file: "06-pairing", kicker: "Private by design", caption: "Pair once. No account,\nno cloud, no audio kept.", glow: gold, peak: 0.55),
 ]
 

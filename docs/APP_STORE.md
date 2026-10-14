@@ -261,19 +261,16 @@ phone below with the Filament crossing the frame. No caption names a third-party
 
 | # | File | Screen | Kicker | Caption |
 | --- | --- | --- | --- | --- |
-| 1 | `01-recording.png` | Mid-dictation: the live transcript, the Filament alive, the timer, the dock of the Mac's open apps with Claude lit, "You said Claude", Send after pasting on, cleanup at Medium, "Listening — this one goes to Claude" | DICTATE | Speak into your iPhone. It lands on your Mac. |
-| 2 | `02-delivered.png` | Delivered: the mint ✓ on the Filament, "Sent to Claude — you said "Claude" first", and the last dictation card (Cleaned / Raw, Copy, Resend) | VOICE TARGETS | Say where it goes. It goes straight there. |
-| 3 | `03-send-to.png` | The main screen at rest: the dock with Claude picked, "Send to Claude", Send after pasting, and the status line "Pastes into Claude, then sends" | SEND TO | Pick where it goes. Or just say it. |
-| 4 | `04-cleanup.png` | Settings: Send to · Clipboard, the cleanup steps (Off · Light · Medium · Heavy · Custom) with a HEARD / SENT · MEDIUM CLEANUP card | CLEANUP | Four levels, or your own. It edits, never answers. |
-| 5 | `05-history.png` | History: three dictations with Cleaned / Raw, where each went (Claude · you said "Claude" first, Terminal — claude, Where I'm typing), Delivered, the cleanup level | HISTORY | Raw and cleaned, kept on your iPhone. |
-| 6 | `06-pairing.png` | Onboarding step 5: "Scan the code on your Mac." with the QR viewfinder and "Use a Code Instead" | PRIVATE BY DESIGN | Pair once. No account, no cloud, no audio kept. |
+| 1 | `01-watch.png` | Watching: a Terminal window running Claude Code, live, with "Do you want to make this edit?" and Esc · ↑ · ↓ · Return under it | WATCH IT WORK | Your Mac does the coding. Your iPhone runs the session. |
+| 2 | `02-reply.png` | Replying while watching: the window as a strip at the top, the reply appearing in serif, the Filament alive, the mic recording | ANSWER BY VOICE | Say the next prompt. It's pasted in and sent. |
+| 3 | `03-send-to.png` | The main screen: Send to Claude with Watch and ⋯, the row of the Mac's apps with their icons, Send after pasting, cleanup, "Pastes into Claude, then sends" | PICK THE SESSION | Every app on your Mac, one tap away. |
+| 4 | `04-open-app.png` | Open an app: the Mac's installed apps with icons, the open ones marked | OPEN ANY APP | Something closed? Open it from your iPhone. |
+| 5 | `05-cleanup.png` | Settings: the cleanup steps with a HEARD / SENT · MEDIUM card | CLEANUP | Four levels, or your own. It edits, never answers. |
+| 6 | `06-pairing.png` | Onboarding: "Scan the code on your Mac." with the QR viewfinder | PRIVATE BY DESIGN | Pair once. No account, no cloud, no audio kept. |
 
-The captured screens show only features the simplified app has. **Shots 1–3 show the main
-screen as it was on Oct 13 2026.** The main screen is being redesigned (the last-dictation card
-is going away, the mic moves to the bottom, and the transcript fills the space above it while
-recording). Re-capture and re-render **01, 02 and 03** in both sizes after that lands, and before
-upload. Shots 4–6 (Settings, History, pairing) aren't affected. Use the "Macrophone Shots 6.9"
-(723B841D-…) and "Macrophone Shots 6.5" (13583BDA-…) simulators.
+Re-rendered Oct 14 2026 for the new pitch. Shots 1–4 come from a live stand-in Mac
+(`mpctl serve`, see the capture script's header) so the window and the app icons are real. Use the
+"Macrophone Shots 6.9" (723B841D-…) and "Macrophone Shots 6.5" (13583BDA-…) simulators.
 
 ## Third-party names (guidelines 2.3.7 / 5.2.1)
 

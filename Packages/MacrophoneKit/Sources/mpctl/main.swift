@@ -157,9 +157,13 @@ final class ServeDelegate: LinkServerDelegate {
         // Real bundle ids, with this Mac's icons where the app is installed (screenshots look real).
         let apps: [(String, String)] = [("Calendar", "com.apple.iCal"), ("ChatGPT", "com.openai.chat"), ("Claude", "com.anthropic.claudefordesktop"),
                                         ("Cursor", "com.todesktop.230313mzl4w4u92"), ("Ghostty", "com.mitchellh.ghostty"), ("Mail", "com.apple.mail"),
-                                        ("Messages", "com.apple.MobileSMS"), ("Notes", "com.apple.Notes"), ("Slack", "com.tinyspeck.slackmacgap"),
-                                        ("Terminal", "com.apple.Terminal"), ("TextEdit", "com.apple.TextEdit"), ("Xcode", "com.apple.dt.Xcode")]
-        return apps.map { MacApp(bundleID: $0.1, name: $0.0, icon: demoIcon($0.1, 64), running: ["Claude", "Messages", "Terminal", "Notes"].contains($0.0)) }
+                                        ("Messages", "com.apple.MobileSMS"), ("Notes", "com.apple.Notes"), ("Reminders", "com.apple.reminders"),
+                                        ("Safari", "com.apple.Safari"), ("Slack", "com.tinyspeck.slackmacgap"), ("Terminal", "com.apple.Terminal"),
+                                        ("TextEdit", "com.apple.TextEdit"), ("Xcode", "com.apple.dt.Xcode")]
+        // Only the ones installed here, like the real Mac app.
+        return apps.compactMap { app in
+            demoIcon(app.1, 64).map { MacApp(bundleID: app.1, name: app.0, icon: $0, running: ["Claude", "Messages", "Terminal", "Notes"].contains(app.0)) }
+        }
     }
 
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) {
