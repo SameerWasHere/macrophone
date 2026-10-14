@@ -108,6 +108,8 @@ public enum Message: Codable, Sendable {
     case watch(TargetRef?)
     /// Phone → Mac: a one-tap action on the watched window.
     case watchAction(WatchAction)
+    /// Phone → Mac: click the watched window here (fractions of it, 0…1, top-left origin).
+    case watchClick(x: Double, y: Double)
     /// Mac → phone: how watching is going.
     case watchState(WatchState)
     /// Mac → phone: the window, when it changed.

@@ -393,7 +393,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick:
             break
         }
     }
@@ -487,6 +487,12 @@ public final class LinkClient: @unchecked Sendable {
     public func watchAction(_ action: WatchAction) {
         guard let s = lock.sync({ session }) else { return }
         Task { try? await s.send(.watchAction(action)) }
+    }
+
+    /// Click the watched window at a fraction of its size (top-left origin).
+    public func watchClick(_ p: CGPoint) {
+        guard let s = lock.sync({ session }) else { return }
+        Task { try? await s.send(.watchClick(x: Double(p.x), y: Double(p.y))) }
     }
 
     // MARK: Pairing

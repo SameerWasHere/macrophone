@@ -6,10 +6,11 @@ import UIKit
 //
 //   ● LIVE · CLAUDE                        [Done]
 //   ┌──────────────────────────────────────────┐
-//   │  the window, pinned to its newest output │  pinch to zoom, drag to look around,
-//   │  (centred on the column you type in)     │  double-tap to zoom in / back
-//   └──────────────────────────────────────────┘
-//   [↑] [↓]  [Approve]  [Stop]  [Copy]            Return / Esc for apps that aren't agents
+//   │  the window, pinned to its newest output │  tap = a click there on the Mac;
+//   │  (centred on the column you type in)     │  pinch to zoom, drag to look around
+//   └──────────────────────────────────── [Newest] (once you've moved away)
+//   [↑] [↓]   [Approve]  [Stop]  [Copy]           Approve only while a question is on screen;
+//                                                 Stop only in Claude, Codex and terminals
 //
 // The mic, the Thread and the status line don't move. Holding the mic shrinks the window to a
 // strip at the top, so the question stays in view while the words take the rest.
@@ -102,23 +103,39 @@ struct WatchKicker: View {
 struct WatchWindow: View {
     @ObservedObject var watcher: Watcher
     var interactive: Bool
+    /// The person zoomed or dragged away from the start (the Newest button shows).
+    @State private var adjusted = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
         ZStack {
             Ink.raised
             if let image = watcher.image {
-                WindowViewer(image: image, focus: watcher.focus, recenter: watcher.recenter, interactive: interactive,
-                             onVisible: { watcher.visibleRect = $0 }, onTouch: { watcher.touch() })
+                WindowViewer(image: image, focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
+                             onVisible: { watcher.visibleRect = $0 }, onTouch: { watcher.touch() },
+                             onTap: { watcher.click($0) }, onAdjusted: { moved in if moved != adjusted { adjusted = moved } })
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
-                    .accessibilityHint(interactive ? "Pinch to zoom. Double-tap to zoom in or back out." : "")
+                    .accessibilityHint(interactive ? "Tap to click there on your Mac. Pinch to zoom." : "")
                     .accessibilityAddTraits(.isImage)
+            }
+            if interactive && adjusted && watcher.phase == .live {
+                Button { watcher.showNewest() } label: {
+                    Label("Newest", systemImage: "arrow.down.to.line").font(.footnote.weight(.semibold))
+                }
+                .nativeGlassButton()
+                .controlSize(.small)
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .transition(.opacity)
+                .accessibilityHint("Back to the newest output, at the bottom of the window.")
+                .accessibilityIdentifier("watch-newest")
             }
             if interactive { overlay }
         }
         .clipShape(shape)
         .overlay(shape.strokeBorder(Ink.line, lineWidth: 1))
         .animation(.easeInOut(duration: 0.25), value: watcher.phase)
+        .animation(.easeInOut(duration: 0.2), value: adjusted)
     }
 
     @ViewBuilder private var overlay: some View {
@@ -231,16 +248,28 @@ struct WatchActions: View {
             icon("arrow.up", "Scroll up", .scrollUp)
             icon("arrow.down", "Scroll down", .scrollDown)
             Spacer(minLength: 0)
-            action(watcher.agentLike ? "Approve" : "Return", "return", .returnKey, words: words,
-                   hint: watcher.agentLike ? "Presses Return in \(watcher.name) — approves the highlighted choice." : "Presses Return in \(watcher.name).")
-            action(watcher.agentLike ? "Stop" : "Esc", watcher.agentLike ? "stop.fill" : "escape", .escape, words: words,
-                   hint: watcher.agentLike ? "Presses Esc in \(watcher.name) — stops what it's doing." : "Presses Esc in \(watcher.name).")
+            // Only while a question is on screen ("Do you want to make this edit?", "Allow once").
+            if let a = watcher.approval {
+                Button { watcher.approve() } label: {
+                    Text("Approve").font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
+                }
+                .watchProminentButton()
+                .accessibilityHint(a.point == nil ? "Presses Return in \(watcher.name) — picks “\(a.label)”."
+                                                  : "Clicks “\(a.label)” in \(watcher.name).")
+                .accessibilityIdentifier("watch-approve")
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+            }
+            if watcher.agentLike {
+                action("Stop", "stop.fill", .escape, words: words,
+                       hint: "Presses Esc in \(watcher.name) — stops what it's doing.")
+            }
             Button { copy() } label: { label("Copy", "doc.on.doc", words: words) }
                 .nativeGlassButton()
                 .accessibilityLabel("Copy")
                 .accessibilityHint("Copies the words on screen to this iPhone.")
                 .accessibilityIdentifier("watch-copy")
         }
+        .animation(Motion.snap, value: watcher.approval)
     }
 
     private func icon(_ symbol: String, _ name: String, _ a: WatchAction) -> some View {
@@ -299,7 +328,8 @@ private extension View {
 
 /// The window's picture in a zooming scroll view: it opens on the column you type in, at the
 /// bottom (the newest output), and stays there as pictures arrive — until you zoom or drag, then
-/// it stays where you put it. Double-tap zooms in there, or back to the start.
+/// it stays where you put it (Newest brings it back). A tap is a click there on the Mac, with a
+/// ring where it landed.
 struct WindowViewer: UIViewRepresentable {
     var image: UIImage
     var focus: CGRect?
@@ -307,18 +337,25 @@ struct WindowViewer: UIViewRepresentable {
     var interactive: Bool
     var onVisible: (CGRect) -> Void
     var onTouch: () -> Void
+    var onTap: (CGPoint) -> Void
+    var onAdjusted: (Bool) -> Void
 
     func makeUIView(context: Context) -> ViewerScrollView {
         let v = ViewerScrollView()
-        v.onVisible = onVisible
-        v.onTouch = onTouch
+        wire(v)
         return v
     }
 
     func updateUIView(_ v: ViewerScrollView, context: Context) {
+        wire(v)
+        v.update(image: image, focus: focus, recenter: recenter, interactive: interactive)
+    }
+
+    private func wire(_ v: ViewerScrollView) {
         v.onVisible = onVisible
         v.onTouch = onTouch
-        v.update(image: image, focus: focus, recenter: recenter, interactive: interactive)
+        v.onTap = onTap
+        v.onAdjusted = onAdjusted
     }
 }
 
@@ -327,11 +364,14 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     private var imageSize: CGSize = .zero
     private var focus: CGRect?
     /// The person zoomed or dragged: leave the view where they put it.
-    private var adjusted = false
+    private var adjusted = false { didSet { if adjusted != oldValue { onAdjusted(adjusted) } } }
     private var lastRecenter: Int?
     private var lastBounds: CGSize = .zero
     var onVisible: (CGRect) -> Void = { _ in }
     var onTouch: () -> Void = {}
+    var onTap: (CGPoint) -> Void = { _ in }
+    var onAdjusted: (Bool) -> Void = { _ in }
+    private var tapper: UITapGestureRecognizer!
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -345,9 +385,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         imageView.contentMode = .scaleToFill
         imageView.layer.minificationFilter = .trilinear
         addSubview(imageView)
-        let double = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:)))
-        double.numberOfTapsRequired = 2
-        addGestureRecognizer(double)
+        tapper = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+        addGestureRecognizer(tapper)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -355,7 +394,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     func update(image: UIImage, focus: CGRect?, recenter: Int, interactive: Bool) {
         isScrollEnabled = interactive
         pinchGestureRecognizer?.isEnabled = interactive
-        gestureRecognizers?.compactMap { $0 as? UITapGestureRecognizer }.forEach { $0.isEnabled = interactive }
+        tapper.isEnabled = interactive
         let focusChanged = focus != self.focus && !adjusted
         self.focus = focus
         imageView.image = image
@@ -436,17 +475,38 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
                          width: r.width / imageSize.width, height: r.height / imageSize.height))
     }
 
-    @objc private func doubleTapped(_ g: UITapGestureRecognizer) {
-        onTouch()
-        if adjusted || zoomScale > startScale * 1.3 {
-            reset(animated: true)
-            return
-        }
-        adjusted = true
+    @objc private func tapped(_ g: UITapGestureRecognizer) {
+        guard imageSize.width > 0 else { return }
         let p = g.location(in: imageView)
-        let target = min(startScale * 2, maximumZoomScale)
-        let size = CGSize(width: bounds.width / target, height: bounds.height / target)
-        zoom(to: CGRect(x: p.x - size.width / 2, y: p.y - size.height / 2, width: size.width, height: size.height), animated: true)
+        let n = CGPoint(x: p.x / imageSize.width, y: p.y / imageSize.height)
+        guard (0...1).contains(n.x), (0...1).contains(n.y) else { return }
+        ring(at: g.location(in: self))
+        onTap(n)
+    }
+
+    /// Where the click landed: a ring that grows and fades.
+    private func ring(at p: CGPoint) {
+        let r: CGFloat = 16
+        let layer = CAShapeLayer()
+        layer.path = UIBezierPath(ovalIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)).cgPath
+        layer.position = p
+        layer.fillColor = UIColor(Light.cyan).withAlphaComponent(0.25).cgColor
+        layer.strokeColor = UIColor(Light.cyan).cgColor
+        layer.lineWidth = 2
+        self.layer.addSublayer(layer)
+        let grow = CABasicAnimation(keyPath: "transform.scale")
+        grow.fromValue = 0.4
+        grow.toValue = 1.4
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        let group = CAAnimationGroup()
+        group.animations = [grow, fade]
+        group.duration = 0.45
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.opacity = 0
+        layer.add(group, forKey: "ring")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { layer.removeFromSuperlayer() }
     }
 
     // MARK: UIScrollViewDelegate

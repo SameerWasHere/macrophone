@@ -261,34 +261,65 @@ final class WatchService {
             app.log.add("watching: opened Screen Recording settings")
             return
         }
-        guard let w = watches[peer], let wid = w.windowID,
-              let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
-        guard Paster.isTrusted else {
-            app.log.add("watch action skipped: Accessibility not granted")
-            return
-        }
-        let name = w.appName
-        Task { [weak self] in
-            do {
-                if NSWorkspace.shared.frontmostApplication?.processIdentifier != running.processIdentifier || action == .reveal {
-                    _ = try await Paster.bringToFront(running, windowID: wid, required: true, name: name)
-                }
-            } catch {
-                self?.app.log.add("watch action: window didn't come forward")
-                return
-            }
+        act(on: peer, what: action.rawValue) { wid in
             switch action {
             case .returnKey: Keys.press(CGKeyCode(kVK_Return), flags: [])
             case .escape: Keys.press(CGKeyCode(kVK_Escape), flags: [])
             case .scrollUp, .scrollDown: await Self.scroll(window: wid, up: action == .scrollUp)
             case .reveal, .openScreenRecordingSettings: break
             }
-            self?.app.log.add("watch action: \(action.rawValue)")
-            // Show the result: a picture right away, and another once the app has answered.
+        }
+    }
+
+    /// A tap on the phone's picture: a click at that spot in the window.
+    func click(_ p: CGPoint, for peer: UUID) {
+        act(on: peer, what: "click") { wid in await Self.click(window: wid, at: p) }
+    }
+
+    /// Brings the watched window forward if it isn't already the front one, does `body`, and
+    /// shows the result: a picture right away, and another once the app has answered.
+    private func act(on peer: UUID, what: String, _ body: @escaping @MainActor (CGWindowID) async -> Void) {
+        guard let w = watches[peer], let wid = w.windowID,
+              let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
+        guard Paster.isTrusted else {
+            app.log.add("watch \(what) skipped: Accessibility not granted")
+            return
+        }
+        let name = w.appName
+        Task { [weak self] in
+            let frontWindow = WindowServer.appWindows().first { $0.z == 0 }?.id
+            let inFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == running.processIdentifier && frontWindow == wid
+            if !inFront || what == WatchAction.reveal.rawValue {
+                do { _ = try await Paster.bringToFront(running, windowID: wid, required: true, name: name) } catch {
+                    self?.app.log.add("watch \(what): window didn't come forward")
+                    return
+                }
+            }
+            await body(wid)
+            self?.app.log.add("watch \(what)")
             w.kick = true
             try? await Task.sleep(nanoseconds: 400_000_000)
             w.kick = true
         }
+    }
+
+    /// A left click at a fraction of the window. The pointer goes there for the click and is put back.
+    private static func click(window id: CGWindowID, at p: CGPoint) async {
+        guard let b = WindowServer.appWindows().first(where: { $0.id == id })?.bounds else { return }
+        let pt = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
+        let original = CGEvent(source: nil)?.location
+        let src = CGEventSource(stateID: .hidSystemState)
+        CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)
+        down?.setIntegerValueField(.mouseEventClickState, value: 1)
+        down?.post(tap: .cghidEventTap)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)
+        up?.setIntegerValueField(.mouseEventClickState, value: 1)
+        up?.post(tap: .cghidEventTap)
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        if let original { CGWarpMouseCursorPosition(original) }
     }
 
     /// A page of scrolling over the window's middle, as a few smooth steps. The pointer is moved

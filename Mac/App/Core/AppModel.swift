@@ -531,6 +531,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         watch.perform(action, for: peerID)
     }
 
+    func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {
+        watch.click(point, for: peerID)
+    }
+
     /// The menu's Stop: stop sending this phone pictures and tell it.
     func stopWatching(_ peerID: UUID) {
         watch.stop(peerID)

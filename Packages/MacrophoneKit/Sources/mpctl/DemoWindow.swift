@@ -32,6 +32,8 @@ final class DemoWindow: @unchecked Sendable {
     ]
     private var next = 0
     private var scroll = 0
+    /// Where the phone last clicked (a ring is drawn there, to check the mapping).
+    private var lastClick: CGPoint?
     let width = 1400, height = 900
 
     /// One more line of the answer (until the prompt is up).
@@ -53,11 +55,13 @@ final class DemoWindow: @unchecked Sendable {
         }
     }
 
+    func click(_ p: CGPoint) { lock.sync { lastClick = p } }
+
     /// The chat column, as a fraction of the window.
     var focus: CGRect { CGRect(x: 0.22, y: 0.1, width: 0.56, height: 0.85) }
 
     func jpeg() -> Data? {
-        let (all, offset) = lock.sync { (lines, scroll) }
+        let (all, offset, clicked) = lock.sync { (lines, scroll, lastClick) }
         let w = width, h = height
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -100,6 +104,11 @@ final class DemoWindow: @unchecked Sendable {
         }
         rect(x0 - 10, composerY, Int(focus.width * Double(w)), 80, CGColor(gray: 0.2, alpha: 1), radius: 14)
         text("Reply to Claude…", x0 + 14, composerY + 48, size: 24, CGColor(gray: 0.45, alpha: 1), mono: false)
+        if let c = clicked {
+            ctx.setStrokeColor(CGColor(red: 0.35, green: 0.73, blue: 0.87, alpha: 1))
+            ctx.setLineWidth(4)
+            ctx.strokeEllipse(in: CGRect(x: c.x * Double(w) - 18, y: Double(h) - c.y * Double(h) - 18, width: 36, height: 36))
+        }
         guard let image = ctx.makeImage() else { return nil }
         let out = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }

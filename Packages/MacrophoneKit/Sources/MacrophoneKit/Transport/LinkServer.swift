@@ -30,6 +30,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID)
     /// A one-tap action on the window that phone is watching.
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID)
+    /// A click on the watched window, at a fraction of its size (top-left origin).
+    func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID)
 }
 
 public extension LinkServerDelegate {
@@ -39,6 +41,7 @@ public extension LinkServerDelegate {
     func liveTargets(_ server: LinkServer) -> [LiveTarget] { [] }
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {}
 }
 
 /// True for exactly one caller.
@@ -421,6 +424,9 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watch: target, from: phoneID) }
             case let .watchAction(action):
                 notify { $0.linkServer(self, watchAction: action, from: phoneID) }
+            case let .watchClick(x, y):
+                guard (0...1).contains(x), (0...1).contains(y) else { break }
+                notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame:
                 break
             }

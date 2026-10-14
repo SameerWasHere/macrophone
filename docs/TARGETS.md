@@ -192,14 +192,15 @@ Test recipe: `mpctl pair <url>` → `mpctl targets` → `mpctl select <bundleID|
 ## Watching (Oct 14 2026)
 
 The phone can show the window of the place it sends to. Phone → Mac `watch(TargetRef?)` (nil
-stops) and `watchAction(WatchAction)`; Mac → phone `watchState(WatchState)` and `watchFrame(WatchFrame)`
+stops) `watchAction(WatchAction)` and `watchClick(x:y:)` (fractions of the window); Mac → phone `watchState(WatchState)` and `watchFrame(WatchFrame)`
 (a JPEG ≤ ~1500 px wide, sent only when it changed, about two a second, each send awaited so a slow
 link gets fewer pictures instead of a backlog). The Mac (`Mac/App/Watch/WatchService.swift`) finds
 the window the way delivery does (the picked window, else the one last typed in, else the app's
 front-most), captures only that window with ScreenCaptureKit (Screen Recording permission), and
 re-reads the composer's frame every 5 s for the phone's starting view. Actions bring the window
-forward first (Accessibility), then press Return / Esc or scroll a page over the window's middle
-(the pointer is moved there and put back). It stops when the phone sends nil, disconnects, or the
+forward first when it isn't already the front window (Accessibility), then press Return / Esc,
+scroll a page over the window's middle, or click at the point (the pointer is moved there for it
+and put back). It stops when the phone sends nil, disconnects, or the
 person chooses Stop in the menu ("Your iPhone is watching Claude — Stop"). The phone pauses after
 two idle minutes and when it leaves the screen. `mpctl watch` is a stand-in phone; `mpctl serve`
 answers with a drawn demo window (`--watch-state permission|unavailable` for those states).

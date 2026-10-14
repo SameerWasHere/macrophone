@@ -146,6 +146,11 @@ final class ServeDelegate: LinkServerDelegate {
         stdout("WATCH ACTION \(action.rawValue)")
         demo.apply(action)
     }
+
+    func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {
+        stdout("WATCH CLICK \(String(format: "%.3f, %.3f", point.x, point.y))")
+        demo.click(point)
+    }
 }
 
 // MARK: phone
