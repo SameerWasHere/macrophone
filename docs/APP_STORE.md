@@ -66,20 +66,29 @@ Readiness was audited on Oct 13 2026: a Release archive built with no warnings, 
 | Field | Text | Length / limit |
 | --- | --- | --- |
 | Name | Macrophone | 10 / 30 |
-| Subtitle | Speak on iPhone, type on Mac | 28 / 30 |
-| Promotional text | Speak on your iPhone and your words land in any app open on your Mac, pasted or pasted and sent. Cleaned up on the iPhone. Free, private, no account. | 149 / 170 |
+| Subtitle | Drive your Mac’s coding agents | 30 / 30 |
+| Promotional text | See the window where your coding agent works on your Mac, tap to click, press Esc or Return, and say your next prompt. Cleaned up on your iPhone. Free, no account. | 163 / 170 |
+
+Positioning (Oct 14 2026, Sameer): for people who run a Mac mini or a docked, lid-shut MacBook
+and want to keep their coding sessions going from their phone — watch, tap, answer by voice.
 
 Promotional text can change without a new build. The name, subtitle, promotional text and
 keywords name no third-party app on purpose (see "Third-party names").
 
 ## Description
 
-(≤4,000 characters; this is 2,565.)
+(≤4,000 characters; this is 2,986.)
 
 ```
-Speak on your iPhone, pick any app open on your Mac, and Macrophone pastes your words there. Or pastes them and sends.
+Your Mac does the coding. Your iPhone runs the session.
 
-Your iPhone becomes a wireless microphone for your Mac. Tap the mic, talk, tap again, and the text lands where you're working: an AI chat, the terminal running your coding agent, your editor, a message box. It's built for long prompts you'd rather say than type.
+Made for the Mac mini on the shelf and the MacBook docked with its lid shut. Macrophone puts the window where your coding agent is working on your iPhone, live. Read what it did, tap to click, press Esc or Return, and say your next prompt: it's cleaned up, pasted in and sent. No walking over, no keyboard.
+
+WATCH IT WORK
+• After you send, that app's window opens on your iPhone, starting on the part you type in and following the newest output. Pinch to zoom.
+• Tap anywhere in it to click there on your Mac: switch sessions, pick an option, open a file.
+• Esc, Up, Down and Return under it, the same in every app: move through a question, confirm it, or stop the agent.
+• Only that one window, never your whole screen, and nothing is recorded.
 
 PICK WHERE IT GOES
 • The apps open on your Mac show up by the mic. Tap one, and that's where your next dictation goes.
@@ -117,10 +126,10 @@ App names belong to their owners. Macrophone is an independent app and isn't aff
 ## Keywords
 
 ```
-dictation,voice to text,speech to text,prompt,AI,transcribe,wireless mic,hands-free,clipboard,agent
+dictation,voice to text,coding agent,remote,terminal,prompt,AI,speech to text,hands-free,mac mini
 ```
 
-99 / 100 characters. Words already in the name and subtitle (Macrophone, speak, iPhone, type,
+97 / 100 characters. Words already in the name and subtitle (Macrophone, speak, iPhone, type,
 Mac) are indexed anyway, so they're left out. No competitor or third-party trademarks
 (guideline 2.3.7).
 
@@ -135,8 +144,8 @@ history.)
 
 ## Categories
 
-- Primary: **Productivity**
-- Secondary: **Developer Tools**
+- Primary: **Developer Tools**
+- Secondary: **Productivity**
 
 ## Age rating questionnaire
 
@@ -224,11 +233,11 @@ There is no login. The iPhone app also works on its own: until a Mac is paired, 
 4. The cleanup buttons (Off, Light, Medium, Heavy, Custom) choose how much the text is tidied up. Cleanup uses Apple's on-device model and needs a device with Apple Intelligence on iOS 26 or later. Elsewhere the exact transcript is used. The History button shows the last dictations with Cleaned and Raw versions.
 
 THE FREE MAC APP (OPTIONAL FOR REVIEW)
-"Macrophone for Mac" is a free menu bar app, offered as a signed and notarized download at https://sameer.us/macrophone/download. There's no paid tier anywhere. To test the full path, install it on a Mac on the same Wi-Fi network, open it, choose Pair iPhone, and scan the QR code from the iPhone app (or tap "Use a Code Instead" and type the six-digit code). The apps open on the Mac then appear by the mic button. Pick one, dictate, and the Mac pastes the text there.
+"Macrophone for Mac" is a free menu bar app, offered as a signed and notarized download at https://sameer.us/macrophone/download. There's no paid tier anywhere. To test the full path, install it on a Mac on the same Wi-Fi network, open it, choose Pair iPhone, and scan the QR code from the iPhone app (or tap "Use a Code Instead" and type the six-digit code). The apps open on the Mac then appear by the mic button. Pick one, dictate, and the Mac pastes the text there. With the Mac connected, the Watch button next to the picked app (or sending with "Send after pasting" on) shows that one app window on the iPhone, live; taps and the Esc / Up / Down / Return keys under it act in that window on the Mac. The Mac asks for its Screen Recording permission for this; the iPhone needs no extra permission.
 
 PERMISSIONS AND WHY
 - Microphone: to hear the user while they tap or hold the mic button. Audio is never stored.
-- Speech Recognition: speech to text, forced to run on the device (requiresOnDeviceRecognition). Audio is not sent to Apple or to us.
+- Speech Recognition: speech to text on the device (Apple's SpeechAnalyzer on iOS 26+, else SFSpeechRecognizer with requiresOnDeviceRecognition). Audio is not sent to Apple or to us.
 - Local Network: to find the user's Mac with Bonjour (_macrophone._tcp) and send it the text directly. The iOS prompt appears at the "Looking for your Mac" setup step, or the first time the user pairs. Nothing goes to the internet.
 - Camera: only to scan the pairing QR code shown on the Mac, requested at that step. Pairing also works with a six-digit code instead.
 

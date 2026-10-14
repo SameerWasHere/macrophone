@@ -117,6 +117,8 @@ final class ServeDelegate: LinkServerDelegate {
         guard let target else { stdout("WATCH stopped"); return }
         stdout("WATCH \(target.displayName)")
         let demo = self.demo
+        // The app's own name, as the Mac sends it ("Terminal", not "Terminal — claude ~/app").
+        let appName = target.displayName.components(separatedBy: " — ").first ?? target.displayName
         let forced = flag("--watch-state")
         watches[peerID] = Task {
             if forced == "permission" { await server.send(.watchState(.needsPermission), to: peerID); return }
@@ -124,7 +126,7 @@ final class ServeDelegate: LinkServerDelegate {
                 await server.send(.watchState(.unavailable("\(target.displayName)'s window is minimized", canReveal: true)), to: peerID)
                 return
             }
-            await server.send(.watchState(.live(appName: target.displayName)), to: peerID)
+            await server.send(.watchState(.live(appName: appName)), to: peerID)
             var seq = 0, n = 0
             var last: Data?
             while !Task.isCancelled {
@@ -134,7 +136,7 @@ final class ServeDelegate: LinkServerDelegate {
                     last = jpeg
                     seq += 1
                     let frame = WatchFrame(seq: seq, jpeg: jpeg, width: demo.width, height: demo.height,
-                                           appName: target.displayName, bundleID: target.bundleID, focus: demo.focus)
+                                           appName: appName, bundleID: target.bundleID, focus: demo.focus)
                     await server.send(.watchFrame(frame), to: peerID)
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)

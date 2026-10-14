@@ -106,8 +106,8 @@ struct OnboardingView: View {
     private var welcome: some View {
         page(hero: AnyView(DemoVignette().scaleEffect(compact ? 0.82 : 1).frame(height: compact ? 172 : 210).padding(.top, compact ? 4 : 20)),
              kicker: "Macrophone",
-             title: "Talk on your iPhone. It types on your Mac.",
-             body: "Your iPhone becomes a wireless microphone. It turns your voice into text right here, then sends it to your Mac — into Claude, a terminal, or wherever you're working.") {
+             title: "Your Mac does the work. You steer from here.",
+             body: "See the window where Claude Code or any app is working on your Mac, tap to click, and say your next prompt. Your iPhone turns your voice into text right here and sends it in.") {
             Button("Get Started") { advance() }.pillStyle(.primary, tint: Ink.ink)
         }
     }
