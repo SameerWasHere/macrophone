@@ -31,10 +31,25 @@
 
 ## Cleanup
 
-`Cleaner.clean(_:level:dictionary:language:deadline:)` with the level (an automation's level wins
-when it sets one), prewarmed on record start (the prewarmed session is reused when the level
-and dictionary match). English only; unavailable → the dial is disabled with its one-line
-explanation and the app behaves as Off.
+`Cleaner.clean(_:level:dictionary:language:deadline:)` with the level picked by the mic (Off ·
+Light · Medium · Heavy · Custom), prewarmed on record start (the prewarmed session is reused when
+the level, dictionary and — at Custom — instructions match). English only; unavailable → the
+steps are disabled with their one-line explanation and the app behaves as Off.
+
+**Custom (Oct 13 2026).** Sameer: "a fourth setting that's custom cleanup that has a default prompt
+in there that the user can edit. The default prompt should be the same as whatever Medium is."
+The Custom step follows `CleanupPrompts.customInstructions`; `Settings.customInstructions` holds
+his text (`settings.customInstructions`, nothing stored while it's the default or empty) and hands
+it to `CleanupPrompts.setCustomInstructions` at launch and on every keystroke. Unedited, Custom is
+Medium exactly (same instructions, same worked examples); edited, the package keeps only the
+never-answer examples and the guard's safety rules. The dictionary terms are still added. The
+editor (`UI/Settings/CustomCleanupView.swift`) is full screen: the one-line explanation, the
+instructions prefilled with the default, a character count, "Default · same as Medium" / "Your own
+· saved as you type", Reset to Default (confirmed), and "Use Custom" when another level is picked.
+Emptied, Custom follows the default. Reached from Settings › Cleanup › Custom instructions, and
+by the mic: the picked Custom step wears a pencil — tap it again (or long-press any time, or
+VoiceOver's "Edit instructions") and the editor opens as a sheet. While recording, the second tap
+says "Edit your instructions once this one's sent" instead of covering the mic.
 
 **Budget: 8 s + 1 s per 120 characters, at most 60 s** (`AppModel.cleanupBudget`). The model
 does ~150–220 characters a second per level and a short dictation takes ~1.1 s, so a normal
@@ -51,11 +66,19 @@ Sameer's simplification: no configured targets, no Automatic, no per-app rules. 
 every open app (or window) with somewhere to type (`LiveTarget`: icon, name, newest first) and
 the phone picks one. Before/after screens: `docs/screens/targets/`.
 
+**The core, nothing else (Oct 13 2026, later).** Sameer: "I can select any app that's running, it
+will paste or paste and send the text in that app based on what I select, and I can select the
+level of cleanup … All the other excessive features — the automations, the snippets — kill." The
+Mac's automations are gone from the phone: no Automations section in the list or on the dock, no
+automation lead-ins (`VoicePrefix`), no `profileID` / `profileName` / `profileSource` on a
+dictation, no cached profiles (the `profiles.cache` default and its shared-keychain copy are
+deleted on launch), no "Show the tap-or-hold hint" toggle (the hint shows until the first
+dictation). A picked automation becomes Clipboard; an older Mac that still sends its automations
+or picks one is ignored (the phone re-sends its own choice). Screens: `docs/screens/simple/`.
+
 **The picker** (`UI/SendTo.swift`, `SendToList`): **Clipboard**, **Where I'm typing** (the app in
 front on the Mac), then **Open on <Mac>** — the apps the Mac reports, windows as their own rows
-("Terminal — claude"), the Mac's icons — then **Automations** (the Mac's profiles, which are now
-only automations: notes, reminders, tmux, Ask Claude, scripts…). Opening it asks the Mac to look
-again (`refreshTargets()`). A picked app that's no longer open stays picked and shows "Not open on
+("Terminal — claude"), the Mac's icons. Opening it asks the Mac to look again (`refreshTargets()`). A picked app that's no longer open stays picked and shows "Not open on
 your Mac — it'll be copied instead" (on the dock it stays, greyed with a moon and an ochre bar, the
 line reads "Claude · closed", the status line says it'll be copied, and VoiceOver says so). The
 list is cached (`targets.json`; names only for Shortcuts and the control) so it works while the
@@ -79,35 +102,35 @@ into Messages, then sends", "Light cleanup — Removes filler and repeats, fixes
    their own icons, newest first, one icon per app. The pick is lifted, lit and has a bar under it
    (cyan; ember while an app said first is heard; ochre when it closed). A tap picks; a few places
    sit centred, many scroll with the pick kept in view. An app with several windows wears a count;
-   its long-press lists the windows (and "All places"). A picked automation, or a picked app that
-   closed, stays on the dock (the closed one greyed with a moon). The dashed end-cap and the
-   **Send to <place>** line under the dock open the full list (windows, automations). Unpaired, the
+   its long-press lists the windows (and "All places"). A picked app that closed stays on the dock,
+   greyed with a moon. The dashed end-cap and the **Send to <place>** line under the dock open the
+   full list (every window). Unpaired, the
    dock is one plate: "Copies on this iPhone · Pair your Mac to send to its apps".
 2. **Send after pasting** (`SendSwitch`): a paper plane that lights when on; remembered per place
-   (`settings.sendByTarget`), synced (`SendSelection`). Clipboard and automations show why they
-   can't ("Clipboard can't send"), and a tap explains. While recording with an app said first, it
+   (`settings.sendByTarget`), synced (`SendSelection`). Clipboard shows why it can't ("Clipboard
+   can't send"), and a tap explains. While recording with an app said first, it
    shows and sets that app's own setting.
-3. **Cleanup** (`CleanupSteps`): Off · Light · Medium · Heavy, all visible, the pick sliding. An
-   automation with its own level shows that level dimmed and says so on a tap; unavailable, a tap
-   says why. Settings › Cleanup uses the same control.
+3. **Cleanup** (`CleanupSteps`): Off · Light · Medium · Heavy · Custom, all visible, the pick
+   sliding; Custom wears a pencil when picked (see Cleanup above). Five words fit on an iPhone SE: a
+   `ViewThatFits` ladder drops the "Cleanup" word, then the wand, then a size — never a word cut.
+   Unavailable, a tap says why. Settings › Cleanup uses the same control.
 While recording the controls stay, quieter (72%), and still work. All of it sits in a fixed slot
 sized by `QuickControlsTemplate`, so nothing here can move the mic; SE-class heights get a smaller
 dock and tighter rows.
 
 **Routing one dictation** (`AppModel.route(for:)`): an open app's name said first
 (`SpokenTarget.match`, before cleanup: "Messages, tell Sam I'm late" → Messages, sent "Tell Sam
-I'm late", with that app's Paste/Send setting, `targetSpoken = true`) > an automation's lead-in
-(`VoicePrefix.match`) > a Shortcut's pick for this recording > the shared choice. Raw history keeps
-exactly what was heard. **Every dictation carries `target` and `send`**; `profileID`,
-`profileName` and `profileSource` only for automations.
+I'm late", with that app's Paste/Send setting, `targetSpoken = true`) > a Shortcut's pick for this
+recording > the shared choice. Raw history keeps exactly what was heard. **Every dictation carries
+`target`, `send` and its cleanup level** (`[custom]` at Custom).
 
 **Status lines** use the Mac's ack detail: "Pasted into Claude", "Sent to Claude", "Claude isn't
 open on your Mac — copied instead"; said first → "Sent to Messages — you said “Messages” first".
 
 **Shortcuts, Siri, the Action Button, Control Center:** Start Dictation's "Send To"
-(`TargetEntity`, ids `clipboard` / `front` / `app:<bundleID>#<windowKey>` / `auto:<UUID>`) offers
-Clipboard, Where I'm typing, the cached open apps and the automations; a closed app still resolves
-(the Mac copies). The control's title follows ("Dictate to Messages"). Phrases: "Dictate to / Send
+(`TargetEntity`, ids `clipboard` / `front` / `app:<bundleID>#<windowKey>`) offers Clipboard, Where
+I'm typing and the cached open apps; a closed app still resolves (the Mac copies). A control still
+set to a former automation (`auto:<UUID>`) uses the app's own choice. The control's title follows ("Dictate to Messages"). Phrases: "Dictate to / Send
 to / Dictate into <place> with Macrophone".
 
 **Verified against `mpctl serve --commands`** (iPhone 17 Pro simulator): the picker lists its three
@@ -115,9 +138,7 @@ apps; picking Messages then Paste & send printed `SELECTION Messages` / `SELECTI
 typing `select com.anthropic.claudefordesktop` into mpctl turned the open app's chip to Claude
 (`testLiveSyncWithMac`, run with `TEST_RUNNER_MACROPHONE_LIVE=1`); with the app killed, `select
 com.apple.Terminal send` on the "Mac", then relaunched → mpctl printed `SELECTION Claude` (the
-phone's). **Against `scripts/route-sink`** (prints target/send/said/level): "Messages, tell Sam I'm
-late" → `target=app(com.apple.MobileSMS, Messages) send=true said=true level=medium`, sent "Tell
-Sam I'm late."; Where I'm typing + send at Light → `target=front send=true level=light`.
+phone's).
 
 ## The mic never moves (Oct 13 2026)
 
@@ -132,14 +153,19 @@ font size to fit; an Open Settings problem makes the whole line the button. The 
 takes the dock's place when unpaired. SE-class heights drop the bottom History button (the top
 bar has it) and shorten the card and Filament. `testMicButtonNeverMoves` checks idle, recording
 with a spoken app, a send change, a cleanup change and a place picked mid-recording, sending, delivered, a hold, queued, failed,
-problem, not open, Clipboard, Where I'm typing, an automation, a very long window name, cleanup
-off/heavy/unavailable, an app that closed, no open apps, a long control explanation, no history,
+problem, not open, Clipboard, Where I'm typing, a very long window name, cleanup
+off/heavy/custom/unavailable, Custom picked and tapped again mid-recording, Custom's explanation, an app that closed, no open apps, a long control explanation, no history,
 unpaired and the nudge — passing on iPhone SE (3rd gen), 17 Pro and 17 Pro
-Max; `testMicButtonNeverMovesAtAccessibilitySizes` at AX M and AX XXXL.
+Max; `testMicButtonNeverMovesAtAccessibilitySizes` at AX M and AX XXXL (with Custom picked, its
+pencil the widest step).
 `testQuickControlsChangeTheNextDictation` drives each control and reads the route
-(`MACROPHONE_ROUTE_PROBE`); `testDockPlacesAndWindows` (windows counted and listed on a long-press,
-the end-cap, a closed pick kept) and `testControlsExplainThemselves` (what a control that can't apply
-says, an automation's own cleanup level).
+(`MACROPHONE_ROUTE_PROBE`, with `MACROPHONE_FAKE_CLEANUP`'s stand-in cleaner, since the simulator
+may not have the model): at Custom the probe carries the instructions the cleaner was given —
+Medium's unedited, his words after an edit in the editor, the default again once emptied;
+`testCustomInstructionsInSettings` (prefilled, Use Custom, saved as typed, Reset to Default);
+`testDockPlacesAndWindows` (windows counted and listed on a long-press, the end-cap, a closed pick
+kept) and `testControlsExplainThemselves` (what a control that can't apply says, each cleanup step's
+sentence, Custom's "tap again").
 
 ## The Filament follows the voice (Oct 13 2026)
 
@@ -196,12 +222,14 @@ quality, segment stitching on real audio, and the 5/10-minute caps need the devi
 See `Macrophone/App/DebugHooks.swift`: `MACROPHONE_SCREEN`, `MACROPHONE_ONBOARDING_STEP`,
 `MACROPHONE_FAKE_TRANSCRIPT` (+ `_EARLY`, `_DELAY`), `MACROPHONE_FAKE_RECORDING`,
 `MACROPHONE_SIM_RECORD` (stand-in recognizer for the real button), `MACROPHONE_FAKE_HISTORY`,
-`MACROPHONE_FAKE_PAIRED`, `MACROPHONE_FAKE_PROFILES` (automations), `MACROPHONE_FAKE_TARGETS` (open apps:
-`default|long|none`), `MACROPHONE_SEND_TO` (`clipboard|front|<name>`), `MACROPHONE_SEND`, `MACROPHONE_CLEANUP`,
-`MACROPHONE_CLEANUP_AVAILABLE`, `MACROPHONE_ROUTE_PROBE`, `MACROPHONE_INTENT_TARGET`,
+`MACROPHONE_FAKE_PAIRED`, `MACROPHONE_FAKE_TARGETS` (open apps:
+`default|long|none|many`), `MACROPHONE_SEND_TO` (`clipboard|front|<name>`), `MACROPHONE_SEND`, `MACROPHONE_CLEANUP`
+(`…|custom`), `MACROPHONE_CUSTOM_INSTRUCTIONS` (`<text>|default`), `MACROPHONE_CLEANUP_AVAILABLE`,
+`MACROPHONE_FAKE_CLEANUP` (stand-in cleaner), `MACROPHONE_ROUTE_PROBE`, `MACROPHONE_INTENT_TARGET`,
 `MACROPHONE_STATUS`, `MACROPHONE_OPEN_URL`, `MACROPHONE_PAIR_CODE`,
 `MACROPHONE_UNPAIR`, `MACROPHONE_RESEND_LATEST`, `MACROPHONE_RECORD`, `MACROPHONE_RESET`,
 `MACROPHONE_PAIRING` (`connecting|code|paired|failed|expired`: the pairing panel in that phase),
+`MACROPHONE_SCREEN=custom|settings-custom` (the Custom editor from the mic / from Settings),
 `MACROPHONE_EXPLAIN` (the status line's control explanation, held), `MACROPHONE_MIC_ONLY` / `MACROPHONE_MIC_WORDS`
 (the real mic on the simulator, no recognizer).
 
@@ -229,7 +257,7 @@ See `Macrophone/App/DebugHooks.swift`: `MACROPHONE_SCREEN`, `MACROPHONE_ONBOARDI
 - **Huge Dynamic Type:** chrome caps its size (the Mac's name and Send to at AX2/AX3, the Cleaned/Raw
   toggle at AX2, the live words at AX3, each with the Large Content Viewer where fixed) and re-lays
   out instead of breaking words: the top bar stacks, the Send-to chip puts its kicker over the name,
-  the cleanup dial shows only the picked stop, history chips wrap inside the row.
+  the cleanup steps cap their size, history chips wrap inside the row.
 - **Increase Contrast:** glass and chip edges go firm. **Reduce Motion:** the last-dictation card and
   setup steps fade instead of sliding. **Low Power Mode:** the Filament draws at 30 fps (60 otherwise,
   no display link at all whenever it's still).
@@ -248,6 +276,7 @@ xcodebuild -project Macrophone.xcodeproj -scheme Macrophone -sdk iphonesimulator
 TEST_RUNNER_MACROPHONE_PAIR_URL='macrophone://pair?…' xcodebuild test -project Macrophone.xcodeproj \
   -scheme Macrophone -destination 'id=<your simulator>' -derivedDataPath build
 swift scripts/render-icon.swift   # re-renders the app icon
-cd scripts/route-sink && swift run route-sink --state /tmp/mp-route-sink   # a Mac with open apps + automations
+# a stand-in Mac with three open apps; prints RECEIVED … → target [level]:
+(cd ../Packages/MacrophoneKit && swift build && .build/debug/mpctl serve --name "Test Mac" --state /tmp/mp-ios5/mac --auto-approve --commands)
 scripts/capture-store-shots.sh && swift scripts/render-store-shots.swift  # App Store screenshots
 ```

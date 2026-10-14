@@ -37,6 +37,7 @@ struct SettingsView: View {
                 case .diagnostics: DiagnosticsView()
                 case .pairing: PairingView(embedded: true)
                 case .sendTo: SendToList(settings: settings).navigationTitle("Send To").navigationBarTitleDisplayMode(.inline)
+                case .customCleanup: CustomCleanupView(settings: settings)
                 }
             }
             .onAppear {
@@ -73,6 +74,7 @@ struct SettingsView: View {
                  ? "Your Mac presses the app's send key after pasting, after a short countdown you can cancel. The choice is the same on your Mac: change it in either place."
                  : "\(settings.selection.target.displayName) can't send — sending after pasting is for apps. The choice is the same on your Mac: change it in either place.")
         }
+        .listRowBackground(Ink.raised)
     }
 
     // MARK: Cleanup
@@ -83,23 +85,26 @@ struct SettingsView: View {
         return nil
     }
 
+    private var levelSummary: String {
+        guard settings.cleanupLevel == .custom else { return settings.cleanupLevel.summary }
+        return model.customInstructionsEdited ? "Follows your own instructions." : "Follows your own instructions — the same as Medium until you edit them."
+    }
+
     private var cleanupSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
-                // The same four steps as by the mic.
-                CleanupSteps(settings: settings)
-                Text(cleanupDisabledReason ?? settings.cleanupLevel.summary)
+                // The same five steps as by the mic.
+                CleanupSteps(settings: settings) { path.append(.customCleanup) }
+                Text(cleanupDisabledReason ?? levelSummary)
                     .font(.footnote)
                     .foregroundStyle(cleanupDisabledReason == nil ? Ink.secondary : Light.ochre)
                     .fixedSize(horizontal: false, vertical: true)
-                if cleanupDisabledReason == nil, let p = model.selectedProfile, let level = p.cleanupLevel {
-                    Text("Your Mac's “\(p.name)” profile uses \(level.title) — it wins while that profile is picked.")
-                        .font(.footnote)
-                        .foregroundStyle(Ink.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
             .padding(.vertical, 6)
+            NavigationLink(value: SettingsRoute.customCleanup) {
+                LabeledContent("Custom instructions", value: model.customInstructionsEdited ? "Your own" : "Default")
+            }
+            .accessibilityIdentifier("custom-instructions-link")
             NavigationLink(value: SettingsRoute.dictionary) {
                 LabeledContent("Dictionary", value: "\(settings.dictionary.count) of \(DictionaryPass.maxTerms)")
             }
@@ -134,7 +139,6 @@ struct SettingsView: View {
                         .accessibilityValue("\(Int(settings.autoStopDelay)) seconds")
                 }
             }
-            Toggle("Show the tap-or-hold hint", isOn: $settings.showHoldHint)
         } header: {
             Text("Recording")
         } footer: {
@@ -272,5 +276,5 @@ struct SettingsView: View {
 }
 
 enum SettingsRoute: Hashable {
-    case dictionary, language, diagnostics, pairing, sendTo
+    case dictionary, language, diagnostics, pairing, sendTo, customCleanup
 }

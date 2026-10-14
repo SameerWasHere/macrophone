@@ -8,7 +8,8 @@ import UIKit
 /// `SIMCTL_CHILD_<NAME>=… xcrun simctl launch <udid> com.sameer.macrophone`.
 ///
 /// MACROPHONE_RESET=1                         clear settings, history, queue (not pairings)
-/// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto
+/// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto|custom|settings-custom
+///                                            (custom: the Custom cleanup editor from the mic screen; settings-custom: from Settings)
 /// MACROPHONE_ONBOARDING_STEP=0…6             which setup step to open on
 /// MACROPHONE_FAKE_TRANSCRIPT=<text>          a finished dictation, as if spoken (cleanup + delivery run)
 /// MACROPHONE_FAKE_CAMERA=1                  the QR scanner sees a Mac's pairing window (store screenshots)
@@ -16,15 +17,17 @@ import UIKit
 /// MACROPHONE_FAKE_EARLY=1                    …marked "stopped early"
 /// MACROPHONE_FAKE_RECORDING=<text>           the live recording screen, words appearing
 /// MACROPHONE_FAKE_HISTORY=1                  four sample history items
-/// MACROPHONE_FAKE_PAIRED=<Mac name>          looks paired + connected, with the sample open apps and automations below
+/// MACROPHONE_FAKE_PAIRED=<Mac name>          looks paired + connected, with the sample open apps below
 /// MACROPHONE_FAKE_TARGETS=default|long|none|many  stand-in for the Mac's open apps (long: a very long window name; many: 15)
-/// MACROPHONE_FAKE_PROFILES=<spec>|default    stand-in for the Mac's automations, kept even when a real Mac connects:
-///                                            "Quick note=note@light;Remind me=remind"  (name=prefix,prefix@cleanup)
-/// MACROPHONE_SEND_TO=clipboard|front|<app or automation name>  the Send-to choice (as if picked)
+/// MACROPHONE_SEND_TO=clipboard|front|<app name>  the Send-to choice (as if picked)
 /// MACROPHONE_SEND=1|0                        Paste & send on / off for it
-/// MACROPHONE_CLEANUP=off|light|medium|heavy  the cleanup level
+/// MACROPHONE_CLEANUP=off|light|medium|heavy|custom  the cleanup level
+/// MACROPHONE_CUSTOM_INSTRUCTIONS=<text>      the Custom level's instructions ("default" = back to Medium's)
 /// MACROPHONE_CLEANUP_AVAILABLE=1             treat on-device cleanup as available (the simulator may not have it)
+/// MACROPHONE_FAKE_CLEANUP=1                  a stand-in cleaner: the words come back as spoken, marked cleaned at the
+///                                            level, so the route (and the Mac) see the level the real model would run
 /// MACROPHONE_ROUTE_PROBE=1                   a hidden "debug-route" element reads the last dictation's target/send/cleanup
+///                                            (and, at Custom, the instructions the cleaner was given)
 /// MACROPHONE_INTENT_TARGET=clipboard|front|<name>  runs Start Dictation the way a Shortcut / control does, with that
 ///                                            target (needs MACROPHONE_SIM_RECORD; stops after 3 s)
 /// MACROPHONE_STATUS=queued|delivered|failed|sending|copied
@@ -68,6 +71,15 @@ enum DebugHooks {
         }
         if let lang = env["MACROPHONE_LANGUAGE"] { d.set(lang, forKey: Settings.K.language) }
         if let name = env["MACROPHONE_DEVICE_NAME"] { d.set(name, forKey: Settings.K.deviceName) }
+        if let text = env["MACROPHONE_CUSTOM_INSTRUCTIONS"] {
+            if text == "default" { d.removeObject(forKey: Settings.K.customInstructions) } else { d.set(text, forKey: Settings.K.customInstructions) }
+        }
+    }
+
+    /// The stand-in cleaner (`MACROPHONE_FAKE_CLEANUP`): what the real one would be told, without the model.
+    static func fakeClean(_ raw: String, level: CleanupLevel, dictionary: [String]) -> CleanupResult {
+        _ = CleanupPrompts.instructions(level: level, dictionary: dictionary)
+        return CleanupResult(cleaned: raw)
     }
 
     static var settingsPath: [SettingsRoute] {
@@ -75,12 +87,10 @@ enum DebugHooks {
         case "dictionary": return [.dictionary]
         case "language": return [.language]
         case "diagnostics": return [.diagnostics]
+        case "settings-custom": return [.customCleanup]
         default: return []
         }
     }
-
-    /// Automations a developer would set up on the Mac.
-    static let sampleAutomations: [ProfileSummary] = parseTargets("Quick note=note@light;Remind me=remind;Ask Claude=ask claude")
 
     /// Apps a developer has open, newest first. Icons are drawn here (glyphs, not the apps' own).
     @MainActor static func sampleApps(long: Bool = false) -> [LiveTarget] {
@@ -113,26 +123,13 @@ enum DebugHooks {
         return img.pngData()
     }
 
-    static func parseTargets(_ spec: String) -> [ProfileSummary] {
-        spec.split(separator: ";").enumerated().map { i, part in
-            var s = String(part)
-            var level: CleanupLevel?
-            if let at = s.lastIndex(of: "@") { level = CleanupLevel(rawValue: String(s[s.index(after: at)...])); s = String(s[..<at]) }
-            let bits = s.split(separator: "=", maxSplits: 1).map(String.init)
-            let prefixes = bits.count > 1 ? bits[1].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } : nil
-            return ProfileSummary(id: UUID(uuidString: String(format: "00000000-0000-4000-8000-%012X", i + 1))!, name: bits[0].trimmingCharacters(in: .whitespaces),
-                                  cleanupLevel: level, isDefault: i == 0, voicePrefixes: prefixes)
-        }
-    }
-
-    /// "clipboard", "front", or an open app's / automation's name → a target.
+    /// "clipboard", "front", or an open app's name → a target.
     @MainActor static func target(named to: String, in model: AppModel) -> TargetRef? {
         switch to {
         case "clipboard": return .clipboard
         case "front": return .frontApp
         default:
             if let t = model.liveTargets.first(where: { $0.title == to || $0.appName == to }) { return t.ref }
-            if let p = model.profiles.first(where: { $0.name == to }) { return .automation(id: p.id, name: p.name) }
             // A sample app that isn't open now (MACROPHONE_FAKE_TARGETS=none): picked anyway, so it shows as closed.
             if let t = sampleApps(long: true).first(where: { $0.title == to || $0.appName == to }) { return t.ref }
             return nil
@@ -142,11 +139,7 @@ enum DebugHooks {
     @MainActor static func apply(_ model: AppModel) {
         if let mac = env["MACROPHONE_FAKE_PAIRED"] {
             model.debugFakePairing(mac: mac)
-            if env["MACROPHONE_FAKE_PROFILES"] == nil { model.debugFakeProfiles(sampleAutomations) }
             if env["MACROPHONE_FAKE_TARGETS"] == nil { model.debugFakeTargets(sampleApps()) }
-        }
-        if let spec = env["MACROPHONE_FAKE_PROFILES"] {
-            model.debugFakeProfiles(spec == "default" ? sampleAutomations : parseTargets(spec))
         }
         switch env["MACROPHONE_FAKE_TARGETS"] {
         case "default"?: model.debugFakeTargets(sampleApps())
@@ -176,8 +169,7 @@ enum DebugHooks {
                 case .clipboard?: return TargetEntity.clipboardID
                 case .frontApp?: return TargetEntity.frontID
                 case let .app(bid, key, _)?: return "app:\(bid)#\(key ?? "")"
-                case let .automation(id, _)?: return "auto:\(id.uuidString)"
-                case nil: return nil
+                case .automation?, nil: return nil
                 }
             }()
             Task {
@@ -189,7 +181,8 @@ enum DebugHooks {
         }
         switch env["MACROPHONE_SCREEN"] {
         case "history": model.sheet = .history
-        case "settings", "dictionary", "language", "diagnostics": model.sheet = .settings
+        case "settings", "dictionary", "language", "diagnostics", "settings-custom": model.sheet = .settings
+        case "custom": model.sheet = .customCleanup
         case "pairing": model.sheet = .pairing
         case "sendto": model.sheet = .sendTo
         default: break

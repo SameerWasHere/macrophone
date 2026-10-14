@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 // Where dictations go: the glyphs and icons for places, and the full list of them (the sheet behind
-// the dock's name line and its "All places" end-cap — windows and automations live there). The
-// controls by the mic are in QuickControls.swift.
+// the dock's name line and its "All places" end-cap — every window lives there). The controls by
+// the mic are in QuickControls.swift.
 
 enum TargetGlyph {
     static func symbol(for t: TargetRef) -> String {
@@ -12,7 +12,7 @@ enum TargetGlyph {
         case .clipboard: return "doc.on.clipboard"
         case .frontApp: return "cursorarrow.rays"
         case let .app(bid, _, name): return appSymbol(bundleID: bid, name: name)
-        case let .automation(_, name): return automationSymbol(name)
+        case .automation: return "doc.on.clipboard"
         }
     }
 
@@ -23,17 +23,6 @@ enum TargetGlyph {
         if n.contains("note") { return "note.text" }
         if n.contains("cursor") || n.contains("code") || n.contains("xcode") { return "chevron.left.forwardslash.chevron.right" }
         return "macwindow"
-    }
-
-    /// A plain glyph for an automation, from its name.
-    static func automationSymbol(_ name: String) -> String {
-        let n = name.lowercased()
-        if n.contains("tmux") || n.contains("terminal") || n.contains("shell") { return "terminal" }
-        if n.contains("note") || n.contains("obsidian") { return "note.text" }
-        if n.contains("remind") || n.contains("todo") { return "checklist" }
-        if n.contains("claude") || n.contains("ask") { return "sparkles" }
-        if n.contains("script") || n.contains("webhook") { return "curlybraces" }
-        return "gearshape.2"
     }
 }
 
@@ -75,25 +64,16 @@ struct TargetIcon: View {
 
     static func tint(_ t: TargetRef) -> Color {
         switch t {
-        case .clipboard: return Light.teal
+        case .clipboard, .automation: return Light.teal
         case .frontApp: return Light.violet
         case .app: return Light.cyan
-        case .automation: return Light.gold
         }
-    }
-}
-
-extension ProfileSummary {
-    /// "Say “Note” first" — the first lead-in, as a hint.
-    var prefixHint: String? {
-        guard let p = voicePrefixes?.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return nil }
-        return "Say “\(spokenForm(p, name: name))” first"
     }
 }
 
 // MARK: The picker
 
-/// Clipboard, Where I'm typing, the Mac's open apps (newest first), then its automations.
+/// Clipboard, Where I'm typing, then the Mac's open apps (newest first) and their windows.
 struct SendToList: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
@@ -130,19 +110,6 @@ struct SendToList: View {
             }
             .listRowBackground(Ink.raised)
 
-            if !model.profiles.isEmpty {
-                Section {
-                    ForEach(model.profiles) { p in
-                        row(.automation(id: p.id, name: p.name), icon: nil, subtitle: automationSubtitle(p))
-                    }
-                } header: {
-                    Text("Automations")
-                } footer: {
-                    Text("Notes, reminders, scripts and the like, set up in Macrophone on your Mac. Start with an automation's name to use it once: “Note, call the bank.”")
-                        .padding(.top, 4)
-                }
-                .listRowBackground(Ink.raised)
-            }
             if settings.selection.target.canSend {
                 Section {
                     Toggle(isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
@@ -180,13 +147,6 @@ struct SendToList: View {
         var s = "Apps and windows on your Mac with somewhere to type, most recent first. Say an app's name first to send just that one there: “Messages, tell Sam I'm late.”"
         if model.isPaired, !model.isConnected { s += " \(model.macName) isn't connected right now, so this is the list it sent last." }
         return s
-    }
-
-    private func automationSubtitle(_ p: ProfileSummary) -> String? {
-        var parts: [String] = []
-        if let hint = p.prefixHint { parts.append(hint) }
-        if let level = p.cleanupLevel { parts.append("\(level.title) cleanup") }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private func row(_ target: TargetRef, icon: Data?, subtitle: String?, dim: Bool = false) -> some View {

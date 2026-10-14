@@ -151,8 +151,6 @@ struct HistoryRow: View {
         var out: [(String, Color)] = []
         if let name = item.targetName {
             out.append((item.spokenPrefix.map { "→ \(name) · you said “\($0)” first" } ?? "→ \(name)", Light.cyan))
-        } else if item.dictation.profileSource == .automatic {
-            out.append(("Automatic", Light.violet))
         }
         switch item.delivery {
         case .delivered:

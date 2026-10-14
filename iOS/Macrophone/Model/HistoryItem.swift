@@ -33,12 +33,11 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
 
     var id: UUID { dictation.id }
 
-    /// "Messages", "Clipboard", "Where I'm typing", an automation's name — or nil for older
-    /// dictations sent on Automatic.
+    /// "Messages", "Clipboard", "Where I'm typing" — or nil for the oldest dictations, which
+    /// didn't carry a target.
     var targetName: String? {
         if delivery == .copiedOnPhone { return nil }   // no Mac: it never went anywhere but here
-        if let t = dictation.target { return t.displayName }
-        return dictation.profileSource == .automatic ? nil : dictation.profileName
+        return dictation.target?.displayName
     }
 
     /// True when the cleaned version only differs because the prefix was taken off.

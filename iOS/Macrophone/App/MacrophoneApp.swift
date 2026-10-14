@@ -56,6 +56,7 @@ struct RootView: View {
                         .onDisappear { settingsPath = [] }
                 case .pairing: PairingView()
                 case .sendTo: SendToSheet().presentationDetents([.large])
+                case .customCleanup: CustomCleanupSheet()
                 }
             }
             .environmentObject(model)

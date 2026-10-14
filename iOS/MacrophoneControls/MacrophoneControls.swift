@@ -3,8 +3,8 @@ import SwiftUI
 import WidgetKit
 
 /// Control Center, the Lock Screen and the Action Button: one button that opens Macrophone
-/// already recording. Each control can be set to a place — Clipboard, Where I'm typing, an app
-/// open on the Mac ("Dictate to Messages") or an automation — or left on the app's own choice.
+/// already recording. Each control can be set to a place — Clipboard, Where I'm typing or an app
+/// open on the Mac ("Dictate to Messages") — or left on the app's own choice.
 struct StartDictationControl: ControlWidget {
     static let kind = "com.sameer.macrophone.controls.start"
 

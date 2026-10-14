@@ -31,14 +31,10 @@ struct RouteNote: Equatable {
     var send = false
 }
 
-/// How one dictation is routed: where, paste or send, why, and the words to clean and send.
+/// How one dictation is routed: where, paste or send, and the words to clean and send.
 struct Route: Equatable {
     var target: TargetRef
     var send: Bool
-    /// The automation, when the target is one (its cleanup level applies).
-    var profile: ProfileSummary?
-    /// How an automation was picked (`.chosen` / `.prefix`); nil for apps, Clipboard, typing.
-    var source: ProfileSource?
     /// The transcript with any spoken name taken off.
     var body: String
     /// The name as heard ("Messages", "Claude"), when saying it picked the target.
@@ -48,7 +44,7 @@ struct Route: Equatable {
 }
 
 enum AppSheet: String, Identifiable {
-    case history, settings, pairing, sendTo
+    case history, settings, pairing, sendTo, customCleanup
     var id: String { rawValue }
 }
 
@@ -86,8 +82,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var discoveredMacs: [DiscoveredMac] = []
     /// iOS is blocking the local network for this app — nothing can be found until it's on.
     @Published private(set) var localNetworkDenied = false
-    /// The Mac's automations (notes, reminders, tmux, Ask Claude, scripts…).
-    @Published private(set) var profiles: [ProfileSummary] = []
     /// The Mac's open apps/windows with somewhere to type, newest first (cached while it's away).
     @Published private(set) var liveTargets: [LiveTarget] = []
     /// The Mac sent its list since the link last connected (so "Not open on your Mac" is current).
@@ -128,18 +122,12 @@ final class AppModel: ObservableObject {
             Haptics.warning()
             self?.objectWillChange.send()
         }.store(in: &bag)
-        if pairedMac != nil {
-            profiles = CachedProfile.load().map {
-                ProfileSummary(id: $0.id, name: $0.name, cleanupLevel: $0.cleanupLevel.flatMap(CleanupLevel.init(rawValue:)),
-                               isDefault: $0.isDefault, voicePrefixes: $0.voicePrefixes)
-            }
-            liveTargets = Self.loadTargets()
-        }
+        if pairedMac != nil { liveTargets = Self.loadTargets() }
         refreshHistory()
         refreshAvailability()
         // One line (each write rewrites the log file) and no keychain read: launch stays light.
         log.add("app launched, version \(Bundle.main.shortVersion) (\(Bundle.main.buildNumber)), \(queue.count) queued; "
-                + "language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable"); targets cached: \(profiles.count)")
+                + "language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable"); open apps cached: \(liveTargets.count)")
     }
 
     private static func makeClient(store: KeychainPairingStore, name: String, log: DiagnosticLog) -> LinkClient {
@@ -170,12 +158,6 @@ final class AppModel: ObservableObject {
     /// Where the next dictation goes (a Shortcut's pick wins while it records).
     var selection: SendSelection { recordingOverride ?? settings.selection }
 
-    /// The automation picked for the next dictation, if the choice is one.
-    var selectedProfile: ProfileSummary? {
-        guard let id = selection.target.automationID else { return nil }
-        return profiles.first { $0.id == id }
-    }
-
     /// The open app a target names, if it's open on the Mac right now.
     func liveTarget(for ref: TargetRef) -> LiveTarget? { liveTargets.first { ref.matches($0) } }
 
@@ -185,12 +167,10 @@ final class AppModel: ObservableObject {
         return liveTarget(for: ref) == nil
     }
 
-    /// The level cleanup will run at, after availability, language and the profile.
-    var effectiveCleanupLevel: CleanupLevel { cleanupLevel(for: selectedProfile) }
-
-    func cleanupLevel(for profile: ProfileSummary?) -> CleanupLevel {
-        guard cleanupAvailability.isAvailable else { return .off }
-        return profile?.cleanupLevel ?? settings.cleanupLevel
+    /// The level cleanup will run at, after availability (and the language: English only).
+    var effectiveCleanupLevel: CleanupLevel {
+        guard cleanupAvailability.isAvailable, settings.isEnglish else { return .off }
+        return settings.cleanupLevel
     }
 
     /// Paste or Paste & send for a target: the current choice's own setting, else what was last
@@ -202,33 +182,14 @@ final class AppModel: ObservableObject {
     }
 
     /// Picks the target for one transcript: an open app's name said first ("Messages, …") >
-    /// an automation's lead-in ("Note, …") > a Shortcut's pick > the Send-to choice.
+    /// a Shortcut's pick > the Send-to choice.
     func route(for raw: String) -> Route {
         if isPaired, !liveTargets.isEmpty, let m = SpokenTarget.match(raw, targets: liveTargets) {
             let ref = m.target.ref
-            return Route(target: ref, send: sendSetting(for: ref), profile: nil, source: nil, body: m.text,
-                         spoken: m.target.appName, spokenTarget: true)
-        }
-        if isPaired, !profiles.isEmpty, let m = VoicePrefix.match(raw, profiles: profiles) {
-            return Route(target: .automation(id: m.profile.id, name: m.profile.name), send: false, profile: m.profile,
-                         source: .prefix, body: m.text, spoken: Self.spokenPrefix(raw, of: m.profile))
+            return Route(target: ref, send: sendSetting(for: ref), body: m.text, spoken: m.target.appName, spokenTarget: true)
         }
         let sel = selection
-        if let id = sel.target.automationID {
-            return Route(target: sel.target, send: false, profile: profiles.first { $0.id == id }, source: .chosen, body: raw)
-        }
-        return Route(target: sel.target, send: sendSetting(for: sel.target), profile: nil, source: nil, body: raw)
-    }
-
-    /// The lead-in exactly as the recognizer wrote it ("Claude", "Claude Code").
-    static func spokenPrefix(_ raw: String, of profile: ProfileSummary) -> String? {
-        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = t.lowercased()
-        let match = (profile.voicePrefixes ?? [])
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)).lowercased() }
-            .filter { !$0.isEmpty && lower.hasPrefix($0) }
-            .max { $0.count < $1.count }
-        return match.map { String(t.prefix($0.count)) }
+        return Route(target: sel.target, send: sendSetting(for: sel.target), body: raw)
     }
 
     /// Where this one goes while the words come in: a spoken name shows up the moment it's heard.
@@ -396,8 +357,7 @@ final class AppModel: ObservableObject {
         inFlight += 1
         defer { processing = false; inFlight -= 1 }
         let route = route(for: raw)
-        let profile = route.profile
-        let level = cleanupLevel(for: profile)
+        let level = effectiveCleanupLevel
         recordingOverride = nil
         log.add("target: \(Self.kind(route.target))\(route.send ? " + send" : "")\(route.spoken != nil ? " (said)" : "")")
         // The prefix is only for the phone: what's cleaned and sent starts after it.
@@ -415,15 +375,13 @@ final class AppModel: ObservableObject {
         let cleanupRan = cleaned != nil
         if cleaned == nil, route.body != raw { cleaned = route.body }
         // Every dictation carries where it goes, so the Mac routes each one exactly (a sync race
-        // can't misroute it); the automation fields only for automations.
-        let auto = route.target.automationID
+        // can't misroute it).
         let d = Dictation(raw: raw, cleaned: cleaned, cleanupLevel: cleanupRan ? level : .off, language: o.language,
-                          profileID: auto, profileName: auto == nil ? nil : route.target.displayName,
-                          profileSource: auto == nil ? nil : (route.source ?? .chosen),
                           target: route.target, send: route.send, targetSpoken: route.spokenTarget ? true : nil,
                           stoppedEarly: o.reason.isEarly, duration: o.duration, sourceDevice: settings.deviceName)
         #if DEBUG
         routeProbe = "target=\(route.target.storageKey) send=\(route.send ? 1 : 0) cleanup=\(level.rawValue) said=\(route.spokenTarget ? 1 : 0) text=\(d.text)"
+            + (level == .custom ? " | instructions=\(CleanupPrompts.customInstructions.prefix(80).replacingOccurrences(of: "\n", with: " "))" : "")
         #endif
         history.add(HistoryItem(dictation: d, delivery: .sending, partialCleanup: partial ? true : nil, spokenPrefix: route.spoken))
         refreshHistory()
@@ -446,6 +404,10 @@ final class AppModel: ObservableObject {
 
     /// Returns nil only if the model overran the deadline by the safety margin (a hung call).
     private static func cleanWithDeadline(_ raw: String, level: CleanupLevel, dictionary: [String], language: String) async -> CleanupResult? {
+        #if DEBUG
+        // The simulator may not have Apple's model: a stand-in that reports what the real one was told.
+        if DebugHooks.env["MACROPHONE_FAKE_CLEANUP"] == "1" { return DebugHooks.fakeClean(raw, level: level, dictionary: dictionary) }
+        #endif
         let budget = cleanupBudget(characters: raw.count)
         let deadline = Date().addingTimeInterval(budget)
         // Unstructured on purpose: a task group would wait for a model call that won't cancel.
@@ -674,8 +636,6 @@ final class AppModel: ObservableObject {
 
     private func forgetMac() {
         pairedMac = client.activeMac
-        profiles = []
-        CachedProfile.save([])
         liveTargets = []
         targetsCurrent = false
         saveTargets([])
@@ -731,13 +691,27 @@ final class AppModel: ObservableObject {
         log.add("cleanup: \(level.rawValue)")
     }
 
+    /// The Custom level's instructions, as the person types them (empty = the default, Medium's).
+    func setCustomInstructions(_ text: String) {
+        guard text != settings.customInstructions else { return }
+        settings.customInstructions = text
+        // Rebuild the prewarmed session if he's editing while Custom is about to run.
+        if recorder.isActive, effectiveCleanupLevel == .custom { Cleaner.prewarm(level: .custom, dictionary: settings.dictionary) }
+    }
+
+    /// The instructions Custom will follow (the default until edited).
+    var customInstructionsEdited: Bool {
+        let t = settings.customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !t.isEmpty && t != CleanupPrompts.defaultCustomInstructions
+    }
+
     /// For the log: the kind of target, never an app's or window's name.
     static func kind(_ t: TargetRef) -> String {
         switch t {
         case .clipboard: return "clipboard"
         case .frontApp: return "where I'm typing"
         case .app: return "an open app"
-        case .automation: return "an automation"
+        case .automation: return "clipboard"   // never picked on the phone
         }
     }
 
@@ -782,16 +756,15 @@ final class AppModel: ObservableObject {
 
     /// Records until the person stops (or auto-stop / the limit / an interruption), then
     /// returns what was said — cleaned when cleanup is on.
-    /// "clipboard", "front", "app:<bundleID>#<windowKey>", "auto:<UUID>" → a one-recording choice.
+    /// "clipboard", "front", "app:<bundleID>#<windowKey>" → a one-recording choice. (A control set
+    /// to one of the Mac's former automations — "auto:<UUID>" — uses the app's own choice.)
     func intentSelection(_ id: String, name: String?) -> SendSelection? {
         let target: TargetRef
         switch id {
         case TargetEntity.clipboardID: target = .clipboard
         case TargetEntity.frontID: target = .frontApp
         default:
-            if id.hasPrefix("auto:"), let uuid = UUID(uuidString: String(id.dropFirst(5))) {
-                target = .automation(id: uuid, name: profiles.first { $0.id == uuid }?.name ?? name ?? "Automation")
-            } else if id.hasPrefix("app:") {
+            if id.hasPrefix("app:") {
                 let parts = id.dropFirst(4).split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
                 let bid = parts.first ?? ""
                 let key = parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil
@@ -845,7 +818,7 @@ final class AppModel: ObservableObject {
             ("Macs seen on the network", "\(discoveredMacs.count)"),
             ("Queued dictations", "\(queue.count)"),
             ("Language", settings.language),
-            ("Cleanup", "\(settings.cleanupLevel.title) · \(cleanupAvailability.isAvailable ? "available" : String(describing: cleanupAvailability))"),
+            ("Cleanup", "\(settings.cleanupLevel.title)\(settings.cleanupLevel == .custom ? (customInstructionsEdited ? " (edited, \(settings.customInstructions.count) characters)" : " (default)") : "") · \(cleanupAvailability.isAvailable ? "available" : String(describing: cleanupAvailability))"),
             ("Dictionary words", "\(settings.dictionary.count)"),
             ("Auto-stop", settings.autoStop ? "on, \(Int(settings.autoStopDelay)) s" : "off"),
             ("History", settings.historyEnabled ? "on" : "off"),
@@ -907,7 +880,7 @@ final class AppModel: ObservableObject {
 
     /// Stands in for the Mac's open apps.
     func debugFakeTargets(_ list: [LiveTarget]) {
-        debugProfilesLocked = true
+        debugTargetsLocked = true
         liveTargets = list
         targetsCurrent = true
         saveTargets(list)
@@ -917,7 +890,7 @@ final class AppModel: ObservableObject {
 
     func debugFailPairing() { pairingFailed(LinkError.macNotFound) }
 
-    var debugProfilesLocked = false
+    var debugTargetsLocked = false
 
     var debugPairingLocked = false
 
@@ -925,15 +898,6 @@ final class AppModel: ObservableObject {
         debugPairingLocked = true
         pairedMac = PairedPeer(id: UUID(), name: mac)
         linkState = .connected(mac)
-    }
-
-    /// Stands in for the Mac's list; stable ids so a pick survives relaunches.
-    func debugFakeProfiles(_ list: [ProfileSummary]) {
-        debugProfilesLocked = true
-        profiles = list
-        CachedProfile.save(list.map {
-            CachedProfile(id: $0.id, name: $0.name, isDefault: $0.isDefault, cleanupLevel: $0.cleanupLevel?.rawValue, voicePrefixes: $0.voicePrefixes)
-        })
     }
     #endif
 }
@@ -954,24 +918,13 @@ extension AppModel: LinkClientDelegate {
         discoveredMacs = macs
     }
 
-    func linkClient(_ client: LinkClient, profiles: [ProfileSummary], macID: UUID) {
-        guard client === self.client else { return }
-        #if DEBUG
-        if debugProfilesLocked { return }
-        #endif
-        self.profiles = profiles
-        CachedProfile.save(profiles.map {
-            CachedProfile(id: $0.id, name: $0.name, isDefault: $0.isDefault, cleanupLevel: $0.cleanupLevel?.rawValue, voicePrefixes: $0.voicePrefixes)
-        })
-        // The Mac no longer has the picked automation: fall back to Clipboard rather than guess.
-        if let id = settings.selection.target.automationID, !profiles.contains(where: { $0.id == id }) { setSelection(.default) }
-        MacrophoneShortcuts.updateAppShortcutParameters()
-    }
+    /// An older Mac still sends its automations; the phone no longer offers them.
+    func linkClient(_ client: LinkClient, profiles: [ProfileSummary], macID: UUID) {}
 
     func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {
         guard client === self.client else { return }
         #if DEBUG
-        if debugProfilesLocked { return }
+        if debugTargetsLocked { return }
         #endif
         liveTargets = targets
         targetsCurrent = true
@@ -983,6 +936,11 @@ extension AppModel: LinkClientDelegate {
     /// Changed on the Mac: apply it here, and don't send it back.
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {
         guard client === self.client else { return }
+        // An older Mac picked one of its automations: the phone keeps (and re-sends) its own choice.
+        if selection.target.isAutomation {
+            client.setSelection(settings.selection)
+            return
+        }
         recordingOverride = nil
         var selection = selection
         // Show the app the way the phone lists it ("Terminal — claude"), whatever name the Mac sent.
