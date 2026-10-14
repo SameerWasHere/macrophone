@@ -50,7 +50,7 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(delivered(app))
     }
 
-    /// The mic button sits in one place: idle or recording, with or without a last dictation,
+    /// The mic button sits in one place: idle or recording, with or without history,
     /// paired or not, whatever the quick controls and the status line say. A button that slides
     /// out from under a held finger is the worst feeling.
     func testMicButtonNeverMoves() {
@@ -71,19 +71,9 @@ final class MacrophoneUITests: XCTestCase {
         app.buttons["Start dictation"].tap()
         sleep(3)
         same(idle, frame(app, "Stop and send"), "recording (an app said first) keeps the button in place")
-        // Changing the controls mid-recording doesn't move it either: Send after pasting, cleanup
-        // (Custom, and Custom again — which says to edit after, rather than covering the mic), a place.
-        app.descendants(matching: .any)["send-toggle"].tap()
-        same(idle, frame(app, "Stop and send"), "a send change while recording keeps the button in place")
-        app.buttons["cleanup-custom"].tap()
-        same(idle, frame(app, "Stop and send"), "Custom picked while recording keeps the button in place")
-        app.buttons["cleanup-custom"].tap()
-        XCTAssertFalse(app.navigationBars["Custom Cleanup"].waitForExistence(timeout: 1), "the editor waits while recording")
-        same(idle, frame(app, "Stop and send"), "Custom tapped again while recording keeps the button in place")
-        app.buttons["cleanup-heavy"].tap()
-        same(idle, frame(app, "Stop and send"), "a cleanup change while recording keeps the button in place")
-        app.buttons["Terminal"].tap()
-        same(idle, frame(app, "Stop and send"), "a place picked while recording keeps the button in place")
+        // While the mic is open the controls step aside: the transcript has the whole area.
+        XCTAssertFalse(app.descendants(matching: .any)["send-toggle"].isHittable, "the controls are hidden while recording")
+        XCTAssertFalse(app.buttons["History"].isHittable, "the top bar is hidden while recording")
         app.buttons["Stop and send"].tap()
         same(idle, frame(app, "Start dictation"), "sending keeps the button in place")
         sleep(4)

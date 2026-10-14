@@ -1,14 +1,16 @@
 import MacrophoneKit
 import SwiftUI
 
-/// The mic screen: the words and the Filament, the quick controls, one big button, the status
-/// line, the last dictation.
+/// The mic screen. Two parts:
 ///
-/// **The mic never moves.** Everything under the stage sits in a fixed slot whose size comes from
-/// a hidden worst-case template (`FixedSlot`), never from what's showing: the quick controls, the
-/// status line and the last-dictation card keep their room in every state (idle, holding,
-/// recording, sending, delivered, queued, failed, no history, unpaired, a long or short target).
-/// Only the words area above flexes, and the live words grow into it without pushing anything.
+/// - **The bottom, fixed:** the mic and the status line, near the foot of the screen. Their slot
+///   never changes size, so **the mic never moves** — idle, held, recording, sending, delivered.
+/// - **Everything above, one area:** idle, it holds the top bar, the words and the Thread, and the
+///   quick controls (where it goes, send after pasting, cleanup). While the mic is open — and until
+///   the words have gone out — all of that steps aside and the area is the transcript: as much of
+///   what you're saying as fits, with the Thread breathing just above the mic.
+///
+/// The last dictation isn't on this screen any more (Oct 13 2026): it's in History.
 struct MainView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
@@ -35,9 +37,21 @@ struct MainView: View {
         GeometryReader { geo in
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    topBar
-                    stage
-                    quickControls
+                    ZStack {
+                        VStack(spacing: 0) {
+                            topBar
+                            stage
+                            quickControls
+                        }
+                        .opacity(showLiveWords ? 0 : 1)
+                        .allowsHitTesting(!showLiveWords)
+                        .accessibilityHidden(showLiveWords)
+                        if showLiveWords {
+                            transcriptArea.transition(.opacity)
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
+                    .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
                     MicButton(recording: isRecording,
                               busy: false,
                               meter: recorder.meter,
@@ -45,7 +59,7 @@ struct MainView: View {
                               onUp: pressUp,
                               onAccessibilityToggle: { model.toggleRecording() })
                     statusSlot
-                    bottom
+                        .padding(.bottom, compact ? 6 : 18)
                 }
                 .frame(minHeight: geo.size.height)
             }
@@ -120,15 +134,8 @@ struct MainView: View {
             Color.clear
                 .frame(minHeight: compact ? 36 : 82, maxHeight: .infinity)
                 .overlay(alignment: .bottom) {
-                    ZStack(alignment: .bottom) {
-                        if showLiveWords {
-                            LiveWords(text: recorder.transcript, listening: isRecording)
-                                .transition(.opacity)
-                        } else {
-                            idleWords.transition(.opacity)
-                        }
-                    }
-                    .padding(.horizontal, 24)
+                    idleWords
+                        .padding(.horizontal, 24)
                 }
                 .clipped()
                 .padding(.top, 6)
@@ -138,14 +145,49 @@ struct MainView: View {
                 Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
                     .frame(height: filamentSlot, alignment: .bottom)
                 DeliveredCheck(visible: showCheck, color: checkColor)
-                if !typeSize.isAccessibilitySize { timer.frame(maxHeight: .infinity, alignment: .bottom) }
             }
             .frame(height: filamentSlot)
             .padding(.horizontal, -4)
-            if typeSize.isAccessibilitySize { timer }
         }
         .frame(maxHeight: .infinity)
-        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
+    }
+
+    // MARK: While the mic is open: the transcript takes the whole area
+
+    /// Where this dictation is going, in one quiet line (the quick controls have stepped aside —
+    /// and saying an app's name first changes it as you speak).
+    private var destinationLine: some View {
+        let live = model.liveRoute(recorder.transcript)
+        let name = live.target.displayName
+        let where_ = live.byVoice ? "You said \(name)" : "To \(name)"
+        let parts = [where_, live.target.canSend && live.send ? "sends" : nil,
+                     model.effectiveCleanupLevel == .off ? "no cleanup" : "\(model.effectiveCleanupLevel.title) cleanup"].compactMap { $0 }
+        return Text(parts.joined(separator: " · ").uppercased())
+            .font(.mono(.caption2, weight: .medium))
+            .tracking(1.1)
+            .foregroundStyle(live.byVoice ? Light.ember : Ink.tertiary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(parts.joined(separator: ", "))
+    }
+
+    private var transcriptArea: some View {
+        VStack(spacing: 0) {
+            destinationLine
+                .padding(.horizontal, 24)
+                .padding(.top, 14)
+            LiveWords(text: recorder.transcript, listening: isRecording)
+                .padding(.horizontal, 24)
+                .padding(.top, 10)
+                .frame(maxHeight: .infinity)
+            ZStack {
+                Filament(mode: filamentMode, meter: recorder.meter, height: compact ? 48 : 64)
+                timer.frame(maxHeight: .infinity, alignment: .bottom)
+            }
+            .frame(height: compact ? 56 : 76)
+            .padding(.horizontal, -4)
+        }
     }
 
     /// Whatever fits of: the line and the hint; the line; the line smaller.
@@ -245,68 +287,6 @@ struct MainView: View {
             // Held past the threshold: hold-to-talk, so letting go sends.
             if held >= MicButton.holdThreshold { model.stopRecording() }
         }
-    }
-
-    // MARK: Bottom: last dictation and the way to history
-
-    private var cardTextHeight: CGFloat { typeSize.isAccessibilitySize ? 200 : (compact ? 44 : 72) }
-
-    private var bottom: some View {
-        VStack(spacing: 10) {
-            FixedSlot(alignment: .top) {
-                LastDictationCard.template(maxTextHeight: cardTextHeight)
-            } content: {
-                if let item = model.latest {
-                    LastDictationCard(item: item,
-                                      onCopy: { model.copy(item, cleaned: $0) },
-                                      onResend: { model.resend(item) },
-                                      maxTextHeight: cardTextHeight,
-                                      canResend: model.isPaired)
-                        .id(item.id)
-                        .transition(reduceMotion ? .opacity : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
-                        // Recording: the card keeps its room and fades, so nothing below the mic moves.
-                        .opacity(showLiveWords ? 0.22 : 1)
-                        .allowsHitTesting(!showLiveWords)
-                } else {
-                    Text("Your last dictation shows here, ready to copy or send again.")
-                        .font(.footnote)
-                        .foregroundStyle(Ink.tertiary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 24)
-                        .opacity(showLiveWords ? 0 : 1)
-                }
-            }
-            if !compact {
-                Button { model.sheet = .history } label: {
-                    VStack(spacing: 2) {
-                        Image(systemName: "chevron.compact.up").font(.title3.weight(.semibold))
-                        Text(model.historyItems.isEmpty ? "History" : "History · \(model.historyItems.count)")
-                            .font(.footnote.weight(.medium))
-                    }
-                    .foregroundStyle(Ink.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .opacity(isRecording ? 0 : 1)
-                .allowsHitTesting(!isRecording)
-                .accessibilityLabel("Show history")
-                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-        .animation(Motion.pick(Motion.arrive, reduce: reduceMotion), value: model.latest?.id)
-        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24).onEnded { v in
-                if v.translation.height < -50, abs(v.translation.width) < abs(v.translation.height), !isRecording {
-                    model.sheet = .history
-                }
-            }
-        )
     }
 
     // MARK: Filament state
@@ -469,7 +449,6 @@ struct IconButtonStyle: ButtonStyle {
             .contentShape(Circle())
     }
 }
-
 /// In the quick controls' first line, after the first dictations made without a Mac: the free
 /// Mac app, one tap to send yourself the link. Closed for good with ×; gone once a Mac is paired.
 struct MacAppNudge: View {
