@@ -43,7 +43,8 @@ Do these once per Mac you release from.
 
    ```sh
    cd Mac && xcodegen generate && xcodebuild -resolvePackageDependencies -project Macrophone.xcodeproj -scheme Macrophone -derivedDataPath build/release
-   build/release/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys --account macrophone -x ~/Desktop/macrophone-sparkle-key.txt
+   # (if no build has fetched Sparkle yet: xcodebuild -resolvePackageDependencies -project Macrophone.xcodeproj -scheme Macrophone -derivedDataPath /tmp/mp-sparkle)
+   /tmp/mp-sparkle/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys --account macrophone -x ~/Desktop/macrophone-sparkle-key.txt
    # store the file's contents in your password manager, then:
    rm -P ~/Desktop/macrophone-sparkle-key.txt
    ```
