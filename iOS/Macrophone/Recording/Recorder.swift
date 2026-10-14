@@ -190,7 +190,16 @@ final class Recorder: ObservableObject {
         let index: Int
         let request: SFSpeechAudioBufferRecognitionRequest
         var task: SFSpeechRecognitionTask?
-        var text = ""
+        /// Everything this segment heard: the utterances the recognizer already moved past,
+        /// then the one it's on now.
+        var text: String { Recorder.join(committed, current) }
+        /// Utterances before the recognizer's last restart (see `TranscriptReset`).
+        var committed = ""
+        /// The recognizer's current result — it only ever covers the utterance it's on.
+        var current = ""
+        /// Where (seconds into this segment's audio) the current result starts and ends.
+        var currentStart: Double?
+        var currentEnd: Double = 0
         var done = false
         let startedAt = Date()
         init(index: Int, request: SFSpeechAudioBufferRecognitionRequest) { self.index = index; self.request = request }
@@ -339,11 +348,14 @@ final class Recorder: ObservableObject {
     private nonisolated static func resultHandler(_ owner: Recorder, index: Int, generation: Int) -> (SFSpeechRecognitionResult?, Error?) -> Void {
         { [weak owner] result, error in
             let text = result?.bestTranscription.formattedString
+            let words = result?.bestTranscription.segments
+            let start = words?.first.map { $0.timestamp }
+            let end = words?.last.map { $0.timestamp + $0.duration } ?? 0
             let final = (result?.isFinal ?? false) || error != nil
             let ns = error as NSError?
             let code = ns?.code
             let domain = ns?.domain
-            Task { @MainActor in owner?.update(index: index, generation: generation, text: text, final: final, errorCode: code, errorDomain: domain) }
+            Task { @MainActor in owner?.update(index: index, generation: generation, text: text, start: start, end: end, final: final, errorCode: code, errorDomain: domain) }
         }
     }
 
@@ -365,11 +377,24 @@ final class Recorder: ObservableObject {
         return seg
     }
 
-    private func update(index: Int, generation g: Int, text: String?, final: Bool, errorCode: Int?, errorDomain: String? = nil) {
+    private func update(index: Int, generation g: Int, text: String?, start: Double? = nil, end: Double = 0,
+                        final: Bool, errorCode: Int?, errorDomain: String? = nil) {
         guard g == generation, index < segments.count else { return }
         let seg = segments[index]
-        if let text, !text.isEmpty, text != seg.text {
-            seg.text = text
+        if let text, !text.isEmpty, text != seg.current {
+            // After a pause the on-device recognizer quietly starts a new utterance: its next
+            // result holds only the new words. Keep what it heard before instead of losing it.
+            if TranscriptReset.isRestart(previous: seg.current, previousStart: seg.currentStart, previousEnd: seg.currentEnd,
+                                         next: text, nextStart: start) {
+                seg.committed = Recorder.join(seg.committed, seg.current)
+                log?.add("recognizer started a new utterance after a pause; kept the earlier words")
+            }
+            // Some results (often the final one) repeat the whole segment, earlier words included:
+            // then they're no longer separate.
+            if !seg.committed.isEmpty, TranscriptReset.repeats(committed: seg.committed, in: text) { seg.committed = "" }
+            seg.current = text
+            seg.currentStart = start
+            seg.currentEnd = end
             if phase == .recording { lastWordsAt = Date() }
             transcript = stitched()
         }
@@ -386,6 +411,13 @@ final class Recorder: ObservableObject {
             }
             rotate()
         }
+    }
+
+    nonisolated static func join(_ a: String, _ b: String) -> String {
+        let x = a.trimmingCharacters(in: .whitespacesAndNewlines), y = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        if x.isEmpty { return y }
+        if y.isEmpty { return x }
+        return x + " " + y
     }
 
     private func stitched() -> String {
@@ -568,5 +600,39 @@ extension Recorder.StopReason {
         case .interrupted: return "interrupted"
         case .recognizerFailed: return "recognizer failed"
         }
+    }
+}
+
+/// Tells a recognizer that started over (a new utterance after a pause) from one that is just
+/// revising the words it's on. Pure, so it's unit-tested.
+enum TranscriptReset {
+    static func words(_ s: String) -> [String] {
+        s.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" }).map(String.init)
+    }
+
+    /// True when `text` begins with the words already kept (the recognizer re-included them).
+    static func repeats(committed: String, in text: String) -> Bool {
+        let c = words(committed), t = words(text)
+        guard !c.isEmpty, t.count >= c.count else { return false }
+        let n = c.count
+        let same = (0..<n).filter { c[$0] == t[$0] }.count
+        return Double(same) >= Double(n) * 0.8
+    }
+
+    static func isRestart(previous: String, previousStart: Double?, previousEnd: Double, next: String, nextStart: Double?) -> Bool {
+        let a = words(previous), b = words(next)
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        // Best signal: the new result's first word starts after the old result's audio ended.
+        if let s0 = nextStart, let p0 = previousStart, previousEnd > 0, s0 > p0 + 0.05, s0 >= previousEnd - 0.25 { return true }
+        // Otherwise: a revision keeps the beginning (it grows or corrects words). A restart
+        // doesn't: it is shorter and its first words aren't the old first words.
+        if b.count > a.count { return false }
+        let n = min(3, a.count, b.count)
+        let samePositions = (0..<n).filter { a[$0] == b[$0] }.count
+        if samePositions > 0 { return false }
+        // A one-word shift at the start ("okay so" → "so") is still a revision.
+        if a.count > 1, b.first == a[1] { return false }
+        if b.count > 1, a.first == b[1] { return false }
+        return a.count >= 2
     }
 }
