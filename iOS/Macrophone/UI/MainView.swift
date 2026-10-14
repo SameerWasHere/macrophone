@@ -153,10 +153,7 @@ struct MainView: View {
         let line = model.isPaired ? "Speak, and it's on your Mac." : "Speak, and it's on your clipboard."
         let hint = "Tap to talk, tap again to send. Or hold, and let go."
         return ViewThatFits(in: .vertical) {
-            // The how-to shows until the first dictation; after that the screen is just the line.
-            if model.latest == nil {
-                VStack(spacing: 10) { idleLine(line, compact ? .title3 : .title2); idleHint(hint) }
-            }
+            VStack(spacing: 10) { idleLine(line, compact ? .title3 : .title2); idleHint(hint) }
             idleLine(line, compact ? .title3 : .title2)
             idleLine(line, .headline)
             // Huge text in a short area: the line, shrunk to fit whole rather than cut off.

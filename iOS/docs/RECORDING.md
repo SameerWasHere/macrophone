@@ -72,8 +72,8 @@ level of cleanup … All the other excessive features — the automations, the s
 Mac's automations are gone from the phone: no Automations section in the list or on the dock, no
 automation lead-ins (`VoicePrefix`), no `profileID` / `profileName` / `profileSource` on a
 dictation, no cached profiles (the `profiles.cache` default and its shared-keychain copy are
-deleted on launch), no "Show the tap-or-hold hint" toggle (the hint shows until the first
-dictation). A picked automation becomes Clipboard; an older Mac that still sends its automations
+deleted on launch), no "Show the tap-or-hold hint" toggle (the hint shows whenever it fits, as
+the toggle's default did). A picked automation becomes Clipboard; an older Mac that still sends its automations
 or picks one is ignored (the phone re-sends its own choice). Screens: `docs/screens/simple/`.
 
 **The picker** (`UI/SendTo.swift`, `SendToList`): **Clipboard**, **Where I'm typing** (the app in

@@ -98,18 +98,28 @@ struct CustomCleanupView: View {
         .animation(.easeInOut(duration: 0.2), value: focused)
     }
 
+    private var status: some View {
+        Text(isDefault ? "Default · same as Medium" : "Your own · saved as you type")
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(isDefault ? Ink.tertiary : Light.mint)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var count: some View {
+        Text("\(text.count.formatted()) characters")
+            .font(.mono(.caption, weight: .medium))
+            .monospacedDigit()
+            .foregroundStyle(Ink.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("custom-count")
+    }
+
     private var footer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(isDefault ? "Default · same as Medium" : "Your own · saved as you type")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(isDefault ? Ink.tertiary : Light.mint)
-                Spacer(minLength: 8)
-                Text("\(text.count.formatted()) characters")
-                    .font(.mono(.caption, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(Ink.tertiary)
-                    .accessibilityIdentifier("custom-count")
+            // Side by side while they fit; stacked at large text sizes, never clipped.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) { status; Spacer(minLength: 8); count }
+                VStack(alignment: .leading, spacing: 4) { status; count }
             }
             Text("Your dictionary words are added automatically.")
                 .font(.footnote)
