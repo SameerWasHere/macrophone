@@ -392,8 +392,8 @@ struct MacPill: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(minHeight: 36)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Ink.ink.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+            // Interactive Liquid Glass (iOS 26+): it answers the finger like a system control.
+            .glassPlate(Capsule(), interactive: true)
             // The plate is 36pt; the hit area is the full 44.
             .padding(.vertical, 4)
             .contentShape(Rectangle())
@@ -429,17 +429,6 @@ struct MacPill: View {
     }
 }
 
-struct IconButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(Ink.secondary)
-            .frame(width: 44, height: 44)
-            .background(Circle().fill(Ink.ink.opacity(configuration.isPressed ? 0.12 : 0.05)))
-            .overlay(Circle().strokeBorder(Ink.line, lineWidth: 1))
-            .contentShape(Circle())
-    }
-}
 /// In the quick controls' first line, after the first dictations made without a Mac: the free
 /// Mac app, one tap to send yourself the link. Closed for good with ×; gone once a Mac is paired.
 struct MacAppNudge: View {

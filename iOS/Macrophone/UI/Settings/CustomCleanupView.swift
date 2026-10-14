@@ -144,7 +144,7 @@ struct CustomCleanupSheet: View {
         NavigationStack {
             CustomCleanupView(settings: model.settings)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) }
+                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.doneButtonStyle() }
                 }
         }
         .tint(Light.cyan)

@@ -44,8 +44,22 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   every place, a **Send after pasting** toggle (a paper plane that lights), and **Off · Light ·
   Medium · Heavy** steps. A change is one tap; the status line then says in a sentence what the
   next dictation will do. A control that can't apply says why when tapped.
-- **Glass:** panels are `.ultraThinMaterial` over the ground with a 1pt hairline and a soft
-  shadow; radii 14 / 18 / 22.
+- **Glass (Oct 13 2026, the Liquid Glass pass):** on iOS 26+ the phone uses Apple's native
+  Liquid Glass; below, the old look (`.ultraThinMaterial` over the ground, a 1pt hairline, a soft
+  shadow; radii 14 / 18 / 22). The helpers live in `iOS/Macrophone/UI/Theme.swift` and wrap every
+  API in `if #available(iOS 26.0, *)`: `glassPlate(_:lit:interactive:)` (`.glassEffect` with
+  `Glass.regular`, `.tint`, `.interactive`), `GlassGroup` (`GlassEffectContainer`), `glassID`
+  (`glassEffectID`), `GlassPanel` (`.glass(radius)`), `IconButtonStyle`, `pillStyle` (`.glassProminent`
+  / `.glass`) and `doneButtonStyle` (`.glassProminent`, cyan, dark label). Where it's used: the Mac
+  pill and the History / Settings buttons are interactive glass; the dock's pick sits on a bubble of
+  glass lit in its colour that flows to the next icon (`glassEffectID` in a container); the cleanup
+  steps are a glass track whose pick is a bright glass lens that morphs from step to step; Send after
+  pasting is the native `Toggle` on a glass capsule lit cyan while on; the mic is a disc of glass,
+  ink-dark inside the spectrum ring at rest and ember while it listens (same size, never moves);
+  panels, the pill buttons and the sheets' Done are glass too. Rules: glass carries controls, never
+  the words (the transcript and the idle line sit on the ground); the label of a lit pick is dark
+  ink on a bright lens, never white on a light tint; Reduce Transparency swaps every glass for a
+  solid raised plate, Increase Contrast adds a firm 1pt edge.
 
 ## Voice of the words
 

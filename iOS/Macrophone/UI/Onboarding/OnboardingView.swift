@@ -108,7 +108,7 @@ struct OnboardingView: View {
              kicker: "Macrophone",
              title: "Talk on your iPhone. It types on your Mac.",
              body: "Your iPhone becomes a wireless microphone. It turns your voice into text right here, then sends it to your Mac — into Claude, a terminal, or wherever you're working.") {
-            Button("Get Started") { advance() }.buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+            Button("Get Started") { advance() }.pillStyle(.primary, tint: Ink.ink)
         }
     }
 
@@ -127,7 +127,7 @@ struct OnboardingView: View {
                         if Recorder.micStatus == .granted { advance() } else { denied = "mic" }
                     }
                 }
-                .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+                .pillStyle(.primary, tint: Ink.ink)
             }
         }
     }
@@ -149,7 +149,7 @@ struct OnboardingView: View {
                         if Recorder.speechStatus == .authorized { advance() } else { denied = "speech" }
                     }
                 }
-                .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+                .pillStyle(.primary, tint: Ink.ink)
             }
         }
     }
@@ -176,8 +176,8 @@ struct OnboardingView: View {
                           message: Text("Get Macrophone for your Mac: \(Product.website.absoluteString)")) {
                     Label("Send the Link to Yourself", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PillButtonStyle(kind: .secondary, tint: Ink.ink))
-                Button("I Have It") { advance() }.buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+                .pillStyle(.secondary, tint: Ink.ink)
+                Button("I Have It") { advance() }.pillStyle(.primary, tint: Ink.ink)
             }
         }
     }
@@ -199,7 +199,7 @@ struct OnboardingView: View {
                         Task { try? await Task.sleep(nanoseconds: 1_200_000_000); advance() }
                     }
                 }
-                .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+                .pillStyle(.primary, tint: Ink.ink)
             }
         } else {
             page(hero: AnyView(Searching(found: !model.discoveredMacs.isEmpty)),
@@ -216,7 +216,7 @@ struct OnboardingView: View {
                     openSettingsButton
                 }
                 Button("Continue") { advance() }
-                    .buttonStyle(PillButtonStyle(kind: model.discoveredMacs.isEmpty ? .secondary : .primary, tint: Ink.ink))
+                    .pillStyle(model.discoveredMacs.isEmpty ? .secondary : .primary, tint: Ink.ink)
             }
         }
     }
@@ -270,7 +270,7 @@ struct OnboardingView: View {
         Button("Open Settings") {
             if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         }
-        .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+        .pillStyle(.primary, tint: Ink.ink)
     }
 
     private func symbolHero(_ name: String, _ color: Color) -> some View {
@@ -409,7 +409,7 @@ private struct OnboardingTest: View {
             StatusLine(recorder: recorder, holding: holding).frame(minHeight: 44, alignment: .top)
             if worked {
                 Button("Start Using Macrophone", action: onFinish)
-                    .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+                    .pillStyle(.primary, tint: Ink.ink)
                     .transition(.opacity)
             }
         }

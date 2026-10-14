@@ -55,19 +55,7 @@ struct MicButton: View {
                     }
                     .allowsHitTesting(false)
             }
-            Circle()
-                .fill(recording
-                      ? AnyShapeStyle(LinearGradient(colors: [Light.ember, Color(red: 0.80, green: 0.32, blue: 0.24)], startPoint: .top, endPoint: .bottom))
-                      : AnyShapeStyle(LinearGradient(colors: [Color(red: 0.13, green: 0.14, blue: 0.20), Ink.raised], startPoint: .top, endPoint: .bottom)))
-                .overlay(Circle().strokeBorder(recording ? Color.white.opacity(0.25) : Ink.lineStrong, lineWidth: 1))
-                .overlay(
-                    Circle()
-                        .strokeBorder(AngularGradient(colors: [Light.cyan, Light.teal, Light.mint, Light.gold, Light.ember, Light.violet, Light.cyan], center: .center), lineWidth: 1.5)
-                        .opacity(recording ? 0 : 0.55)
-                        .padding(-6)
-                )
-                .shadow(color: (recording ? Light.ember : Light.cyan).opacity(recording ? 0.55 : 0.18), radius: recording ? 22 : 16)
-                .frame(width: size, height: size)
+            MicFace(recording: recording, size: size)
             Group {
                 if recording {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -118,6 +106,43 @@ struct MicButton: View {
         .accessibilityHint(recording ? "Stops listening and sends the text to your Mac." : "Starts listening. Double-tap again to stop and send.")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onAccessibilityToggle() }
+    }
+}
+
+/// The button's face. iOS 26+: a disc of Liquid Glass — ink-dark at rest inside the spectrum ring,
+/// lit ember while the mic is open — that answers the finger. Below (or with Reduce
+/// Transparency): the solid gradient disc.
+private struct MicFace: View {
+    var recording: Bool
+    var size: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        face
+            .overlay(
+                Circle()
+                    .strokeBorder(AngularGradient(colors: [Light.cyan, Light.teal, Light.mint, Light.gold, Light.ember, Light.violet, Light.cyan], center: .center), lineWidth: 1.5)
+                    .opacity(recording ? 0 : 0.55)
+                    .padding(-6)
+            )
+            .shadow(color: (recording ? Light.ember : Light.cyan).opacity(recording ? 0.55 : 0.18), radius: recording ? 22 : 16)
+            .frame(width: size, height: size)
+    }
+
+    @ViewBuilder private var face: some View {
+        if #available(iOS 26.0, *), !reduceTransparency {
+            Color.clear
+                .frame(width: size, height: size)
+                .glassEffect(Glass.regular
+                    .tint(recording ? Light.ember.opacity(0.9) : Color(red: 0.13, green: 0.14, blue: 0.20).opacity(0.55))
+                    .interactive(), in: Circle())
+        } else {
+            Circle()
+                .fill(recording
+                      ? AnyShapeStyle(LinearGradient(colors: [Light.ember, Color(red: 0.80, green: 0.32, blue: 0.24)], startPoint: .top, endPoint: .bottom))
+                      : AnyShapeStyle(LinearGradient(colors: [Color(red: 0.13, green: 0.14, blue: 0.20), Ink.raised], startPoint: .top, endPoint: .bottom)))
+                .overlay(Circle().strokeBorder(recording ? Color.white.opacity(0.25) : Ink.lineStrong, lineWidth: 1))
+        }
     }
 }
 

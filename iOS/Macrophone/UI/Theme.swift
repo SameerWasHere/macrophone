@@ -96,26 +96,129 @@ struct Kicker: View {
     }
 }
 
-/// Glass panel: ultra-thin material over the ground, a hairline, a soft shadow.
-/// Increase Contrast: a firmer edge and a more solid plate.
-struct Glass: ViewModifier {
+/// A panel: Liquid Glass on iOS 26+ (a rounded rect of regular glass), else ultra-thin material
+/// over the ground with a hairline and a soft shadow. Increase Contrast: a firmer edge.
+/// Reduce Transparency: a solid raised plate.
+struct GlassPanel: ViewModifier {
     var radius: CGFloat = Radius.medium
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {
         let high = contrast == .increased
-        return content
-            .background {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Ink.raised.opacity(high ? 0.9 : 0.55)))
-            }
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(high ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
-            .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        if #available(iOS 26.0, *), !reduceTransparency {
+            content
+                .glassEffect(.regular.tint(Ink.raised.opacity(0.35)), in: shape)
+                .overlay { if high { shape.strokeBorder(Ink.ink.opacity(0.45), lineWidth: 1) } }
+        } else {
+            content
+                .background {
+                    shape
+                        .fill(.ultraThinMaterial)
+                        .overlay(shape.fill(Ink.raised.opacity(high || reduceTransparency ? 0.95 : 0.55)))
+                }
+                .overlay(shape.strokeBorder(high ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
+                .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        }
     }
 }
 
 extension View {
-    func glass(_ radius: CGFloat = Radius.medium) -> some View { modifier(Glass(radius: radius)) }
+    func glass(_ radius: CGFloat = Radius.medium) -> some View { modifier(GlassPanel(radius: radius)) }
+}
+
+// MARK: Liquid Glass (iOS 26+), with the material look as the fallback
+
+/// A control's plate in any shape: native Liquid Glass on iOS 26+ (`.glassEffect`), optionally lit
+/// with a meaning colour and interactive (it answers a touch); below iOS 26, or under Reduce
+/// Transparency, the faint fill and hairline the controls always wore. Increase Contrast adds a
+/// firm edge either way.
+struct GlassPlate<S: InsettableShape>: ViewModifier {
+    var shape: S
+    var lit: Color? = nil
+    /// How strongly the light tints the glass.
+    var amount: Double = 0.28
+    var interactive = false
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        let high = contrast == .increased
+        let edge = lit.map { $0.opacity(high ? 0.9 : 0.5) } ?? (high ? Ink.ink.opacity(0.45) : Ink.line)
+        if #available(iOS 26.0, *), !reduceTransparency {
+            content
+                .glassEffect(Glass.regular.tint(lit?.opacity(amount)).interactive(interactive), in: shape)
+                .overlay { if high || lit != nil { shape.strokeBorder(edge.opacity(high ? 1 : 0.6), lineWidth: 1) } }
+        } else {
+            content
+                .background(shape.fill(lit.map { $0.opacity(0.16) } ?? (reduceTransparency ? Ink.raised : Ink.ink.opacity(0.05))))
+                .overlay(shape.strokeBorder(edge, lineWidth: 1))
+        }
+    }
+}
+
+extension View {
+    func glassPlate<S: InsettableShape>(_ shape: S, lit: Color? = nil, amount: Double = 0.28, interactive: Bool = false) -> some View {
+        modifier(GlassPlate(shape: shape, lit: lit, amount: amount, interactive: interactive))
+    }
+
+    /// `glassEffectID` on iOS 26+ (so a glass shape morphs from one view to the next inside a
+    /// `GlassGroup`); nothing below.
+    @ViewBuilder func glassID(_ id: String, in ns: Namespace.ID) -> some View {
+        if #available(iOS 26.0, *) { glassEffectID(id, in: ns) } else { self }
+    }
+
+    /// Toolbar confirm buttons (Done): prominent glass on iOS 26+.
+    @ViewBuilder func doneButtonStyle() -> some View {
+        if #available(iOS 26.0, *) {
+            buttonStyle(.glassProminent).tint(Light.cyan).fontWeight(.semibold).foregroundStyle(Ink.ground)
+        } else {
+            fontWeight(.semibold)
+        }
+    }
+}
+
+/// `GlassEffectContainer` on iOS 26+: glass shapes inside it render together and morph into one
+/// another; a plain group below.
+struct GlassGroup<Content: View>: View {
+    var spacing: CGFloat? = nil
+    @ViewBuilder var content: Content
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
+    }
+}
+
+/// The round icon buttons in the top bar: a 44pt circle of interactive glass on iOS 26+.
+struct IconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Ink.secondary)
+            .frame(width: 44, height: 44)
+            .modifier(IconPlate(pressed: configuration.isPressed))
+            .contentShape(Circle())
+    }
+}
+
+private struct IconPlate: ViewModifier {
+    var pressed: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *), !reduceTransparency {
+            content
+                .glassEffect(.regular.interactive(), in: Circle())
+                .overlay { if contrast == .increased { Circle().strokeBorder(Ink.ink.opacity(0.45), lineWidth: 1) } }
+        } else {
+            content
+                .background(Circle().fill(reduceTransparency ? Ink.raised : Ink.ink.opacity(pressed ? 0.12 : 0.05)))
+                .overlay(Circle().strokeBorder(contrast == .increased ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
+        }
+    }
 }
 
 /// Pill buttons: the filled primary and the outlined secondary.
@@ -147,6 +250,36 @@ struct PillButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(Motion.snap, value: configuration.isPressed)
             .contentShape(Capsule())
+    }
+}
+
+extension View {
+    /// The pill buttons: native Liquid Glass on iOS 26+ (`.glassProminent` for the primary, lit with
+    /// its tint; `.glass` for the secondary); `PillButtonStyle` below, for the quiet kind, and under
+    /// Reduce Transparency.
+    func pillStyle(_ kind: PillButtonStyle.Kind = .primary, tint: Color = Ink.ink) -> some View {
+        modifier(PillStyle(kind: kind, tint: tint))
+    }
+}
+
+private struct PillStyle: ViewModifier {
+    var kind: PillButtonStyle.Kind
+    var tint: Color
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *), !reduceTransparency, kind != .quiet {
+            let label = content
+                .font(.body.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .controlSize(.extraLarge)
+            if kind == .primary {
+                label.buttonStyle(.glassProminent).tint(tint).foregroundStyle(tint == Ink.ink ? Ink.ground : Color.white)
+            } else {
+                label.buttonStyle(.glass).foregroundStyle(tint)
+            }
+        } else {
+            content.pillStyle(kind, tint: tint)
+        }
     }
 }
 

@@ -138,7 +138,7 @@ struct DiagnosticsView: View {
             ShareLink(item: text, subject: Text("Macrophone diagnostics"), preview: SharePreview("Macrophone diagnostics")) {
                 Label("Share Diagnostics", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
             }
-            .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+            .pillStyle(.primary, tint: Ink.ink)
             .padding(16)
         }
         .background(Ink.ground.ignoresSafeArea())

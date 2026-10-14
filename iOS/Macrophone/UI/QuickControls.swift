@@ -119,20 +119,6 @@ struct QuickControls: View {
     }
 }
 
-/// The plate every control wears: a faint fill and a hairline (firm under Increase Contrast).
-struct ControlPlate: ViewModifier {
-    var lit: Color?
-    var radius: CGFloat = 20
-    @Environment(\.colorSchemeContrast) private var contrast
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        let high = contrast == .increased
-        content
-            .background(shape.fill(lit.map { $0.opacity(0.16) } ?? Ink.ink.opacity(0.05)))
-            .overlay(shape.strokeBorder(lit.map { $0.opacity(high ? 0.9 : 0.5) } ?? (high ? Ink.ink.opacity(0.45) : Ink.line), lineWidth: 1))
-    }
-}
-
 // MARK: Where
 
 /// The Mac's open apps as their icons, Clipboard and Where I'm typing first.
@@ -143,6 +129,8 @@ struct PlaceDock: View {
     var compact = false
     @State private var width: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The lit glass under the pick morphs from icon to icon (`glassEffectID`, iOS 26+).
+    @Namespace private var glass
 
     var body: some View {
         let places = model.dockPlaces(current: current)
@@ -151,26 +139,34 @@ struct PlaceDock: View {
         let tint = said ? Light.ember : (notOpen ? Light.ochre : Light.cyan)
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
-                HStack(spacing: 2) {
-                    ForEach(places) { p in
-                        DockIcon(place: p, selected: p.id == selected, tint: tint, current: current, compact: compact,
-                                 onPick: { pick($0) }, onMore: { model.sheet = .sendTo })
-                            .id(p.id)
+                // One glass container: the pick's lit glass and the end-cap render together, and the
+                // pick flows to the next icon like liquid.
+                GlassGroup(spacing: 2) {
+                    HStack(spacing: 2) {
+                        ForEach(places) { p in
+                            DockIcon(place: p, selected: p.id == selected, tint: tint, current: current, compact: compact,
+                                     glass: glass, onPick: { pick($0) }, onMore: { model.sheet = .sendTo })
+                                .id(p.id)
+                        }
+                        AllPlacesCap { model.sheet = .sendTo }
                     }
-                    AllPlacesCap { model.sheet = .sendTo }
+                    .padding(.horizontal, 10)
+                    // A few places sit centred; many scroll, the pick kept in view.
+                    .frame(minWidth: width)
+                    .scrollTargetLayout()
                 }
-                .padding(.horizontal, 10)
-                // A few places sit centred; many scroll, the pick kept in view.
-                .frame(minWidth: width)
-                .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
             .scrollTargetBehavior(.viewAligned)
+            // The pick's glass bubble may rise a little above the row: not cut at the top or bottom
+            // (the mask reaches past them), only faded at the sides.
+            .scrollClipDisabled()
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .mask {
                 LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.05),
                                        .init(color: .black, location: 0.95), .init(color: .clear, location: 1)],
                                startPoint: .leading, endPoint: .trailing)
+                    .padding(.vertical, -12)
             }
             .onAppear { if let selected { proxy.scrollTo(selected, anchor: .center) } }
             .onChange(of: selected) { _, id in
@@ -190,7 +186,7 @@ struct PlaceDock: View {
     private func pick(_ t: TargetRef) {
         guard t != model.selection.target else { return }
         Haptics.tick()
-        model.pick(t)
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Motion.snap) { model.pick(t) }
         model.explain(Self.sentence(for: t, send: model.selection.send))
     }
 
@@ -211,10 +207,12 @@ private struct DockIcon: View {
     var tint: Color
     var current: TargetRef
     var compact = false
+    var glass: Namespace.ID
     var onPick: (TargetRef) -> Void
     var onMore: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         Button {
@@ -223,12 +221,12 @@ private struct DockIcon: View {
         } label: {
             VStack(spacing: 5) {
                 ZStack {
-                    Circle()
-                        .fill(RadialGradient(colors: [tint.opacity(0.38), tint.opacity(0)], center: .center, startRadius: 2, endRadius: 30))
-                        .frame(width: 60, height: 60)
-                        .opacity(selected ? 1 : 0)
+                    pickGlow
                     TargetIcon(target: place.target, icon: place.icon, size: compact ? 30 : 36)
                         .saturation(place.kind == .closed ? 0 : 1)
+                        // The glass sits under the icon itself, so the container draws it behind.
+                        .modifier(PickGlass(on: selected, tint: tint, id: "dock-pick", ns: glass, shape: Circle(),
+                                            padding: compact ? 3 : 4))
                         .overlay(alignment: .topTrailing) { badge }
                 }
                 .frame(width: compact ? 42 : 48, height: compact ? 38 : 46)
@@ -261,6 +259,18 @@ private struct DockIcon: View {
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint(selected ? "" : "Sends your dictations here.")
+    }
+
+    /// Below iOS 26 (or with Reduce Transparency) the pick has a soft glow; above, a bubble of glass.
+    @ViewBuilder private var pickGlow: some View {
+        if #available(iOS 26.0, *), !reduceTransparency {
+            EmptyView()
+        } else {
+            Circle()
+                .fill(RadialGradient(colors: [tint.opacity(0.38), tint.opacity(0)], center: .center, startRadius: 2, endRadius: 30))
+                .frame(width: 60, height: 60)
+                .opacity(selected ? 1 : 0)
+        }
     }
 
     @ViewBuilder private var badge: some View {
@@ -307,9 +317,8 @@ private struct AllPlacesCap: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(Ink.secondary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Ink.ink.opacity(0.06)))
-                .overlay(Circle().strokeBorder(Ink.line, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                .frame(width: 36, height: 36)
+                .glassPlate(Circle(), interactive: true)
                 .frame(width: 50, height: 58)
                 .offset(y: -4)
                 .contentShape(Rectangle())
@@ -395,7 +404,7 @@ private struct UnpairedPlace: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .modifier(ControlPlate(radius: 18))
+            .glassPlate(RoundedRectangle(cornerRadius: 18, style: .continuous), interactive: true)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -428,19 +437,14 @@ struct SendSwitch: View {
             .font(.footnote.weight(.semibold))
             .foregroundStyle(!enabled ? Ink.tertiary : (on ? Ink.ink : Ink.secondary))
             .accessibilityHidden(true)
-            Toggle("Send after pasting", isOn: Binding(
-                get: { on },
-                set: { new in
-                    Haptics.tick()
-                    withAnimation(Motion.snap) { model.setSend(new, for: target) }
-                    model.explain(PlaceDock.sentence(for: target, send: new))
-                }))
+            Toggle("Send after pasting", isOn: Binding(get: { on }, set: { set($0) }))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .tint(Light.cyan)
                 .disabled(!enabled)
                 .fixedSize()
-                .accessibilityLabel("Send after pasting")
+                // Greyed out for Clipboard: the label says why, since a hint isn't read on a dimmed control.
+                .accessibilityLabel(enabled ? "Send after pasting" : "Send after pasting, \(disabledReason(target) ?? "unavailable")")
                 .accessibilityHint(enabled ? "When on, your Mac presses send after pasting into \(target.displayName)."
                                            : "\(longReason(target)).")
                 .accessibilityIdentifier("send-toggle")
@@ -448,11 +452,22 @@ struct SendSwitch: View {
         .padding(.leading, 14)
         .padding(.trailing, 6)
         .frame(minHeight: 40)
-        .modifier(ControlPlate(lit: on ? Light.cyan : nil))
+        // A capsule of Liquid Glass that takes the connected-Mac light while it's on.
+        .glassPlate(Capsule(), lit: on ? Light.cyan : nil, amount: 0.2)
+        .animation(Motion.snap, value: on)
         .padding(.vertical, 2)
+        // The whole plate is the switch: a tap on its words (or anywhere beside the knob) flips it.
+        // Greyed out, the plate explains instead.
         .contentShape(Rectangle())
-        // A disabled switch takes no taps: the plate explains instead.
-        .onTapGesture { if !enabled { model.explain(longReason(target)) } }
+        .onTapGesture {
+            if enabled { set(!on) } else { model.explain(longReason(target)) }
+        }
+    }
+
+    private func set(_ new: Bool) {
+        Haptics.tick()
+        withAnimation(Motion.snap) { model.setSend(new, for: target) }
+        model.explain(PlaceDock.sentence(for: target, send: new))
     }
 
     private func disabledReason(_ t: TargetRef) -> String? {
@@ -492,7 +507,7 @@ struct CleanupSteps: View {
             row(level: level, available: available, lead: .none, font: .caption, room: 4)
         }
         .padding(3)
-        .modifier(ControlPlate(radius: 22))
+        .glassPlate(Capsule())
         .padding(.vertical, 1)
         // Five words in a row: capped like the rest of the chrome, with the Large Content Viewer.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
@@ -525,9 +540,12 @@ struct CleanupSteps: View {
                 .accessibilityLabel("Cleanup")
                 .accessibilityAddTraits(.isHeader)
             }
-            HStack(spacing: 0) {
-                ForEach(CleanupLevel.allCases) { l in
-                    step(l, on: l == level, enabled: available, font: font, room: room)
+            // The pick is a lens of bright glass that flows from step to step (iOS 26+).
+            GlassGroup(spacing: 0) {
+                HStack(spacing: 0) {
+                    ForEach(CleanupLevel.allCases) { l in
+                        step(l, on: l == level, enabled: available, font: font, room: room)
+                    }
                 }
             }
             .opacity(available ? 1 : 0.5)
@@ -565,8 +583,9 @@ struct CleanupSteps: View {
             .foregroundStyle(on ? Ink.ground : Ink.secondary)
             .padding(.horizontal, room)
             .frame(maxWidth: .infinity, minHeight: compact ? 34 : 38)
+            .modifier(PickGlass(on: on, tint: Ink.ink, amount: 0.88, id: "cleanup-pick", ns: pill, shape: Capsule()))
             .background {
-                if on { Capsule().fill(Ink.ink).matchedGeometryEffect(id: "pick", in: pill) }
+                if on { CleanupPick(ns: pill) }
             }
             .contentShape(Capsule())
         }
@@ -598,6 +617,47 @@ struct CleanupSteps: View {
     private var unavailableReason: String {
         if !settings.isEnglish { return "Cleanup works in English only for now — your words are sent exactly as heard" }
         return model.cleanupAvailability.explanation + " Until then, your words are sent exactly as heard."
+    }
+}
+
+/// The pick's Liquid Glass (iOS 26+): a lit glass shape under the picked view, carrying one
+/// `glassEffectID` so inside a `GlassGroup` the same glass flows to the next pick. Nothing below
+/// iOS 26 or with Reduce Transparency (the fallback draws its own pill or glow).
+private struct PickGlass<S: Shape>: ViewModifier {
+    var on: Bool
+    var tint: Color
+    var amount: Double = 0.32
+    var id: String
+    var ns: Namespace.ID
+    var shape: S
+    var padding: CGFloat = 0
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *), !reduceTransparency, on {
+            content
+                .padding(padding)
+                .glassEffect(.regular.tint(tint.opacity(amount)).interactive(), in: shape)
+                .glassEffectID(id, in: ns)
+                .overlay { if contrast == .increased { shape.stroke(tint.opacity(0.9), lineWidth: 1) } }
+                .padding(-padding)
+        } else {
+            content
+        }
+    }
+}
+
+/// The picked cleanup step below iOS 26 (or with Reduce Transparency): a solid pill that slides.
+private struct CleanupPick: View {
+    var ns: Namespace.ID
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var body: some View {
+        if #available(iOS 26.0, *), !reduceTransparency {
+            EmptyView()
+        } else {
+            Capsule().fill(Ink.ink).matchedGeometryEffect(id: "pick", in: ns)
+        }
     }
 }
 

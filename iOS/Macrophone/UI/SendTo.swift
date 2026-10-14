@@ -190,7 +190,7 @@ struct SendToSheet: View {
                 .navigationTitle("Send To")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) }
+                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.doneButtonStyle() }
                 }
         }
         .tint(Light.cyan)

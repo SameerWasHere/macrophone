@@ -14,7 +14,7 @@ struct PairingView: View {
             NavigationStack {
                 content
                     .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) }
+                        ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.doneButtonStyle() }
                     }
             }
         }
@@ -82,7 +82,7 @@ struct PairingPanel: View {
             }
             .frame(minHeight: compact ? 260 : 300)
             Button("Use a Code Instead") { useCode = true }
-                .buttonStyle(PillButtonStyle(kind: .secondary, tint: Light.cyan))
+                .pillStyle(.secondary, tint: Light.cyan)
             networkNote
             if !compact { macAppNote }
         }
@@ -123,7 +123,7 @@ struct PairingPanel: View {
             }
             .glass(Radius.medium)
             Button("Scan the QR Code Instead") { useCode = false }
-                .buttonStyle(PillButtonStyle(kind: .quiet, tint: Light.cyan))
+                .pillStyle(.quiet, tint: Light.cyan)
             networkNote
         }
     }
@@ -215,7 +215,7 @@ struct PairingPanel: View {
                 model.resetPairing()
                 onDone()
             }
-            .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+            .pillStyle(.primary, tint: Ink.ink)
         }
         .frame(maxWidth: .infinity, minHeight: 260)
         .onAppear { if deviceName.isEmpty { deviceName = model.settings.deviceName } }
@@ -228,7 +228,7 @@ struct PairingPanel: View {
             Text(message).font(.serif(.title3)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Try Again") { model.resetPairing() }
-                .buttonStyle(PillButtonStyle(kind: .primary, tint: Ink.ink))
+                .pillStyle(.primary, tint: Ink.ink)
             if model.pairingMayNeedLocalNetwork || model.localNetworkDenied {
                 VStack(spacing: 8) {
                     Text(model.localNetworkDenied
@@ -239,7 +239,7 @@ struct PairingPanel: View {
                     Button("Open Settings") {
                         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                     }
-                    .buttonStyle(PillButtonStyle(kind: .quiet, tint: Light.cyan))
+                    .pillStyle(.quiet, tint: Light.cyan)
                 }
             }
         }

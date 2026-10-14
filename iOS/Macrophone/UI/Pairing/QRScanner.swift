@@ -35,7 +35,7 @@ struct QRScanner: View {
                     Button("Open Settings") {
                         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                     }
-                    .buttonStyle(PillButtonStyle(kind: .secondary, tint: Light.cyan))
+                    .pillStyle(.secondary, tint: Light.cyan)
                 }
             }
         }

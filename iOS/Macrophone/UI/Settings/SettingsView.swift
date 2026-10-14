@@ -28,7 +28,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { commitName(); dismiss() }.fontWeight(.semibold) }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { commitName(); dismiss() }.doneButtonStyle() }
             }
             .navigationDestination(for: SettingsRoute.self) { route in
                 switch route {
