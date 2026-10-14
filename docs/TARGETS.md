@@ -182,7 +182,8 @@ Chromium's tree appears only after `AXManualAccessibility`.
 "(name)" in its Bonjour name, never writes `api.json`). `MACROPHONE_PAIR_HEADLESS=1` +
 `MACROPHONE_PAIR_URL_FILE` pair `mpctl` without a window. Distributed notifications:
 `com.sameer.macrophone.debug.dictate` (JSON `{"text", "target"?: "clipboard|front|<bundle id>",
-"window"?, "send"?, "delayed"?, "level"?}`), `com.sameer.macrophone.debug.openMenu`.
+"window"?, "send"?, "delayed"?, "level"?}`), `com.sameer.macrophone.debug.choose` (JSON `{"target", "window"?,
+"send"?}` — changes Send to on the Mac, as the menu does), `com.sameer.macrophone.debug.openMenu`.
 
 Test recipe: `mpctl pair <url>` → `mpctl targets` → `mpctl select <bundleID|clipboard|front> [--send]`
 → `mpctl send "…"` (mpctl sends no target, so the Mac's choice — the one just set — is used).

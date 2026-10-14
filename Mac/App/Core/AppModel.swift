@@ -29,6 +29,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     @Published private(set) var history: [HistoryItem] = []
     /// What Send to can pick from right now (newest first).
     @Published private(set) var targets: [LiveTarget] = []
+    /// A scan has finished since launch (until then, "not open" can't be said of anything).
+    private(set) var targetsKnown = false
     /// A Macrophone window or the menu is open (the target list is being looked at).
     private var windowOpen = false
     private var menuOpen = false
@@ -243,6 +245,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     }
 
     private func targetsChanged(_ list: [LiveTarget]) {
+        targetsKnown = true
         targets = list
         if !connected.isEmpty { server.broadcastTargets(list) }
         normalizeSelection(list)

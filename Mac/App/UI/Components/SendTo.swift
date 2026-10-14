@@ -32,7 +32,7 @@ enum SendToWords {
 
     /// "Claude", "Terminal — claude", "Claude (not open)".
     @MainActor static func name(_ ref: TargetRef, in model: AppModel) -> String {
-        if case let .app(bid, _, _) = ref, model.liveTarget(for: ref) == nil {
+        if case let .app(bid, _, _) = ref, model.targetsKnown, model.liveTarget(for: ref) == nil {
             let running = !NSRunningApplication.runningApplications(withBundleIdentifier: bid).isEmpty
             return "\(ref.displayName) (\(running ? "no window open" : "not open"))"
         }
@@ -50,7 +50,7 @@ enum SendToWords {
                 : "Pasted wherever your cursor is, after a 2.5-second countdown you can cancel."
         case let .app(_, _, name):
             let app = Paster.appName(fromTitle: name)
-            if model.liveTarget(for: sel.target) == nil, case let .app(bid, key, _) = sel.target {
+            if model.targetsKnown, model.liveTarget(for: sel.target) == nil, case let .app(bid, key, _) = sel.target {
                 if NSRunningApplication.runningApplications(withBundleIdentifier: bid).isEmpty {
                     return "\(app) isn't open right now — dictations will be copied instead until it is."
                 }
@@ -76,6 +76,8 @@ struct SendToCard: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
     /// Setup: no "shared with your iPhone" line (the page says so).
+    /// No vertical fixedSize on the lines: the card sits outside the panes' scroll view, where a
+    /// fixed-height text makes the window's minimum size enormous and SwiftUI draws nothing.
     var compact = false
 
     var body: some View {
@@ -104,20 +106,17 @@ struct SendToCard: View {
             }
             Text(SendToWords.line(settings.selection, model: model))
                 .font(.system(size: 12)).foregroundStyle(Ink.secondary)
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 32)
             if !compact {
                 Text("Shared with your iPhone — change it on either and the other follows.")
                     .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 32)
+                        .padding(.leading, 32)
             }
             if !model.accessibilityGranted && settings.selection.target.canSend {
                 HStack(spacing: 10) {
                     Label("Pasting needs Accessibility. Until it's on, dictations are copied.", systemImage: "hand.raised")
                         .font(.system(size: 11.5)).foregroundStyle(Light.ochre)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
+                            Spacer(minLength: 8)
                     Button("Open System Settings") {
                         Paster.requestTrust()
                         NSWorkspace.shared.open(Paster.accessibilitySettingsURL)

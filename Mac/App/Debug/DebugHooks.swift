@@ -33,6 +33,8 @@ import SwiftUI
 ///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
 ///   "window"?: "<window key>", "send"?: bool, "delayed"?: bool, "level"?: "off|light|medium|heavy|custom"}.
 ///   No target = this Mac's Send to.
+///   "com.sameer.macrophone.debug.choose" with object = JSON {"target": "clipboard|front|<bundle id>", "window"?, "send"?}
+///   changes Send to on this Mac through AppModel.choose — the call the menu and the window make.
 @MainActor
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -250,6 +252,26 @@ enum DebugHooks {
             }
         }
         bag.append(o)
+        let choose = DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.choose"),
+                                                                        object: nil, queue: .main) { note in
+            guard let json = note.object as? String, let data = json.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let t = obj["target"] as? String else { return }
+            MainActor.assumeIsolated {
+                let ref: TargetRef
+                switch t {
+                case "clipboard": ref = .clipboard
+                case "front": ref = .frontApp
+                default:
+                    let key = obj["window"] as? String
+                    ref = model.targets.first { $0.bundleID == t && $0.windowKey == key }?.ref ?? .app(bundleID: t, windowKey: key, name: t)
+                }
+                model.choose(SendSelection(target: ref, send: obj["send"] as? Bool ?? false))
+                print("chose on the Mac → \(ref.displayName)")
+                fflush(stdout)
+            }
+        }
+        bag.append(choose)
     }
 
     // MARK: Backdrop

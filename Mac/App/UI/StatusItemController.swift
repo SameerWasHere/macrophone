@@ -38,8 +38,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // A scan finishing while Send to is open shows up in it straight away.
         model.$targets.receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                guard let self, let m = self.sendToMenu, self.menuOpen else { return }
-                self.fillSendTo(m)
+                guard let self, self.menuOpen else { return }
+                if let m = self.sendToMenu { self.fillSendTo(m) }
+                self.refreshSendToSubtitle()
             }.store(in: &bag)
         watchVisibility()
     }
@@ -180,10 +181,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // Send to: the choice the iPhone and this Mac share.
         let sendTo = NSMenuItem(title: SendToWords.title, action: nil, keyEquivalent: "")
         sendTo.image = NSImage(systemSymbolName: "paperplane", accessibilityDescription: nil)
-        if #available(macOS 14.4, *) {
-            let sel = model.selection
-            sendTo.subtitle = SendToWords.name(sel.target, in: model) + (sel.send && sel.target.canSend ? " · then send" : "")
-        }
+        sendToItem = sendTo
+        refreshSendToSubtitle()
         let sub = NSMenu(title: SendToWords.title)
         sub.delegate = self
         sub.autoenablesItems = false
@@ -279,6 +278,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: Send to
 
     private weak var sendToMenu: NSMenu?
+    private weak var sendToItem: NSMenuItem?
+
+    /// "Claude · then send" under Send to — kept current while the menu is open.
+    private func refreshSendToSubtitle() {
+        guard let item = sendToItem else { return }
+        if #available(macOS 14.4, *) {
+            let sel = model.selection
+            item.subtitle = SendToWords.name(sel.target, in: model) + (sel.send && sel.target.canSend ? " · then send" : "")
+        }
+    }
     private var menuOpen = false
 
     private func fillSendTo(_ menu: NSMenu) {
