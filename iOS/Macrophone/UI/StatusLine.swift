@@ -11,17 +11,19 @@ struct StatusLine: View {
 
     var body: some View {
         let (text, color) = content
+        let check = landedWell
+        let miss = landedMiss
         Group {
             if settingsLink {
                 // The fix is in Settings: the whole line is the way there (no extra row to make room for).
                 Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                } label: { line(text, color, link: true) }
+                } label: { line(text, color, link: true, check: false) }
                 .buttonStyle(.plain)
                 .accessibilityLabel(text)
                 .accessibilityHint("Opens Settings.")
             } else {
-                line(text, color, link: false)
+                line(text, color, link: false, check: check, miss: miss)
                     .accessibilityLabel(text)
                     .accessibilityAddTraits(.updatesFrequently)
             }
@@ -34,10 +36,14 @@ struct StatusLine: View {
     private var settingsLink: Bool { if case .problem(_, true) = model.status { return true }; return false }
 
     /// The line fills its fixed slot (MainView): a long one shrinks to fit whole — never cut.
-    private func line(_ text: String, _ color: Color, link: Bool) -> some View {
+    private func line(_ text: String, _ color: Color, link: Bool, check: Bool, miss: Bool = false) -> some View {
         // The dot rides in the sentence, so it stays beside the first word however the line wraps.
-        var t = Text(Image(systemName: "circle.fill")).font(.system(size: dotSize)).foregroundColor(color).baselineOffset(dotSize * 0.2)
-            + Text("\u{2002}") + Text(text)
+        // Landed where it was meant to go: a ✓ in its place.
+        let mark = check
+            ? Text(Image(systemName: "checkmark")).font(.subheadline.weight(.bold)).foregroundColor(color)
+            : Text(Image(systemName: "circle.fill")).font(.system(size: dotSize)).foregroundColor(color).baselineOffset(dotSize * 0.2)
+        // A landing that missed is set in its own colour too, so it can't be read as a success.
+        var t = mark + Text("\u{2002}") + (miss ? Text(text).foregroundColor(color) : Text(text))
         if link { t = t + Text("  Open Settings").foregroundColor(Light.cyan).fontWeight(.semibold) }
         return t
             .font(.subheadline)
@@ -45,6 +51,20 @@ struct StatusLine: View {
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.6)
             .shadow(color: color.opacity(0.25), radius: 6)
+    }
+
+    private var landedWell: Bool {
+        if model.note != nil { return false }
+        if recorder.phase == .recording || recorder.phase == .starting { return false }
+        if case .landed(let l) = model.status { return l.isSuccess }
+        return false
+    }
+
+    private var landedMiss: Bool {
+        if model.note != nil { return false }
+        if recorder.phase == .recording || recorder.phase == .starting { return false }
+        if case .landed(let l) = model.status { return !l.isSuccess }
+        return false
     }
 
     private var content: (String, Color) {
@@ -98,6 +118,13 @@ struct StatusLine: View {
             }
             if late { s += " · delayed" }
             return (s, Light.mint)
+        case .landing(_, let to):
+            // The Mac has it; its countdown and the paste are under way.
+            return (to.map { "Sending to \($0.name)…" } ?? "Sending to your Mac…", Light.cyan)
+        case .landed(let l):
+            return (l.sentence, l.isSuccess ? Light.mint : (l.copiedInstead ? Light.ochre : Light.rose))
+        case .unconfirmed:
+            return ("Your Mac received it but didn't confirm where it landed", Light.ochre)
         case .duplicate: return ("Already on your Mac", Light.mint)
         case .queued:
             if model.localNetworkDenied { return ("Queued — Local Network is off for Macrophone. Turn it on in Settings and it'll send", Light.ochre) }

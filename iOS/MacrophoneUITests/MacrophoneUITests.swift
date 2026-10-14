@@ -23,7 +23,7 @@ final class MacrophoneUITests: XCTestCase {
     /// Delivered (in the Mac's own words: "Pasted into …", "Sent to …", "Copied …"), copied on the
     /// iPhone, or queued.
     private func delivered(_ app: XCUIApplication) -> Bool {
-        statusContains(app, "Delivered") || ["Copied", "Pasted into", "Sent to", "Printed by", "queued"].contains { statusContains(app, $0, timeout: 1) }
+        statusContains(app, "Delivered") || ["Copied", "Pasted into", "Sent to", "Printed by", "queued", "In ", "clipboard", "Sending to"].contains { statusContains(app, $0, timeout: 1) }
     }
 
     func testTapStartsAndTapSends() {
@@ -197,7 +197,8 @@ final class MacrophoneUITests: XCTestCase {
         let send = app.descendants(matching: .any)["send-toggle"]
         XCTAssertTrue(["Off", "0"].contains("\(send.value ?? "")"), "\(send.value ?? "nil")")
         send.tap()
-        XCTAssertTrue(["On", "1"].contains("\(send.value ?? "")"), "\(send.value ?? "nil")")
+        expectation(for: NSPredicate(format: "value == '1' OR value == 'On'"), evaluatedWith: send)
+        waitForExpectations(timeout: 3)
         XCTAssertTrue(statusContains(app, "Pastes into Messages, then sends", timeout: 3))
         // Cleanup: Light, one tap.
         app.buttons["cleanup-light"].tap()
@@ -472,6 +473,67 @@ final class MacrophoneUITests: XCTestCase {
         expectation(for: changed, evaluatedWith: app.buttons["send-to"])
         waitForExpectations(timeout: 60)
         print("LIVE chip now: \(app.buttons["send-to"].label)")
+    }
+
+    /// Where it landed, in the status line's words (the debug statuses, no Mac needed). The ✓ only
+    /// for a landing where it was meant to go; a miss says what happened and what to do.
+    func testLandingWords() {
+        let cases: [(String, String)] = [
+            ("landing", "Sending to Claude…"),
+            ("landed-sent", "In Claude — sent"),
+            ("landed-pasted", "Pasted into Claude"),
+            ("landed-clipboard", "On your Mac's clipboard"),
+            ("landed-failed", "Didn't land in Claude — the message box wasn't found. It's on your Mac's clipboard"),
+            ("landed-copied", "Claude isn't open — copied instead. Press ⌘V on your Mac where you want it"),
+            ("landed-cancelled", "Cancelled on your Mac — nothing was pasted"),
+            ("unconfirmed", "Your Mac received it but didn't confirm where it landed"),
+        ]
+        var micFrame: CGRect?
+        for (status, words) in cases {
+            let app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac", "MACROPHONE_STATUS": status])
+            XCTAssertTrue(statusContains(app, words, timeout: 6), "\(status): \(words)")
+            let mic = app.buttons["Start dictation"]
+            XCTAssertTrue(mic.waitForExistence(timeout: 3))
+            if let f = micFrame {
+                XCTAssertEqual(f.midY, mic.frame.midY, accuracy: 0.5, "\(status) keeps the mic in place")
+            } else { micFrame = mic.frame }
+            app.terminate()
+        }
+    }
+
+    /// Against `mpctl serve` (paired already), one dictation, and where it landed. Run with
+    /// TEST_RUNNER_MACROPHONE_LIVE=1 and TEST_RUNNER_MACROPHONE_LAND_EXPECT=sent|failed|copied|cancelled|timeout|old
+    /// (serve with `--land failed` etc.; timeout and old drop the Mac's report on the phone).
+    func testLandingLive() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard env["MACROPHONE_LIVE"] == "1", let expect = env["MACROPHONE_LAND_EXPECT"] else { throw XCTSkip("needs mpctl serve") }
+        var launchEnv = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SIM_RECORD": "Claude, the landing test \(expect) one two three"]
+        if expect == "timeout" { launchEnv["MACROPHONE_LANDINGS"] = "ignore" }
+        if expect == "old" { launchEnv["MACROPHONE_LANDINGS"] = "ignore-old" }
+        let app = launch(launchEnv)
+        XCTAssertTrue(statusContains(app, "Ready", timeout: 20), "connected")
+        let start = app.buttons["Start dictation"]
+        let idle = start.frame
+        start.tap()
+        sleep(2)
+        app.buttons["Stop and send"].tap()
+        if ["timeout", "old"].contains(expect) {
+            XCTAssertTrue(statusContains(app, "Sending to Claude", timeout: 10), "waits for where it landed")
+        }
+        let words: String
+        switch expect {
+        case "sent":
+            // Sent, or pasted when Send after pasting is off for Claude.
+            words = statusContains(app, "Pasted into Claude", timeout: 8) ? "Pasted into Claude" : "In Claude — sent"
+        case "failed": words = "Didn't land in Claude"
+        case "copied": words = "copied to your Mac's clipboard instead"
+        case "cancelled": words = "Cancelled on your Mac"
+        case "timeout": words = "didn't confirm where it landed"
+        default: words = "Printed by mpctl"
+        }
+        XCTAssertTrue(statusContains(app, words, timeout: 20), words)
+        XCTAssertEqual(app.buttons["Start dictation"].frame.midY, idle.midY, accuracy: 0.5, "the mic never moves")
+        print("LIVE landing \(expect): \(words)")
     }
 
     func testPairingLinkFromCamera() throws {

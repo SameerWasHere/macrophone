@@ -296,8 +296,10 @@ struct MainView: View {
             mode = recorder.transcript.isEmpty ? .listening : .live
         } else {
             switch model.status {
-            case .cleaning, .sending: mode = .sending
+            case .cleaning, .sending, .landing: mode = .sending
             case .delivered, .duplicate, .copiedOnPhone: mode = .delivered
+            case .landed(let l): mode = l.isSuccess ? .delivered : (l.copiedInstead ? .queued : .error)
+            case .unconfirmed: mode = .queued
             case .queued: mode = .queued
             case .failed, .problem: mode = .error
             case .listening: mode = recorder.phase == .finishing ? .sending : .listening
@@ -306,12 +308,14 @@ struct MainView: View {
         }
         withAnimation(.easeInOut(duration: 0.2)) { filamentMode = mode }
         showCheck = (mode == .delivered)
-        if mode == .delivered || mode == .error {
+        // A miss stays in view longer than a success.
+        let landedMiss: Bool = { if case .landed(let l) = model.status { return !l.isSuccess }; if case .unconfirmed = model.status { return true }; return false }()
+        if mode == .delivered || mode == .error || landedMiss {
             settleTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_600_000_000)
+                try? await Task.sleep(nanoseconds: mode == .delivered ? 2_600_000_000 : 6_000_000_000)
                 guard !Task.isCancelled else { return }
                 showCheck = false
-                if filamentMode == .delivered || filamentMode == .error { filamentMode = .ready }
+                if filamentMode == .delivered || filamentMode == .error || landedMiss { filamentMode = .ready }
             }
         }
     }

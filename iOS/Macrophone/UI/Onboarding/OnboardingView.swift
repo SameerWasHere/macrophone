@@ -362,7 +362,8 @@ private struct OnboardingTest: View {
     private var recording: Bool { recorder.phase == .recording || recorder.phase == .starting }
     private var worked: Bool {
         switch model.status {
-        case .delivered, .duplicate, .copiedOnPhone: return true
+        case .delivered, .duplicate, .copiedOnPhone, .unconfirmed: return true
+        case .landed(let l): return l.isSuccess || l.copiedInstead
         default: return false
         }
     }

@@ -30,7 +30,8 @@ import UIKit
 ///                                            (and, at Custom, the instructions the cleaner was given)
 /// MACROPHONE_INTENT_TARGET=clipboard|front|<name>  runs Start Dictation the way a Shortcut / control does, with that
 ///                                            target (needs MACROPHONE_SIM_RECORD; stops after 3 s)
-/// MACROPHONE_STATUS=queued|delivered|failed|sending|copied
+/// MACROPHONE_LANDINGS=ignore|ignore-old  drop the Mac's landing reports (a Mac that never confirms / an older one)
+/// MACROPHONE_STATUS=queued|delivered|failed|sending|copied|landing|landed-sent|landed-pasted|landed-clipboard|landed-failed|landed-copied|landed-cancelled|unconfirmed
 /// MACROPHONE_EXPLAIN=<sentence>             the status line's control explanation, held (layout checks)
 /// MACROPHONE_MIC_ONLY=1                      simulator: the real mic without the recognizer (Filament proof)
 /// MACROPHONE_MIC_WORDS=<text>                …with these words appearing as the voice comes in
@@ -242,6 +243,14 @@ enum DebugHooks {
             case "failed": model.debugSetStatus(.failed(mac: mac, detail: "Accessibility permission is off"))
             case "sending": model.debugSetStatus(.sending(mac: mac, to: nil))
             case "copied": model.debugSetStatus(.copiedOnPhone)
+            case "landing": model.debugSetStatus(.landing(mac: mac, to: RouteNote(name: "Claude", spoken: nil, send: true)))
+            case "landed-sent": model.debugSetStatus(.landed(Landing(result: .sent, detail: "Sent to Claude", target: TargetRef.app(bundleID: "com.anthropic.claudefordesktop", windowKey: nil, name: "Claude"), to: RouteNote(name: "Claude", spoken: nil, send: true))))
+            case "landed-pasted": model.debugSetStatus(.landed(Landing(result: .pasted, detail: "Pasted into Claude", target: TargetRef.app(bundleID: "com.anthropic.claudefordesktop", windowKey: nil, name: "Claude"), to: RouteNote(name: "Claude", spoken: nil, send: true))))
+            case "landed-clipboard": model.debugSetStatus(.landed(Landing(result: .copied, detail: "Copied to clipboard", target: .clipboard, to: RouteNote(name: "Clipboard"))))
+            case "landed-failed": model.debugSetStatus(.landed(Landing(result: .failed, detail: "The message box in Claude wasn't found", target: TargetRef.app(bundleID: "com.anthropic.claudefordesktop", windowKey: nil, name: "Claude"), to: RouteNote(name: "Claude", spoken: nil, send: true))))
+            case "landed-copied": model.debugSetStatus(.landed(Landing(result: .copied, detail: "Claude isn't open — copied instead", target: TargetRef.app(bundleID: "com.anthropic.claudefordesktop", windowKey: nil, name: "Claude"), to: RouteNote(name: "Claude", spoken: nil, send: true))))
+            case "landed-cancelled": model.debugSetStatus(.landed(Landing(result: .cancelled, detail: "Paste cancelled", target: TargetRef.app(bundleID: "com.anthropic.claudefordesktop", windowKey: nil, name: "Claude"), to: RouteNote(name: "Claude", spoken: nil, send: true))))
+            case "unconfirmed": model.debugSetStatus(.unconfirmed(mac: mac))
             default: break
             }
         }

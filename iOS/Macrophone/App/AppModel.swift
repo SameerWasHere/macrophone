@@ -17,6 +17,12 @@ enum DeliveryStatus: Equatable {
     case queued
     case copiedOnPhone
     case failed(mac: String, detail: String?)
+    /// The Mac has the words; waiting to hear where they landed (its countdown, then the paste).
+    case landing(mac: String, to: RouteNote?)
+    /// Where they landed: in the app (a mint ✓), or not — and why (rose; ochre when copied instead).
+    case landed(Landing)
+    /// The Mac took the words but never said where they landed.
+    case unconfirmed(mac: String)
     case nothingHeard
     case notice(String)
     case problem(String, openSettings: Bool)
@@ -107,6 +113,11 @@ final class AppModel: ObservableObject {
     private var textWaiters: [CheckedContinuation<String?, Never>] = []
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var statusReset: Task<Void, Never>?
+    /// The dictation whose landing the status line is waiting on, and the wait itself.
+    private var awaitingLanding: (id: UUID, mac: String, late: Bool, ackDetail: String?)?
+    private var landingWait: Task<Void, Never>?
+    /// How long after the Mac's ack to wait for where it landed (its 2.5 s countdown included).
+    static let landingTimeout: TimeInterval = 12
 
     private init() {
         history = HistoryStore(url: AppFiles.history, capacity: 50, enabled: UserDefaults.standard.object(forKey: Settings.K.history) as? Bool ?? true)
@@ -464,7 +475,11 @@ final class AppModel: ObservableObject {
         switch ack.outcome {
         case .delivered:
             updateItem(id) { $0.delivery = .delivered; $0.detail = ack.detail; $0.macName = macName; $0.deliveredAt = Date() }
-            if isLatest || !late { status = .delivered(mac: macName, detail: ack.detail, late: late, to: routeNote(id)); Haptics.success() }
+            // The ack only says the Mac has it: the ✓ waits for where it landed.
+            if isLatest || !late {
+                if item(id)?.landing != nil { showLanding(id, late: late) }
+                else { awaitLanding(id, mac: macName, late: late, ackDetail: ack.detail) }
+            }
         case .duplicate:
             updateItem(id) { $0.delivery = .duplicate; $0.macName = macName }
             if isLatest || !late { status = .duplicate; Haptics.success() }
@@ -517,6 +532,55 @@ final class AppModel: ObservableObject {
     }
 
     private func bumpPulse() { pulse &+= 1 }
+
+    // MARK: Where it landed
+
+    private func item(_ id: UUID) -> HistoryItem? {
+        historyItems.first(where: { $0.id == id }) ?? (latest?.id == id ? latest : nil)
+    }
+
+    /// "Sending to Claude…" until the Mac says where it landed, or the wait runs out.
+    private func awaitLanding(_ id: UUID, mac: String, late: Bool, ackDetail: String?) {
+        landingWait?.cancel()
+        awaitingLanding = (id, mac, late, ackDetail)
+        status = .landing(mac: mac, to: routeNote(id))
+        landingWait = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.landingTimeout * 1e9))
+            guard !Task.isCancelled, let self, let w = self.awaitingLanding, w.id == id else { return }
+            self.awaitingLanding = nil
+            if self.macReportsLandings {
+                self.updateItem(id) { $0.landingUnconfirmed = true }
+                if !self.recorder.isActive { self.status = .unconfirmed(mac: mac); Haptics.warning() }
+                self.log.add("no landing within \(Int(Self.landingTimeout))s")
+            } else if !self.recorder.isActive {
+                // A Mac that never reports landings (an older version): the ack's own words, as before.
+                self.status = .delivered(mac: mac, detail: ackDetail, late: late, to: self.routeNote(id))
+                Haptics.success()
+            }
+            self.bumpPulse()
+        }
+    }
+
+    /// The landing on record for this dictation, on the status line.
+    private func showLanding(_ id: UUID, late: Bool) {
+        guard let it = item(id), let result = it.landing else { return }
+        landingWait?.cancel()
+        awaitingLanding = nil
+        let l = Landing(result: result, detail: it.landingDetail ?? "", target: it.dictation.target, to: routeNote(id), late: late)
+        guard !recorder.isActive else { return }   // the next one is being spoken: History has it
+        status = .landed(l)
+        if l.isSuccess { Haptics.success() } else { Haptics.error() }
+        bumpPulse()
+    }
+
+    /// This Mac has told the phone where a dictation landed before (so silence means something).
+    private var macReportsLandings: Bool {
+        guard let mac = client.activeMac else { return false }
+        #if DEBUG
+        if DebugHooks.env["MACROPHONE_LANDINGS"] == "ignore-old" { return false }
+        #endif
+        return UserDefaults.standard.bool(forKey: "landing.reports.\(mac.id.uuidString)")
+    }
 
     private func scheduleStatusReset(after seconds: Double) {
         statusReset?.cancel()
@@ -942,6 +1006,27 @@ extension AppModel: LinkClientDelegate {
         }
         settings.selection = selection
         log.add("send to changed on the Mac: \(Self.kind(selection.target))\(selection.send ? " + send" : "")")
+    }
+
+    /// Where a dictation finally landed on the Mac. A retry from the Mac's popup reports again:
+    /// the latest result wins.
+    func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String) {
+        guard client === self.client else { return }
+        #if DEBUG
+        // Tests: a Mac that never confirms (ignore), or an older one that never could (ignore-old).
+        if ["ignore", "ignore-old"].contains(DebugHooks.env["MACROPHONE_LANDINGS"] ?? "") { return }
+        #endif
+        if let mac = client.activeMac { UserDefaults.standard.set(true, forKey: "landing.reports.\(mac.id.uuidString)") }
+        updateItem(id) { $0.landing = result; $0.landingDetail = detail; $0.landingUnconfirmed = nil }
+        log.add("landed: \(result.rawValue)")
+        let waiting = awaitingLanding?.id == id
+        // The one on screen (or the newest, after a retry on the Mac) shows it; older ones go to History.
+        guard waiting || latest?.id == id else { return }
+        switch status {
+        case .landing, .landed, .unconfirmed, .delivered, .ready: break
+        default: if !waiting { return }
+        }
+        showLanding(id, late: awaitingLanding?.late ?? (item(id)?.wasDelayed ?? false))
     }
 
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {

@@ -30,6 +30,19 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
     var partialCleanup: Bool? = nil
     /// The name that picked the target, as said ("Messages", "Claude"), when saying it did.
     var spokenPrefix: String? = nil
+    /// Where it finally landed on the Mac (its `landed` message; the latest one wins).
+    var landing: LandingResult? = nil
+    var landingDetail: String? = nil
+    /// The Mac took it but never said where it landed.
+    var landingUnconfirmed: Bool? = nil
+
+    /// The landing in the phone's words, when the Mac reported one.
+    var landed: Landing? {
+        guard let landing else { return nil }
+        return Landing(result: landing, detail: landingDetail ?? "", target: dictation.target,
+                       to: targetName.map { RouteNote(name: $0, spoken: spokenPrefix, send: dictation.send == true) },
+                       late: wasDelayed)
+    }
 
     var id: UUID { dictation.id }
 
@@ -56,7 +69,9 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
         switch delivery {
         case .copiedOnPhone: out.append("Copied on iPhone")
         case .cleaning, .sending: out.append("Sending")
-        case .delivered: out.append("Delivered")
+        case .delivered:
+            if let l = landed { out.append(l.chip) }
+            else { out.append(landingUnconfirmed == true ? "Delivered · not confirmed" : "Delivered") }
         case .duplicate: out.append("On your Mac")
         case .queued: out.append("Queued")
         case .failed: out.append("Not delivered")

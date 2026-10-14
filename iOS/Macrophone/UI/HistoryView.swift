@@ -154,7 +154,14 @@ struct HistoryRow: View {
         }
         switch item.delivery {
         case .delivered:
-            out.append(("Delivered", Light.mint))
+            // Where it landed, when the Mac said: "Sent to Claude", "Didn't land: …".
+            if let l = item.landed {
+                out.append((l.chip, l.isSuccess ? Light.mint : (l.copiedInstead ? Light.ochre : Light.rose)))
+            } else if item.landingUnconfirmed == true {
+                out.append(("Delivered · not confirmed", Light.ochre))
+            } else {
+                out.append(("Delivered", Light.mint))
+            }
         case .duplicate: out.append(("On your Mac", Light.mint))
         case .copiedOnPhone: out.append(("Copied on iPhone", Light.mint))
         case .queued: out.append(("Queued", Light.ochre))
