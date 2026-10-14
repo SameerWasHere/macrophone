@@ -35,38 +35,43 @@ struct MainView: View {
 
     var body: some View {
         GeometryReader { geo in
-            ScrollView(.vertical) {
-                VStack(spacing: 0) {
-                    ZStack {
-                        VStack(spacing: 0) {
-                            topBar
-                            stage
-                            quickControls
-                        }
-                        .opacity(showLiveWords ? 0 : 1)
-                        .allowsHitTesting(!showLiveWords)
-                        .accessibilityHidden(showLiveWords)
-                        if showLiveWords {
-                            transcriptArea.transition(.opacity)
-                        }
+            VStack(spacing: 0) {
+                // The top area: the settings at rest; the transcript while the mic is open.
+                ZStack(alignment: .top) {
+                    VStack(spacing: 0) {
+                        topBar
+                        quickControls
+                        Spacer(minLength: 0)
+                        idleWords
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 4)
                     }
-                    .frame(maxHeight: .infinity)
-                    .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
-                    MicButton(recording: isRecording,
-                              busy: false,
-                              meter: recorder.meter,
-                              onDown: pressDown,
-                              onUp: pressUp,
-                              onAccessibilityToggle: { model.toggleRecording() })
-                    statusSlot
-                        .padding(.bottom, compact ? 6 : 18)
+                    .opacity(showLiveWords ? 0 : 1)
+                    .allowsHitTesting(!showLiveWords)
+                    .accessibilityHidden(showLiveWords)
+                    if showLiveWords {
+                        transcriptArea.transition(.opacity)
+                    }
                 }
-                .frame(minHeight: geo.size.height)
+                .frame(maxHeight: .infinity)
+                .clipped()
+                .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
+                // The Thread: one band, the same place in every state.
+                threadBand
+                // Room between the Thread and the mic.
+                Color.clear.frame(height: compact ? 14 : 30)
+                MicButton(recording: isRecording,
+                          busy: false,
+                          meter: recorder.meter,
+                          onDown: pressDown,
+                          onUp: pressUp,
+                          onAccessibilityToggle: { model.toggleRecording() })
+                statusSlot
+                    .padding(.bottom, compact ? 6 : 18)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollDisabled(isRecording)
         }
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         .background(GroundBackground(glow: skyGlow).animation(.easeInOut(duration: 0.7), value: filamentMode))
@@ -122,34 +127,20 @@ struct MainView: View {
         .accessibilityShowsLargeContentViewer { Label("Settings", systemImage: "gearshape") }
     }
 
-    // MARK: Stage: the words and the Filament
+    // MARK: The Thread — fixed above the mic
 
     private var filamentHeight: CGFloat { compact ? 56 : 96 }
-    private var filamentSlot: CGFloat { compact ? 50 : 74 }
+    private var filamentSlot: CGFloat { compact ? 56 : 84 }
 
-    /// The one flexible part of the page. Idle words and live words share one area whose size
-    /// never depends on which is showing.
-    private var stage: some View {
-        VStack(spacing: 0) {
-            Color.clear
-                .frame(minHeight: compact ? 36 : 82, maxHeight: .infinity)
-                .overlay(alignment: .bottom) {
-                    idleWords
-                        .padding(.horizontal, 24)
-                }
-                .clipped()
-                .padding(.top, 6)
-            ZStack {
-                // The Thread's band is taller than its slot: its quiet top edge sits under the words'
-                // last line, so the words keep room for their hint without a shorter Thread.
-                Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
-                    .frame(height: filamentSlot, alignment: .bottom)
-                DeliveredCheck(visible: showCheck, color: checkColor)
-            }
-            .frame(height: filamentSlot)
-            .padding(.horizontal, -4)
+    private var threadBand: some View {
+        ZStack {
+            Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
+                .frame(height: filamentSlot)
+            DeliveredCheck(visible: showCheck, color: checkColor)
+            timer.frame(maxHeight: .infinity, alignment: .bottom)
         }
-        .frame(maxHeight: .infinity)
+        .frame(height: filamentSlot)
+        .padding(.horizontal, -4)
     }
 
     // MARK: While the mic is open: the transcript takes the whole area
@@ -179,18 +170,12 @@ struct MainView: View {
                 .padding(.top, 14)
             LiveWords(text: recorder.transcript, listening: isRecording)
                 .padding(.horizontal, 24)
-                .padding(.top, 10)
-                .frame(maxHeight: .infinity)
-            ZStack {
-                Filament(mode: filamentMode, meter: recorder.meter, height: compact ? 48 : 64)
-                timer.frame(maxHeight: .infinity, alignment: .bottom)
-            }
-            .frame(height: compact ? 56 : 76)
-            .padding(.horizontal, -4)
+                .padding(.top, 8)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .clipped()
         }
     }
 
-    /// Whatever fits of: the line and the hint; the line; the line smaller.
     private var idleWords: some View {
         let line = model.isPaired ? "Speak, and it's on your Mac." : "Speak, and it's on your clipboard."
         let hint = "Tap to talk, tap again to send. Or hold, and let go."
@@ -249,7 +234,7 @@ struct MainView: View {
         } content: {
             QuickControls(settings: model.settings, recorder: recorder, recording: isRecording, compact: compact)
         }
-        .padding(.top, 4)
+        .padding(.top, compact ? 10 : 22)
         .padding(.bottom, 4)
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
@@ -347,7 +332,8 @@ struct FixedSlot<Template: View, Content: View>: View {
     }
 }
 
-/// The words as they're heard: serif, newest at the bottom, older lines fading out the top.
+/// The words as they're heard: serif, written from the top of the area downward like a page.
+/// Only once they fill it does it scroll, keeping the newest line in view.
 struct LiveWords: View {
     var text: String
     var listening: Bool
@@ -355,8 +341,9 @@ struct LiveWords: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack {
-                    Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 0) {
+                    // Room under the fade, so unscrolled words start clear of it.
+                    Color.clear.frame(height: 22)
                     Text(text.isEmpty ? (listening ? "Listening…" : " ") : text)
                         .font(.serif(.title2))
                         .foregroundStyle(text.isEmpty ? Ink.tertiary : Ink.ink)
@@ -369,8 +356,12 @@ struct LiveWords: View {
                 }
             }
             .scrollIndicators(.hidden)
-            .defaultScrollAnchor(.bottom)
-            .edgeFade(top: 36, bottom: 0)
+            .defaultScrollAnchor(.top)
+            // Once the words fill the area, the line leaving the top fades instead of being sliced.
+            .mask(VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 22)
+                Color.black
+            })
             .onChange(of: text) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) }
             }

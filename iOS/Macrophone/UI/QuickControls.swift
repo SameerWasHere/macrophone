@@ -9,7 +9,7 @@ import UIKit
 //   ┌──────────────────────────────────────────────┐
 //   │  (📋) (⌖) [ Claude ] (💬) (>_) (📝)   (⋯)     │  the dock: the Mac's open apps
 //   │                ━━                            │  the lit one is where it goes
-//   │  Send to Claude ⌄           (✈ Send after pasting) │
+//   │  Send to Claude ⌄        Send after pasting [ ●] │
 //   │  ✦ Cleanup  Off  Light [Medium] Heavy  Custom │
 //   └──────────────────────────────────────────────┘
 //
@@ -18,7 +18,7 @@ import UIKit
 //    under it; a tap picks another. An app with several windows wears a count and a long-press
 //    lists them; the end-cap (and the name under the dock) opens every place and window. While he
 //    talks, an app said first lights in ember.
-// 2. Send after pasting — one toggle, a paper plane that lights when on. Remembered per place and
+// 2. Send after pasting — a labelled on/off switch. Remembered per place and
 //    synced with the Mac (`SendSelection`). Where it can't apply it says why.
 // 3. Cleanup — Off · Light · Medium · Heavy · Custom, all five visible, one tap each. Custom follows
 //    his own instructions (Medium's until he edits them): tapping it again, or a long-press, opens them.
@@ -409,8 +409,8 @@ private struct UnpairedPlace: View {
 
 // MARK: Send after pasting
 
-/// One toggle: a paper plane that lights when the Mac will press send after pasting. Where it
-/// can't apply it says why (and a tap explains).
+/// "Send after pasting" and a real on/off switch — unmistakable either way. Where it can't apply
+/// (Clipboard) the switch sits greyed out, and a tap says why.
 struct SendSwitch: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
@@ -418,57 +418,41 @@ struct SendSwitch: View {
     var target: TargetRef
 
     var body: some View {
-        if let reason = disabledReason(target) {
-            Button { model.explain(longReason(target)) } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "paperplane").font(.footnote.weight(.semibold)).accessibilityHidden(true)
-                    Text(reason).font(.footnote.weight(.medium)).lineLimit(1).fixedSize()
-                }
-                .foregroundStyle(Ink.tertiary)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 40)
-                .modifier(ControlPlate())
-                .padding(.vertical, 2)
-                .contentShape(Rectangle())
+        let enabled = disabledReason(target) == nil
+        let on = enabled && model.sendSetting(for: target)
+        HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                Text("Send after pasting").lineLimit(1).fixedSize()
+                Text("Send").lineLimit(1).fixedSize()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Send after pasting: unavailable. \(reason).")
-            .accessibilityHint("Says why.")
-            .accessibilityIdentifier("send-toggle")
-        } else {
-            let on = model.sendSetting(for: target)
-            Button {
-                Haptics.tick()
-                withAnimation(Motion.snap) { model.setSend(!on, for: target) }
-                model.explain(PlaceDock.sentence(for: target, send: !on))
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: on ? "paperplane.fill" : "paperplane")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(on ? Light.cyan : Ink.tertiary)
-                        .contentTransition(.symbolEffect(.replace))
-                        .accessibilityHidden(true)
-                    ViewThatFits(in: .horizontal) {
-                        Text("Send after pasting").lineLimit(1).fixedSize()
-                        Text("Then send").lineLimit(1).fixedSize()
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(on ? Ink.ink : Ink.secondary)
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 40)
-                .modifier(ControlPlate(lit: on ? Light.cyan : nil))
-                .shadow(color: Light.cyan.opacity(on ? 0.25 : 0), radius: 10)
-                .padding(.vertical, 2)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Send after pasting")
-            .accessibilityValue(on ? "On" : "Off")
-            .accessibilityAddTraits(.isToggle)
-            .accessibilityHint("When on, your Mac presses send after pasting into \(target.displayName).")
-            .accessibilityIdentifier("send-toggle")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(!enabled ? Ink.tertiary : (on ? Ink.ink : Ink.secondary))
+            .accessibilityHidden(true)
+            Toggle("Send after pasting", isOn: Binding(
+                get: { on },
+                set: { new in
+                    Haptics.tick()
+                    withAnimation(Motion.snap) { model.setSend(new, for: target) }
+                    model.explain(PlaceDock.sentence(for: target, send: new))
+                }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(Light.cyan)
+                .disabled(!enabled)
+                .fixedSize()
+                .accessibilityLabel("Send after pasting")
+                .accessibilityHint(enabled ? "When on, your Mac presses send after pasting into \(target.displayName)."
+                                           : "\(longReason(target)).")
+                .accessibilityIdentifier("send-toggle")
         }
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .frame(minHeight: 40)
+        .modifier(ControlPlate(lit: on ? Light.cyan : nil))
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        // A disabled switch takes no taps: the plate explains instead.
+        .onTapGesture { if !enabled { model.explain(longReason(target)) } }
     }
 
     private func disabledReason(_ t: TargetRef) -> String? {
