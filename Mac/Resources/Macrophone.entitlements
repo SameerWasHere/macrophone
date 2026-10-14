@@ -2,12 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Not sandboxed: Macrophone pastes through Accessibility, runs the person's own scripts
-	     and brings apps to the front. Hardened runtime is on. -->
+	<!-- Not sandboxed: Macrophone pastes through Accessibility and brings apps to the front.
+	     Hardened runtime is on. Apple Events: only Developer › Install's "do shell script …
+	     with administrator privileges", which links the command-line tool into /usr/local/bin. -->
 	<key>com.apple.security.automation.apple-events</key>
-	<true/>
-	<!-- Reminders (EventKit) under the hardened runtime: only used by a profile's "Add to Reminders". -->
-	<key>com.apple.security.personal-information.calendars</key>
 	<true/>
 </dict>
 </plist>

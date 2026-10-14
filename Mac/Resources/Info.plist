@@ -39,11 +39,7 @@
 		<string>_macrophone._tcp</string>
 	</array>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Macrophone asks only when a profile needs it: to pick the Terminal or iTerm tab you named, to read the browser address for {{url}}, to save to Apple Notes, or to install its command-line tool.</string>
-	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>A profile you set up adds what you dictate to Reminders. Macrophone reads your lists so you can pick one.</string>
-	<key>NSRemindersUsageDescription</key>
-	<string>A profile you set up adds what you dictate to Reminders. Macrophone reads your lists so you can pick one.</string>
+	<string>Macrophone uses this only to install its command-line tool (macrophone and mp), when you choose Install in Developer.</string>
 	<key>SUFeedURL</key>
 	<string>https://sameer.us/macrophone/appcast.xml</string>
 	<key>SUPublicEDKey</key>

@@ -10,8 +10,8 @@ The spec is `docs/SPEC.md`. Push to `main`.
 | --- | --- |
 | `Packages/MacrophoneKit` | Shared Swift package: wire format, pairing + encryption, Bonjour/peer-to-peer transport (`LinkServer` Mac side, `LinkClient` phone side), history store, diagnostics log, on-device cleanup (`Cleaner`, `CleanupPrompts`, `CleanupGuard`), pull-API item shape. `mpctl` is the command-line protocol proof. |
 | `iOS/` | iPhone app (XcodeGen `iOS/project.yml`) + Control Center / Lock Screen control extension |
-| `Mac/` | Menu bar app (XcodeGen `Mac/project.yml`), the `macrophone`/`mp` CLI + MCP server, Sparkle updates, `scripts/release.sh` |
-| `docs/` | `API.md` (the API/CLI/MCP/webhook contract), `DESIGN.md`, `CLEANUP.md`, `RELEASING.md`, `APP_STORE.md`, `NAME_CHECK.md` |
+| `Mac/` | Menu bar app (XcodeGen `Mac/project.yml`): Send to (live targets, paste and send), History, Devices, Developer, General; the `macrophone`/`mp` CLI + MCP server; Sparkle updates, `scripts/release.sh` |
+| `docs/` | `TARGETS.md` (Send to and delivery), `API.md` (the local API / CLI / MCP contract), `DESIGN.md`, `CLEANUP.md`, `RELEASING.md`, `APP_STORE.md`, `NAME_CHECK.md` |
 
 The website lives in the sameer.us repo (`sameer-gpt`), static pages under `public/macrophone/`.
 

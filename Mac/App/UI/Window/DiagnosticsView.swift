@@ -39,7 +39,6 @@ enum Diagnostics {
             ("Apps with somewhere to type", "\(model.targets.count)"),
             ("Accessibility granted", model.accessibilityGranted ? "yes" : "no"),
             ("History", model.settings.historyEnabled ? "on (\(model.history.count) items)" : "off"),
-            ("Automations", "\(model.automations.automations.count) (\(model.automations.automations.filter(\.sendsOffDevice).count) send off this Mac)"),
         ]
     }
 }

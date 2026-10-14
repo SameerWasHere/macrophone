@@ -54,6 +54,14 @@ struct MainView: View {
                 Ink.ground.ignoresSafeArea()
                 VStack(spacing: 0) {
                     HiddenIconSlot(model: model, settings: model.settings)
+                    // Where dictations go — the choice the iPhone and this Mac share — above
+                    // every pane.
+                    SendToCard(model: model, settings: model.settings)
+                        .padding(.horizontal, 32)
+                        .padding(.top, 4)
+                        .padding(.bottom, 18)
+                        .frame(maxWidth: 760, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     detail
                 }
             }
@@ -67,12 +75,9 @@ struct MainView: View {
     @ViewBuilder private var detail: some View {
         switch nav.pane ?? .history {
         case .history: HistoryPane(model: model, settings: model.settings)
-        case .automations: AutomationsPane(model: model, store: model.automations, settings: model.settings)
-        case .snippets: SnippetsPane(settings: model.settings)
-        case .delivery: DeliveryPane(model: model, settings: model.settings, notifier: Notifier.shared)
         case .devices: DevicesPane(model: model)
         case .developer: DeveloperPane(model: model, settings: model.settings)
-        case .general: GeneralPane(model: model, updater: updater)
+        case .general: GeneralPane(model: model, settings: model.settings, updater: updater, notifier: Notifier.shared)
         }
     }
 }

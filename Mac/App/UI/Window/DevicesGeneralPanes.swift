@@ -1,6 +1,7 @@
 import Carbon.HIToolbox
 import MacrophoneKit
 import SwiftUI
+import UserNotifications
 
 struct DevicesPane: View {
     @ObservedObject var model: AppModel
@@ -153,7 +154,9 @@ struct DevicesPane: View {
 
 struct GeneralPane: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var settings: Settings
     @ObservedObject var updater: Updater
+    @ObservedObject var notifier: Notifier
 
     var body: some View {
         PanePage {
@@ -163,37 +166,78 @@ struct GeneralPane: View {
                 PlateRow(title: "Open at login", subtitle: "Macrophone can only receive while it's running.", icon: "power") {
                     Toggle("", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                         .toggleStyle(.switch).labelsHidden()
+                        .accessibilityLabel("Open at login")
                 }
                 PlateDivider(inset: 50)
-                HotkeyRow(settings: model.settings)
+                HotkeyRow(settings: settings)
+                PlateDivider(inset: 50)
+                PlateRow(title: "Show a notification when copying",
+                         subtitle: settings.clipboardNotification
+                            ? "When Send to is Clipboard, a popup shows what arrived. If you're away, it waits in Notification Center."
+                            : "Off: it's copied quietly and the menu bar icon ticks.",
+                         icon: "bell.badge") {
+                    Toggle("", isOn: $settings.clipboardNotification).toggleStyle(.switch).labelsHidden()
+                        .accessibilityLabel("Show a notification when copying")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel("Permissions")
+                Plate {
+                    PlateRow(title: "Accessibility",
+                             subtitle: model.accessibilityGranted
+                                ? "Allowed. Macrophone can see which apps have somewhere to type, paste, and press send."
+                                : "Needed to list your open apps and to paste into them. Until it's on, dictations are copied.",
+                             subtitleColor: model.accessibilityGranted ? Ink.tertiary : Light.ochre,
+                             icon: model.accessibilityGranted ? "checkmark.circle.fill" : "hand.raised",
+                             iconColor: model.accessibilityGranted ? Light.mint : Light.ochre) {
+                        if !model.accessibilityGranted {
+                            Button("Open System Settings") {
+                                Paster.requestTrust()
+                                NSWorkspace.shared.open(Paster.accessibilitySettingsURL)
+                            }
+                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                        }
+                    }
+                    PlateDivider(inset: 50)
+                    PlateRow(title: "Notifications", subtitle: notificationLine,
+                             icon: notificationsOn ? "checkmark.circle.fill" : "bell",
+                             iconColor: notificationsOn ? Light.mint : Ink.tertiary) {
+                        if notifier.status == .denied {
+                            Button("Open System Settings") { NSWorkspace.shared.open(Paster.notificationSettingsURL) }
+                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                        } else if notifier.status == .notDetermined {
+                            Button("Allow…") { notifier.requestIfNeeded() }
+                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                        }
+                    }
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Updates")
                 Plate {
                     PlateRow(title: "Check for updates automatically", subtitle: updateLine, icon: "arrow.triangle.2.circlepath") {
-                        Toggle("", isOn: $updater.automaticallyChecks).toggleStyle(.switch).labelsHidden()
+                        HStack(spacing: 12) {
+                            Button("Check Now") { updater.checkForUpdates() }
+                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                                .disabled(!updater.canCheck)
+                            Toggle("", isOn: $updater.automaticallyChecks).toggleStyle(.switch).labelsHidden()
+                                .accessibilityLabel("Check for updates automatically")
+                        }
                     }
-                    PlateDivider(inset: 50)
-                    HStack {
-                        Spacer()
-                        Button("Check for Updates…") { updater.checkForUpdates() }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                            .disabled(!updater.canCheck)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
                 }
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Help")
                 Plate {
-                    PlateRow(title: "Share diagnostics", subtitle: "A plain-text log of connections and deliveries to send with a bug report. Never what you dictated.", icon: "stethoscope") {
-                        Button("Share Diagnostics…") { AppDelegate.shared?.showDiagnostics() }
+                    PlateRow(title: "Share diagnostics", subtitle: "A plain-text log of connections and deliveries for a bug report. Never what you dictated.", icon: "stethoscope") {
+                        Button("Share…") { AppDelegate.shared?.showDiagnostics() }
                             .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                     }
                     PlateDivider(inset: 50)
-                    PlateRow(title: "Show the welcome again", subtitle: "Walk through pairing and the delivery modes.", icon: "sparkle") {
+                    PlateRow(title: "Show the welcome again", subtitle: "Pairing, open at login, and where dictations go.", icon: "sparkle") {
                         Button("Show") { AppDelegate.shared?.openSetup(.pair) }
                             .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                     }
@@ -206,7 +250,7 @@ struct GeneralPane: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Privacy").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.secondary)
-                Text("Speech is transcribed on your iPhone. No audio is kept, there's no account, and nothing leaves your devices unless an automation uses a webhook, a script or Ask Claude. Macrophone collects no analytics.")
+                Text("Speech is transcribed and cleaned up on your iPhone. No audio is kept, there's no account, and what you dictate travels only between your iPhone and this Mac. Macrophone collects no analytics.")
                     .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -221,9 +265,22 @@ struct GeneralPane: View {
         }
     }
 
+    private var notificationsOn: Bool { notifier.status == .authorized || notifier.status == .provisional }
+
+    private var notificationLine: String {
+        switch notifier.status {
+        case .authorized, .provisional, .ephemeral:
+            return "On. Anything that arrives while your Mac is locked waits in Notification Center."
+        case .denied:
+            return "Off in System Settings. The popup still shows while you're at your Mac."
+        default:
+            return "Macrophone asks after your first dictation arrives, so anything that lands while your Mac is locked can wait in Notification Center."
+        }
+    }
+
     private var updateLine: String {
-        if let d = updater.lastCheck { return "Last checked \(d.relativeShort)." }
-        return "Signed updates from sameer.us. Checked once a day."
+        if let d = updater.lastCheck { return "Signed updates from sameer.us. Last checked \(d.relativeShort)." }
+        return "Signed updates from sameer.us, checked once a day."
     }
 }
 

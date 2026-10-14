@@ -71,32 +71,4 @@ struct APIClient {
             throw ClientError.notRunning
         }
     }
-
-    /// Server-sent events from /v1/stream: calls `onItem` with each item's JSON line.
-    func stream(_ onItem: (Data) -> Void) async throws {
-        let (bytes, resp): (URLSession.AsyncBytes, URLResponse)
-        do {
-            (bytes, resp) = try await Self.session(timeout: 7 * 24 * 3600).bytes(for: request("/v1/stream"))
-        } catch {
-            throw ClientError.notRunning
-        }
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        if code == 401 { throw ClientError.unauthorized }
-        guard code == 200 else { throw ClientError.http(code, "") }
-        var event = ""
-        do {
-            for try await line in bytes.lines {
-                if line.hasPrefix("event:") {
-                    event = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
-                } else if line.hasPrefix("data:"), event == "dictation" {
-                    onItem(Data(line.dropFirst(5).trimmingCharacters(in: .whitespaces).utf8))
-                    event = ""
-                }
-            }
-        } catch {
-            throw ClientError.notRunning
-        }
-        // The app closed the stream (it quit).
-        throw ClientError.notRunning
-    }
 }

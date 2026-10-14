@@ -14,14 +14,11 @@ enum Main {
 }
 
 enum Pane: String, CaseIterable, Identifiable {
-    case history, automations, snippets, delivery, devices, developer, general
+    case history, devices, developer, general
     var id: String { rawValue }
     var title: String {
         switch self {
         case .history: return "History"
-        case .automations: return "Automations"
-        case .snippets: return "Snippets"
-        case .delivery: return "Delivery"
         case .devices: return "Devices"
         case .developer: return "Developer"
         case .general: return "General"
@@ -30,9 +27,6 @@ enum Pane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .history: return "clock.arrow.circlepath"
-        case .automations: return "gearshape.2"
-        case .snippets: return "text.badge.plus"
-        case .delivery: return "text.cursor"
         case .devices: return "iphone"
         case .developer: return "chevron.left.forwardslash.chevron.right"
         case .general: return "gearshape"

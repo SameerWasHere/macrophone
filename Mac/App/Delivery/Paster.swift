@@ -91,7 +91,7 @@ enum Paster {
     struct Request {
         var text: String
         var target: Target
-        /// Press the app's send key after pasting (the phone chose "Paste & send").
+        /// Press the app's send key after pasting ("Send after pasting" is on).
         var send: Bool
     }
 

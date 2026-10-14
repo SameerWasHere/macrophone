@@ -108,11 +108,6 @@ enum AX {
 
     // MARK: Focus
 
-    static func systemFocused() -> AXUIElement? {
-        let system = AXUIElementCreateSystemWide()
-        return element(system, kAXFocusedUIElementAttribute)
-    }
-
     static func focused(in app: AXUIElement) -> AXUIElement? { element(app, kAXFocusedUIElementAttribute) }
 
     static func isSecure(_ e: AXUIElement) -> Bool {
@@ -130,22 +125,6 @@ enum AX {
 
     /// The text of an input (nil when the app doesn't expose it).
     static func value(_ e: AXUIElement) -> String? { string(e, kAXValueAttribute) }
-
-    /// The selected text in the app in front (for {{selection}}).
-    static func selectedText(pid: pid_t) -> String? {
-        let a = app(pid)
-        guard let f = focused(in: a) ?? systemFocused() else { return nil }
-        if let s = string(f, kAXSelectedTextAttribute), !s.isEmpty { return s }
-        return nil
-    }
-
-    /// The front window's title (for {{window}}).
-    static func frontWindowTitle(pid: pid_t) -> String? {
-        let a = app(pid)
-        guard let w = element(a, kAXFocusedWindowAttribute) ?? element(a, kAXMainWindowAttribute) else { return nil }
-        let t = title(w)
-        return t.isEmpty ? nil : t
-    }
 
     // MARK: Windows
 

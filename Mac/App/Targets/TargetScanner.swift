@@ -223,8 +223,8 @@ final class TargetScanner: @unchecked Sendable {
 
     private func scheduleFullScan(after delay: TimeInterval) {
         let infos = MainActor.assumeIsolated { Self.runningApps() }
-        queue.async {
-            guard self.active else { return }
+        queue.async { [weak self] in
+            guard let self, self.active else { return }
             self.fullScanWork?.cancel()
             let w = DispatchWorkItem { [weak self] in
                 guard let self, self.active else { return }

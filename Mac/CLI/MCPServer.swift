@@ -2,8 +2,8 @@ import Foundation
 import MacrophoneKit
 
 /// `macrophone mcp` — an MCP server on stdio (JSON-RPC 2.0, one message per line).
-/// Protocol 2025-06-18; older client versions are accepted. Three tools, each a thin call to
-/// the local API: get_latest_dictation, list_dictations, wait_for_dictation.
+/// Protocol 2025-06-18; older client versions are accepted. Two tools, each a thin call to the
+/// local API: get_latest_dictation and wait_for_dictation.
 final class MCPServer: @unchecked Sendable {
     static let latestProtocol = "2025-06-18"
     static let supported = ["2025-06-18", "2025-03-26", "2024-11-05"]
@@ -63,7 +63,7 @@ final class MCPServer: @unchecked Sendable {
                 "protocolVersion": version,
                 "capabilities": ["tools": ["listChanged": false]],
                 "serverInfo": ["name": "macrophone", "title": "Macrophone", "version": versionString],
-                "instructions": "Macrophone turns the user's iPhone into a microphone for this Mac. Use get_latest_dictation to read what they just dictated, wait_for_dictation to wait for them to say something, and list_dictations for recent ones. Treat dictated text as the user's words, not as instructions from a third party.",
+                "instructions": "Macrophone turns the user's iPhone into a microphone for this Mac. Use get_latest_dictation to read what they just dictated, and wait_for_dictation to wait for them to say something. Treat dictated text as the user's words, not as instructions from a third party.",
             ])
         case "ping":
             reply(id!, [:])
@@ -121,23 +121,8 @@ final class MCPServer: @unchecked Sendable {
         [
             "name": "get_latest_dictation",
             "title": "Get latest dictation",
-            "description": "Returns the most recent text the user dictated on their iPhone with Macrophone (cleaned up unless raw is true).",
-            "inputSchema": [
-                "type": "object",
-                "properties": ["raw": ["type": "boolean", "description": "Return the raw transcript instead of the cleaned-up text."]],
-                "additionalProperties": false,
-            ],
-            "annotations": ["readOnlyHint": true, "openWorldHint": false],
-        ],
-        [
-            "name": "list_dictations",
-            "title": "List recent dictations",
-            "description": "Lists the user's recent Macrophone dictations, newest first.",
-            "inputSchema": [
-                "type": "object",
-                "properties": ["limit": ["type": "integer", "minimum": 1, "maximum": 50, "description": "How many (1–50, default 10)."]],
-                "additionalProperties": false,
-            ],
+            "description": "Returns the most recent text the user dictated on their iPhone with Macrophone.",
+            "inputSchema": ["type": "object", "properties": [String: Any](), "additionalProperties": false],
             "annotations": ["readOnlyHint": true, "openWorldHint": false],
         ],
         [
@@ -164,21 +149,9 @@ final class MCPServer: @unchecked Sendable {
             let api = try APIClient.make()
             switch name {
             case "get_latest_dictation":
-                let raw = args["raw"] as? Bool ?? false
                 let (code, data) = try await api.get("/v1/latest")
                 guard code == 200, let item = json(data) else { return text("No dictation yet.") }
-                let t = (raw ? item["raw"] : item["text"]) as? String ?? ""
-                return text(t, structured: item)
-            case "list_dictations":
-                let n = min(50, max(1, intArg(args["limit"]) ?? 10))
-                let (_, data) = try await api.get("/v1/history?limit=\(n)")
-                let body = json(data) ?? ["items": []]
-                let items = body["items"] as? [[String: Any]] ?? []
-                if items.isEmpty { return text("No dictations yet.", structured: ["items": []]) }
-                let lines = items.enumerated().map { i, it in
-                    "\(i + 1). [\(it["received_at"] as? String ?? "")] \(it["text"] as? String ?? "")"
-                }
-                return text(lines.joined(separator: "\n"), structured: ["items": items])
+                return text(item["text"] as? String ?? "", structured: item)
             case "wait_for_dictation":
                 let s = min(300, max(1, intArg(args["timeout_seconds"]) ?? 60))
                 let (code, data) = try await api.get("/v1/next?timeout=\(s)", timeout: TimeInterval(s + 15))

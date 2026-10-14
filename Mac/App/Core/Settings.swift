@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import MacrophoneKit
+import Security
 import SystemConfiguration
 
 /// Where this build keeps its files. A debug build uses its own folder so it never touches a
@@ -41,9 +42,6 @@ enum AppPaths {
 
     static var history: URL { supportDirectory.appendingPathComponent("history.json") }
     static var seenIDs: URL { supportDirectory.appendingPathComponent("seen-ids.json") }
-    /// Before live targets (Oct 2026): profiles. Read once to migrate, never written again.
-    static var legacyProfiles: URL { supportDirectory.appendingPathComponent("profiles.json") }
-    static var automations: URL { supportDirectory.appendingPathComponent("automations.json") }
     static var diagnostics: URL { supportDirectory.appendingPathComponent("diagnostics.log") }
     static var keychainService: String {
         (Bundle.main.bundleIdentifier ?? "com.sameer.macrophone.mac") + ".pairing" + (instance.map { ".\($0)" } ?? "")
@@ -78,16 +76,15 @@ final class Settings: ObservableObject {
     @Published var selection: SendSelection {
         didSet { d.set(try? JSONEncoder().encode(selection), forKey: "sendSelection") }
     }
-    /// With Send to › Clipboard: show what arrived (the popup, and Notification Center when
-    /// the person is away). Off: the menu bar icon ticks, nothing else.
+    /// General › "Show a notification when copying": with Send to › Clipboard, the popup shows
+    /// what arrived (and Notification Center keeps it if the person is away). Off: the menu bar
+    /// icon ticks, nothing else.
     @Published var clipboardNotification: Bool { didSet { d.set(clipboardNotification, forKey: "clipboardNotification") } }
     @Published var historyEnabled: Bool { didSet { d.set(historyEnabled, forKey: "historyEnabled") } }
     @Published var apiEnabled: Bool { didSet { d.set(apiEnabled, forKey: "apiEnabled") } }
     @Published var hasCompletedSetup: Bool { didSet { d.set(hasCompletedSetup, forKey: "hasCompletedSetup") } }
     @Published var askedForNotifications: Bool { didSet { d.set(askedForNotifications, forKey: "askedForNotifications") } }
 
-    /// Say the trigger, get the expansion. Global — every dictation, wherever it goes.
-    @Published var snippets: [Snippet] { didSet { d.set(try? JSONEncoder().encode(snippets), forKey: "snippets") } }
     /// The shortcut that opens Macrophone's window from anywhere (the menu bar icon can hide
     /// behind the notch).
     @Published var hotkey: Hotkey { didSet { d.set(try? JSONEncoder().encode(hotkey), forKey: "hotkey") } }
@@ -102,7 +99,13 @@ final class Settings: ObservableObject {
         // (a phone that connects with its own choice wins anyway) and the notification option.
         let legacyMode = d.string(forKey: "deliveryMode")
         if let data = d.data(forKey: "sendSelection"), let sel = try? JSONDecoder().decode(SendSelection.self, from: data) {
-            selection = sel
+            // Automations are gone (Oct 2026): one that was picked becomes the clipboard.
+            if case .automation = sel.target {
+                selection = .default
+                d.set(try? JSONEncoder().encode(SendSelection.default), forKey: "sendSelection")
+            } else {
+                selection = sel
+            }
         } else {
             let migrated = legacyMode == "autoPaste" ? SendSelection(target: .frontApp) : .default
             selection = migrated
@@ -111,7 +114,6 @@ final class Settings: ObservableObject {
         clipboardNotification = d.object(forKey: "clipboardNotification") as? Bool ?? (legacyMode != "clipboardOnly")
         historyEnabled = d.object(forKey: "historyEnabled") as? Bool ?? true
         apiEnabled = d.object(forKey: "apiEnabled") as? Bool ?? true
-        snippets = (d.data(forKey: "snippets")).flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
         var key = (d.data(forKey: "hotkey")).flatMap { try? JSONDecoder().decode(Hotkey.self, from: $0) } ?? .default
         // ⌥⌘M (the first default) is "Minimize All" in most apps: move a saved copy of it to
         // the new default once. A shortcut the person picked themselves stays.
@@ -127,8 +129,21 @@ final class Settings: ObservableObject {
         toldAboutHiddenIcon = d.bool(forKey: "toldAboutHiddenIcon")
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
-        // Retired with live targets: the Return list and per-app rules (the phone's "Paste & send"
+        // Retired with live targets: the Return list and per-app rules (the phone's "Send after pasting"
         // is the consent now; the app you pick is the rule).
         for k in ["enterAllowlist", "allowlistVersion", "appRules", "readyMadeVersion"] { d.removeObject(forKey: k) }
+        // Retired in the simplification (Oct 2026): snippets, and the automations' Claude key.
+        if d.object(forKey: "snippets") != nil { d.removeObject(forKey: "snippets") }
+        if !d.bool(forKey: "retiredAutomations") {
+            Self.deleteClaudeKey()
+            d.set(true, forKey: "retiredAutomations")
+        }
+    }
+
+    /// The Anthropic key the retired "Ask Claude" automation kept in the keychain.
+    private static func deleteClaudeKey() {
+        let service = (Bundle.main.bundleIdentifier ?? "com.sameer.macrophone.mac") + ".anthropic-api-key"
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
+        SecItemDelete(q as CFDictionary)
     }
 }

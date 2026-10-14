@@ -73,106 +73,71 @@ struct DeveloperPane: View {
 
     var body: some View {
         PanePage {
-            PaneHeader(title: "Developer", subtitle: "Scripts and agents can read what you dictate through a local API, a command-line tool and an MCP server. Only this Mac can reach it.")
+            PaneHeader(title: "Developer", subtitle: "Let scripts and agents read what you dictate — through a local API, the mp command and an MCP server. Only this Mac can reach it.")
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Local API")
-                Plate {
-                    PlateRow(title: "Local API", subtitle: apiLine, subtitleColor: apiColor,
-                             icon: "network", iconColor: apiColor == Light.mint ? Light.mint : Ink.secondary) {
-                        Toggle("", isOn: $settings.apiEnabled).toggleStyle(.switch).labelsHidden()
-                    }
-                    PlateDivider()
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Token").font(.system(size: 13, weight: .medium)).foregroundStyle(Ink.ink)
-                            Spacer()
-                            Button(reveal ? "Hide" : "Show") { reveal.toggle() }.buttonStyle(.borderless)
-                            Button("Regenerate…") { confirmRegenerate = true }.buttonStyle(.borderless)
-                                .confirmationDialog("Make a new token?", isPresented: $confirmRegenerate) {
-                                    Button("Regenerate", role: .destructive) { model.regenerateToken() }
-                                } message: {
-                                    Text("Anything using the old token stops working. The command-line tool and MCP server pick up the new one by themselves.")
-                                }
-                        }
-                        CodePlate(text: reveal ? model.apiToken : masked, copyText: model.apiToken)
-                        Text("Also saved for local tools in ~/Library/Application Support/Macrophone/api.json (readable only by you).")
-                            .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                    }
-                    .padding(16)
+            Plate {
+                PlateRow(title: "Local API", subtitle: apiLine, subtitleColor: apiColor,
+                         icon: "network", iconColor: apiColor == Light.mint ? Light.mint : Ink.secondary) {
+                    Toggle("", isOn: $settings.apiEnabled).toggleStyle(.switch).labelsHidden()
+                        .accessibilityLabel("Local API")
                 }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Command-line tool")
-                Plate {
-                    PlateRow(title: "macrophone and mp",
-                             subtitle: cliLine,
-                             subtitleColor: cliStatus == .installed ? Light.mint : Ink.tertiary,
-                             icon: "terminal") {
-                        Button(cliStatus == .installed ? "Reinstall" : "Install…") {
-                            cliMessage = CLIInstaller.install()
-                            cliStatus = CLIInstaller.status
-                        }
-                        .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: cliStatus != .installed))
-                    }
-                    if let cliMessage {
-                        Text(cliMessage).font(.system(size: 11.5)).foregroundStyle(Light.rose)
-                            .padding(.horizontal, 16).padding(.bottom, 10)
-                    }
-                    PlateDivider()
-                    VStack(alignment: .leading, spacing: 6) {
-                        snippetTitle("Try it")
-                        CodePlate(text: "mp              # the latest dictation\nmp wait | pbcopy   # wait for the next one\nmp watch --json  # every new one, as JSON lines")
-                    }
-                    .padding(16)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("MCP server")
-                Plate {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Gives Claude and other agents three tools: get the latest dictation, list recent ones, and wait for the next.")
-                            .font(.system(size: 12.5)).foregroundStyle(Ink.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        VStack(alignment: .leading, spacing: 6) {
-                            snippetTitle("Claude Code")
-                            CodePlate(text: "claude mcp add macrophone -- macrophone mcp")
-                        }
-                        VStack(alignment: .leading, spacing: 6) {
-                            snippetTitle("Claude Desktop — claude_desktop_config.json")
-                            CodePlate(text: """
-                            {
-                              "mcpServers": {
-                                "macrophone": {
-                                  "command": "/usr/local/bin/macrophone",
-                                  "args": ["mcp"]
-                                }
-                              }
+                PlateDivider()
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Token").font(.system(size: 13, weight: .medium)).foregroundStyle(Ink.ink)
+                        Spacer()
+                        Button(reveal ? "Hide" : "Show") { reveal.toggle() }.buttonStyle(.borderless)
+                        Button("Regenerate…") { confirmRegenerate = true }.buttonStyle(.borderless)
+                            .confirmationDialog("Make a new token?", isPresented: $confirmRegenerate) {
+                                Button("Regenerate", role: .destructive) { model.regenerateToken() }
+                            } message: {
+                                Text("Anything using the old token stops working. The mp command and the MCP server pick up the new one by themselves.")
                             }
-                            """)
-                        }
                     }
-                    .padding(16)
+                    CodePlate(text: reveal ? model.apiToken : masked, copyText: model.apiToken)
+                    Text("The mp command and the MCP server read it from ~/Library/Application Support/Macrophone/api.json, which only you can open.")
+                        .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(16)
+                PlateDivider()
+                PlateRow(title: "Command-line tool", subtitle: cliLine,
+                         subtitleColor: cliStatus == .installed ? Light.mint : Ink.tertiary,
+                         icon: "terminal", iconColor: cliStatus == .installed ? Light.mint : Ink.secondary) {
+                    Button(cliStatus == .installed ? "Reinstall" : "Install…") {
+                        cliMessage = CLIInstaller.install()
+                        cliStatus = CLIInstaller.status
+                    }
+                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: cliStatus != .installed))
+                }
+                if let cliMessage {
+                    Text(cliMessage).font(.system(size: 11.5)).foregroundStyle(Light.rose)
+                        .padding(.horizontal, 16).padding(.bottom, 12)
                 }
             }
 
-            ClaudeKeySection()
-
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("HTTP")
+                SectionLabel("Hook it up")
                 Plate {
-                    VStack(alignment: .leading, spacing: 6) {
-                        snippetTitle("curl")
-                        CodePlate(text: curl(reveal ? model.apiToken : masked), copyText: curl(model.apiToken))
-                        Text("Also /v1/history?limit=10, /v1/next?timeout=60 (waits for the next one), /v1/stream (server-sent events) and /v1/status. Requests from web pages are always refused.")
+                    VStack(alignment: .leading, spacing: 16) {
+                        snippet("curl — the latest dictation", CodePlate(text: curl(reveal ? model.apiToken : masked), copyText: curl(model.apiToken)))
+                        snippet("Claude Code", CodePlate(text: "claude mcp add macrophone -- macrophone mcp"))
+                        snippet("Claude Desktop — claude_desktop_config.json", CodePlate(text: """
+                        {
+                          "mcpServers": {
+                            "macrophone": {
+                              "command": "/usr/local/bin/macrophone",
+                              "args": ["mcp"]
+                            }
+                          }
+                        }
+                        """))
+                        Text("In a terminal: mp prints the latest, mp wait waits for the next, mp list shows recent ones. Agents get two MCP tools: get_latest_dictation and wait_for_dictation.")
                             .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
                             .fixedSize(horizontal: false, vertical: true)
                         Link("Read the API docs", destination: Product.docs)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Light.teal)
-                            .padding(.top, 4)
                     }
                     .padding(16)
                 }
@@ -185,15 +150,18 @@ struct DeveloperPane: View {
         "curl -s -H \"Authorization: Bearer \(token)\" \\\n  http://127.0.0.1:\(port)/v1/latest"
     }
 
-    private func snippetTitle(_ s: String) -> some View {
-        Text(s).font(.system(size: 12, weight: .semibold)).foregroundStyle(Ink.secondary)
+    private func snippet(_ title: String, _ plate: CodePlate) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Ink.secondary)
+            plate
+        }
     }
 
     private var apiLine: String {
         switch model.apiState {
-        case .listening(let p): return "Listening on 127.0.0.1:\(p) — this Mac only, token required."
+        case .listening(let p): return "On — 127.0.0.1:\(p), this Mac only, token required. Web pages are always refused."
         case .starting: return "Starting…"
-        case .off: return "Off. The command-line tool and MCP server can't read dictations."
+        case .off: return "Off. The mp command and the MCP server can't read dictations."
         case .failed(let s): return s
         }
     }
@@ -208,93 +176,9 @@ struct DeveloperPane: View {
 
     private var cliLine: String {
         switch cliStatus {
-        case .installed: return "Installed in \(CLIInstaller.directory.path)."
+        case .installed: return "macrophone and mp are in \(CLIInstaller.directory.path)."
         case .notInstalled: return "Adds macrophone and its short name mp to \(CLIInstaller.directory.path). Asks for your password once."
-        case .otherCopy: return "Points at another copy of Macrophone. Reinstall to use this one."
-        }
-    }
-}
-
-/// Developer › Claude API key: for profiles that "Ask Claude".
-struct ClaudeKeySection: View {
-    @State private var saved = ClaudeKey.load()
-    @State private var draft = ""
-    @State private var testing = false
-    @State private var result: String?
-    @State private var resultOK = false
-    @State private var confirmRemove = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("Claude API key")
-            Plate {
-                PlateRow(title: "Anthropic API key",
-                         subtitle: "Used only by automations with an “Ask Claude” action. Those send what you dictate to Anthropic; billing is on your account. Kept in your keychain, never in diagnostics.",
-                         icon: saved == nil ? "key" : "key.fill", iconColor: saved == nil ? Ink.secondary : Light.mint) { EmptyView() }
-                PlateDivider()
-                VStack(alignment: .leading, spacing: 10) {
-                    if let saved {
-                        HStack(spacing: 10) {
-                            Text(ClaudeKey.masked(saved)).font(Typeface.mono(12, .regular)).foregroundStyle(Ink.ink)
-                            Spacer()
-                            Button(testing ? "Testing…" : "Test Key") { test(saved) }
-                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                                .disabled(testing)
-                            Button("Remove…") { confirmRemove = true }
-                                .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
-                                .confirmationDialog("Remove your API key?", isPresented: $confirmRemove) {
-                                    Button("Remove", role: .destructive) { ClaudeKey.delete(); self.saved = nil; result = nil }
-                                } message: { Text("Automations that ask Claude will stop until you add a key again.") }
-                        }
-                    } else {
-                        HStack(spacing: 10) {
-                            SecureField("sk-ant-…", text: $draft)
-                                .textFieldStyle(.roundedBorder)
-                                .font(Typeface.mono(12, .regular))
-                                .onSubmit(saveDraft)
-                            Button("Save") { saveDraft() }
-                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
-                                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).count < 20)
-                        }
-                        Link("Get a key at console.anthropic.com", destination: URL(string: "https://console.anthropic.com/settings/keys")!)
-                            .font(.system(size: 12, weight: .medium)).foregroundStyle(Light.teal)
-                    }
-                    if let result {
-                        Label(result, systemImage: resultOK ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                            .font(.system(size: 11.5)).foregroundStyle(resultOK ? Light.mint : Light.rose)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Text("Test Key asks Anthropic which models the key can use — it costs nothing.")
-                        .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                }
-                .padding(16)
-            }
-        }
-    }
-
-    private func saveDraft() {
-        let k = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard k.count >= 20 else { return }
-        if ClaudeKey.save(k) {
-            saved = k
-            draft = ""
-            test(k)
-        } else {
-            result = "Couldn't save it to the keychain."
-            resultOK = false
-        }
-    }
-
-    private func test(_ key: String) {
-        testing = true
-        result = nil
-        Task {
-            let r = await ClaudeClient.test(key: key, session: DeliveryEngine.claudeSession)
-            testing = false
-            switch r {
-            case .success: result = "Works — Claude accepted the key."; resultOK = true
-            case .failure(let f): result = f.title + ". " + f.detail; resultOK = false
-            }
+        case .otherCopy: return "mp points at another copy of Macrophone. Reinstall to use this one."
         }
     }
 }

@@ -7,10 +7,11 @@ import SwiftUI
 ///
 ///   MACROPHONE_FRESH=1              start as a first launch (setup not done)
 ///   MACROPHONE_SEED_HISTORY=1       sample history (English, Arabic, Hebrew, Japanese, delayed, failed)
-///   MACROPHONE_SHOW=<what>          popup-toast | popup-countdown | popup-error | popup-stack | popup-delayed |
-///                                   popup-automation | popup-rtl | window-<pane> | setup | setup-paired |
-///                                   setup-paired-generic | setup-login | setup-modes | code-approval | diagnostics |
-///                                   automation-editor | menu
+///   MACROPHONE_SHOW=<what>          popup-toast | popup-countdown | popup-error | popup-secure | popup-stack |
+///                                   popup-delayed | popup-rtl | popup-sent | popup-not-sent | popup-not-open |
+///                                   popup-window-gone | popup-nowhere | popup-composer | popup-prefix |
+///                                   window-<pane> | setup | setup-paired | setup-paired-generic | setup-login |
+///                                   setup-modes | code-approval | diagnostics | menu
 ///   MACROPHONE_WINDOW_SIZE=WxH      the main window's content size (window-<pane> only)
 ///   MACROPHONE_POPUP_ON_ICON=1      the popup hangs under the icon on its own display (not the display in use)
 ///   MACROPHONE_BACKDROP=1           a neutral backdrop under the popup (screenshots never show a real desktop)
@@ -25,19 +26,13 @@ import SwiftUI
 ///   MACROPHONE_FAKE_LISTENER=failed the network listener failed (Local Network blocked)
 ///   MACROPHONE_INSTALL_CLI=1        runs the CLI install at launch
 ///   MACROPHONE_CLI_DIR=path         install the CLI links there instead of /usr/local/bin
-///   MACROPHONE_SHOW (automations)   window-snippets | window-automations | automation-editor-actions |
-///                                   automation-editor-tmux | snippet-editor | popup-sent | popup-not-sent |
-///                                   popup-not-open | popup-window-gone | popup-nowhere | popup-reply | popup-reply-error |
-///                                   popup-prefix | popup-tmux
 ///   MACROPHONE_INSTANCE=<name>      a debug copy with its own settings, folder, pairing keys and identity (AppPaths)
 ///   Distributed notification "com.sameer.macrophone.debug.openMenu" opens the menu bar menu.
 ///   MACROPHONE_TARGETS_DEBUG=1      print every target scan (timing, what was found) to stdout
-///   MACROPHONE_CLAUDE_MOCK=ok|badkey|ratelimit|offline|refusal  Ask Claude answers from a mocked transport (no network)
-///   MACROPHONE_NO_APPLESCRIPT=1     window/tab matching uses Accessibility titles only (tests the fallback)
-///   MACROPHONE_CLAUDE_KEY=…         use this key instead of the keychain's (mock runs)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
 ///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
-///   "window"?: "<window key>", "send"?: bool, "automation"?: "<name>", "delayed"?: bool}. No target = this Mac's Send to.
+///   "window"?: "<window key>", "send"?: bool, "delayed"?: bool, "level"?: "off|light|medium|heavy|custom"}.
+///   No target = this Mac's Send to.
 @MainActor
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
@@ -53,7 +48,6 @@ enum DebugHooks {
                                                                        object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { app.debugStatusItem.openMenu() }
         })
-        if let mock = env["MACROPHONE_CLAUDE_MOCK"], mock != "off" { DeliveryEngine.claudeSession = ClaudeMock.session(mock) }
         if env["MACROPHONE_FRESH"] == "1" { model.settings.hasCompletedSetup = false }
         if env["MACROPHONE_SEED_HISTORY"] == "1" { seed(model) }
         if let name = env["MACROPHONE_FORGET"] {
@@ -86,14 +80,6 @@ enum DebugHooks {
         guard let show = env["MACROPHONE_SHOW"] else { return false }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 
-        if show.hasPrefix("automation-editor") {
-            app.openMainWindow(pane: .automations)
-            return true
-        }
-        if show == "snippet-editor" {
-            app.openMainWindow(pane: .snippets)
-            return true
-        }
         if show.hasPrefix("window-"), let pane = Pane(rawValue: String(show.dropFirst(7))) {
             app.openMainWindow(pane: pane)
             // MACROPHONE_WINDOW_SIZE=780x520: check a pane at the window's smallest size.
@@ -164,10 +150,6 @@ enum DebugHooks {
             popup.show(c)
         case "popup-delayed":
             popup.show(card(english, phase: .copied, status: "Copied · delayed", delayed: true))
-        case "popup-automation":
-            let c = card(short, phase: .copied, status: "Copied · Log to notes")
-            c.automations = [.init(name: "Webhook", state: .ok), .init(name: "Script", state: .running)]
-            popup.show(c)
         case "popup-rtl":
             popup.show(card("مرحبا، هذا اختبار للإملاء من الهاتف إلى الماك. يجب أن يظهر النص من اليمين إلى اليسار.", phase: .copied, status: "Copied"))
         case "popup-stack":
@@ -211,50 +193,11 @@ enum DebugHooks {
             c.note = "Pastes, then presses Return."
             c.remaining = 0.55
             popup.show(c)
-        case "popup-tmux":
-            let c = card("git status", phase: .done, status: "Sent to tmux work:1.0")
-            popup.show(c)
-        case "popup-reply":
-            let c = card("What's the difference between a mutex and a semaphore, in two sentences?", phase: .copied, status: "Copied · Ask Claude")
-            c.replyModel = "Claude Sonnet 5.5"
-            c.replyState = .done
-            c.reply = "A mutex is a lock with an owner: one thread holds it, and only that thread can release it, so it guards a single shared resource. A semaphore is a counter that lets up to N threads through at once and can be signalled by any thread, which makes it good for limiting access to a pool or for signalling between threads."
-            c.replyNote = "Copied to your clipboard"
-            c.automations = [.init(name: "Claude", state: .ok)]
-            popup.show(c)
-        case "popup-reply-error":
-            let c = card(short, phase: .copied, status: "Copied · Ask Claude")
-            c.replyModel = "Claude Sonnet 5.5"
-            c.replyState = .failed
-            let f = ClaudeClient.Failure.badKey
-            c.replyNote = f.title + ". " + f.detail
-            c.canRetry = true
-            popup.show(c)
         default:
             popup.show(card(short, phase: .copied, status: "Copied"))
         }
         // Hold still for the screenshot.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { popup.freeze() }
-    }
-
-    // MARK: Automation editor staging
-
-    static func automationForEditor(_ store: AutomationStore) -> Profile {
-        switch env["MACROPHONE_SHOW"] {
-        case "automation-editor-tmux":
-            var p = Profile(name: "tmux: work", destination: .tmux(target: "mptest:0.0"), pressEnter: true, outputFormat: .singleLine)
-            p.template = "{{text}}"
-            return p
-        default:
-            var p = Profile(name: "Daily log", destination: .none, voicePrefixes: ["note", "log"])
-            p.actions = [
-                ProfileAction(kind: .obsidian(vaultPath: NSHomeDirectory() + "/Documents/Vault", notePath: nil, dailyFolder: "Daily", heading: "Log")),
-                ProfileAction(kind: .reminder(list: nil, detectDates: true)),
-                ProfileAction(kind: .claude(model: ClaudeClient.defaultModel, systemPrompt: "Answer in two sentences.", deliverReply: true)),
-            ]
-            p.template = "{{text}}\n\nFrom {{app}} — {{window}}"
-            return store.automations.first ?? p
-        }
     }
 
     // MARK: Stand-in phones
@@ -297,10 +240,8 @@ enum DebugHooks {
                 case let bid?: target = .app(bundleID: bid, windowKey: obj["window"] as? String,
                                              name: model.targets.first { $0.bundleID == bid && $0.windowKey == obj["window"] as? String }?.title ?? bid)
                 }
-                if let n = obj["automation"] as? String, let a = model.automations.automation(named: n) {
-                    target = .automation(id: a.id, name: a.name)
-                }
-                let d = Dictation(raw: obj["raw"] as? String ?? text, cleaned: text, cleanupLevel: .medium, target: target,
+                let level = (obj["level"] as? String).flatMap(CleanupLevel.init(rawValue:)) ?? .medium
+                let d = Dictation(raw: obj["raw"] as? String ?? text, cleaned: level == .off ? nil : text, cleanupLevel: level, target: target,
                                   send: obj["send"] as? Bool, sourceDevice: "Simulated iPhone")
                 let peer = PairedPeer(id: UUID(), name: "Simulated iPhone")
                 let (_, ack) = model.delivery.handle(d, delayed: obj["delayed"] as? Bool ?? false, from: peer)
@@ -353,29 +294,24 @@ enum DebugHooks {
     private static func seed(_ model: AppModel) {
         guard model.history.isEmpty else { return }
         let now = Date()
-        let samples: [(String, String?, String, Bool, HistoryItem.Outcome, String, TimeInterval, String)] = [
+        let samples: [(String, String?, String, Bool, HistoryItem.Outcome, String, TimeInterval, String, CleanupLevel)] = [
             ("um so refactor the the history store so it trims to fifty items on write and uh add a test that proves a resend never shows up twice",
-             english, "Claude", false, .pasted, "Sent to Claude", 120, "en-US"),
-            ("remind me to send priya the deck before the three pm sync", short, "Clipboard", false, .copied, "Copied to clipboard", 900, "en-US"),
-            ("مرحبا، هذا اختبار للإملاء من الهاتف إلى الماك.", nil, "Clipboard", false, .copied, "Copied to clipboard", 3600, "ar-SA"),
-            ("שלום, זו בדיקה של הכתבה מהאייפון למק.", nil, "Clipboard", true, .copied, "Copied — delayed items are never pasted automatically", 7200, "he-IL"),
-            ("今日の会議のメモを共有してください。", nil, "Quick note", false, .copied, "Copied to clipboard", 20000, "ja-JP"),
+             english, "Claude", false, .pasted, "Sent to Claude", 120, "en-US", .medium),
+            ("remind me to send priya the deck before the three pm sync", "- Send Priya the deck before the 3pm sync",
+             "Clipboard", false, .copied, "Copied to clipboard", 900, "en-US", .custom),
+            ("fix the flaky upload test and run the suite again", "Fix the flaky upload test and run the suite again.",
+             "Terminal — claude ~/app", false, .pasted, "Sent to Terminal", 1800, "en-US", .light),
+            ("مرحبا، هذا اختبار للإملاء من الهاتف إلى الماك.", nil, "Clipboard", false, .copied, "Copied to clipboard", 3600, "ar-SA", .off),
+            ("שלום, זו בדיקה של הכתבה מהאייפון למק.", nil, "Clipboard", true, .copied, "Copied — delayed dictations are never pasted automatically", 7200, "he-IL", .off),
+            ("今日の会議のメモを共有してください。", nil, "Messages", false, .pasted, "Pasted into Messages", 20000, "ja-JP", .off),
             ("write a function that sorts a list of users by last name", "Write a function that sorts a list of users by last name.",
-             "Claude", false, .failed, "Not pasted — a password field is active", 90000, "en-US"),
+             "Where I'm typing", false, .failed, "Not pasted — a password field is active", 90000, "en-US", .heavy),
         ]
-        for (i, s) in samples.reversed().enumerated() {
-            let d = Dictation(createdAt: now.addingTimeInterval(-s.6 - 4), raw: s.0, cleaned: s.1, cleanupLevel: s.1 == nil ? .off : .medium,
+        for s in samples.reversed() {
+            let d = Dictation(createdAt: now.addingTimeInterval(-s.6 - 4), raw: s.0, cleaned: s.1, cleanupLevel: s.8,
                               language: s.7, profileName: s.2, sourceDevice: "Sameer's iPhone")
-            var h = HistoryItem(dictation: d, receivedAt: now.addingTimeInterval(-s.6), delayed: s.3, profileName: s.2,
-                                outcome: s.4, detail: s.5)
-            if i == samples.count - 2 {
-                // The Priya reminder went through an Ask Claude profile.
-                h.profileName = "Ask Claude"
-                h.detail = "Copied · Claude answered"
-                h.reply = "Done — I'd send it by 2:30 so Priya has time to skim it. Want a two-line note to go with the deck?"
-                h.replyModel = "Claude Sonnet 5.5"
-            }
-            model.record(h)
+            model.record(HistoryItem(dictation: d, receivedAt: now.addingTimeInterval(-s.6), delayed: s.3, profileName: s.2,
+                                     outcome: s.4, detail: s.5))
         }
     }
 

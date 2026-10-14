@@ -20,8 +20,7 @@ enum TargetIcons {
         switch ref {
         case .clipboard: return "doc.on.clipboard"
         case .frontApp: return "text.cursor"
-        case .app: return "app"
-        case .automation: return "gearshape.2"
+        case .app, .automation: return "app"
         }
     }
 }
@@ -29,9 +28,6 @@ enum TargetIcons {
 /// The words Send to uses, the same on the iPhone and the Mac.
 enum SendToWords {
     static let title = "Send to"
-    static let paste = "Paste"
-    static let pasteAndSend = "Paste & send"
-    static let automations = "Automations"
     static let sendAfterPasting = "Send after pasting"
 
     /// "Claude", "Terminal — claude", "Claude (not open)".
@@ -69,17 +65,17 @@ enum SendToWords {
             return sel.send
                 ? "Pasted into \(app)'s message box and sent — after a 2.5-second countdown you can cancel."
                 : "Pasted into \(app)'s message box after a 2.5-second countdown. You press send."
-        case let .automation(id, name):
-            return model.automations.automation(id)?.describe ?? "“\(name)” isn't on this Mac — dictations will be copied instead."
+        case .automation:
+            return "Dictations are copied to this Mac's clipboard. Paste them anywhere with ⌘V."
         }
     }
 }
 
-/// "Send to [Claude ▾] [Paste | Paste & send]" — the shared choice, on this Mac.
+/// "Send to [Claude ▾]   Send after pasting [on]" — the shared choice, on this Mac.
 struct SendToCard: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
-    @ObservedObject var automations: AutomationStore
+    /// Setup: no "shared with your iPhone" line (the page says so).
     var compact = false
 
     var body: some View {
@@ -91,60 +87,56 @@ struct SendToCard: View {
                     .frame(width: 20)
                     .accessibilityHidden(true)
                 Text(SendToWords.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.ink)
-                SendToPicker(model: model, settings: settings, automations: automations)
+                    .fixedSize()
+                SendToPicker(model: model, settings: settings)
                     .frame(maxWidth: 300, alignment: .leading)
-                Spacer(minLength: 8)
-                Picker("", selection: Binding(get: { settings.selection.send && settings.selection.target.canSend },
-                                              set: { model.setSend($0) })) {
-                    Text(SendToWords.paste).tag(false)
-                    Text(SendToWords.pasteAndSend).tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .disabled(!settings.selection.target.canSend)
-                .help(settings.selection.target.canSend ? "Paste & send presses the app's send key after pasting."
-                      : "Sending only applies to an app or Where I'm typing.")
-                .accessibilityLabel("Paste or paste and send")
+                Spacer(minLength: 12)
+                Toggle(SendToWords.sendAfterPasting, isOn: Binding(get: { settings.selection.send && settings.selection.target.canSend },
+                                                                  set: { model.setSend($0) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(settings.selection.target.canSend ? Ink.ink : Ink.tertiary)
+                    .fixedSize()
+                    .disabled(!settings.selection.target.canSend)
+                    .help(settings.selection.target.canSend ? "Presses the app's send key after pasting, after a 2.5-second countdown you can cancel."
+                          : "Pick an app or Where I'm typing to send after pasting.")
             }
             Text(SendToWords.line(settings.selection, model: model))
                 .font(.system(size: 12)).foregroundStyle(Ink.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 32)
             if !compact {
-                Text("Your iPhone and this Mac share this choice — change it on either and the other follows.")
+                Text("Shared with your iPhone — change it on either and the other follows.")
                     .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 32)
             }
-            if !model.accessibilityGranted && pastes {
+            if !model.accessibilityGranted && settings.selection.target.canSend {
                 HStack(spacing: 10) {
                     Label("Pasting needs Accessibility. Until it's on, dictations are copied.", systemImage: "hand.raised")
                         .font(.system(size: 11.5)).foregroundStyle(Light.ochre)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
                     Button("Open System Settings") {
                         Paster.requestTrust()
                         NSWorkspace.shared.open(Paster.accessibilitySettingsURL)
                     }
                     .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                 }
+                .padding(.leading, 32)
             }
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Light.cyan.opacity(0.06)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Light.cyan.opacity(0.24), lineWidth: 1))
     }
-
-    private var pastes: Bool {
-        switch settings.selection.target {
-        case .frontApp, .app: return true
-        case .clipboard, .automation: return false
-        }
-    }
 }
 
-/// The pop-up menu: Clipboard, Where I'm typing, the open apps, Automations.
+/// The pop-up menu: Clipboard, Where I'm typing, then every open app with somewhere to type.
 struct SendToPicker: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
-    @ObservedObject var automations: AutomationStore
 
     var body: some View {
         Picker(SendToWords.title, selection: Binding(get: { settings.selection.target },
@@ -158,13 +150,6 @@ struct SendToPicker: View {
                     row(settings.selection.target, bundleID: bid)
                 }
             }
-            if !automations.automations.isEmpty || isAutomation {
-                Divider()
-                Section(SendToWords.automations) {
-                    ForEach(automations.automations) { a in row(.automation(id: a.id, name: a.name)) }
-                    if isAutomation, automations.automation(automationID) == nil { row(settings.selection.target) }
-                }
-            }
         }
         .labelsHidden()
         .accessibilityLabel(SendToWords.title)
@@ -173,16 +158,6 @@ struct SendToPicker: View {
     private var isUnlistedApp: Bool {
         if case .app = settings.selection.target { return model.liveTarget(for: settings.selection.target) == nil }
         return false
-    }
-
-    private var isAutomation: Bool {
-        if case .automation = settings.selection.target { return true }
-        return false
-    }
-
-    private var automationID: UUID? {
-        if case .automation(let id, _) = settings.selection.target { return id }
-        return nil
     }
 
     @ViewBuilder private func row(_ ref: TargetRef, bundleID: String? = nil) -> some View {

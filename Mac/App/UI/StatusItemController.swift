@@ -50,7 +50,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// people turn an app's item off. Watch for it with notifications only — nothing polls.
     private func watchVisibility() {
         let nc = NotificationCenter.default
-        let recheck: (Notification) -> Void = { [weak self] _ in MainActor.assumeIsolated { self?.scheduleVisibilityCheck() } }
+        let recheck: @Sendable (Notification) -> Void = { [weak self] _ in MainActor.assumeIsolated { self?.scheduleVisibilityCheck() } }
         observers.append(nc.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main, using: recheck))
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
                                                                            object: nil, queue: .main, using: recheck))
@@ -182,7 +182,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         sendTo.image = NSImage(systemSymbolName: "paperplane", accessibilityDescription: nil)
         if #available(macOS 14.4, *) {
             let sel = model.selection
-            sendTo.subtitle = SendToWords.name(sel.target, in: model) + (sel.send && sel.target.canSend ? " · \(SendToWords.pasteAndSend)" : "")
+            sendTo.subtitle = SendToWords.name(sel.target, in: model) + (sel.send && sel.target.canSend ? " · then send" : "")
         }
         let sub = NSMenu(title: SendToWords.title)
         sub.delegate = self
@@ -311,12 +311,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             none.isEnabled = false
             menu.addItem(none)
         }
-        let autos = model.automations.automations
-        if !autos.isEmpty {
-            menu.addItem(.separator())
-            menu.addItem(sectionHeader(SendToWords.automations))
-            for a in autos { add(.automation(id: a.id, name: a.name)) }
-        }
     }
 
     @objc private func pickTarget(_ sender: NSMenuItem) {
@@ -348,7 +342,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 }
 
-/// A recent dictation in the menu: time and profile on top, the words under them, a fade
+/// A recent dictation in the menu: time and where it went on top, the words under them, a fade
 /// instead of "…" when they run long. Click copies.
 final class RecentItemView: NSView {
     private let item: HistoryItem

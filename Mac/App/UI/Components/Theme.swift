@@ -200,7 +200,7 @@ struct PillButtonStyle: ButtonStyle {
     }
 }
 
-/// Copyable mono text on a sunk plate (tokens, snippets).
+/// Copyable mono text on a sunk plate (the token, commands, config).
 struct CodePlate: View {
     let text: String
     /// What the Copy button copies, when it differs from what's shown (a masked token).

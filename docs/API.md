@@ -1,115 +1,139 @@
-# Macrophone — local pull API, CLI and MCP (the contract)
+# Macrophone — local API, CLI and MCP (the contract)
 
-The Mac app owns this. The CLI, the MCP server and the website's developer docs all follow it.
-JSON shape of one item is `PulledDictation` in `Packages/MacrophoneKit/Sources/MacrophoneKit/Core/PullAPI.swift`.
-Where dictations go (Send to: Clipboard, Where I'm typing, any open app, an automation) is
-`docs/TARGETS.md`; the automations (tmux, snippets, templates, Obsidian/Notes/Reminders, Ask
-Claude, script, webhook) are `docs/AUTOMATIONS.md`.
+The Mac app owns this. The `mp` command, the MCP server and the website's developer docs all
+follow it. Where dictations go on the Mac (Send to: Clipboard, Where I'm typing, any open app) is
+`docs/TARGETS.md`; this page is only about reading them from scripts and agents.
 
-## One item
+Three ways in, all on this Mac only:
+
+| | Use it for |
+| --- | --- |
+| **HTTP** — `127.0.0.1:47820` | anything that can make a request |
+| **CLI** — `mp` (`macrophone`) | shell scripts, `$(mp)`, `mp wait \| pbcopy` |
+| **MCP** — `macrophone mcp` | Claude Code, Claude Desktop and other agents |
+
+## One dictation
 
 ```json
-{ "id": "6F1C…", "text": "Refactor the history store…", "raw": "um refactor the the history store…",
-  "cleaned": "Refactor the history store…", "cleanup_level": "medium", "language": "en-US",
-  "profile": "Claude", "created_at": "2026-10-12T20:41:03Z", "received_at": "2026-10-12T20:41:04Z",
-  "delayed": false, "stopped_early": false, "source_device": "Sameer's iPhone", "reply": null }
+{
+  "id": "6F1C2A1E-0B7D-4C1A-9E55-2D3A4B5C6D7E",
+  "text": "Refactor the history store so it trims to fifty items on write.",
+  "raw": "um refactor the the history store so it trims to fifty items on write",
+  "cleaned": "Refactor the history store so it trims to fifty items on write.",
+  "cleanup_level": "medium",
+  "language": "en-US",
+  "profile": "Claude",
+  "created_at": "2026-10-12T20:41:03Z",
+  "received_at": "2026-10-12T20:41:04Z",
+  "delayed": false,
+  "stopped_early": false,
+  "source_device": "Sameer's iPhone"
+}
 ```
 
-Every key is always present. `cleaned`, `profile` and `reply` are `null` when absent.
+Every key is always present; `cleaned` and `profile` are `null` when absent.
 
-- `text` is what the phone delivered (cleaned when there is one, else raw). Snippets, the output
-  format and the template are **not** applied here — that's what went to the app/pane.
-- `profile` is where it went on the Mac: the automation's name ("Daily log"), or the Send to target
-  ("Claude", "Terminal — claude", "Where I'm typing", "Clipboard"). The key keeps its old name.
-- `reply` is Claude's answer when the automation has an **Ask Claude** action (the person's own API
-  key). It is `null` until the reply has finished streaming, and for every other dictation. An
-  item first appears (`/v1/next`, `/v1/stream`) as soon as the dictation arrives, with
-  `reply: null`; read `/v1/latest` or `/v1/history` afterwards to get the reply. With history off,
-  the reply is held in memory with the latest item only.
-
-## HTTP API
-
-- Listens on **127.0.0.1:47820 only** (`Product.apiPort`). If the port is taken, the next free
-  port up to 47829; the chosen port is written to the config file.
-- **Token:** `Authorization: Bearer mp_…`. Shown (and regenerable) in the Mac app's main window
-  under Developer. Also written to `~/Library/Application Support/Macrophone/api.json`
-  (`{"port":47820,"token":"mp_…"}`, mode 0600) so the CLI/MCP read it automatically.
-- **Browser lockdown:** any request carrying an `Origin` header (or `Sec-Fetch-Site`) is refused
-  with 403; the `Host` header must be `127.0.0.1:<port>` or `localhost:<port>` (blocks DNS
-  rebinding); no CORS headers are ever sent; `OPTIONS` → 403. So no website can read dictations.
-- **On by default** (token-protected, localhost-only); Settings › Developer can turn it off. The CLI says so when it can't connect.
-- With history off, endpoints return the latest item held in memory only; nothing hits disk.
-
-| Method & path | Returns |
+| Key | Meaning |
 | --- | --- |
-| `GET /v1/latest` | `200` one item, or `204` if nothing yet |
-| `GET /v1/history?limit=N` | `200 {"items":[…]}`, newest first, N 1–50 (default 10) |
-| `GET /v1/next?timeout=S&after=<id>` | Long-poll: `200` the next dictation that arrives after the request (or, with `after`, any item newer than that id, immediately), `204` on timeout. S 1–300, default 60 |
-| `GET /v1/stream` | `text/event-stream`: `event: dictation` + `data: {item}` per arrival; `: keep-alive` comment every 15 s |
-| `GET /v1/status` | `200 {"app_version","api_version":1,"history_enabled","phones":[{"name","connected","last_seen"}]}` |
+| `id` | UUID. Stable: a resend from the phone is never a second item. |
+| `text` | What was delivered — the cleaned text when there is one, else `raw`. |
+| `raw` | Exactly what the iPhone's recognizer heard. |
+| `cleaned` | The cleaned-up text, or `null` when cleanup was off or unavailable. |
+| `cleanup_level` | Chosen on the iPhone: `off`, `light`, `medium`, `heavy` or `custom` (the person's own instructions). |
+| `language` | BCP-47, e.g. `en-US`. |
+| `profile` | Where it went on the Mac: an app or window (`"Claude"`, `"Terminal — claude ~/app"`), `"Where I'm typing"` or `"Clipboard"`. |
+| `created_at` / `received_at` | ISO 8601, UTC. When it was spoken; when the Mac got it. |
+| `delayed` | It waited in the phone's queue while the Mac was away (it was only copied, never pasted). |
+| `stopped_early` | Recording was interrupted (a call, the lock button); what was heard was still sent. |
+| `source_device` | The iPhone's name (a name given on the Mac wins). |
 
-Errors are JSON `{"error":"…"}`: 401 missing/wrong token, 403 browser request, 404 unknown path,
-405 wrong method.
+## HTTP
 
-## CLI — `macrophone` (alias `mp`)
+- Listens on **127.0.0.1:47820 only**. If that port is taken, the next free one up to 47829; the
+  port in use is in the config file.
+- **Token:** every request needs `Authorization: Bearer mp_…`. It's shown, copied and regenerated
+  in Macrophone › Developer, and written to
+  `~/Library/Application Support/Macrophone/api.json` (`{"port":47820,"token":"mp_…"}`, readable
+  only by you), where the CLI and MCP server read it.
+- **No browsers:** a request with an `Origin` or `Sec-Fetch-*` header gets 403; the `Host` header
+  must be `127.0.0.1:<port>` or `localhost:<port>` (no DNS rebinding); `OPTIONS` gets 403; no CORS
+  headers are ever sent. No web page can read what you dictate.
+- **On by default** (localhost and token only). Macrophone › Developer turns it off.
+- With **History** off, nothing is written to disk and the API answers with the latest dictation
+  held in memory only.
 
-Bundled inside the app (`Macrophone.app/Contents/Helpers/macrophone`). Settings › Developer ›
-"Install command-line tool" symlinks `/usr/local/bin/macrophone` and `/usr/local/bin/mp`
-(asks for an admin password once). Thin wrapper over the HTTP API.
+| Request | Answer |
+| --- | --- |
+| `GET /v1/latest` | `200` one dictation, or `204` if there's none yet |
+| `GET /v1/history?limit=N` | `200 {"items":[…]}`, newest first. N is 1–50, default 10 |
+| `GET /v1/next?timeout=S` | Waits for the next dictation to arrive and answers `200` with it, or `204` after S seconds (1–300, default 60) |
+| `GET /v1/status` | `200 {"app_version":"1.0.0","api_version":1,"history_enabled":true,"phones":[{"name":"Sameer's iPhone","connected":true,"last_seen":"…"}]}` |
+
+Errors are JSON `{"error":"…"}`: `401` missing or wrong token, `403` a browser request or a wrong
+`Host`, `404` unknown path, `405` anything but `GET`.
+
+```sh
+TOKEN=$(plutil -extract token raw ~/Library/Application\ Support/Macrophone/api.json)
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:47820/v1/latest
+curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:47820/v1/next?timeout=120"
+```
+
+## CLI — `mp`
+
+Inside the app at `Macrophone.app/Contents/Helpers/macrophone`. Macrophone › Developer ›
+**Install** links it as `/usr/local/bin/macrophone` and `/usr/local/bin/mp` (asks for your
+password once).
 
 ```
-mp                     # same as `mp latest`
-mp latest [--raw] [--json]       # print the latest dictation's text (raw transcript with --raw)
-mp list [-n 10] [--json]
-mp wait [--timeout 60] [--json]  # block until the next dictation, print it; exit 1 on timeout
-mp watch [--json]                # print every new dictation as it arrives, one per line (JSON lines with --json)
-mp status
-mp mcp                           # run the MCP server on stdio
+mp latest [--json]                the latest dictation (also just `mp`)
+mp wait [--timeout 60] [--json]   wait for the next dictation and print it (1–300 s)
+mp list [-n 10] [--json]          recent dictations, newest first (1–50)
+mp status                         is Macrophone running, which iPhones are connected
+mp mcp                            run the MCP server on stdio
 mp --version | --help
 ```
 
-Exit codes: 0 ok, 1 nothing/timeout, 2 usage, 3 Mac app not running or API off, 4 auth failed.
-Output is plain text with a trailing newline, safe to pipe (`mp wait | pbcopy`, `$(mp)`).
+Plain output is the dictation's text with a trailing newline, safe to pipe (`mp wait | pbcopy`,
+`git commit -m "$(mp)"`). `mp list` prints one per line with its time. `--json` prints the API's
+JSON on one line (a dictation, or `{"items":[…]}` for `list`).
 
-## MCP server — `macrophone mcp`
+Exit codes: `0` ok · `1` nothing yet / timed out · `2` usage · `3` Macrophone isn't running or the
+API is off · `4` token rejected.
 
-JSON-RPC 2.0 over stdio, MCP protocol `2025-06-18` (accept older client versions). Tools:
+## MCP — `macrophone mcp`
 
-| Tool | Input | Output |
+JSON-RPC 2.0 over stdio, MCP protocol `2025-06-18` (older client versions accepted). Two tools,
+both read-only:
+
+| Tool | Input | Returns |
 | --- | --- | --- |
-| `get_latest_dictation` | `{ "raw"?: bool }` | the latest dictation's text, plus metadata as structured content |
-| `list_dictations` | `{ "limit"?: 1–50 }` | recent dictations, newest first |
-| `wait_for_dictation` | `{ "timeout_seconds"?: 1–300 }` | the next dictation's text, or "No dictation arrived in N seconds." |
+| `get_latest_dictation` | none | The latest dictation's text; the whole dictation (above) as structured content. "No dictation yet." when there's none. |
+| `wait_for_dictation` | `{ "timeout_seconds"?: 1–300 }` (default 60) | The next dictation's text once it arrives, with the dictation as structured content; "No dictation arrived in N seconds." on timeout. |
 
-Install in Claude Code: `claude mcp add macrophone -- macrophone mcp`.
-Claude Desktop: `{"mcpServers":{"macrophone":{"command":"/usr/local/bin/macrophone","args":["mcp"]}}}`.
+Claude Code:
 
-## Webhook body (POST, `Content-Type: application/json`)
+```sh
+claude mcp add macrophone -- macrophone mcp
+```
+
+Claude Desktop (`claude_desktop_config.json`):
 
 ```json
-{ "id": "…", "text": "…(template applied)…", "raw": "…", "cleaned": "…", "profile": "Daily log",
-  "created_at": "2026-10-12T20:41:03Z", "language": "en-US", "source_device": "Sameer's iPhone",
-  "delayed": false }
+{
+  "mcpServers": {
+    "macrophone": {
+      "command": "/usr/local/bin/macrophone",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
-`text` here is the final text (snippets, output format and template applied). Header
-`User-Agent: Macrophone/<version>`. 10 s timeout, one retry after 3 s.
-
-## Script
-
-`/bin/zsh -lc "<command>"` with the text (snippets, format and template applied) on stdin, and env vars
-`MACROPHONE_TEXT`, `MACROPHONE_RAW`, `MACROPHONE_PROFILE` (the automation's name), `MACROPHONE_ID`. 30 s timeout;
-non-zero exit shows the error state in the popup with the first line of stderr.
-
-## MCP and CLI and the reply
-
-`mp latest --json`, `mp list --json`, `mp wait --json` and the MCP tools' structured content carry
-the same item, so `reply` is there too (`null` when there isn't one). Plain-text output is unchanged
-(the dictation's text).
 
 ## Debug-only hooks (Mac DEBUG builds)
 
 A Debug build listens for the distributed notification `com.sameer.macrophone.debug.dictate` with
 `object` = JSON `{"text": "…", "target"?: "clipboard|front|<bundle id>", "window"?: "<window key>",
-"send"?: bool, "automation"?: "<name>", "delayed"?: bool}` and runs it through exactly the path a
-phone dictation takes (no target = this Mac's Send to choice). `com.sameer.macrophone.debug.openMenu`
-opens the menu bar menu. More in docs/TARGETS.md › Debug hooks. Release builds have none of these.
+"send"?: bool, "delayed"?: bool, "level"?: "off|light|medium|heavy|custom"}` and runs it through
+exactly the path a phone dictation takes (no target = this Mac's Send to choice).
+`com.sameer.macrophone.debug.openMenu` opens the menu bar menu. More in docs/TARGETS.md › Debug
+hooks. Release builds have none of these.

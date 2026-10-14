@@ -14,16 +14,11 @@ struct HistoryPane: View {
             $0.dictation.raw.localizedCaseInsensitiveContains(q)
                 || ($0.dictation.cleaned ?? "").localizedCaseInsensitiveContains(q)
                 || $0.profileName.localizedCaseInsensitiveContains(q)
-                || ($0.reply ?? "").localizedCaseInsensitiveContains(q)
         }
     }
 
     var body: some View {
         PanePage {
-            // Where dictations go — the choice the iPhone and this Mac share — first.
-            SendToCard(model: model, settings: settings, automations: model.automations)
-                .padding(.top, 8)
-
             PaneHeader(title: "History", subtitle: "Your last 50 dictations. They stay on this Mac — separate from your iPhone's history.")
 
             HStack(spacing: 12) {
@@ -107,7 +102,6 @@ struct HistoryRow: View {
     @State private var showRaw = false
     @State private var copied = false
     @State private var hover = false
-    @State private var showReply = false
 
     private var shown: String { showRaw ? item.dictation.raw : item.dictation.text }
     private var rtl: Bool { TextDirection.isRTL(shown) }
@@ -117,6 +111,10 @@ struct HistoryRow: View {
             HStack(spacing: 8) {
                 Text(timeLabel).font(Typeface.mono(10.5, .medium)).foregroundStyle(Ink.tertiary)
                 Chip(text: item.profileName, color: Ink.secondary)
+                    .help("Where it went")
+                Chip(text: cleanupLabel, color: Ink.tertiary, icon: "wand.and.stars")
+                    .help("The cleanup level, chosen on your iPhone")
+                    .accessibilityLabel("Cleanup: \(item.dictation.cleanupLevel.title)")
                 if item.delayed { Chip(text: "Delayed", color: Light.ochre, icon: "clock") }
                 if item.dictation.stoppedEarly { Chip(text: "Stopped early", color: Light.ochre) }
                 Spacer(minLength: 6)
@@ -170,31 +168,6 @@ struct HistoryRow: View {
                 // Not .textSelection: a selectable Text is backed by an AppKit text view whose
                 // layer can draw upside down when the row arrives mid-animation (seen live,
                 // Oct 13 2026). Copy and Copy Raw are in the row's buttons.
-            if let reply = item.reply, !reply.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkle").font(.system(size: 9, weight: .bold)).foregroundStyle(Light.ember)
-                        Kicker(item.replyModel ?? "Claude's reply", color: Light.ember.opacity(0.95), size: 9.5)
-                    }
-                    .accessibilityElement(children: .combine)
-                    Text(reply)
-                        .font(Typeface.serif(13.5))
-                        .foregroundStyle(Ink.secondary)
-                        .lineSpacing(2)
-                        .lineLimit(showReply ? nil : 4)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if reply.count > 280 {
-                        Button(showReply ? "Show Less" : "Show All") { showReply.toggle() }
-                            .buttonStyle(.borderless)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(Light.teal)
-                    }
-                }
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Light.ember.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Light.ember.opacity(0.16), lineWidth: 1))
-            }
             if !detailLine.isEmpty {
                 Text(detailLine)
                     .font(.system(size: 11)).foregroundStyle(outcomeColor)
@@ -211,9 +184,13 @@ struct HistoryRow: View {
     @ViewBuilder private var menuItems: some View {
         Button("Copy") { Clipboard.copyPlain(item.dictation.text) }
         if item.hasCleanedVersion { Button("Copy Raw Transcript") { Clipboard.copyPlain(item.dictation.raw) } }
-        if let reply = item.reply, !reply.isEmpty { Button("Copy Claude's Reply") { Clipboard.copyPlain(reply) } }
         Divider()
         Button("Delete", role: .destructive, action: onDelete)
+    }
+
+    /// "Medium", "Custom", "No cleanup".
+    private var cleanupLabel: String {
+        item.dictation.cleanupLevel == .off ? "No cleanup" : item.dictation.cleanupLevel.title
     }
 
     private var detailLine: String {

@@ -6,8 +6,8 @@ which open app to paste into, with paste only or paste and auto-send."* and *"Th
 one-to-one relationship between what's selected on the phone and on the Mac."*
 
 So there is nothing to configure for apps. Open iMessage and it's on the phone's list; quit it and
-it's gone. The deeper features (notes, tmux, Ask Claude, scripts, webhooks) are **Automations**
-(docs/AUTOMATIONS.md).
+it's gone. (Automations and snippets were removed on Oct 13 2026 — Sameer: "make the core
+functionality the strong suit". Scripts and agents read dictations through docs/API.md.)
 
 Code: `Mac/App/Targets/` (`TargetScanner`, `ComposerFinder`, `WindowServer`, `AppQuirks`),
 `Mac/App/Delivery/Paster.swift` (delivery), `Mac/App/Delivery/DeliveryEngine.swift` (routing),
@@ -16,8 +16,8 @@ Code: `Mac/App/Targets/` (`TargetScanner`, `ComposerFinder`, `WindowServer`, `Ap
 
 ## The words (the same on the iPhone and the Mac)
 
-**Send to** · **Clipboard** · **Where I'm typing** · the open apps · **Automations** ·
-**Send after pasting** on or off (the same words on the iPhone and in the Mac menu bar).
+**Send to** · **Clipboard** · **Where I'm typing** · the open apps · **Send after pasting** on or
+off (the same words on the iPhone, in the Mac's menu bar and in its window).
 
 ## Discovery — "has somewhere to type"
 
@@ -95,18 +95,19 @@ menu, so they don't show there — the main window's picker shows them.)
 ## Delivery
 
 From `Dictation.target` + `Dictation.send` (each dictation carries them, so a sync race can't
-misroute one). An **older phone** sends no target: an automation it picked by profile still runs;
-anything else goes to this Mac's own Send to choice.
+misroute one). An **older phone** sends no target: it goes to this Mac's own Send to choice. An
+older phone that still picks an automation gets it copied, and the popup says automations are
+gone.
 
-Always first: **snippets** expand (they're global). A **delayed** dictation (from the phone's
-offline queue) is only **copied** — never pasted or sent, whatever the target.
+The text is delivered exactly as the phone sent it (its cleanup level applied there). A
+**delayed** dictation (from the phone's offline queue) is only **copied** — never pasted or sent,
+whatever the target.
 
 | Send to | What happens |
 | --- | --- |
-| **Clipboard** | Copied. With **Show a notification** (Delivery, on by default) the popup shows it, and Notification Center keeps it if you're away; off, the menu bar icon ticks. |
+| **Clipboard** | Copied. With **Show a notification when copying** (General, on by default) the popup shows it, and Notification Center keeps it if you're away; off, the menu bar icon ticks. |
 | **Where I'm typing** | The app in front: its focused element must be a text input (else "Nowhere to type in Finder — copied instead"). An app that won't say what has focus is pasted into where the cursor is. |
 | **An app / a window** | Brought to the front (its window raised first; on another desktop, macOS switches there), the composer found (above) and focused, pasted, checked. |
-| **An automation** | docs/AUTOMATIONS.md. |
 
 The paste: a **2.5-second countdown** with **Cancel** (hovering pauses; **Paste Now**/**Send Now**
 skips) → secure-input check (a password field or Secure Keyboard Entry: copied instead) → the
@@ -147,16 +148,16 @@ One choice, the same on every paired phone and this Mac.
   (UserDefaults `sendSelection`) and the server has already relayed it to the other phones.
 - **On connect the phone wins**: the phone sends its choice right after welcome.
 - **Mac → phones**: changing it in the menu bar (**Send to ▸**, **Send after pasting**), the main
-  window (the **Send to** card atop History, and in Delivery) or the first-run setup calls
-  `AppModel.choose`, which stores it and `broadcastSelection`s it.
+  window (the **Send to** card above every pane) or the first-run setup calls `AppModel.choose`,
+  which stores it and `broadcastSelection`s it.
 - **Kept pointing at the list**: an app that went from one window to several is re-pointed at its
   most recent window; a picked window whose app now has only it becomes the app; a renamed window
-  or automation keeps its new name; a deleted automation falls back to Clipboard. Each of these is
-  broadcast. A bare bundle id from a phone ("com.apple.MobileSMS") is shown by the app's name.
+  keeps its new name. Each of these is broadcast. An automation (from an older phone, or saved
+  before they were removed) becomes Clipboard, broadcast too. A bare bundle id from a phone ("com.apple.MobileSMS") is shown by the app's name.
 - An app that isn't open stays selected ("Claude (not open)"); dictations are copied until it is.
 - First launch after the upgrade: the old delivery mode becomes the first choice (Auto-paste →
   Where I'm typing, else Clipboard) until a phone sends its own; Clipboard + notification / only
-  becomes **Show a notification** on / off.
+  becomes **Show a notification when copying** on / off.
 
 ## Known app quirks (looked at on the dev Mac, Oct 13 2026)
 
@@ -181,7 +182,7 @@ Chromium's tree appears only after `AXManualAccessibility`.
 "(name)" in its Bonjour name, never writes `api.json`). `MACROPHONE_PAIR_HEADLESS=1` +
 `MACROPHONE_PAIR_URL_FILE` pair `mpctl` without a window. Distributed notifications:
 `com.sameer.macrophone.debug.dictate` (JSON `{"text", "target"?: "clipboard|front|<bundle id>",
-"window"?, "send"?, "automation"?, "delayed"?}`), `com.sameer.macrophone.debug.openMenu`.
+"window"?, "send"?, "delayed"?, "level"?}`), `com.sameer.macrophone.debug.openMenu`.
 
 Test recipe: `mpctl pair <url>` → `mpctl targets` → `mpctl select <bundleID|clipboard|front> [--send]`
 → `mpctl send "…"` (mpctl sends no target, so the Mac's choice — the one just set — is used).

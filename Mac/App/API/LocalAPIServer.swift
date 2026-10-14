@@ -50,15 +50,12 @@ final class LocalAPIServer: @unchecked Sendable {
     private var status: Status
     private var port: UInt16 = 0
     private var waiters: [ObjectIdentifier: Waiter] = [:]
-    private var streams: [ObjectIdentifier: NWConnection] = [:]
-    private var keepAlive: DispatchSourceTimer?
     private var generation = 0
 
     private final class Waiter {
         let connection: NWConnection
-        let after: UUID?
         var timeout: DispatchWorkItem?
-        init(connection: NWConnection, after: UUID?) { self.connection = connection; self.after = after }
+        init(connection: NWConnection) { self.connection = connection }
     }
 
     init(token: String, status: Status) {
@@ -95,9 +92,6 @@ final class LocalAPIServer: @unchecked Sendable {
         lock.lock(); port = 0; lock.unlock()
         for w in waiters.values { w.timeout?.cancel(); w.connection.cancel() }
         waiters.removeAll()
-        for c in streams.values { c.cancel() }
-        streams.removeAll()
-        keepAlive?.cancel(); keepAlive = nil
     }
 
     private func tryPort(_ p: UInt16, generation g: Int) {
@@ -224,7 +218,7 @@ final class LocalAPIServer: @unchecked Sendable {
         guard let auth = r.headers["authorization"], Self.constantTimeEqual(auth, expected) else {
             return respond(c, 401, ["error": "Missing or wrong token. Find it in Macrophone › Developer."])
         }
-        let known = ["/v1/latest", "/v1/history", "/v1/next", "/v1/stream", "/v1/status"]
+        let known = ["/v1/latest", "/v1/history", "/v1/next", "/v1/status"]
         guard known.contains(r.path) else { return respond(c, 404, ["error": "Not found."]) }
         guard r.method == "GET" else { return respond(c, 405, ["error": "Use GET."], extra: ["Allow": "GET"]) }
 
@@ -234,16 +228,12 @@ final class LocalAPIServer: @unchecked Sendable {
         case "/v1/history":
             var n = Int(r.query["limit"] ?? "") ?? 10
             n = min(50, max(1, n))
-            let items = Array(history(50).prefix(n))
+            let items = Array(history(50).prefix(n)).map(Item.init)
             respondJSON(c, 200, Self.encode(HistoryBody(items: items)))
         case "/v1/next":
             var t = Double(r.query["timeout"] ?? "") ?? 60
             t = min(300, max(1, t))
-            let after = r.query["after"].flatMap(UUID.init(uuidString:))
-            if let after, let ready = itemAfter(after) { return respondItem(c, ready) }
-            wait(c, after: after, timeout: t)
-        case "/v1/stream":
-            openStream(c)
+            wait(c, timeout: t)
         case "/v1/status":
             lock.lock(); let s = status; lock.unlock()
             respondJSON(c, 200, Self.encode(s))
@@ -252,23 +242,39 @@ final class LocalAPIServer: @unchecked Sendable {
         }
     }
 
-    private struct HistoryBody: Encodable { var items: [PulledDictation] }
+    private struct HistoryBody: Encodable { var items: [Item] }
 
-    /// The item that came right after `id`, if it's already here.
-    private func itemAfter(_ id: UUID) -> PulledDictation? {
-        let list = history(50)
-        if let i = list.firstIndex(where: { $0.id == id }) {
-            return i > 0 ? list[i - 1] : nil
+    /// One item on the wire: `PulledDictation` without the retired `reply` key, every other key
+    /// always present (null when absent) so the shape never changes between items.
+    struct Item: Encodable {
+        let d: PulledDictation
+        init(_ d: PulledDictation) { self.d = d }
+        enum K: String, CodingKey {
+            case id, text, raw, cleaned, language, profile, delayed
+            case cleanupLevel = "cleanup_level", createdAt = "created_at", receivedAt = "received_at"
+            case stoppedEarly = "stopped_early", sourceDevice = "source_device"
         }
-        // Unknown id (aged out, or history is off): the newest one, unless that's the id.
-        if let l = latest(), l.id != id { return l }
-        return nil
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: K.self)
+            try c.encode(d.id, forKey: .id)
+            try c.encode(d.text, forKey: .text)
+            try c.encode(d.raw, forKey: .raw)
+            try c.encode(d.cleaned, forKey: .cleaned)
+            try c.encode(d.cleanupLevel, forKey: .cleanupLevel)
+            try c.encode(d.language, forKey: .language)
+            try c.encode(d.profile, forKey: .profile)
+            try c.encode(d.createdAt, forKey: .createdAt)
+            try c.encode(d.receivedAt, forKey: .receivedAt)
+            try c.encode(d.delayed, forKey: .delayed)
+            try c.encode(d.stoppedEarly, forKey: .stoppedEarly)
+            try c.encode(d.sourceDevice, forKey: .sourceDevice)
+        }
     }
 
-    // MARK: Long-poll and stream
+    // MARK: Long-poll
 
-    private func wait(_ c: NWConnection, after: UUID?, timeout: Double) {
-        let w = Waiter(connection: c, after: after)
+    private func wait(_ c: NWConnection, timeout: Double) {
+        let w = Waiter(connection: c)
         let key = ObjectIdentifier(c)
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.waiters.removeValue(forKey: key) != nil else { return }
@@ -280,35 +286,6 @@ final class LocalAPIServer: @unchecked Sendable {
         watchForHangup(c) { [weak self] in
             guard let self, let w = self.waiters.removeValue(forKey: key) else { return }
             w.timeout?.cancel()
-        }
-    }
-
-    private func openStream(_ c: NWConnection) {
-        let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-store\r\n"
-            + "Connection: keep-alive\r\nX-Content-Type-Options: nosniff\r\n\r\n: macrophone\n\n"
-        let key = ObjectIdentifier(c)
-        streams[key] = c
-        c.send(content: Data(head.utf8), completion: .contentProcessed { _ in })
-        watchForHangup(c) { [weak self] in
-            self?.streams.removeValue(forKey: key)
-            self?.updateKeepAlive()
-        }
-        updateKeepAlive()
-    }
-
-    /// Only ticks while a stream is open.
-    private func updateKeepAlive() {
-        if streams.isEmpty {
-            keepAlive?.cancel(); keepAlive = nil
-        } else if keepAlive == nil {
-            let t = DispatchSource.makeTimerSource(queue: queue)
-            t.schedule(deadline: .now() + 15, repeating: 15, leeway: .seconds(1))
-            t.setEventHandler { [weak self] in
-                guard let self else { return }
-                for s in self.streams.values { s.send(content: Data(": keep-alive\n\n".utf8), completion: .contentProcessed { _ in }) }
-            }
-            t.resume()
-            keepAlive = t
         }
     }
 
@@ -332,15 +309,9 @@ final class LocalAPIServer: @unchecked Sendable {
     func publish(_ item: PulledDictation) {
         queue.async {
             for (key, w) in self.waiters {
-                // A waiter with `after` set takes the item only if it isn't that id.
-                if let a = w.after, a == item.id { continue }
                 w.timeout?.cancel()
                 self.waiters.removeValue(forKey: key)
                 self.respondItem(w.connection, item)
-            }
-            if !self.streams.isEmpty {
-                let event = "event: dictation\ndata: " + String(decoding: Self.compact(item), as: UTF8.self) + "\n\n"
-                for s in self.streams.values { s.send(content: Data(event.utf8), completion: .contentProcessed { _ in }) }
             }
         }
     }
@@ -348,7 +319,7 @@ final class LocalAPIServer: @unchecked Sendable {
     // MARK: Responses
 
     private func respondItem(_ c: NWConnection, _ item: PulledDictation) {
-        respondJSON(c, 200, (try? PulledDictation.encoder.encode(item)) ?? Data("{}".utf8))
+        respondJSON(c, 200, Self.encode(Item(item)))
     }
 
     private func respondEmpty(_ c: NWConnection) {
@@ -400,15 +371,7 @@ final class LocalAPIServer: @unchecked Sendable {
         return e
     }()
 
-    private static let compactEncoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
-        e.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return e
-    }()
-
     static func encode<T: Encodable>(_ v: T) -> Data { (try? jsonEncoder.encode(v)) ?? Data("{}".utf8) }
-    static func compact(_ item: PulledDictation) -> Data { (try? compactEncoder.encode(item)) ?? Data("{}".utf8) }
 
     private static func constantTimeEqual(_ a: String, _ b: String) -> Bool {
         let x = Array(a.utf8), y = Array(b.utf8)

@@ -13,11 +13,10 @@ struct CodeRequest: Identifiable, Equatable {
 }
 
 /// The app's hub: the link to the phones, history, Send to (the live targets and the shared
-/// choice), automations, settings, the pull API.
+/// choice), settings, the pull API.
 @MainActor
 final class AppModel: ObservableObject, LinkServerDelegate {
     let settings = Settings()
-    let automations: AutomationStore
     /// The apps and windows open on this Mac that have somewhere to type.
     let scanner = TargetScanner()
     let log: DiagnosticLog
@@ -63,7 +62,6 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     init() {
         log = DiagnosticLog(url: AppPaths.diagnostics)
-        automations = AutomationStore(url: AppPaths.automations, legacyProfiles: AppPaths.legacyProfiles)
         let s = settings
         historyStore = HistoryStore<HistoryItem>(url: AppPaths.history, capacity: 50, enabled: s.historyEnabled)
         let identity = DeviceIdentity.load(defaults: AppPaths.defaults, name: AppPaths.computerName)
@@ -96,19 +94,6 @@ final class AppModel: ObservableObject, LinkServerDelegate {
             if case .listening(let port) = state { self.writeAPIConfig(port: port) }
         }
 
-        automations.onChange = { [weak self] summaries in
-            guard let self else { return }
-            self.server.broadcastProfiles(summaries)
-            // Send to pointed at an automation that's gone: back to the clipboard. Renamed: the
-            // new name.
-            if case .automation(let id, let name) = self.settings.selection.target {
-                if let a = self.automations.automation(id) {
-                    if a.name != name { self.choose(SendSelection(target: .automation(id: id, name: a.name))) }
-                } else {
-                    self.choose(.default)
-                }
-            }
-        }
         scanner.onChange = { [weak self] list in self?.targetsChanged(list) }
 
         settings.$historyEnabled.dropFirst().sink { [weak self] on in
@@ -235,7 +220,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         case .clipboard: k = "clipboard"
         case .frontApp: k = "where typing"
         case .app: k = "an app"
-        case .automation: k = "an automation"
+        case .automation: k = "a retired automation"
         }
         return sel.send ? k + ", send" : k
     }
@@ -486,10 +471,18 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         listenerState = state
     }
 
-    func profilesForPhones(_ server: LinkServer) -> [ProfileSummary] { automations.summaries }
+    /// Automations are gone: phones get an empty list (an older iPhone then shows none).
+    func profilesForPhones(_ server: LinkServer) -> [ProfileSummary] { [] }
 
     func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {
-        // The phone's choice wins (on connect it sends its own first).
+        // The phone's choice wins (on connect it sends its own first) — except an automation
+        // from an older iPhone: those are gone, so it becomes the clipboard and every phone hears it.
+        if case .automation = selection.target {
+            settings.selection = .default
+            server.broadcastSelection(.default)
+            log.add("send to: a retired automation from the phone became the clipboard")
+            return
+        }
         let sel = SendSelection(target: Self.named(selection.target), send: selection.send)
         if sel != settings.selection {
             settings.selection = sel
