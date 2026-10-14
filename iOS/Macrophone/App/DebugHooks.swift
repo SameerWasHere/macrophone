@@ -8,7 +8,8 @@ import UIKit
 /// `SIMCTL_CHILD_<NAME>=… xcrun simctl launch <udid> com.sameer.macrophone`.
 ///
 /// MACROPHONE_RESET=1                         clear settings, history, queue (not pairings)
-/// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto|custom|settings-custom
+/// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto|custom|settings-custom|openapp
+/// MACROPHONE_OPEN_APP=<name>                 with SCREEN=openapp: then open that app from the list
 ///                                            (custom: the Custom cleanup editor from the mic screen; settings-custom: from Settings)
 /// MACROPHONE_ONBOARDING_STEP=0…6             which setup step to open on
 /// MACROPHONE_FAKE_TRANSCRIPT=<text>          a finished dictation, as if spoken (cleanup + delivery run)
@@ -188,6 +189,17 @@ enum DebugHooks {
         case "history": model.sheet = .history
         case "settings", "dictionary", "language", "diagnostics", "settings-custom": model.sheet = .settings
         case "custom": model.sheet = .customCleanup
+        case "openapp":
+            // After the Mac connects, so the list is real (mpctl serve sends a sample list).
+            Task {
+                for _ in 0..<40 where !model.isConnected { try? await Task.sleep(nanoseconds: 250_000_000) }
+                model.sheet = .openApp
+                if let name = env["MACROPHONE_OPEN_APP"] {
+                    for _ in 0..<40 where model.macApps.isEmpty { try? await Task.sleep(nanoseconds: 250_000_000) }
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    if let app = model.macApps.first(where: { $0.name == name }) { model.sheet = nil; model.openOnMac(app) }
+                }
+            }
         case "pairing": model.sheet = .pairing
         default: break
         }

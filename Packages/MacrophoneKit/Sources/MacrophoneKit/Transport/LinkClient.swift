@@ -37,6 +37,10 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, watchState: WatchState)
     /// Watching: a new picture of the window.
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame)
+    /// The apps installed on the Mac (answer to `listApps`).
+    func linkClient(_ client: LinkClient, installedApps: [MacApp])
+    /// An app asked for with `openApp` opened (or didn't).
+    func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String)
 }
 
 public extension LinkClientDelegate {
@@ -46,6 +50,8 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String) {}
     func linkClient(_ client: LinkClient, watchState: WatchState) {}
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {}
+    func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
+    func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {}
 }
 
 /// The iPhone end of the link: browses for Macs, pairs, and keeps one encrypted session to
@@ -377,6 +383,16 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, watchState: state)
             }
+        case let .apps(list):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, installedApps: list)
+            }
+        case let .appOpened(bundleID, ok, detail):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, appOpened: bundleID, ok: ok, detail: detail)
+            }
         case let .watchFrame(frame):
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -393,7 +409,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .listApps, .openApp:
             break
         }
     }
@@ -487,6 +503,22 @@ public final class LinkClient: @unchecked Sendable {
     public func watchAction(_ action: WatchAction) {
         guard let s = lock.sync({ session }) else { return }
         Task { try? await s.send(.watchAction(action)) }
+    }
+
+    /// Ask the Mac for its installed apps (the answer comes to the delegate). False when not connected.
+    @discardableResult
+    public func listApps() -> Bool {
+        guard let s = lock.sync({ session }) else { return false }
+        Task { try? await s.send(.listApps) }
+        return true
+    }
+
+    /// Open an app on the Mac and bring it forward. False when not connected.
+    @discardableResult
+    public func openApp(_ bundleID: String) -> Bool {
+        guard let s = lock.sync({ session }) else { return false }
+        Task { try? await s.send(.openApp(bundleID: bundleID)) }
+        return true
     }
 
     /// Click the watched window at a fraction of its size (top-left origin).

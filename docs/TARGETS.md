@@ -204,3 +204,15 @@ and put back). It stops when the phone sends nil, disconnects, or the
 person chooses Stop in the menu ("Your iPhone is watching Claude — Stop"). The phone pauses after
 two idle minutes and when it leaves the screen. `mpctl watch` is a stand-in phone; `mpctl serve`
 answers with a drawn demo window (`--watch-state permission|unavailable` for those states).
+
+
+## Open an app (Oct 14 2026)
+
+Sameer: "what if Claude is closed and I want to open it?" The phone's ⋯ beside Send to (and
+"More apps" at the end of the row) opens a searchable list of every app installed on the Mac
+(`listApps` → `apps([MacApp])`: name, bundle id, a 64 px icon, whether it's running; menu bar
+agents, background-only apps and Macrophone itself are left out — `Mac/App/Targets/AppCatalog.swift`).
+Tapping one sends `openApp(bundleID:)`: the Mac launches it (or brings it forward, asking for a
+window), answers `appOpened(ok, detail)`, rescans, and the phone has already made it the Send-to
+choice. For 20 s the phone shows it as "Opening…" (not "Not open") while its window appears.
+`mpctl apps` / `mpctl open <bundleID>` drive it from the command line.

@@ -25,7 +25,7 @@ import SwiftUI
 
 /// One button in the Send to row: a place, or an app standing for its windows.
 struct PlaceOption: Identifiable, Equatable {
-    enum Kind: Equatable { case clipboard, front, app, closed }
+    enum Kind: Equatable { case clipboard, front, app, closed, opening }
     var id: String
     var kind: Kind
     /// What a tap picks (for an app with several windows, its newest).
@@ -47,9 +47,12 @@ extension AppModel {
     func placeOptions(current: TargetRef) -> [PlaceOption] {
         var out = [PlaceOption(id: "clipboard", kind: .clipboard, target: .clipboard, name: "Clipboard", shortName: "Clipboard"),
                    PlaceOption(id: "front", kind: .front, target: .frontApp, name: "Where I'm typing", shortName: "Where I'm typing")]
-        if case .app = current, liveTarget(for: current) == nil {
-            out.append(PlaceOption(id: "closed", kind: .closed, target: current, name: current.displayName,
-                                   shortName: Places.appName(current, in: self)))
+        if case let .app(bid, _, _) = current, liveTarget(for: current) == nil {
+            // Just opened from "Open an app": it's on its way, with its icon.
+            let opening = isOpening(bid)
+            out.append(PlaceOption(id: "closed", kind: opening ? .opening : .closed, target: current, name: current.displayName,
+                                   shortName: Places.appName(current, in: self),
+                                   icon: opening ? macApps.first { $0.bundleID == bid }?.icon : nil))
         }
         var index: [String: Int] = [:]
         for t in liveTargets {
@@ -177,6 +180,19 @@ struct PlacesRow: View {
                     .accessibilityIdentifier("watch")
                     .transition(.opacity)
                 }
+                // ⋯: open any app on the Mac, even one that isn't open.
+                Menu {
+                    Button { model.sheet = .openApp } label: { Label("Open an App on Your Mac…", systemImage: "plus.app") }
+                    Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+                } label: {
+                    Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+                }
+                .nativeGlassButton()
+                .buttonBorderShape(.circle)
+                .controlSize(.small)
+                .accessibilityLabel("More")
+                .accessibilityHint("Open any app on your Mac, or refresh the list of open apps.")
+                .accessibilityIdentifier("send-to-more")
             }
             .padding(.horizontal, 16)
 
@@ -187,6 +203,8 @@ struct PlacesRow: View {
                             PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact) { pick($0) }
                                 .id(p.id)
                         }
+                        // Any app on the Mac, open or not (Open an app).
+                        MoreAppsButton(compact: compact) { model.sheet = .openApp }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 4)
@@ -233,7 +251,7 @@ private struct PlaceButton: View {
             VStack(spacing: 4) {
                 TargetIcon(target: place.target, icon: place.icon, size: compact ? 28 : 32, onTint: selected)
                     .saturation(place.kind == .closed ? 0 : 1)
-                Text(place.kind == .closed ? "Not open" : place.shortName)
+                Text(place.kind == .closed ? "Not open" : place.kind == .opening ? "Opening…" : place.shortName)
                     .font(.caption2.weight(selected ? .semibold : .medium))
                     .foregroundStyle(selected ? Ink.ground : (place.kind == .closed ? Light.ochre : Ink.secondary))
                     .lineLimit(1)
@@ -265,7 +283,38 @@ private struct PlaceButton: View {
         var s = place.name
         if place.windows.count > 1 { s += ", \(place.windows.count) windows" }
         if place.kind == .closed { s += ", not open on your Mac" }
+        if place.kind == .opening { s += ", opening on your Mac" }
         return s
+    }
+}
+
+/// The end of the Send to row: open any app on the Mac.
+private struct MoreAppsButton: View {
+    var compact = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: (compact ? 28 : 32) * 0.45, weight: .bold))
+                    .foregroundStyle(Ink.secondary)
+                    .frame(width: compact ? 28 : 32, height: compact ? 28 : 32)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Ink.ink.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+                Text("More apps")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(Ink.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .frame(minWidth: compact ? 44 : 50)
+        }
+        .placeButtonStyle(selected: false)
+        .controlSize(.small)
+        .accessibilityLabel("More apps")
+        .accessibilityHint("Opens any app on your Mac, even one that isn't open, and sends there.")
+        .accessibilityIdentifier("more-apps")
     }
 }
 

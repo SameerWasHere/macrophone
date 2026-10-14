@@ -56,6 +56,7 @@ struct RootView: View {
                         .onDisappear { settingsPath = [] }
                 case .pairing: PairingView()
                 case .customCleanup: CustomCleanupSheet()
+                case .openApp: OpenAppSheet()
                 }
             }
             .environmentObject(model)

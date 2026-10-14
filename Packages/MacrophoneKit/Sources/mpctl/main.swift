@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MacrophoneKit
 
@@ -11,6 +12,7 @@ import MacrophoneKit
 //   mpctl serve --land failed|copied|cancelled  # report that result for every dictation (default: what the target implies)
 //   mpctl targets / mpctl select <bundleID|clipboard|front> [--send]
 //   mpctl browse
+//   mpctl apps / mpctl open <bundleID>        # the Mac's installed apps; open one there
 //   mpctl watch [--target <bundleID|front>] [--window <key>] [--seconds 6] [--save DIR] [--action returnKey]
 //   mpctl serve --watch-state permission|unavailable   # answer every watch with that state instead of the demo window
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
@@ -102,9 +104,10 @@ final class ServeDelegate: LinkServerDelegate {
         server.broadcastTargets(liveTargets(server))
     }
     func liveTargets(_ server: LinkServer) -> [LiveTarget] {
-        [LiveTarget(bundleID: "com.anthropic.claudefordesktop", appName: "Claude", lastActive: Date()),
-         LiveTarget(bundleID: "com.apple.MobileSMS", appName: "Messages"),
-         LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "claude — ~/app", windowKey: "41")]
+        [LiveTarget(bundleID: "com.anthropic.claudefordesktop", appName: "Claude", icon: demoIcon("com.anthropic.claudefordesktop", 128), lastActive: Date()),
+         LiveTarget(bundleID: "com.apple.MobileSMS", appName: "Messages", icon: demoIcon("com.apple.MobileSMS", 128)),
+         LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "claude — ~/app", windowKey: "41", icon: demoIcon("com.apple.Terminal", 128)),
+         LiveTarget(bundleID: "com.apple.Notes", appName: "Notes", icon: demoIcon("com.apple.Notes", 128))]
     }
 
     // Watching: the drawn demo window, a frame each time it changes.
@@ -149,10 +152,40 @@ final class ServeDelegate: LinkServerDelegate {
         demo.apply(action)
     }
 
+    func installedApps(_ server: LinkServer) async -> [MacApp] {
+        stdout("LIST APPS")
+        // Real bundle ids, with this Mac's icons where the app is installed (screenshots look real).
+        let apps: [(String, String)] = [("Calendar", "com.apple.iCal"), ("ChatGPT", "com.openai.chat"), ("Claude", "com.anthropic.claudefordesktop"),
+                                        ("Cursor", "com.todesktop.230313mzl4w4u92"), ("Ghostty", "com.mitchellh.ghostty"), ("Mail", "com.apple.mail"),
+                                        ("Messages", "com.apple.MobileSMS"), ("Notes", "com.apple.Notes"), ("Slack", "com.tinyspeck.slackmacgap"),
+                                        ("Terminal", "com.apple.Terminal"), ("TextEdit", "com.apple.TextEdit"), ("Xcode", "com.apple.dt.Xcode")]
+        return apps.map { MacApp(bundleID: $0.1, name: $0.0, icon: demoIcon($0.1, 64), running: ["Claude", "Messages", "Terminal", "Notes"].contains($0.0)) }
+    }
+
+    func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) {
+        stdout("OPEN APP \(bundleID)")
+        let name = await installedApps(server).first { $0.bundleID == bundleID }?.name ?? bundleID
+        return (true, "\(name) is open on your Mac")
+    }
+
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {
         stdout("WATCH CLICK \(String(format: "%.3f, %.3f", point.x, point.y))")
         demo.click(point)
     }
+}
+
+/// An installed app's icon as PNG (nil when it isn't installed here).
+func demoIcon(_ bundleID: String, _ px: Int) -> Data? {
+    guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+    let image = NSWorkspace.shared.icon(forFile: url.path)
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px, bitsPerSample: 8, samplesPerPixel: 4,
+                                     hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+    rep.size = NSSize(width: px, height: px)
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    image.draw(in: NSRect(x: 0, y: 0, width: px, height: px), from: .zero, operation: .copy, fraction: 1)
+    NSGraphicsContext.restoreGraphicsState()
+    return rep.representation(using: .png, properties: [:])
 }
 
 // MARK: phone
@@ -172,6 +205,15 @@ final class PhoneDelegate: LinkClientDelegate {
     }
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {
         stdout("SELECTION from Mac: \(selection.target.displayName)\(selection.send ? " + send" : "")")
+    }
+    var appsHeard = 0
+    func linkClient(_ client: LinkClient, installedApps: [MacApp]) {
+        appsHeard = installedApps.count
+        let kb = installedApps.compactMap(\.icon).reduce(0) { $0 + $1.count } / 1024
+        stdout("APPS \(installedApps.count) (\(kb) KB of icons): " + installedApps.prefix(12).map { $0.name + ($0.running ? "*" : "") }.joined(separator: ", "))
+    }
+    func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {
+        stdout("OPENED \(ok ? "ok" : "failed"): \(detail)")
     }
     var frames = 0
     func linkClient(_ client: LinkClient, watchState: WatchState) { stdout("WATCH STATE \(watchState)") }
@@ -332,6 +374,15 @@ func run() async -> Int32 {
         try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "1.5") ?? 1.5) * 1e9))
         client.stop()
         return 0
+
+    case "apps", "open":
+        let (client, d) = makeClient()
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        if command == "apps" { client.listApps() } else if args.count > 1 { client.openApp(args[1]) }
+        try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "4") ?? 4) * 1e9))
+        client.stop()
+        return command == "apps" ? (d.appsHeard > 0 ? 0 : 1) : 0
 
     case "watch":
         let (client, d) = makeClient()

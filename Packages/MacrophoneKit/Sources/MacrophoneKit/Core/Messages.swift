@@ -104,6 +104,14 @@ public enum Message: Codable, Sendable {
     /// Either way: the shared Send-to choice changed. The phone sends its own right after
     /// welcome, so on reconnect the phone's choice wins.
     case selection(SendSelection)
+    /// Phone → Mac: send the list of apps installed on the Mac.
+    case listApps
+    /// Mac → phone: the apps installed on the Mac, by name.
+    case apps([MacApp])
+    /// Phone → Mac: open this app and bring it forward.
+    case openApp(bundleID: String)
+    /// Mac → phone: whether it opened, in a plain line ("Claude is open", "Couldn't open Claude").
+    case appOpened(bundleID: String, ok: Bool, detail: String)
     /// Phone → Mac: show this place's window (nil = stop watching).
     case watch(TargetRef?)
     /// Phone → Mac: a one-tap action on the watched window.

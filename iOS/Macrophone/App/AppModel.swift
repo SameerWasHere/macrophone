@@ -50,7 +50,7 @@ struct Route: Equatable {
 }
 
 enum AppSheet: String, Identifiable {
-    case history, settings, pairing, customCleanup
+    case history, settings, pairing, customCleanup, openApp
     var id: String { rawValue }
 }
 
@@ -180,7 +180,9 @@ final class AppModel: ObservableObject {
 
     /// A remembered app that isn't open on the Mac (it'll copy instead).
     func isNotOpen(_ ref: TargetRef) -> Bool {
-        guard case .app = ref, targetsCurrent || !liveTargets.isEmpty else { return false }
+        guard case let .app(bid, _, _) = ref, targetsCurrent || !liveTargets.isEmpty else { return false }
+        // Just opened from here: its window may take a moment to show up.
+        if isOpening(bid) { return false }
         return liveTarget(for: ref) == nil
     }
 
@@ -744,6 +746,39 @@ final class AppModel: ObservableObject {
 
     /// Picks where dictations go (Paste or Paste & send as last used there). Applies to the next
     /// dictation — or the one being recorded — and goes to the Mac at once.
+    // MARK: Open an app
+
+    /// The apps installed on the Mac (Open an app), newest answer from the Mac.
+    @Published private(set) var macApps: [MacApp] = []
+    @Published private(set) var macAppsLoaded = false
+    /// Apps opened from here in the last moments (they count as open until their window shows).
+    private var justOpened: [String: Date] = [:]
+
+    /// Opened from here moments ago and not in the list yet.
+    func isOpening(_ bundleID: String) -> Bool {
+        guard let t = justOpened[bundleID] else { return false }
+        return Date().timeIntervalSince(t) < 20
+    }
+
+    /// Ask the Mac for its apps (the sheet opened).
+    func requestMacApps() {
+        if !client.listApps() { macAppsLoaded = true }
+    }
+
+    /// Open an app on the Mac, bring it forward, and send there from now on.
+    func openOnMac(_ app: MacApp) {
+        guard client.openApp(app.bundleID) else {
+            explain("Your Mac isn't connected — open \(app.name) when it is")
+            Haptics.warning()
+            return
+        }
+        Haptics.tick()
+        justOpened[app.bundleID] = Date()
+        pick(.app(bundleID: app.bundleID, windowKey: nil, name: app.name))
+        explain("Opening \(app.name) on your Mac", for: 6)
+        log.add("asked the Mac to open an app")
+    }
+
     func pick(_ target: TargetRef) {
         setSelection(SendSelection(target: target, send: settings.rememberedSend(for: target)))
     }
@@ -1049,6 +1084,29 @@ extension AppModel: LinkClientDelegate {
         default: if !waiting { return }
         }
         showLanding(id, late: awaitingLanding?.late ?? (item(id)?.wasDelayed ?? false))
+    }
+
+    func linkClient(_ client: LinkClient, installedApps: [MacApp]) {
+        guard client === self.client else { return }
+        macApps = installedApps
+        macAppsLoaded = true
+    }
+
+    func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {
+        guard client === self.client else { return }
+        if ok {
+            Haptics.success()
+            explain("\(detail) — it's where you send now")
+            // Its window shows up a moment after launch.
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                self?.client.refreshTargets()
+            }
+        } else {
+            justOpened[bundleID] = nil
+            Haptics.error()
+            explain(detail)
+        }
     }
 
     func linkClient(_ client: LinkClient, watchState: WatchState) {

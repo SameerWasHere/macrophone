@@ -535,6 +535,20 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         watch.click(point, for: peerID)
     }
 
+    func installedApps(_ server: LinkServer) async -> [MacApp] {
+        let list = await AppCatalog.installed()
+        log.add("sent the phone \(list.count) installed apps")
+        return list
+    }
+
+    func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) {
+        let (ok, detail) = await AppCatalog.open(bundleID)
+        log.add(ok ? "opened an app for the phone" : "couldn't open an app for the phone")
+        // It shows up in Send to once its window is there (the scanner watches launches).
+        if ok { updateScanning(); scanner.refresh() }
+        return (ok, detail)
+    }
+
     /// The menu's Stop: stop sending this phone pictures and tell it.
     func stopWatching(_ peerID: UUID) {
         watch.stop(peerID)
