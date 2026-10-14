@@ -222,7 +222,6 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         case .clipboard: k = "clipboard"
         case .frontApp: k = "where typing"
         case .app: k = "an app"
-        case .automation: k = "a retired automation"
         }
         return sel.send ? k + ", send" : k
     }
@@ -474,18 +473,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         listenerState = state
     }
 
-    /// Automations are gone: phones get an empty list (an older iPhone then shows none).
-    func profilesForPhones(_ server: LinkServer) -> [ProfileSummary] { [] }
-
     func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {
-        // The phone's choice wins (on connect it sends its own first) — except an automation
-        // from an older iPhone: those are gone, so it becomes the clipboard and every phone hears it.
-        if case .automation = selection.target {
-            settings.selection = .default
-            server.broadcastSelection(.default)
-            log.add("send to: a retired automation from the phone became the clipboard")
-            return
-        }
+        // The phone's choice wins (on connect it sends its own first).
         let sel = SendSelection(target: Self.named(selection.target), send: selection.send)
         if sel != settings.selection {
             settings.selection = sel

@@ -16,7 +16,6 @@ public protocol LinkServerDelegate: AnyObject {
     /// Deliver a dictation. Already de-duplicated: a repeated id never reaches here.
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?)
     func linkServer(_ server: LinkServer, listenerChanged state: LinkServer.ListenerState)
-    func profilesForPhones(_ server: LinkServer) -> [ProfileSummary]
     /// A code-pairing attempt finished (approved, declined or timed out): dismiss the prompt.
     func linkServerCodePairingEnded(_ server: LinkServer)
     /// A phone changed the Send-to choice (or sent its own on connecting — the phone wins).
@@ -194,12 +193,6 @@ public final class LinkServer: @unchecked Sendable {
         for s in all { Task { try? await s.send(.selection(selection)) } }
     }
 
-    /// Push the current profile list to every connected phone.
-    public func broadcastProfiles(_ profiles: [ProfileSummary]) {
-        let all = lock.sync { Array(sessions.values) }
-        for s in all { Task { try? await s.send(.profiles(profiles)) } }
-    }
-
     // MARK: Connections
 
     private func accept(_ nw: NWConnection) {
@@ -370,8 +363,7 @@ public final class LinkServer: @unchecked Sendable {
                     store.save(peer, key: key)
                 }
                 let p = peer
-                let profiles = await profilesOnMain()
-                try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion, profiles: profiles))
+                try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion))
                 try await session.send(.targets(await targetsOnMain()))
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
@@ -400,7 +392,7 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, selectionChanged: sel, from: from) }
             case .refreshTargets:
                 notify { $0.linkServerRefreshTargets(self) }
-            case .welcome, .profiles, .ack, .targets:
+            case .welcome, .ack, .targets:
                 break
             }
         }
@@ -414,10 +406,6 @@ public final class LinkServer: @unchecked Sendable {
     @MainActor private func targetsOnMain() -> [LiveTarget] {
         guard let delegate else { return [] }
         return delegate.liveTargets(self)
-    }
-
-    @MainActor private func profilesOnMain() -> [ProfileSummary] {
-        delegate?.profilesForPhones(self) ?? []
     }
 
     private func notify(_ body: @escaping @MainActor (LinkServerDelegate) -> Void) {

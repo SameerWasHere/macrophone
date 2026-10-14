@@ -99,13 +99,8 @@ final class Settings: ObservableObject {
         // (a phone that connects with its own choice wins anyway) and the notification option.
         let legacyMode = d.string(forKey: "deliveryMode")
         if let data = d.data(forKey: "sendSelection"), let sel = try? JSONDecoder().decode(SendSelection.self, from: data) {
-            // Automations are gone (Oct 2026): one that was picked becomes the clipboard.
-            if case .automation = sel.target {
-                selection = .default
-                d.set(try? JSONEncoder().encode(SendSelection.default), forKey: "sendSelection")
-            } else {
-                selection = sel
-            }
+            // (A stored automation from before Oct 13 2026 no longer decodes: it falls through to below.)
+            selection = sel
         } else {
             let migrated = legacyMode == "autoPaste" ? SendSelection(target: .frontApp) : .default
             selection = migrated

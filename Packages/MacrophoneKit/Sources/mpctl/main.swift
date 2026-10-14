@@ -80,9 +80,6 @@ final class ServeDelegate: LinkServerDelegate {
          LiveTarget(bundleID: "com.apple.MobileSMS", appName: "Messages"),
          LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "claude — ~/app", windowKey: "41")]
     }
-    func profilesForPhones(_ server: LinkServer) -> [ProfileSummary] {
-        [ProfileSummary(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, name: "Default", cleanupLevel: nil, isDefault: true)]
-    }
 }
 
 // MARK: phone
@@ -92,9 +89,6 @@ final class PhoneDelegate: LinkClientDelegate {
     func linkClient(_ client: LinkClient, stateChanged state: LinkClient.State) { stdout("STATE \(state)") }
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac]) {
         for m in macs { stdout("FOUND \(m.name) id=\(m.macID?.uuidString ?? "?")\(m.isPeerToPeer ? " (peer-to-peer)" : "")") }
-    }
-    func linkClient(_ client: LinkClient, profiles: [ProfileSummary], macID: UUID) {
-        stdout("PROFILES \(profiles.map(\.name).joined(separator: ", "))")
     }
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) { stdout("UNPAIRED by Mac") }
     func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {

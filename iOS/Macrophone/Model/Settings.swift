@@ -54,8 +54,7 @@ final class Settings: ObservableObject {
 
     /// Read without the main actor: the link sends it to the Mac right after every welcome.
     nonisolated static func storedSelection(_ d: UserDefaults = .standard) -> SendSelection {
-        if let data = d.data(forKey: K.selection), let s = try? JSONDecoder().decode(SendSelection.self, from: data),
-           !s.target.isAutomation { return s }
+        if let data = d.data(forKey: K.selection), let s = try? JSONDecoder().decode(SendSelection.self, from: data) { return s }
         return .default   // a fresh install copies to the Mac's clipboard
     }
 
@@ -66,10 +65,7 @@ final class Settings: ObservableObject {
            let data = try? JSONEncoder().encode(SendSelection(target: .frontApp)) {
             d.set(data, forKey: K.selection)
         }
-        if let data = d.data(forKey: K.selection), let s = try? JSONDecoder().decode(SendSelection.self, from: data), s.target.isAutomation,
-           let fresh = try? JSONEncoder().encode(SendSelection.default) {
-            d.set(fresh, forKey: K.selection)
-        }
+        // A stored automation (before Oct 13 2026) no longer decodes: storedSelection falls back to Clipboard.
         if var bySend = d.dictionary(forKey: K.sendByTarget) as? [String: Bool], bySend.keys.contains(where: { $0.hasPrefix("auto:") }) {
             bySend = bySend.filter { !$0.key.hasPrefix("auto:") }
             d.set(bySend, forKey: K.sendByTarget)
@@ -119,12 +115,8 @@ extension TargetRef {
         case .clipboard: return "clipboard"
         case .frontApp: return "front"
         case let .app(bid, key, _): return "app:\(bid)#\(key ?? "")"
-        case let .automation(id, _): return "auto:\(id.uuidString)"   // never picked on the phone any more
         }
     }
-
-    /// The Mac's automations are gone from the phone; one that arrives is treated as Clipboard.
-    var isAutomation: Bool { if case .automation = self { return true }; return false }
 }
 
 /// Where the app keeps its files: Application Support/Macrophone.

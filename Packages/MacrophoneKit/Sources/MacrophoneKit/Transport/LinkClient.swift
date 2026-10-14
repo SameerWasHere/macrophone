@@ -22,7 +22,6 @@ public struct DiscoveredMac: Identifiable, Hashable, Sendable {
 public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, stateChanged state: LinkClient.State)
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac])
-    func linkClient(_ client: LinkClient, profiles: [ProfileSummary], macID: UUID)
     /// The Mac forgot this phone ("Forget this iPhone"). The key is already deleted.
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID)
     /// iOS is blocking Bonjour because Local Network access is off for this app (true), or it
@@ -267,7 +266,7 @@ public final class LinkClient: @unchecked Sendable {
                 let keys = LinkCrypto.sessionKeys(key, phoneNonce: phoneNonce, macNonce: macNonce)
                 let s = SecureSession(connection: conn, peerID: mac.id, sendKey: keys.phoneToMac, receiveKey: keys.macToPhone)
                 try await s.send(.hello(phoneName: identity.name, appVersion: appVersion, os: osDescription))
-                guard case let .welcome(macName, _, profiles) = try await receive(s, timeout: timeout) else {
+                guard case let .welcome(macName, _) = try await receive(s, timeout: timeout) else {
                     throw LinkError.protocolError("expected welcome")
                 }
                 lock.sync { session = s; sessionMacID = mac.id; retryDelay = 1 }
@@ -275,10 +274,6 @@ public final class LinkClient: @unchecked Sendable {
                 store.touch(mac.id)
                 log?.add("connected to Mac")
                 setState(.connected(macName))
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.delegate?.linkClient(self, profiles: profiles, macID: mac.id)
-                }
                 conn.onState { [weak self, weak s] state in
                     if case .failed = state, let s { self?.sessionEnded(s, error: LinkError.connectionFailed("dropped")) }
                     if case .cancelled = state, let s { self?.sessionEnded(s, error: LinkError.cancelled) }
@@ -353,11 +348,6 @@ public final class LinkClient: @unchecked Sendable {
         case let .ack(id, outcome, detail):
             let c = lock.sync { pending.removeValue(forKey: id) }
             c?.resume(returning: Ack(outcome: outcome, detail: detail))
-        case let .profiles(p):
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.delegate?.linkClient(self, profiles: p, macID: macID)
-            }
         case let .targets(list):
             Task { @MainActor [weak self] in
                 guard let self else { return }

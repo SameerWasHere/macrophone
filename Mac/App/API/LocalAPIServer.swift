@@ -244,7 +244,7 @@ final class LocalAPIServer: @unchecked Sendable {
 
     private struct HistoryBody: Encodable { var items: [Item] }
 
-    /// One item on the wire: `PulledDictation` without the retired `reply` key, every other key
+    /// One item on the wire (the same shape as `PulledDictation`), every key
     /// always present (null when absent) so the shape never changes between items.
     struct Item: Encodable {
         let d: PulledDictation

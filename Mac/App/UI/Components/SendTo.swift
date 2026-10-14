@@ -20,7 +20,7 @@ enum TargetIcons {
         switch ref {
         case .clipboard: return "doc.on.clipboard"
         case .frontApp: return "text.cursor"
-        case .app, .automation: return "app"
+        case .app: return "app"
         }
     }
 }
@@ -65,8 +65,6 @@ enum SendToWords {
             return sel.send
                 ? "Pasted into \(app)'s message box and sent — after a 2.5-second countdown you can cancel."
                 : "Pasted into \(app)'s message box after a 2.5-second countdown. You press send."
-        case .automation:
-            return "Dictations are copied to this Mac's clipboard. Paste them anywhere with ⌘V."
         }
     }
 }

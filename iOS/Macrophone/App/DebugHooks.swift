@@ -169,7 +169,7 @@ enum DebugHooks {
                 case .clipboard?: return TargetEntity.clipboardID
                 case .frontApp?: return TargetEntity.frontID
                 case let .app(bid, key, _)?: return "app:\(bid)#\(key ?? "")"
-                case .automation?, nil: return nil
+                case nil: return nil
                 }
             }()
             Task {

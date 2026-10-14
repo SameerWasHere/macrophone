@@ -197,7 +197,7 @@ struct PlaceDock: View {
     /// What the next dictation will do, in a sentence.
     static func sentence(for t: TargetRef, send: Bool) -> String {
         switch t {
-        case .clipboard, .automation: return "Copies to your Mac's clipboard, to paste yourself"
+        case .clipboard: return "Copies to your Mac's clipboard, to paste yourself"
         case .frontApp: return send ? "Pastes where you're typing on your Mac, then sends" : "Pastes where you're typing on your Mac"
         case .app: return send ? "Pastes into \(t.displayName), then sends" : "Pastes into \(t.displayName) — you press send"
         }

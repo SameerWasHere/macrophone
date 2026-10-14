@@ -75,8 +75,7 @@ public enum Message: Codable, Sendable {
     case hello(phoneName: String, appVersion: String, os: String)
     case dictation(Dictation, delayed: Bool)
     // Mac → Phone
-    case welcome(macName: String, appVersion: String, profiles: [ProfileSummary])
-    case profiles([ProfileSummary])
+    case welcome(macName: String, appVersion: String)
     /// `detail` is a short human line, e.g. "Pasted into Claude" or "Copied to clipboard".
     case ack(id: UUID, outcome: DeliveryOutcome, detail: String?)
     /// Mac → phone: the open apps/windows with somewhere to type, newest first. Sent after

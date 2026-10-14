@@ -12,7 +12,6 @@ enum TargetGlyph {
         case .clipboard: return "doc.on.clipboard"
         case .frontApp: return "cursorarrow.rays"
         case let .app(bid, _, name): return appSymbol(bundleID: bid, name: name)
-        case .automation: return "doc.on.clipboard"
         }
     }
 
@@ -64,7 +63,7 @@ struct TargetIcon: View {
 
     static func tint(_ t: TargetRef) -> Color {
         switch t {
-        case .clipboard, .automation: return Light.teal
+        case .clipboard: return Light.teal
         case .frontApp: return Light.violet
         case .app: return Light.cyan
         }

@@ -48,22 +48,19 @@ public enum TargetRef: Codable, Sendable, Hashable {
     case frontApp
     /// A live app or window. `name` is for display when the target isn't open right now.
     case app(bundleID: String, windowKey: String?, name: String)
-    /// One of the Mac's automations (a note, a reminder, a tmux pane, Ask Claude, a script…).
-    case automation(id: UUID, name: String)
 
     public var displayName: String {
         switch self {
         case .clipboard: return "Clipboard"
         case .frontApp: return "Where I'm typing"
         case let .app(_, _, name): return name
-        case let .automation(_, name): return name
         }
     }
 
     /// Whether "send" makes sense for it (pressing the send key after pasting).
     public var canSend: Bool {
         switch self {
-        case .clipboard, .automation: return false
+        case .clipboard: return false
         case .frontApp, .app: return true
         }
     }

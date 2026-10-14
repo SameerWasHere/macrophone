@@ -711,7 +711,6 @@ final class AppModel: ObservableObject {
         case .clipboard: return "clipboard"
         case .frontApp: return "where I'm typing"
         case .app: return "an open app"
-        case .automation: return "clipboard"   // never picked on the phone
         }
     }
 
@@ -919,7 +918,6 @@ extension AppModel: LinkClientDelegate {
     }
 
     /// An older Mac still sends its automations; the phone no longer offers them.
-    func linkClient(_ client: LinkClient, profiles: [ProfileSummary], macID: UUID) {}
 
     func linkClient(_ client: LinkClient, targets: [LiveTarget], macID: UUID) {
         guard client === self.client else { return }
@@ -936,11 +934,6 @@ extension AppModel: LinkClientDelegate {
     /// Changed on the Mac: apply it here, and don't send it back.
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {
         guard client === self.client else { return }
-        // An older Mac picked one of its automations: the phone keeps (and re-sends) its own choice.
-        if selection.target.isAutomation {
-            client.setSelection(settings.selection)
-            return
-        }
         recordingOverride = nil
         var selection = selection
         // Show the app the way the phone lists it ("Terminal — claude"), whatever name the Mac sent.

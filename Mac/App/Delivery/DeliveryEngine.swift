@@ -25,14 +25,11 @@ final class DeliveryEngine {
     enum Route {
         case clipboard
         case paste(Paster.Target, send: Bool, name: String)
-        /// An older iPhone picked an automation (Macrophone has none any more): copied instead.
-        case retired
 
         var name: String {
             switch self {
             case .clipboard: return "Clipboard"
             case .paste(_, _, let name): return name
-            case .retired: return "Clipboard"
             }
         }
     }
@@ -49,7 +46,6 @@ final class DeliveryEngine {
         case .clipboard: return .clipboard
         case .frontApp: return .paste(.front, send: send, name: TargetRef.frontApp.displayName)
         case let .app(bundleID, windowKey, name): return .paste(.app(bundleID: bundleID, windowKey: windowKey, name: name), send: send, name: name)
-        case .automation: return .retired
         }
     }
 
@@ -67,7 +63,6 @@ final class DeliveryEngine {
         switch route {
         case .clipboard: kind = "clipboard"
         case .paste(let t, let send, _): kind = (t == .front ? "where typing" : "an app") + (send ? ", send" : "")
-        case .retired: kind = "a retired automation"
         }
         log.add("dictation received (\(d.text.count) chars, \(delayed ? "delayed, " : "")\(d.target == nil ? "no target from phone, " : "")to \(kind)\(d.targetSpoken == true ? ", named by voice" : ""))")
 
@@ -82,7 +77,7 @@ final class DeliveryEngine {
         if delayed { return "Copied (delayed)" }
         if let early { return early.title }
         switch route {
-        case .clipboard, .retired: return "Copied to clipboard"
+        case .clipboard: return "Copied to clipboard"
         case let .paste(t, send, name):
             if t == .front { return send ? "Sending where you're typing" : "Pasting where you're typing" }
             return send ? "Sending to \(name)" : "Pasting into \(name)"
@@ -110,12 +105,6 @@ final class DeliveryEngine {
             } else {
                 app.flashStatusItem()
             }
-        case .retired:
-            Paster.copy(text)
-            app.updateOutcome(id, .copied, "Copied — automations aren't part of Macrophone any more")
-            let c = PopupCard(text: text, source: source, delayed: false, phase: .copied, status: "Copied")
-            c.note = "Automations aren't part of Macrophone any more. Pick an app under Send to on your iPhone."
-            popup.show(c)
         case let .paste(target, send, name):
             let req = Paster.Request(text: text, target: target, send: send)
             let c = PopupCard(text: text, source: source, delayed: false, phase: .countdown, status: "")
