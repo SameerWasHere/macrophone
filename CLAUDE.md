@@ -26,6 +26,18 @@ Mac's X25519 key (phone proves it scanned it with an HMAC), or a six-digit code 
 (Keychain). Every connection: nonce handshake with HMAC proofs both ways → per-direction
 ChaCha20-Poly1305 keys with counter nonces. Dictations carry a UUID; the Mac de-duplicates.
 
+## Speech (Oct 14 2026)
+
+The iPhone uses Apple's newest on-device speech model — SpeechAnalyzer + SpeechTranscriber
+(`iOS/Macrophone/Recording/ModernSpeech.swift`, iOS 26+) — whenever the language's model is
+installed: one continuous analysis, words settle ~0.1 s after the mic stops (measured on the
+phone: 125 ms). Otherwise SFSpeechRecognizer (on-device) runs that recording and the model is
+fetched in the background (`Recorder.prepare`, at launch). The simulator has no SpeechTranscriber;
+test on a phone with `MACROPHONE_AUDIO_FILE=<file in the app's Documents>` (a Debug build;
+devicectl copies the file in and launches with the variable; the result shows on screen and is
+never sent). Cleanup already gets the newest Foundation model the OS ships (iOS 27 picks the
+variant itself) and is prewarmed when the mic opens.
+
 ## Checks
 
 ```

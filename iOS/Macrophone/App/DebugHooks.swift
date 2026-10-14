@@ -43,6 +43,7 @@ import UIKit
 /// MACROPHONE_UNPAIR=1                       forget the paired Mac (tells it, if reachable)
 /// MACROPHONE_RESEND_LATEST=1                 resend the last dictation (same id) after a few seconds
 /// MACROPHONE_RECORD=<seconds>                really record from the mic for that long, then stop
+/// MACROPHONE_AUDIO_FILE=<path>               record that audio file instead of the mic (real speed), then stop
 /// MACROPHONE_PAIRING=connecting|code|paired|failed|expired  the pairing panel in that phase
 /// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
 /// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
@@ -221,6 +222,13 @@ enum DebugHooks {
             Task {
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
                 if let item = model.latest { model.resend(item) }
+            }
+        }
+        if env["MACROPHONE_AUDIO_FILE"] != nil {
+            // The file stands in for the mic (Recorder.audioFile); the recording stops after it.
+            Task {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                await model.startRecording()
             }
         }
         if let secs = env["MACROPHONE_RECORD"].flatMap(Double.init) {

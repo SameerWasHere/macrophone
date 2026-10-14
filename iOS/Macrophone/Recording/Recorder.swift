@@ -6,9 +6,12 @@ import Speech
 
 // The recording engine.
 //
-// - On-device only: every request sets `requiresOnDeviceRecognition`, and only languages
-//   whose recognizer supports it are offered (Languages.onDevice).
-// - Long audio: the microphone tap never stops; every ~45–55 s the request it feeds is
+// - Two engines, both on-device (Oct 14 2026): SpeechAnalyzer + SpeechTranscriber (ModernSpeech,
+//   iOS 26+: Apple's newer long-form model — one continuous analysis, words settle ~0.1 s after
+//   the mic stops) whenever the language's model is installed; otherwise SFSpeechRecognizer with
+//   `requiresOnDeviceRecognition`, while the newer model downloads for next time. Only languages
+//   whose recognizer runs on the phone are offered (Languages.onDevice).
+// - Long audio (the older engine): the microphone tap never stops; every ~45–55 s the request it feeds is
 //   swapped for a fresh one (at a pause when there is one) and the old one is ended, so
 //   the recognizer never sees one huge request. The segments' texts are stitched in order.
 // - Limits (chosen, see docs/RECORDING.md): a warning at 5:00, a hard stop at 10:00.
@@ -66,6 +69,8 @@ struct LevelScale {
 final class AudioFeed: @unchecked Sendable {
     private let lock = NSLock()
     private var request: SFSpeechAudioBufferRecognitionRequest?
+    /// The newer engine's input (set instead of `request`).
+    private var sink: ((AVAudioPCMBuffer) -> Void)?
     private var scale = LevelScale()
     private var lastLoud = Date.distantPast
     private var lastBuffer = Date.distantPast
@@ -81,6 +86,12 @@ final class AudioFeed: @unchecked Sendable {
         request = r
         if r == nil { meter.set(0) }
         return old
+    }
+
+    /// Points the tap at the newer engine (nil detaches it).
+    func setSink(_ s: ((AVAudioPCMBuffer) -> Void)?) {
+        lock.lock(); sink = s; lock.unlock()
+        if s == nil { meter.set(0) }
     }
 
     /// A fresh recording: forget the last room.
@@ -99,8 +110,9 @@ final class AudioFeed: @unchecked Sendable {
     func consume(_ buffer: AVAudioPCMBuffer) {
         lock.lock()
         let r = request
+        let k = sink
         lock.unlock()
-        r?.append(buffer)
+        if let k { k(buffer) } else { r?.append(buffer) }
 
         guard let ch = buffer.floatChannelData?[0] else { return }
         let n = Int(buffer.frameLength)
@@ -208,6 +220,8 @@ final class Recorder: ObservableObject {
     private let engine = AVAudioEngine()
     private lazy var feed = AudioFeed(meter: meter)
     private var recognizer: SFSpeechRecognizer?
+    /// The newer engine for this recording (a ModernSpeech on iOS 26+), when it's the one running.
+    private var modern: AnyObject?
     private var language = "en-US"
     private var contextual: [String] = []
     private var autoStopDelay: TimeInterval?
@@ -269,6 +283,9 @@ final class Recorder: ObservableObject {
             teardownAudio()
             segments.forEach { $0.task?.cancel() }
             segments.removeAll()
+            if #available(iOS 26.0, *), let m = modern as? ModernSpeech { m.cancel() }
+            modern = nil
+            feed.setSink(nil)
             phase = .idle
             log?.add("recording failed to start: \(error)")
             throw error
@@ -279,7 +296,21 @@ final class Recorder: ObservableObject {
         }
     }
 
+    /// DEBUG: `MACROPHONE_AUDIO_FILE=<path>` — that file stands in for the microphone (no mic,
+    /// no permission prompts), played at real speed; the recording stops a moment after it ends.
+    static var audioFile: String? {
+        #if DEBUG
+        // A bare name is in the app's Documents (copied there with devicectl).
+        return ProcessInfo.processInfo.environment["MACROPHONE_AUDIO_FILE"].map {
+            $0.hasPrefix("/") ? $0 : NSHomeDirectory() + "/Documents/" + $0
+        }
+        #else
+        return nil
+        #endif
+    }
+
     private func begin(language: String, contextualStrings: [String], autoStopAfter: TimeInterval?) async throws {
+        if Self.audioFile == nil {
         switch Self.micStatus {
         case .granted: break
         case .denied: throw StartError.micDenied
@@ -290,20 +321,22 @@ final class Recorder: ObservableObject {
         case .notDetermined: guard await Self.requestSpeech() else { throw StartError.speechDenied }
         default: throw StartError.speechDenied
         }
-
-        if Self.micOnly {
-            recognizer = nil
-        } else {
-            guard let r = SFSpeechRecognizer(locale: Locale(identifier: language)), r.supportsOnDeviceRecognition else {
-                throw StartError.languageNotOnDevice
-            }
-            guard r.isAvailable else { throw StartError.recognizerBusy }
-            recognizer = r
         }
+
+        // The newer engine when its model is on the phone; else the older one (and fetch the model).
+        var useModern = false
+        if !Self.micOnly, #available(iOS 26.0, *) {
+            let log = self.log
+            useModern = await ModernSpeech.isReady(language) { log?.add($0) }
+        }
+        recognizer = nil
+        if !Self.micOnly, !useModern { try useOlderRecognizer(language) }
         self.language = language
         contextual = Array(contextualStrings.prefix(DictionaryPass.maxTerms))
         autoStopDelay = autoStopAfter
 
+        let fileInput = Self.audioFile
+        if fileInput == nil {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.record, mode: .measurement, options: [.allowBluetoothHFP])
@@ -311,11 +344,10 @@ final class Recorder: ObservableObject {
         } catch {
             throw StartError.audio
         }
-
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
+        let format = engine.inputNode.outputFormat(forBus: 0)
         // A zero format (a call holds the mic) would raise an exception Swift can't catch.
         guard format.sampleRate > 0, format.channelCount > 0 else { throw StartError.noInput }
+        }
 
         generation += 1
         segments.removeAll()
@@ -325,19 +357,76 @@ final class Recorder: ObservableObject {
         softCapReached = false
         voiced = 0
         feed.reset()
-        _ = feed.swap(newSegment().request)
+        modern = nil
+        if useModern, #available(iOS 26.0, *) {
+            let g = generation
+            if let m = await ModernSpeech.start(language: language, contextualStrings: contextual,
+                                                onText: { [weak self] t in self?.heard(t, generation: g) }) {
+                modern = m
+                feed.setSink { m.sink.feed($0) }
+            } else {
+                log?.add("newer speech engine couldn't start; using the older one")
+                try useOlderRecognizer(language)
+            }
+        }
+        if modern == nil { _ = feed.swap(newSegment().request) }
         segmentStartedAt = Date()
 
-        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tapBlock(feed))
-        tapInstalled = true
-        engine.prepare()
-        do { try engine.start() } catch { throw StartError.audio }
+        if let fileInput {
+            playFile(fileInput)
+        } else {
+            let input = engine.inputNode
+            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0), block: Self.tapBlock(feed))
+            tapInstalled = true
+            engine.prepare()
+            do { try engine.start() } catch { throw StartError.audio }
+        }
 
         startedAt = Date()
         phase = .recording
         observe()
         startTicking()
-        log?.add("recording started (\(language), \(contextual.count) hints)")
+        log?.add("recording started (\(language), \(contextual.count) hints, \(modern == nil ? "SFSpeechRecognizer" : "SpeechAnalyzer"))")
+    }
+
+    /// DEBUG stand-in microphone: the file's buffers at real speed, then a stop.
+    private func playFile(_ path: String) {
+        let feed = self.feed
+        let g = generation
+        Task.detached { [weak self] in
+            guard let file = try? AVAudioFile(forReading: URL(fileURLWithPath: path)) else { return }
+            let fmt = file.processingFormat
+            while true {
+                guard let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 1024) else { break }
+                do { try file.read(into: buf, frameCount: 1024) } catch { break }
+                if buf.frameLength == 0 { break }
+                feed.consume(buf)
+                try? await Task.sleep(nanoseconds: UInt64(Double(buf.frameLength) / fmt.sampleRate * 1e9))
+            }
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await MainActor.run { if self?.generation == g { self?.stop(.user) } }
+        }
+    }
+
+    private func useOlderRecognizer(_ language: String) throws {
+        guard let r = SFSpeechRecognizer(locale: Locale(identifier: language)), r.supportsOnDeviceRecognition else {
+            throw StartError.languageNotOnDevice
+        }
+        guard r.isAvailable else { throw StartError.recognizerBusy }
+        recognizer = r
+    }
+
+    /// The newer engine's words so far.
+    private func heard(_ text: String, generation g: Int) {
+        guard g == generation, phase == .recording || phase == .finishing, text != transcript else { return }
+        transcript = text
+        if phase == .recording { lastWordsAt = Date() }
+    }
+
+    /// Fetch the newer engine's model for this language ahead of the first recording.
+    static func prepare(language: String, log: DiagnosticLog?) {
+        guard #available(iOS 26.0, *), !micOnly else { return }
+        Task { _ = await ModernSpeech.isReady(language) { log?.add($0) } }
     }
 
     /// Built outside the main actor: the tap runs on the audio thread.
@@ -473,6 +562,7 @@ final class Recorder: ObservableObject {
             stop(.autoStop)
             return
         }
+        guard modern == nil else { return }
         let seg = now.timeIntervalSince(segmentStartedAt)
         if (seg >= Self.segmentTarget && feed.quietFor >= 0.35) || seg >= Self.segmentMax { rotate() }
     }
@@ -496,10 +586,28 @@ final class Recorder: ObservableObject {
         removeObservers()
         teardownAudio()
         feed.swap(nil)?.endAudio()
+        feed.setSink(nil)
         let g = generation
-        let count = segments.count
+        let count = max(segments.count, modern == nil ? 0 : 1)
         let lv = feed.levels
-        log?.add("recording stopped (\(reason.logName), \(Int(duration))s, \(count) segment(s)); mic: room \(Int(lv.room)) dB, voice \(lv.voice > -150 ? "\(Int(lv.voice)) dB" : "none")")
+        log?.add("recording stopped (\(reason.logName), \(Int(duration))s, \(modern == nil ? "\(count) segment(s)" : "SpeechAnalyzer")); mic: room \(Int(lv.room)) dB, voice \(lv.voice > -150 ? "\(Int(lv.voice)) dB" : "none")")
+
+        if #available(iOS 26.0, *), let m = modern as? ModernSpeech {
+            modern = nil
+            Task { [weak self] in
+                let t0 = Date()
+                let raw = await m.finish(timeout: reason.isEarly ? 2.0 : 3.0)
+                guard let self, self.generation == g else { return }
+                self.log?.add("words settled in \(Int(Date().timeIntervalSince(t0) * 1000)) ms")
+                if !raw.isEmpty { self.transcript = raw }
+                self.generation += 1
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                self.phase = .idle
+                self.startedAt = nil
+                self.onFinish?(Outcome(raw: raw, duration: duration, reason: reason, language: self.language, segments: 1))
+            }
+            return
+        }
 
         Task { [weak self] in
             guard let self else { return }

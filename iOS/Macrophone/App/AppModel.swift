@@ -223,6 +223,8 @@ final class AppModel: ObservableObject {
 
     func refreshAvailability() {
         cleanupAvailability = Cleaner.availability(language: settings.language)
+        // The newer speech engine's model for this language, fetched ahead of the first recording.
+        Recorder.prepare(language: settings.language, log: log)
         #if DEBUG
         if DebugHooks.env["MACROPHONE_CLEANUP_AVAILABLE"] == "1" { cleanupAvailability = .available }
         #endif
@@ -366,6 +368,14 @@ final class AppModel: ObservableObject {
             resolveTextWaiters(nil)
             return
         }
+        #if DEBUG
+        if Recorder.audioFile != nil {
+            // A test file stood in for the mic: show what was heard, send nothing.
+            log.add("test file heard: \(raw.split(separator: " ").count) words")
+            status = .notice(raw)
+            return
+        }
+        #endif
         processing = true
         Task { await finish(raw: raw, outcome: o) }
     }
