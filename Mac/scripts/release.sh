@@ -136,11 +136,11 @@ notarize() {  # notarize <file>
   say "Notarizing ${file:t} (this takes a few minutes)"
   xcrun notarytool submit "$file" --keychain-profile "$NOTARY_PROFILE" --wait --output-format json > "$log" \
     || die "notarytool failed — see $log"
-  local status=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('status',''))" "$log")
-  if [[ "$status" != "Accepted" ]]; then
+  local result=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('status',''))" "$log")
+  if [[ "$result" != "Accepted" ]]; then
     local id=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('id',''))" "$log")
     xcrun notarytool log "$id" --keychain-profile "$NOTARY_PROFILE" "$OUT/notary-log-${1:t}.json" || true
-    die "Notarization status: $status — see $OUT/notary-log-${1:t}.json"
+    die "Notarization status: $result — see $OUT/notary-log-${1:t}.json"
   fi
   ok "Notarized ${file:t}"
 }
