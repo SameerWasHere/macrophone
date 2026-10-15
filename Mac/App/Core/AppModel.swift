@@ -138,6 +138,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.start()
         if settings.apiEnabled { api.start() } else { apiState = .off }
         pushStatus()
+        // Nothing lands without Accessibility: ask at launch, which also puts Macrophone in the list.
+        if !accessibilityGranted { _ = Paster.requestTrust() }
     }
 
     func refreshAccessibility() {
