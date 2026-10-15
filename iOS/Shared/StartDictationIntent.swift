@@ -125,13 +125,14 @@ struct TargetQuery: EntityQuery {
 struct StartDictationIntent: AppIntent {
     static var title: LocalizedStringResource { "Start Dictation" }
     static var description: IntentDescription? {
-        IntentDescription("Opens Macrophone and starts listening. Tap the button when you're done and the text goes to your Mac — to the place you pick here (Clipboard, where you're typing, or an app open on your Mac), or the one picked in the app.")
+        // No "Mac" or the app's name in intent text: App Store processing rejects it (ITMS-90626, Oct 14 2026).
+        IntentDescription("Starts listening right away. Tap the button when you're done and the text goes to the place you pick here (Clipboard, where you're typing, or an open app on your computer), or the one picked in the app.")
     }
     static var openAppWhenRun: Bool { true }
     @available(iOS 26.0, *)
     static var supportedModes: IntentModes { .foreground(.immediate) }
 
-    @Parameter(title: "Send To", description: "Clipboard, Where I'm typing, or an app open on your Mac. Leave empty for the one picked in the app.")
+    @Parameter(title: "Send To", description: "Clipboard, Where I'm typing, or an open app on your computer. Leave empty for the one picked in the app.")
     var target: TargetEntity?
 
     init() {}

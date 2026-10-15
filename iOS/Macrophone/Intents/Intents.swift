@@ -5,7 +5,7 @@ import Foundation
 struct DictateTextIntent: AppIntent {
     static var title: LocalizedStringResource { "Dictate Text" }
     static var description: IntentDescription? {
-        IntentDescription("Opens Macrophone and listens. When you tap stop, the text — cleaned up if cleanup is on — is passed to the next action. It's also sent to your Mac as usual.",
+        IntentDescription("Listens, and when you tap stop passes the text — cleaned up if cleanup is on — to the next action. It's also sent on to your computer as usual.",
                           categoryName: "Dictation")
     }
     static var openAppWhenRun: Bool { true }

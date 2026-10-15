@@ -15,7 +15,7 @@ struct StartDictationControl: ControlWidget {
             }
         }
         .displayName("Dictate to Mac")
-        .description("Opens Macrophone already listening. Choose where it goes to send straight there.")
+        .description("Starts listening right away. Choose where it goes to send straight there.")
     }
 
     private func title(_ t: TargetEntity?) -> String {
