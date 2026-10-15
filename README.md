@@ -18,8 +18,7 @@ Website and downloads: **[sameer.us/macrophone](https://sameer.us/macrophone)** 
 why: [`docs/POSITIONING.md`](docs/POSITIONING.md)
 
 <p align="center">
-  <img src="https://sameer.us/macrophone/img/mk-hero.webp" width="380" alt="A MacBook running Claude Code in a Terminal window, and an iPhone in front of it showing the same window, live">
-  <img src="https://sameer.us/macrophone/img/mk-tap.webp" width="280" alt="The live window on iPhone with a tap on Claude Code's question, and Esc, up, down and Return keys under it">
+  <img src="https://sameer.us/macrophone/img/iphone-watch-demo-poster.webp" width="300" alt="Macrophone on iPhone: a Terminal window running Claude Code, live, asking to make an edit, with Esc, up, down and Return keys under it">
 </p>
 
 ## Private by design
