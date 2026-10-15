@@ -32,6 +32,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID)
     /// A click on the watched window, at a fraction of its size (top-left origin).
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID)
+    /// A swipe on the watched window: scroll it at `point` by `delta` (fractions of the window).
+    func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID)
     /// The apps installed on this Mac, by name (Open an app).
     func installedApps(_ server: LinkServer) async -> [MacApp]
     /// Open an app and bring it forward. Returns whether it opened and a plain line about it.
@@ -46,6 +48,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {}
     func installedApps(_ server: LinkServer) async -> [MacApp] { [] }
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't open apps") }
 }
@@ -444,6 +447,9 @@ public final class LinkServer: @unchecked Sendable {
                     let (ok, detail) = await d.linkServer(self, openApp: bundleID, from: phoneID)
                     try? await s.send(.appOpened(bundleID: bundleID, ok: ok, detail: detail))
                 }
+            case let .watchScroll(x, y, dx, dy):
+                guard (0...1).contains(x), (0...1).contains(y), abs(dx) <= 2, abs(dy) <= 2 else { break }
+                notify { $0.linkServer(self, watchScroll: CGPoint(x: x, y: y), delta: CGVector(dx: dx, dy: dy), from: phoneID) }
             case let .watchClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }

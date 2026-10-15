@@ -41,25 +41,34 @@ let spectrum = [cyan, teal, mint, gold, ember, violet]
 let space = CGColorSpace(name: CGColorSpace.sRGB)!
 
 struct Shot {
+    var out: String
+    /// The raw screen it frames.
     var file: String
-    var kicker: String
+    /// Two short lines; *a word* between asterisks takes the shot's light.
     var caption: String
     var glow: CGColor
     /// Where the Filament's peak sits across the page, 0…1.
     var peak: CGFloat
     /// A before/after card laid over the lower screen: (heard, sent, level).
     var beforeAfter: (String, String, String)? = nil
+    /// The hero: a MacBook showing this window, the phone in front of it.
+    var macWindow: String? = nil
+    /// A finger's tap, as a fraction of the screen.
+    var tap: CGPoint? = nil
 }
 
+// The marketing pass (Oct 14 2026): big bold two-line headlines with one lit word, readable as a
+// search-result thumbnail; a hero with the Mac and the phone together; a tap shot.
 let shots: [Shot] = [
-    Shot(file: "01-watch", kicker: "Watch it work", caption: "Your Mac does the coding.\nYour iPhone runs the session.", glow: cyan, peak: 0.42),
-    Shot(file: "02-reply", kicker: "Answer by voice", caption: "Say the next prompt.\nIt's pasted in and sent.", glow: ember, peak: 0.58),
-    Shot(file: "03-send-to", kicker: "Pick the session", caption: "Every app on your Mac,\none tap away.", glow: teal, peak: 0.36),
-    Shot(file: "04-open-app", kicker: "Open any app", caption: "Something closed?\nOpen it from your iPhone.", glow: mint, peak: 0.62),
-    Shot(file: "05-cleanup", kicker: "Cleanup", caption: "Four levels, or your own.\nIt edits, never answers.", glow: violet, peak: 0.45,
+    Shot(out: "01-hero", file: "01-watch", caption: "Your Mac codes.\nYou *steer*.", glow: cyan, peak: 0.5, macWindow: "mac-window.png"),
+    Shot(out: "02-talk", file: "02-reply", caption: "*Say* the next\nprompt.", glow: ember, peak: 0.58),
+    Shot(out: "03-tap", file: "01-watch", caption: "*Tap* to click\non your Mac.", glow: teal, peak: 0.36, tap: CGPoint(x: 0.17, y: 0.405)),
+    Shot(out: "04-apps", file: "03-send-to", caption: "Every app,\n*one tap* away.", glow: cyan, peak: 0.42),
+    Shot(out: "05-open", file: "04-open-app", caption: "Open *any app*\non your Mac.", glow: mint, peak: 0.62),
+    Shot(out: "06-cleanup", file: "05-cleanup", caption: "Ums and uhs,\n*cleaned up*.", glow: violet, peak: 0.45,
          beforeAfter: ("so um the thing I want is, uh, make the retry logic back off, no wait, back off exponentially and cap it at thirty seconds",
                        "Make the retry logic back off exponentially and cap it at 30 seconds.", "Medium")),
-    Shot(file: "06-pairing", kicker: "Private by design", caption: "Pair once. No account,\nno cloud, no audio kept.", glow: gold, peak: 0.55),
+    Shot(out: "07-private", file: "06-pairing", caption: "*Private.* No account,\nno cloud.", glow: gold, peak: 0.55),
 ]
 
 // MARK: Text
@@ -87,6 +96,83 @@ func drawCentered(_ ctx: CGContext, _ text: String, font: NSFont, color: CGColor
         y += ascent + descent + lineGap
     }
     return y - top
+}
+
+/// The headline: bold, tight, centred; *words* in the light.
+@discardableResult
+func drawHeadline(_ ctx: CGContext, _ text: String, size: CGFloat, light: CGColor, top: CGFloat) -> CGFloat {
+    let font = NSFont.systemFont(ofSize: size, weight: .bold)
+    var y = top
+    for line in text.components(separatedBy: "\n") {
+        let attr = NSMutableAttributedString()
+        for (i, part) in line.components(separatedBy: "*").enumerated() where !part.isEmpty {
+            attr.append(NSAttributedString(string: part, attributes: [.font: font, .kern: -size * 0.022,
+                .foregroundColor: NSColor(cgColor: i % 2 == 1 ? light : ink)!]))
+        }
+        let ctLine = CTLineCreateWithAttributedString(attr)
+        var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+        let width = CGFloat(CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading))
+        ctx.textPosition = CGPoint(x: (w - width) / 2, y: h - (y + ascent))
+        CTLineDraw(ctLine, ctx)
+        y += size * 1.08
+    }
+    return y - top
+}
+
+/// A MacBook, front on: the window on its screen over a dark desktop, a thin chin and base.
+func drawMac(_ ctx: CGContext, window: CGImage, rect r: CGRect) {
+    let bezel = r.width * 0.022
+    let lidH = r.height * 0.93
+    let lid = CGRect(x: r.minX, y: r.maxY - lidH, width: r.width, height: lidH)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -30 * k), blur: 90 * k, color: rgb(0, 0, 0, 0.75))
+    ctx.addPath(roundedRect(lid, 34 * k))
+    ctx.setFillColor(rgb(0.06, 0.063, 0.075))
+    ctx.fillPath()
+    ctx.restoreGState()
+    ctx.addPath(roundedRect(lid.insetBy(dx: 1.5 * k, dy: 1.5 * k), 33 * k))
+    ctx.setStrokeColor(rgb(0.45, 0.47, 0.53, 0.8)); ctx.setLineWidth(3 * k); ctx.strokePath()
+    // The screen: a dusk desktop, a menu bar, the window.
+    let screen = lid.insetBy(dx: bezel, dy: bezel)
+    ctx.saveGState()
+    ctx.addPath(roundedRect(screen, 14 * k)); ctx.clip()
+    let desk = CGGradient(colorsSpace: space, colors: [rgb(0.10, 0.09, 0.20), rgb(0.05, 0.07, 0.14), rgb(0.16, 0.10, 0.18)] as CFArray, locations: [0, 0.6, 1])!
+    ctx.drawLinearGradient(desk, start: CGPoint(x: screen.minX, y: screen.maxY), end: CGPoint(x: screen.maxX, y: screen.minY), options: [])
+    ctx.setFillColor(rgb(0, 0, 0, 0.35))
+    ctx.fill(CGRect(x: screen.minX, y: screen.maxY - 30 * k, width: screen.width, height: 30 * k))
+    let ww = screen.width * 0.80, wh = ww * CGFloat(window.height) / CGFloat(window.width)
+    let wr = CGRect(x: screen.midX - ww / 2, y: screen.maxY - 30 * k - 26 * k - wh, width: ww, height: wh)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -10 * k), blur: 30 * k, color: rgb(0, 0, 0, 0.6))
+    ctx.addPath(roundedRect(wr, 12 * k)); ctx.clip()
+    ctx.interpolationQuality = .high
+    ctx.draw(window, in: wr)
+    ctx.restoreGState()
+    ctx.restoreGState()
+    // The base.
+    let base = CGRect(x: r.minX - r.width * 0.06, y: r.minY, width: r.width * 1.12, height: r.height - lidH + 4 * k)
+    let p = CGMutablePath()
+    p.move(to: CGPoint(x: base.minX, y: base.maxY)); p.addLine(to: CGPoint(x: base.maxX, y: base.maxY))
+    p.addLine(to: CGPoint(x: base.maxX - 30 * k, y: base.minY)); p.addLine(to: CGPoint(x: base.minX + 30 * k, y: base.minY)); p.closeSubpath()
+    ctx.addPath(p)
+    let metal = CGGradient(colorsSpace: space, colors: [rgb(0.55, 0.57, 0.63), rgb(0.22, 0.23, 0.27)] as CFArray, locations: [0, 1])!
+    ctx.saveGState(); ctx.clip()
+    ctx.drawLinearGradient(metal, start: CGPoint(x: 0, y: base.maxY), end: CGPoint(x: 0, y: base.minY), options: [])
+    ctx.restoreGState()
+}
+
+/// A fingertip's tap: a soft disc with rings in the shot's light.
+func drawTap(_ ctx: CGContext, at c: CGPoint, light: CGColor) {
+    for (radius, alpha, width) in [(120.0, 0.18, 0.0), (86.0, 0.0, 5.0), (132.0, 0.0, 3.0)] as [(CGFloat, CGFloat, CGFloat)] {
+        let r = CGRect(x: c.x - radius * k, y: c.y - radius * k, width: radius * 2 * k, height: radius * 2 * k)
+        if width == 0 {
+            ctx.setFillColor(light.copy(alpha: alpha)!); ctx.fillEllipse(in: r)
+        } else {
+            ctx.setStrokeColor(light.copy(alpha: width > 4 ? 0.95 : 0.45)!); ctx.setLineWidth(width * k); ctx.strokeEllipse(in: r)
+        }
+    }
+    ctx.setFillColor(rgb(1, 1, 1, 0.85))
+    ctx.fillEllipse(in: CGRect(x: c.x - 34 * k, y: c.y - 34 * k, width: 68 * k, height: 68 * k))
 }
 
 // MARK: Pieces
@@ -263,37 +349,49 @@ for shot in shots {
     guard let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                               bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { fatalError("no context") }
 
-    // Ground with a glow behind the caption.
+    // Ground, with the shot's light pooled behind the headline and under the device.
     ctx.setFillColor(ground)
     ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-    let top = CGGradient(colorsSpace: space, colors: [shot.glow.copy(alpha: 0.16)!, shot.glow.copy(alpha: 0)!] as CFArray, locations: [0, 1])!
-    ctx.drawRadialGradient(top, startCenter: CGPoint(x: w * 0.5, y: h * 1.02), startRadius: 0,
-                           endCenter: CGPoint(x: w * 0.5, y: h * 1.02), endRadius: 1100 * k, options: [])
+    for (cy, radius, alpha) in [(h * 0.97, 1250 * k, 0.26), (h * 0.35, 1100 * k, 0.10)] as [(CGFloat, CGFloat, CGFloat)] {
+        let g = CGGradient(colorsSpace: space, colors: [shot.glow.copy(alpha: alpha)!, shot.glow.copy(alpha: 0)!] as CFArray, locations: [0, 1])!
+        ctx.drawRadialGradient(g, startCenter: CGPoint(x: w * 0.5, y: cy), startRadius: 0, endCenter: CGPoint(x: w * 0.5, y: cy), endRadius: radius, options: [])
+    }
 
-    // Caption.
-    let kickerTop: CGFloat = 196 * k
-    drawCentered(ctx, shot.kicker.uppercased(), font: mono(30 * k), color: shot.glow, top: kickerTop, kern: 6 * k)
-    drawCentered(ctx, shot.caption, font: serif(86 * k), color: ink, top: kickerTop + 70 * k, kern: -0.6 * k, lineGap: 10 * k)
+    // The headline: big enough to read as a thumbnail.
+    let headTop: CGFloat = 170 * k
+    let used = drawHeadline(ctx, shot.caption, size: 122 * k, light: shot.glow, top: headTop)
+    let below = headTop + used + 70 * k
 
-    // The Filament, crossing just above the device.
-    let deviceTop = 610 * k * (h / w) / (2868.0 / 1320.0) + 10 * k
-    drawFilament(ctx, y: h - (deviceTop - 6 * k), peak: shot.peak, glow: shot.glow)
-
-    // The device: wide enough to read, its foot running off the page.
-    let dw = 1060 * k
-    let dh = dw * CGFloat(screen.height) / CGFloat(screen.width)
-    let rect = CGRect(x: (w - dw) / 2, y: h - deviceTop - 24 * k - dh, width: dw, height: dh)
-    drawDevice(ctx, screen: screen, rect: rect)
-
-    if let ba = shot.beforeAfter {
-        drawBeforeAfter(ctx, heard: ba.0, sent: ba.1, level: ba.2, top: h * 0.60)
+    if let macFile = shot.macWindow, let macImg = NSImage(contentsOf: rawDir.appendingPathComponent(macFile))?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        // The Mac at the back, the phone in front showing the same window.
+        let mw = 1180 * k, mh = mw * 0.66
+        let macRect = CGRect(x: (w - mw) / 2, y: h - below - mh, width: mw, height: mh)
+        drawMac(ctx, window: macImg, rect: macRect)
+        drawFilament(ctx, y: macRect.minY - 40 * k, peak: shot.peak, glow: shot.glow)
+        let dw = 820 * k
+        let dh = dw * CGFloat(screen.height) / CGFloat(screen.width)
+        let rect = CGRect(x: (w - dw) / 2, y: macRect.minY + 120 * k - dh, width: dw, height: dh)
+        drawDevice(ctx, screen: screen, rect: rect)
+    } else {
+        drawFilament(ctx, y: h - (below - 6 * k), peak: shot.peak, glow: shot.glow)
+        // The device: wide enough to read, its foot running off the page.
+        let dw = 1060 * k
+        let dh = dw * CGFloat(screen.height) / CGFloat(screen.width)
+        let rect = CGRect(x: (w - dw) / 2, y: h - below - 24 * k - dh, width: dw, height: dh)
+        drawDevice(ctx, screen: screen, rect: rect)
+        if let t = shot.tap {
+            drawTap(ctx, at: CGPoint(x: rect.minX + t.x * rect.width, y: rect.maxY - t.y * rect.height), light: shot.glow)
+        }
+        if let ba = shot.beforeAfter {
+            drawBeforeAfter(ctx, heard: ba.0, sent: ba.1, level: ba.2, top: h * 0.62)
+        }
     }
 
     // A dissolve at the very foot so the cut-off reads as intended.
     let foot = CGGradient(colorsSpace: space, colors: [ground, ground.copy(alpha: 0)!] as CFArray, locations: [0, 1])!
     ctx.drawLinearGradient(foot, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 0, y: 150 * k), options: [])
 
-    let out = outDir.appendingPathComponent(shot.file + ".png")
+    let out = outDir.appendingPathComponent(shot.out + ".png")
     let dest = CGImageDestinationCreateWithURL(out as CFURL, "public.png" as CFString, 1, nil)!
     CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
     CGImageDestinationFinalize(dest)

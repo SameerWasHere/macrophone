@@ -531,6 +531,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         watch.perform(action, for: peerID)
     }
 
+    func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {
+        watch.scroll(at: point, by: delta, for: peerID)
+    }
+
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {
         watch.click(point, for: peerID)
     }

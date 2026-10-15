@@ -133,6 +133,7 @@ final class AppModel: ObservableObject {
         watcher.sendWatch = { [weak self] t in self?.client.watch(t) ?? false }
         watcher.sendAction = { [weak self] a in self?.client.watchAction(a) }
         watcher.sendClick = { [weak self] p in self?.client.watchClick(p) }
+        watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         recorder.onFinish = { [weak self] outcome in self?.recordingFinished(outcome) }
         recorder.$phase.sink { [weak self] in self?.recorderPhase = $0 }.store(in: &bag)
         recorder.$softCapReached.filter { $0 }.sink { [weak self] _ in

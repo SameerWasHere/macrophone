@@ -273,6 +273,34 @@ final class WatchService {
         }
     }
 
+    /// A swipe on the phone's picture: scroll the window right there, as the finger moves.
+    func scroll(at p: CGPoint, by d: CGVector, for peer: UUID) {
+        act(on: peer, what: "scroll", quiet: true) { wid in Self.scroll(window: wid, at: p, by: d) }
+    }
+
+    /// Where the pointer was before a swipe moved it; put back once the swipe has paused.
+    private static var cursorBeforeScroll: CGPoint?
+    private static var restoreCursor: Task<Void, Never>?
+
+    private static func scroll(window id: CGWindowID, at p: CGPoint, by d: CGVector) {
+        guard let b = WindowServer.appWindows().first(where: { $0.id == id })?.bounds else { return }
+        let pt = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
+        if cursorBeforeScroll == nil { cursorBeforeScroll = CGEvent(source: nil)?.location }
+        CGWarpMouseCursorPosition(pt)
+        // Content follows the finger: dragging down shows what's above (a positive wheel).
+        let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                        wheel1: Int32((d.dy * b.height).rounded()), wheel2: Int32((d.dx * b.width).rounded()), wheel3: 0)
+        e?.location = pt
+        e?.post(tap: .cghidEventTap)
+        restoreCursor?.cancel()
+        restoreCursor = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard !Task.isCancelled, let c = cursorBeforeScroll else { return }
+            CGWarpMouseCursorPosition(c)
+            cursorBeforeScroll = nil
+        }
+    }
+
     /// A tap on the phone's picture: a click at that spot in the window.
     func click(_ p: CGPoint, for peer: UUID) {
         act(on: peer, what: "click") { wid in await Self.click(window: wid, at: p) }
@@ -280,7 +308,7 @@ final class WatchService {
 
     /// Brings the watched window forward if it isn't already the front one, does `body`, and
     /// shows the result: a picture right away, and another once the app has answered.
-    private func act(on peer: UUID, what: String, _ body: @escaping @MainActor (CGWindowID) async -> Void) {
+    private func act(on peer: UUID, what: String, quiet: Bool = false, _ body: @escaping @MainActor (CGWindowID) async -> Void) {
         guard let w = watches[peer], let wid = w.windowID,
               let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
         guard Paster.isTrusted else {
@@ -298,7 +326,7 @@ final class WatchService {
                 }
             }
             await body(wid)
-            self?.app.log.add("watch \(what)")
+            if !quiet { self?.app.log.add("watch \(what)") }
             w.kick = true
             try? await Task.sleep(nanoseconds: 400_000_000)
             w.kick = true

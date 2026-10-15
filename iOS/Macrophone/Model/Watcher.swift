@@ -37,6 +37,7 @@ final class Watcher: ObservableObject {
     var sendWatch: (TargetRef?) -> Bool = { _ in false }
     var sendAction: (WatchAction) -> Void = { _ in }
     var sendClick: (CGPoint) -> Void = { _ in }
+    var sendScroll: (CGPoint, CGVector) -> Void = { _, _ in }
     var log: DiagnosticLog?
 
     private var idleTask: Task<Void, Never>?
@@ -122,6 +123,12 @@ final class Watcher: ObservableObject {
         touch()
         Haptics.tick()
         sendClick(p)
+    }
+
+    /// A swipe on the picture: scroll the Mac's window there (no haptic — it's continuous).
+    func scroll(at p: CGPoint, by d: CGVector) {
+        touch()
+        sendScroll(p, d)
     }
 
     func showNewest() {

@@ -409,7 +409,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .listApps, .openApp:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .listApps, .openApp:
             break
         }
     }
@@ -519,6 +519,12 @@ public final class LinkClient: @unchecked Sendable {
         guard let s = lock.sync({ session }) else { return false }
         Task { try? await s.send(.openApp(bundleID: bundleID)) }
         return true
+    }
+
+    /// Scroll the watched window at a point by a delta (fractions of the window).
+    public func watchScroll(at p: CGPoint, by d: CGVector) {
+        guard let s = lock.sync({ session }) else { return }
+        Task { try? await s.send(.watchScroll(x: Double(p.x), y: Double(p.y), dx: Double(d.dx), dy: Double(d.dy))) }
     }
 
     /// Click the watched window at a fraction of its size (top-left origin).

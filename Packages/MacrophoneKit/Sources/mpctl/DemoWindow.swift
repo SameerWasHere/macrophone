@@ -16,11 +16,12 @@ final class DemoWindow: @unchecked Sendable {
         "Looking at AuthView.swift and TokenStore.swift.",
     ]
     private let script = [
-        "The token check runs before the refresh finishes,",
-        "so a token that expires mid-request is treated as invalid.",
+        "The token check runs before the refresh",
+        "finishes, so a token that expires mid-request",
+        "is treated as invalid.",
         "",
-        "I'll move the check after the refresh and add a test",
-        "for the expired-token case.",
+        "I'll move the check after the refresh and",
+        "add a test for the expired-token case.",
         "",
         "● Update(AuthView.swift)",
         "  ⎿ 12 lines changed",
@@ -28,7 +29,7 @@ final class DemoWindow: @unchecked Sendable {
         "Do you want to make this edit to AuthView.swift?",
         "❯ 1. Yes",
         "  2. Yes, and don't ask again this session",
-        "  3. No, and tell Claude what to do differently (esc)",
+        "  3. No, and tell Claude what to do instead",
     ]
     private var next = 0
     private var scroll = 0
@@ -57,10 +58,27 @@ final class DemoWindow: @unchecked Sendable {
 
     func click(_ p: CGPoint) { lock.sync { lastClick = p } }
 
+    /// A swipe: content follows the finger (dy > 0 shows earlier lines).
+    private var scrollRemainder = 0.0
+    func scrollBy(_ dy: Double) {
+        lock.sync {
+            scrollRemainder += dy * Double(height) / 38
+            let whole = Int(scrollRemainder.rounded(.towardZero))
+            scrollRemainder -= Double(whole)
+            scroll = min(max(scroll + whole, 0), max(0, lines.count - 6))
+        }
+    }
+
     /// The chat column, as a fraction of the window.
     var focus: CGRect { CGRect(x: 0.22, y: 0.1, width: 0.56, height: 0.85) }
 
-    func jpeg() -> Data? {
+    /// The whole answer, up to the question (for the App Store hero's Mac screen).
+    func finish() { lock.sync { while next < script.count { lines.append(script[next]); next += 1 } } }
+
+    func png() -> Data? { encode(type: UTType.png.identifier, quality: 1) }
+    func jpeg() -> Data? { encode(type: UTType.jpeg.identifier, quality: 0.55) }
+
+    private func encode(type: String, quality: Double) -> Data? {
         let (all, offset, clicked) = lock.sync { (lines, scroll, lastClick) }
         let w = width, h = height
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
@@ -111,8 +129,8 @@ final class DemoWindow: @unchecked Sendable {
         }
         guard let image = ctx.makeImage() else { return nil }
         let out = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.55] as CFDictionary)
+        guard let dest = CGImageDestinationCreateWithData(out, type as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return nil }
         return out as Data
     }

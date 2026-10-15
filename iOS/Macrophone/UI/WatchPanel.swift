@@ -113,9 +113,9 @@ struct WatchWindow: View {
             if let image = watcher.image {
                 WindowViewer(image: image, focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
                              onTouch: { watcher.touch() },
-                             onTap: { watcher.click($0) }, onAdjusted: { moved in if moved != adjusted { adjusted = moved } })
+                             onTap: { watcher.click($0) }, onScroll: { watcher.scroll(at: $0, by: $1) }, onAdjusted: { moved in if moved != adjusted { adjusted = moved } })
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
-                    .accessibilityHint(interactive ? "Tap to click there on your Mac. Pinch to zoom." : "")
+                    .accessibilityHint(interactive ? "Tap to click there on your Mac. Swipe to scroll it. Pinch to zoom; two fingers move the picture." : "")
                     .accessibilityAddTraits(.isImage)
             }
             if interactive && adjusted && watcher.phase == .live {
@@ -273,7 +273,9 @@ private extension View {
 /// The window's picture in a zooming scroll view: it opens on the column you type in, at the
 /// bottom (the newest output), and stays there as pictures arrive — until you zoom or drag, then
 /// it stays where you put it (Newest brings it back). A tap is a click there on the Mac, with a
-/// ring where it landed.
+/// ring where it landed; a one-finger swipe scrolls the Mac's window right there (Sameer, Oct 14
+/// 2026: "swipe gestures could trigger small scrolls … where the swipe occurs"); two fingers move
+/// the picture, a pinch zooms it.
 struct WindowViewer: UIViewRepresentable {
     var image: UIImage
     var focus: CGRect?
@@ -281,6 +283,7 @@ struct WindowViewer: UIViewRepresentable {
     var interactive: Bool
     var onTouch: () -> Void
     var onTap: (CGPoint) -> Void
+    var onScroll: (CGPoint, CGVector) -> Void
     var onAdjusted: (Bool) -> Void
 
     func makeUIView(context: Context) -> ViewerScrollView {
@@ -297,6 +300,7 @@ struct WindowViewer: UIViewRepresentable {
     private func wire(_ v: ViewerScrollView) {
         v.onTouch = onTouch
         v.onTap = onTap
+        v.onScroll = onScroll
         v.onAdjusted = onAdjusted
     }
 }
@@ -311,8 +315,14 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     private var lastBounds: CGSize = .zero
     var onTouch: () -> Void = {}
     var onTap: (CGPoint) -> Void = { _ in }
+    var onScroll: (CGPoint, CGVector) -> Void = { _, _ in }
     var onAdjusted: (Bool) -> Void = { _ in }
     private var tapper: UITapGestureRecognizer!
+    private var swiper: UIPanGestureRecognizer!
+    /// The swipe so far, not yet sent (sent ~30 times a second), and where it started.
+    private var pendingScroll = CGVector.zero
+    private var scrollAnchor = CGPoint.zero
+    private var lastScrollSend = Date.distantPast
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -328,6 +338,11 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         addSubview(imageView)
         tapper = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         addGestureRecognizer(tapper)
+        // One finger scrolls the Mac's window; the picture itself moves with two.
+        panGestureRecognizer.minimumNumberOfTouches = 2
+        swiper = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
+        swiper.maximumNumberOfTouches = 1
+        addGestureRecognizer(swiper)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -336,6 +351,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         isScrollEnabled = interactive
         pinchGestureRecognizer?.isEnabled = interactive
         tapper.isEnabled = interactive
+        swiper.isEnabled = interactive
         let focusChanged = focus != self.focus && !adjusted
         self.focus = focus
         imageView.image = image
@@ -415,6 +431,40 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         guard (0...1).contains(n.x), (0...1).contains(n.y) else { return }
         ring(at: g.location(in: self))
         onTap(n)
+    }
+
+    @objc private func swiped(_ g: UIPanGestureRecognizer) {
+        guard imageSize.width > 0, zoomScale > 0 else { return }
+        let shown = CGSize(width: imageSize.width * zoomScale, height: imageSize.height * zoomScale)
+        switch g.state {
+        case .began:
+            onTouch()
+            let p = g.location(in: imageView)
+            scrollAnchor = CGPoint(x: min(max(p.x / imageSize.width, 0), 1), y: min(max(p.y / imageSize.height, 0), 1))
+            pendingScroll = .zero
+            g.setTranslation(.zero, in: self)
+        case .changed:
+            let t = g.translation(in: self)
+            g.setTranslation(.zero, in: self)
+            // As fractions of the window, so the Mac moves its content as far as the finger did.
+            pendingScroll.dx += t.x / shown.width
+            pendingScroll.dy += t.y / shown.height
+            if Date().timeIntervalSince(lastScrollSend) > 0.033 { flushScroll() }
+        case .ended:
+            // A flick carries on a little, like a trackpad.
+            let v = g.velocity(in: self)
+            pendingScroll.dy += min(max(v.y * 0.12, -900), 900) / shown.height
+            flushScroll()
+        default:
+            flushScroll()
+        }
+    }
+
+    private func flushScroll() {
+        guard abs(pendingScroll.dx) + abs(pendingScroll.dy) > 0.0005 else { return }
+        onScroll(scrollAnchor, pendingScroll)
+        pendingScroll = .zero
+        lastScrollSend = Date()
     }
 
     /// Where the click landed: a ring that grows and fades.

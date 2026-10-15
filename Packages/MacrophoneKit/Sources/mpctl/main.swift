@@ -172,6 +172,11 @@ final class ServeDelegate: LinkServerDelegate {
         return (true, "\(name) is open on your Mac")
     }
 
+    func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {
+        stdout("WATCH SCROLL at \(String(format: "%.2f, %.2f", point.x, point.y)) by \(String(format: "%.3f", delta.dy))")
+        demo.scrollBy(delta.dy)
+    }
+
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {
         stdout("WATCH CLICK \(String(format: "%.3f, %.3f", point.x, point.y))")
         demo.click(point)
@@ -379,6 +384,16 @@ func run() async -> Int32 {
         client.stop()
         return 0
 
+    case "demo-window":
+        // mpctl demo-window <out.png>: the drawn Claude Code window, finished, as a PNG.
+        guard args.count > 1 else { stdout("usage: mpctl demo-window <out.png>"); return 2 }
+        let demo = DemoWindow()
+        demo.finish()
+        guard let data = demo.png() else { return 1 }
+        try? data.write(to: URL(fileURLWithPath: args[1]))
+        stdout("wrote \(args[1])")
+        return 0
+
     case "apps", "open":
         let (client, d) = makeClient()
         client.start()
@@ -400,7 +415,13 @@ func run() async -> Int32 {
         }
         client.watch(target)
         let seconds = Double(flag("--seconds") ?? "6") ?? 6
-        if let a = flag("--action").flatMap(WatchAction.init(rawValue:)) {
+        if let dy = flag("--swipe").flatMap(Double.init) {
+            // A swipe in the middle of the window, in ten steps (dy: content dragged down, as a fraction).
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
+            stdout("SWIPE \(dy)")
+            for _ in 0..<10 { client.watchScroll(at: CGPoint(x: 0.5, y: 0.5), by: CGVector(dx: 0, dy: dy / 10)); try? await Task.sleep(nanoseconds: 30_000_000) }
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
+        } else if let a = flag("--action").flatMap(WatchAction.init(rawValue:)) {
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
             stdout("ACTION \(a.rawValue)")
             client.watchAction(a)

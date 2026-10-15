@@ -7,7 +7,9 @@
 # The pitch (Oct 14 2026): your Mac does the coding, your iPhone runs the session. Shots 1–4 need
 # a live Mac: run `swift run mpctl serve --name "Sameer's MacBook Pro" --auto-approve` in
 # Packages/MacrophoneKit (it answers with real app icons and a drawn Claude Code window) and pass
-# its PAIR URL. The simulator should be booted with the Debug build installed. Use a 6.9" device
+# its PAIR URL. A pairing URL works once: start a fresh `mpctl serve --state <new dir>` for each
+# simulator (the 6.5" set uploaded on Oct 14 2026 showed "Mac not connected" because the 6.9" run
+# had used it). `mpctl demo-window <dir>/mac-window.png` draws the hero's Mac screen. The simulator should be booted with the Debug build installed. Use a 6.9" device
 # (iPhone 17 Pro Max, 1320×2868) for docs/store-screenshots/6.9 and a 6.5" one (iPhone 14 Plus,
 # 1284×2778) for 6.5.
 set -e

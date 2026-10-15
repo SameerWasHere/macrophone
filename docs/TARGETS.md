@@ -192,7 +192,7 @@ Test recipe: `mpctl pair <url>` → `mpctl targets` → `mpctl select <bundleID|
 ## Watching (Oct 14 2026)
 
 The phone can show the window of the place it sends to. Phone → Mac `watch(TargetRef?)` (nil
-stops) `watchAction(WatchAction)` and `watchClick(x:y:)` (fractions of the window); Mac → phone `watchState(WatchState)` and `watchFrame(WatchFrame)`
+stops) `watchAction(WatchAction)`, `watchClick(x:y:)` and `watchScroll(x:y:dx:dy:)` (fractions of the window; a one-finger swipe on the phone scrolls the Mac window where the finger is, about 30 times a second, with a short carry-on for a flick — two fingers move the picture); Mac → phone `watchState(WatchState)` and `watchFrame(WatchFrame)`
 (a JPEG ≤ ~1500 px wide, sent only when it changed, about two a second, each send awaited so a slow
 link gets fewer pictures instead of a backlog). The Mac (`Mac/App/Watch/WatchService.swift`) finds
 the window the way delivery does (the picked window, else the one last typed in, else the app's

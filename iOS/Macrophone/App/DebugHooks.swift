@@ -221,7 +221,11 @@ enum DebugHooks {
                 model.watcher.open(model.selection.target)
                 for a in (env["MACROPHONE_WATCH_ACTIONS"] ?? "").split(separator: ",").map(String.init) {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    if a.hasPrefix("tap@") {
+                    if a.hasPrefix("scroll@") {
+                        // scroll@0.5@0.4@0.2: at (0.5, 0.4), content dragged down by 20% of the window.
+                        let v = a.split(separator: "@").dropFirst().compactMap { Double($0) }
+                        if v.count == 3 { model.watcher.scroll(at: CGPoint(x: v[0], y: v[1]), by: CGVector(dx: 0, dy: v[2])) }
+                    } else if a.hasPrefix("tap@") {
                         let xy = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if xy.count == 2 { model.watcher.click(CGPoint(x: xy[0], y: xy[1])) }
                     } else if let action = WatchAction(rawValue: a) {
