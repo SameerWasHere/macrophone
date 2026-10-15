@@ -10,22 +10,31 @@ sameer.us/macrophone, and updates itself with Sparkle. One script does the whole
 
 Do these once per Mac you release from.
 
-1. **Developer ID Application certificate.** Xcode › Settings › Accounts › select the team
-   (8523EX5882) › Manage Certificates… › **+** › **Developer ID Application**. Check it's there:
+1. **Developer ID Application certificate** (set up Oct 14 2026). Apple lets only the Account
+   Holder create one, and only on developer.apple.com, so it's done in two halves:
+   - **On this Mac:** the private key was made here and imported into the login keychain (it shows
+     as "Imported Private Key"; codesign may use it without asking). Its certificate request is
+     the file uploaded to Apple. **Back the key up** with the certificate once it's paired:
+     Keychain Access › My Certificates › "Developer ID Application: …" › Export (.p12).
+   - **On developer.apple.com** (Certificates › + › Developer ID Application › G2 Sub-CA ›
+     upload the request) — SameerOS hands this to Muse.
+   Then pull the certificate into the keychain with the App Store Connect API (any team key can
+   read it) and check it pairs:
 
    ```sh
+   Mac/scripts/install-developer-id.sh
    security find-identity -v -p codesigning | grep "Developer ID Application"
    ```
 
    `release.sh` stops at the first step and says so until this exists.
 
-2. **Notarization credentials.** Create an app-specific password at account.apple.com
-   (Sign-In and Security › App-Specific Passwords), then store it in the keychain under the
-   profile name the script uses:
+2. **Notarization credentials** (set up Oct 14 2026): the `macrophone-notary` keychain profile uses
+   the App Store Connect API key (no app-specific password):
 
    ```sh
    xcrun notarytool store-credentials macrophone-notary \
-     --apple-id <your Apple ID email> --team-id 8523EX5882
+     --key ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8 --key-id <KEY_ID> --issuer <ISSUER>
+   xcrun notarytool history --keychain-profile macrophone-notary   # "No submission history" = working
    ```
 
 3. **The Sparkle signing key — back it up now.** Every update is signed with an EdDSA key.
