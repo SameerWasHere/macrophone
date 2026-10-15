@@ -66,57 +66,55 @@ Readiness was audited on Oct 13 2026: a Release archive built with no warnings, 
 | Field | Text | Length / limit |
 | --- | --- | --- |
 | Name | Macrophone | 10 / 30 |
-| Subtitle | Drive your Mac’s coding agents | 30 / 30 |
-| Promotional text | See the window where your coding agent works on your Mac, tap to click, press Esc or Return, and say your next prompt. Cleaned up on your iPhone. Free, no account. | 163 / 170 |
+| Subtitle | Control your Mac by voice | 25 / 30 |
+| Promotional text | Your agents never wait on you again. See any app on your Mac live, tap and swipe it like you're there, and say what's next. Free, private, no account. | 150 / 170 |
 
-Positioning (Oct 14 2026, Sameer): for people who run a Mac mini or a docked, lid-shut MacBook
-and want to keep their coding sessions going from their phone — watch, tap, answer by voice.
+Positioning: `docs/POSITIONING.md` (the people, the jobs, the words).
 
 Promotional text can change without a new build. The name, subtitle, promotional text and
 keywords name no third-party app on purpose (see "Third-party names").
 
 ## Description
 
-(≤4,000 characters; this is 2,986.)
+(≤4,000 characters; this is 2,424.)
 
 ```
-Your Mac does the coding. Your iPhone runs the session.
+Steer your Mac from your iPhone. Your agents never wait on you again.
 
-Made for the Mac mini on the shelf and the MacBook docked with its lid shut. Macrophone puts the window where your coding agent is working on your iPhone, live. Read what it did, tap to click, press Esc or Return, and say your next prompt: it's cleaned up, pasted in and sent. No walking over, no keyboard.
+Leave your Mac running: a Mac mini on a shelf, a MacBook docked with its lid shut, the desk across the room. When a coding agent stops to ask you something, you see it on your iPhone and answer in seconds. When you think of the next task, you say it, and it's typed and sent.
 
-WATCH IT WORK
-• After you send, that app's window opens on your iPhone, starting on the part you type in and following the newest output. Pinch to zoom.
-• Tap anywhere in it to click there on your Mac: switch sessions, pick an option, open a file.
-• Esc, Up, Down and Return under it, the same in every app: move through a question, confirm it, or stop the agent.
-• Only that one window, never your whole screen, and nothing is recorded.
+SEE IT
+• Any app's window on your Mac, live on your iPhone: the terminal running your coding agent, an AI chat app, your editor, a message thread.
+• It opens on the part you type in and follows the newest output.
 
-PICK WHERE IT GOES
-• The apps open on your Mac show up by the mic. Tap one, and that's where your next dictation goes.
-• Or choose Where I'm typing (the app in front) or Clipboard.
-• Or just say it: start with an open app's name and a pause ("Terminal, run the tests again") and that one dictation goes there.
-• Turn on Send after pasting and the Mac presses send for you, after a short countdown you can cancel. It never types into a password field.
+STEER IT
+• Tap anywhere to click there on your Mac: switch sessions, pick an option, open a file.
+• Swipe to scroll the window right where your finger is.
+• Esc, Up, Down and Return under the window: move through an agent's question, approve it, or stop it.
+• Open any app on your Mac, even one that isn't running.
 
-CLEANUP, YOUR WAY
-Pick Off, Light, Medium, Heavy or Custom. Light takes out the ums and repeats. Medium also fixes false starts. Heavy turns rambling speech into tidy text. Custom follows your own instructions. Cleanup edits your words and never answers them, so a prompt arrives as a prompt. The raw transcript is always one tap away. Cleanup runs on your iPhone with Apple's on-device model.
+SAY IT
+• Hold the mic and talk. Your words are transcribed on your iPhone, tidied up (no ums, no false starts), pasted into the app and sent.
+• Long prompts are easier to say than to type, especially on a phone.
+• Pick how much cleanup: Off, Light, Medium, Heavy, or your own instructions. It edits your words and never answers them.
+
+WORKS WITH EVERYTHING
+Coding agents in a terminal, an AI app or your editor, chat and messaging apps, notes, mail: any app on your Mac with somewhere to type. Your Mac finds them on its own; nothing to set up.
 
 PRIVATE BY DESIGN
 • Speech is turned into text on your iPhone. No audio is kept.
-• Your text goes straight to your Mac over your local network, encrypted with a key made when you pair. There's no server in between.
-• No account, no ads, no analytics. Data Not Collected.
+• Your iPhone talks straight to your Mac over your own network, end-to-end encrypted. No server, no account.
+• Only the one window you pick is shown, only while you look, and it's never saved.
+• No ads, no analytics. Data Not Collected. Open source.
 
 HANDY EXTRAS
-• Action Button, Control Center, Lock Screen, Siri and Shortcuts: start dictating from anywhere.
-• A dictionary of up to 50 names and terms it should hear right and keep as written.
-• Stop when you stop talking, or hold the mic and let go.
+• Action Button, Control Center, Lock Screen, Siri and Shortcuts.
+• A dictionary for names and terms it should hear right.
 • If your Mac is asleep, your iPhone holds the dictation and delivers it later.
-• History of your last 50 dictations, raw and cleaned, kept only on your iPhone.
-• For developers: the Mac app has a local API, a command-line tool and an MCP server, so your agents can read what you just said.
-
-WORKS ON ITS OWN, TOO
-Before you pair a Mac, every dictation is copied to your iPhone's clipboard.
+• For developers: a local API, a command-line tool and an MCP server on the Mac.
 
 REQUIREMENTS
-iPhone with iOS 17 or later. Mac with macOS 14 or later, running the free Macrophone for Mac from sameer.us/macrophone. Cleanup needs an iPhone that supports Apple Intelligence, on iOS 26 or later. Dictate in many languages; cleanup in English.
+iPhone with iOS 17 or later. Mac with macOS 14 or later, running the free Macrophone for Mac from sameer.us/macrophone. Cleanup needs an iPhone that supports Apple Intelligence, on iOS 26 or later.
 
 Free. No in-app purchases, no subscription.
 
@@ -126,7 +124,7 @@ App names belong to their owners. Macrophone is an independent app and isn't aff
 ## Keywords
 
 ```
-dictation,voice to text,coding agent,remote,terminal,prompt,AI,speech to text,hands-free,mac mini
+coding agent,remote,voice control,dictation,terminal,AI,prompt,speech to text,hands-free,mac mini
 ```
 
 97 / 100 characters. Words already in the name and subtitle (Macrophone, speak, iPhone, type,
@@ -259,16 +257,18 @@ through the DEBUG hooks (`iOS/scripts/capture-store-shots.sh`) and framed by
 Style: the app's dark ink ground, a mono kicker and a two-line serif caption at the top, and the
 phone below with the Filament crossing the frame. No caption names a third-party app.
 
-| # | File | Screen | Kicker | Caption |
-| --- | --- | --- | --- | --- |
-| 1 | `01-watch.png` | Watching: a Terminal window running Claude Code, live, with "Do you want to make this edit?" and Esc · ↑ · ↓ · Return under it | WATCH IT WORK | Your Mac does the coding. Your iPhone runs the session. |
-| 2 | `02-reply.png` | Replying while watching: the window as a strip at the top, the reply appearing in serif, the Filament alive, the mic recording | ANSWER BY VOICE | Say the next prompt. It's pasted in and sent. |
-| 3 | `03-send-to.png` | The main screen: Send to Claude with Watch and ⋯, the row of the Mac's apps with their icons, Send after pasting, cleanup, "Pastes into Claude, then sends" | PICK THE SESSION | Every app on your Mac, one tap away. |
-| 4 | `04-open-app.png` | Open an app: the Mac's installed apps with icons, the open ones marked | OPEN ANY APP | Something closed? Open it from your iPhone. |
-| 5 | `05-cleanup.png` | Settings: the cleanup steps with a HEARD / SENT · MEDIUM card | CLEANUP | Four levels, or your own. It edits, never answers. |
-| 6 | `06-pairing.png` | Onboarding: "Scan the code on your Mac." with the QR viewfinder | PRIVATE BY DESIGN | Pair once. No account, no cloud, no audio kept. |
+| # | File | Screen | Headline |
+| --- | --- | --- | --- |
+| 1 | `01-hero.png` | A MacBook showing a Terminal running Claude Code; the iPhone in front showing the same window, live, with Esc · ↑ · ↓ · Return | Steer your Mac from your **iPhone**. |
+| 2 | `02-talk.png` | Replying while watching: the window as a strip, the reply appearing, the mic recording | **Say** what's next. It's typed and sent. |
+| 3 | `03-tap.png` | The live window with a tap marker on "1. Yes" | Tap and **swipe**, like you're there. |
+| 4 | `04-apps.png` | Send to with Watch and ⋯, the Mac's apps with their icons, Send after pasting, cleanup | Every agent. Every **app**. |
+| 5 | `05-open.png` | Open an app: the Mac's installed apps with icons | Open **any app** on your Mac. |
+| 6 | `06-cleanup.png` | Settings with a HEARD / SENT · MEDIUM card | Ums and uhs, **cleaned up**. |
+| 7 | `07-private.png` | Onboarding: scan the code on your Mac | **Private.** No account. No cloud. |
 
-Re-rendered Oct 14 2026 for the new pitch. Shots 1–4 come from a live stand-in Mac
+The marketing pass (Oct 14 2026): bold SF headlines at 122 pt (readable as search thumbnails), one
+lit word each, from `docs/POSITIONING.md`. Re-rendered Oct 14 2026 for the new pitch. Shots 1–4 come from a live stand-in Mac
 (`mpctl serve`, see the capture script's header) so the window and the app icons are real. Use the
 "Macrophone Shots 6.9" (723B841D-…) and "Macrophone Shots 6.5" (13583BDA-…) simulators.
 

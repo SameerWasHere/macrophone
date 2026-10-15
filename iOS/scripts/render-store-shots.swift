@@ -60,15 +60,15 @@ struct Shot {
 // The marketing pass (Oct 14 2026): big bold two-line headlines with one lit word, readable as a
 // search-result thumbnail; a hero with the Mac and the phone together; a tap shot.
 let shots: [Shot] = [
-    Shot(out: "01-hero", file: "01-watch", caption: "Your Mac codes.\nYou *steer*.", glow: cyan, peak: 0.5, macWindow: "mac-window.png"),
-    Shot(out: "02-talk", file: "02-reply", caption: "*Say* the next\nprompt.", glow: ember, peak: 0.58),
-    Shot(out: "03-tap", file: "01-watch", caption: "*Tap* to click\non your Mac.", glow: teal, peak: 0.36, tap: CGPoint(x: 0.17, y: 0.405)),
-    Shot(out: "04-apps", file: "03-send-to", caption: "Every app,\n*one tap* away.", glow: cyan, peak: 0.42),
+    Shot(out: "01-hero", file: "01-watch", caption: "Steer your Mac\nfrom your *iPhone*.", glow: cyan, peak: 0.5, macWindow: "mac-window.png"),
+    Shot(out: "02-talk", file: "02-reply", caption: "*Say* what's next.\nIt's typed and sent.", glow: ember, peak: 0.58),
+    Shot(out: "03-tap", file: "01-watch", caption: "Tap and *swipe*,\nlike you're there.", glow: teal, peak: 0.36, tap: CGPoint(x: 0.13, y: 0.458)),
+    Shot(out: "04-apps", file: "03-send-to", caption: "Every agent.\nEvery *app*.", glow: cyan, peak: 0.42),
     Shot(out: "05-open", file: "04-open-app", caption: "Open *any app*\non your Mac.", glow: mint, peak: 0.62),
     Shot(out: "06-cleanup", file: "05-cleanup", caption: "Ums and uhs,\n*cleaned up*.", glow: violet, peak: 0.45,
          beforeAfter: ("so um the thing I want is, uh, make the retry logic back off, no wait, back off exponentially and cap it at thirty seconds",
                        "Make the retry logic back off exponentially and cap it at 30 seconds.", "Medium")),
-    Shot(out: "07-private", file: "06-pairing", caption: "*Private.* No account,\nno cloud.", glow: gold, peak: 0.55),
+    Shot(out: "07-private", file: "06-pairing", caption: "*Private.* No account.\nNo cloud.", glow: gold, peak: 0.55),
 ]
 
 // MARK: Text

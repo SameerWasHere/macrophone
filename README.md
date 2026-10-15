@@ -1,24 +1,25 @@
 # Macrophone
 
-**Your Mac does the coding. Your iPhone runs the session.**
+**Steer your Mac from your iPhone. Your agents never wait on you again.**
 
-Macrophone is a free iPhone app and Mac menu bar app for people who leave a Mac running agents —
-a Mac mini on a shelf, a MacBook docked with its lid shut — and want to keep those sessions going
-from their phone.
+Macrophone is a free, open-source iPhone app and Mac menu bar app for people who leave their Mac
+running agents — a Mac mini on a shelf, a MacBook docked with its lid shut — and want to keep them
+moving from anywhere in the house. It works with every agent and every app: Claude Code, Codex,
+Gemini CLI or anything in a terminal; Cursor and Windsurf; the Claude and ChatGPT apps; Messages,
+Notes, Mail — any app on your Mac with somewhere to type.
 
-- **Watch the window.** The app you send to (the Terminal running Claude Code, the Claude app,
-  Cursor, a chat) shows on your iPhone, live, starting on the part you type in.
-- **Tap to click, press keys.** A tap on the picture is a click there on the Mac. Esc, ↑, ↓ and
-  Return sit under it — move through a "Do you want to make this edit?", confirm it, or stop it.
-- **Answer by voice.** Speak your next prompt; it's transcribed and cleaned up on the iPhone,
-  then pasted into that window and sent.
-- **Open any app.** Claude closed? Open it (or Messages, or anything installed) from the phone.
+- **See it.** Any app's window, live on your iPhone, starting on the part you type in.
+- **Steer it.** A tap is a click there on the Mac; a swipe scrolls it right where your finger is;
+  Esc, ↑, ↓ and Return move through an agent's question, approve it, or stop it. Open any app.
+- **Say it.** Speak your next prompt; it's transcribed and cleaned up on the iPhone, pasted into
+  the app and sent.
 
-Website and downloads: **[sameer.us/macrophone](https://sameer.us/macrophone)**
+Website and downloads: **[sameer.us/macrophone](https://sameer.us/macrophone)** · who it's for and
+why: [`docs/POSITIONING.md`](docs/POSITIONING.md)
 
 <p align="center">
-  <img src="https://sameer.us/macrophone/img/iphone-watch.webp" width="300" alt="Macrophone on iPhone showing a Terminal window running Claude Code, live, with Esc, up, down and Return keys under it">
-  <img src="https://sameer.us/macrophone/img/iphone-dock.webp" width="300" alt="Macrophone on iPhone: Send to Claude with Watch and a more button, the open apps, Send after pasting, cleanup levels and the mic">
+  <img src="https://sameer.us/macrophone/img/mk-hero.webp" width="380" alt="A MacBook running Claude Code in a Terminal window, and an iPhone in front of it showing the same window, live">
+  <img src="https://sameer.us/macrophone/img/mk-tap.webp" width="280" alt="The live window on iPhone with a tap on Claude Code's question, and Esc, up, down and Return keys under it">
 </p>
 
 ## Private by design
