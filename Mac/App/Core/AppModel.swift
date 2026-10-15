@@ -134,7 +134,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     }
 
     func start() {
-        log.add("app started \(AppPaths.appVersion) (\(AppPaths.buildNumber))")
+        log.add("app started \(AppPaths.appVersion) (\(AppPaths.buildNumber)) · Accessibility \(accessibilityGranted ? "on" : "off") · Screen Recording \(CGPreflightScreenCaptureAccess() ? "on" : "off")")
         server.start()
         if settings.apiEnabled { api.start() } else { apiState = .off }
         pushStatus()

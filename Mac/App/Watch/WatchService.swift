@@ -109,15 +109,15 @@ final class WatchService {
         if let reason = await resolve(w) { return reason }
         guard let wid = w.windowID else { return .unavailable("Nothing to show", canReveal: false) }
 
-        // Permission: asking ScreenCaptureKit for the windows shows the system prompt the first time.
+        // Permission: ask once per launch, then only look. Touching ScreenCaptureKit while it's off
+        // raises the system prompt again — every second and a half, when the grant is stale.
         if !CGPreflightScreenCaptureAccess() {
             if !askedForPermission {
                 askedForPermission = true
+                app.log.add("watching: Screen Recording is off — asked once")
                 CGRequestScreenCaptureAccess()
             }
-            if content == nil || Date().timeIntervalSince(contentAt) > 3 {
-                guard (try? await refreshContent()) != nil else { return .needsPermission }
-            }
+            return .needsPermission
         }
 
         guard let scw = await scWindow(wid) else {
