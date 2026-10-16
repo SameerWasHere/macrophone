@@ -29,3 +29,25 @@ final class WatchTests: XCTestCase {
         }
     }
 }
+
+final class WatchFrameRuleTests: XCTestCase {
+    func testOnlyNewerPicturesShow() {
+        // Pictures are decoded off the main thread, so an older one can finish after a newer one.
+        XCTAssertTrue(WatchFrame.shouldShow(seq: 5, newest: 4))
+        XCTAssertFalse(WatchFrame.shouldShow(seq: 4, newest: 5))
+        XCTAssertFalse(WatchFrame.shouldShow(seq: 5, newest: 5))
+        // The Mac started the watch over (after a pause, or its own restart): its first picture always shows.
+        XCTAssertTrue(WatchFrame.shouldShow(seq: 1, newest: 40))
+    }
+
+    func testFocusJitterDoesNotMoveTheView() {
+        let a = CGRect(x: 0.25, y: 0.9, width: 0.45, height: 0.05)
+        let jitter = CGRect(x: 0.252, y: 0.905, width: 0.448, height: 0.05)
+        let moved = CGRect(x: 0.55, y: 0.9, width: 0.45, height: 0.05)
+        XCTAssertFalse(WatchFrame.focusMoved(from: a, to: jitter))
+        XCTAssertTrue(WatchFrame.focusMoved(from: a, to: moved))
+        XCTAssertTrue(WatchFrame.focusMoved(from: nil, to: a))
+        XCTAssertTrue(WatchFrame.focusMoved(from: a, to: nil))
+        XCTAssertFalse(WatchFrame.focusMoved(from: nil, to: nil))
+    }
+}

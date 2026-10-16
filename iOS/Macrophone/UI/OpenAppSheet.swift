@@ -24,6 +24,9 @@ struct OpenAppSheet: View {
                 } else if !model.macAppsLoaded {
                     ProgressView("Asking your Mac").tint(Ink.secondary).foregroundStyle(Ink.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if shown.isEmpty, query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    ContentUnavailableView("No apps found", systemImage: "app.dashed",
+                                           description: Text("Your Mac didn't list any apps. Open the Applications folder on your Mac and try again."))
                 } else if shown.isEmpty {
                     ContentUnavailableView.search(text: query)
                 } else {

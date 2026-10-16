@@ -156,7 +156,8 @@ struct PlacesRow: View {
                     (Text(current.displayName).foregroundColor(Ink.ink)
                      + (notOpen ? Text("  Not open on your Mac").font(.subheadline).foregroundColor(Light.ochre) : Text("")))
                         .font(.headline)
-                        .lineLimit(2)
+                        // A window name can run to 70 characters plus "Not open": three lines, never "…".
+                        .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                         .contentTransition(.opacity)
                         .animation(Motion.snap, value: current)

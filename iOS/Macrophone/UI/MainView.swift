@@ -175,8 +175,10 @@ struct MainView: View {
             .font(.mono(.caption2, weight: .medium))
             .tracking(1.1)
             .foregroundStyle(live.byVoice ? Light.ember : Ink.tertiary)
-            .lineLimit(1)
+            // A long window name wraps to a second line rather than being cut with "…".
+            .lineLimit(2)
             .minimumScaleFactor(0.7)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(parts.joined(separator: ", "))
     }

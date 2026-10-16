@@ -242,10 +242,12 @@ final class AppModel: ObservableObject {
             endBackgroundTask()
             refreshAvailability()
             if networkExplained || isPaired { client.start() }
+            // A window that was being watched comes back by itself (the link reconnects first).
+            watcher.sceneBecameActive()
             if pendingStart { pendingStart = false; Task { await startRecording(override: recordingOverride) } }
         case .background:
             sceneActive = false
-            watcher.pause()
+            watcher.pause(.leftScreen)
             enterBackground()
         default:
             break

@@ -79,7 +79,7 @@ struct SettingsView: View {
             Text((settings.selection.target.canSend
                  ? "Your Mac presses the app's send key after pasting, after a short countdown you can cancel. The choice is the same on your Mac: change it in either place."
                  : "\(settings.selection.target.displayName) can't send — sending after pasting is for apps. The choice is the same on your Mac: change it in either place.")
-                 + " After sending, your iPhone shows that app's window live, so you can read the answer and approve or stop it. Only that window, and only while you look.")
+                 + " After sending, your iPhone shows that app's window live, so you can read the answer, tap to click, swipe to scroll, and press Esc, the arrows or Return. Only that window, and only while you look.")
         }
         .listRowBackground(Ink.raised)
     }

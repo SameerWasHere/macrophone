@@ -30,6 +30,27 @@ public struct WatchFrame: Codable, Sendable {
     }
 }
 
+public extension WatchFrame {
+    /// Whether a picture should replace the one on screen. Pictures are decoded off the main
+    /// thread, so an older one can finish after a newer one: only a newer sequence number shows.
+    /// A watch the Mac started over begins again at 1, and that first picture always shows.
+    static func shouldShow(seq: Int, newest: Int) -> Bool {
+        seq == 1 || seq > newest
+    }
+
+    /// Whether the place to type moved enough for the phone to re-centre its view. The Mac re-reads
+    /// the composer's frame every few seconds and it jitters by a pixel or two as the window
+    /// redraws; re-centring on every jitter made the picture jump under the finger.
+    static func focusMoved(from old: CGRect?, to new: CGRect?) -> Bool {
+        switch (old, new) {
+        case (nil, nil): return false
+        case (nil, _), (_, nil): return true
+        case let (a?, b?):
+            return abs(a.midX - b.midX) > 0.02 || abs(a.width - b.width) > 0.05 || abs(a.midY - b.midY) > 0.05
+        }
+    }
+}
+
 /// How watching is going, from the Mac's side.
 public enum WatchState: Codable, Sendable, Equatable {
     /// Frames are coming.
