@@ -239,6 +239,8 @@ final class Recorder: ObservableObject {
     private var voiced: TimeInterval = 0
     private var peakLevel: Float = 0
     private var lastLevelLog = Date.distantPast
+    /// When the mic was asked for, so the log can say how long it took to open (a number, no words).
+    private var openedAt = Date()
 
     /// DEBUG, simulator: the real microphone without the recognizer (it can't load its assets
     /// there), so the Filament can be proven against a real voice. `MACROPHONE_MIC_ONLY=1`;
@@ -277,6 +279,7 @@ final class Recorder: ObservableObject {
         guard phase == .idle else { return }
         phase = .starting
         pendingStop = nil
+        openedAt = Date()
         do {
             try await begin(language: language, contextualStrings: contextualStrings, autoStopAfter: autoStopAfter)
         } catch {
@@ -386,7 +389,7 @@ final class Recorder: ObservableObject {
         phase = .recording
         observe()
         startTicking()
-        log?.add("recording started (\(language), \(contextual.count) hints, \(modern == nil ? "SFSpeechRecognizer" : "SpeechAnalyzer"))")
+        log?.add("recording started (\(language), \(contextual.count) hints, \(modern == nil ? "SFSpeechRecognizer" : "SpeechAnalyzer")) — mic open \(Int(Date().timeIntervalSince(openedAt) * 1000)) ms after the tap")
     }
 
     /// DEBUG stand-in microphone: the file's buffers at real speed, then a stop.

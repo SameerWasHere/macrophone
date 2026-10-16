@@ -25,6 +25,7 @@ struct MacrophoneApp: App {
                     DebugHooks.apply(model)
                     #endif
                 }
+                .onAppear { model.log.add("first frame \(LaunchClock.millisecondsSinceProcessStart) ms after launch") }
         }
     }
 }
@@ -64,5 +65,18 @@ struct RootView: View {
             .presentationBackground(Ink.ground)
             .presentationDragIndicator(.visible)
         }
+    }
+}
+
+/// How long the app took to put its first frame up (a number for the diagnostics log).
+enum LaunchClock {
+    static var millisecondsSinceProcessStart: Int {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return 0 }
+        let start = info.kp_proc.p_starttime
+        let started = Double(start.tv_sec) + Double(start.tv_usec) / 1e6
+        return Int((Date().timeIntervalSince1970 - started) * 1000)
     }
 }

@@ -95,9 +95,14 @@ final class ModernSpeech: @unchecked Sendable {
     /// starts fetching it so the next recording uses it.
     static func isReady(_ language: String, log: ((String) -> Void)? = nil) async -> Bool {
         guard SpeechTranscriber.isAvailable else { log?("newer speech engine: not on this device"); return false }
+        // Once the model is known to be installed it stays so for the session: the tap-to-mic path
+        // skips the inventory lookup from then on.
+        if fetching.lock.withLock({ fetching.installed.contains(language) }) { return true }
         guard let t = await transcriber(for: language) else { log?("newer speech engine: no model for \(language)"); return false }
         switch await AssetInventory.status(forModules: [t]) {
-        case .installed: return true
+        case .installed:
+            fetching.lock.withLock { _ = fetching.installed.insert(language) }
+            return true
         case .supported, .downloading:
             log?("newer speech engine: model not on the phone yet")
             fetch(language, log: log)
@@ -112,6 +117,8 @@ final class ModernSpeech: @unchecked Sendable {
     private final class Fetching: @unchecked Sendable {
         let lock = NSLock()
         var languages: Set<String> = []
+        /// Languages whose model this run has seen installed.
+        var installed: Set<String> = []
     }
 
     /// Downloads the language's model in the background (Apple's servers; once per language).

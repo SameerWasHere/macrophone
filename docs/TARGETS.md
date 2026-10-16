@@ -201,8 +201,10 @@ re-reads the composer's frame every 5 s for the phone's starting view. Actions b
 forward first when it isn't already the front window (Accessibility), then press Return / Esc,
 scroll a page over the window's middle, or click at the point (the pointer is moved there for it
 and put back). It stops when the phone sends nil, disconnects, or the
-person chooses Stop in the menu ("Your iPhone is watching Claude — Stop"). The phone pauses after
-two idle minutes and when it leaves the screen. `mpctl watch` is a stand-in phone; `mpctl serve`
+person chooses Stop in the menu ("Your iPhone is watching Claude — Stop"; the menu bar's dot is a
+ring while a phone watches). The phone pauses after two idle minutes and when it leaves the screen
+(and picks up by itself when it comes back). Pictures are encoded off the Mac's main thread and
+the loop sleeps between looks, woken early by an action. `mpctl watch` is a stand-in phone; `mpctl serve`
 answers with a drawn demo window (`--watch-state permission|unavailable` for those states).
 
 

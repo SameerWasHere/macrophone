@@ -209,10 +209,17 @@ enum Paster {
                 // place to type in this window (a chat app may have moved on to another view).
                 let rem = remembered.flatMap { AX.isAlive($0) ? $0 : nil }
                 if let win {
-                    var scan = ComposerFinder.scan(window: win, bundleID: bid, focused: focused, remembered: rem, timeLimit: 0.5)
+                    // The walk can take its whole half-second: off the main thread, so the popup
+                    // keeps drawing "Opening Claude" instead of freezing on it.
+                    var scan = await Task.detached(priority: .userInitiated) {
+                        ComposerFinder.scan(window: win, bundleID: bid, focused: focused, remembered: rem, timeLimit: 0.5)
+                    }.value
                     if scan.composer == nil && chromium {
                         try await Task.sleep(nanoseconds: 300_000_000)
-                        scan = ComposerFinder.scan(window: win, bundleID: bid, focused: AX.focused(in: ax), remembered: rem, timeLimit: 0.5)
+                        let f = AX.focused(in: ax)
+                        scan = await Task.detached(priority: .userInitiated) {
+                            ComposerFinder.scan(window: win, bundleID: bid, focused: f, remembered: rem, timeLimit: 0.5)
+                        }.value
                     }
                     if let c = scan.composer { box = c.element; isDocument = c.isDocument }
                 }

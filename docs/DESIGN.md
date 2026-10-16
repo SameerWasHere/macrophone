@@ -79,7 +79,8 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   (Sameer: basic keys to move through a menu, confirm or back out — Approve / Stop / Copy were
   removed the same day; a key brings the view back to the newest output). Holding the mic shrinks the window
   to a strip (the bottom of it) above the transcript. States over the dimmed picture: Opening,
-  Paused to save battery (two idle minutes or the app left the screen; Resume), Mac not connected,
+  Paused to save battery (two idle minutes; Resume — leaving the app pauses too, and it picks up by
+  itself when the app comes back), Stopped from your Mac (its menu's Stop; Resume), Mac not connected,
   Screen Recording needed (one button opens the setting on the Mac), unavailable with why
   ("Claude's window is minimized or on another desktop" + Show it on my Mac).
 
