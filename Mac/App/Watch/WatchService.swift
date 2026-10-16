@@ -32,9 +32,30 @@ final class WatchService {
         var lastDigest: Data?
         var lastState: WatchState?
         var seq = 0
-        /// Capture again right away (an action just happened).
-        var kick = false
+        /// The wait between looks, so an action can cut it short.
+        private var waiting: CheckedContinuation<Void, Never>?
+        private var waitTimer: Task<Void, Never>?
         init(peer: UUID, target: TargetRef) { self.peer = peer; self.target = target }
+
+        /// Sleeps `seconds`, or until `wake()` — one timer, no polling in between.
+        @MainActor func wait(_ seconds: Double) async {
+            await withCheckedContinuation { c in
+                waiting = c
+                waitTimer = Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
+                    self?.wake()
+                }
+            }
+        }
+
+        /// Capture again right away (an action just happened).
+        @MainActor func wake() {
+            waitTimer?.cancel()
+            waitTimer = nil
+            let c = waiting
+            waiting = nil
+            c?.resume()
+        }
     }
 
     private var watches: [UUID: Watch] = [:]
@@ -62,7 +83,7 @@ final class WatchService {
                 w.focus = nil
                 w.focusAt = .distantPast
             }
-            w.kick = true
+            w.wake()
             return
         }
         let w = Watch(peer: peer, target: target)
@@ -74,6 +95,7 @@ final class WatchService {
     func stop(_ peer: UUID) {
         guard let w = watches.removeValue(forKey: peer) else { return }
         w.task?.cancel()
+        w.wake()
         watching[peer] = nil
         onChange()
         app.log.add("watching stopped")
@@ -94,12 +116,7 @@ final class WatchService {
             }
             // About two a second; sooner after an action; slower while there's nothing to show.
             let wait = (state.map { if case .live = $0 { return 0.5 } else { return 1.5 } } ?? 0.5)
-            var waited = 0.0
-            while waited < wait, !Task.isCancelled, !w.kick {
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                waited += 0.05
-            }
-            w.kick = false
+            if !Task.isCancelled { await w.wait(wait) }
         }
     }
 
@@ -152,14 +169,13 @@ final class WatchService {
             content = nil
             return .unavailable("Couldn't see \(w.appName)'s window", canReveal: true)
         }
-        guard let jpeg = Self.jpeg(image, quality: 0.6) else { return nil }
-        let digest = Data(SHA256.hash(data: jpeg))
+        // Encoding a window-sized JPEG and hashing it take tens of milliseconds: off the main
+        // thread, so the menu, the popup and a paste never wait on a picture.
+        guard let (data, digest) = await Task.detached(priority: .utility) { Self.encode(image) }.value else { return nil }
         let live = WatchState.live(appName: w.appName)
         guard digest != w.lastDigest else { return live }
         w.lastDigest = digest
         w.seq += 1
-        var data = jpeg
-        if data.count > 900_000, let smaller = Self.jpeg(image, quality: 0.35) { data = smaller }
         let frame = WatchFrame(seq: w.seq, jpeg: data, width: image.width, height: image.height,
                                appName: w.appName, bundleID: w.bundleID, focus: w.focus)
         // Waits until it's on the wire: a slow link gets fewer pictures, never a backlog.
@@ -229,6 +245,15 @@ final class WatchService {
         if let c = content, Date().timeIntervalSince(contentAt) < 3, let w = c.windows.first(where: { $0.windowID == id }) { return w }
         guard let c = try? await refreshContent() else { return nil }
         return c.windows.first { $0.windowID == id }
+    }
+
+    /// The picture for the wire and its digest (for "did it change?"). A very large one is
+    /// encoded again smaller, so a frame always fits the link.
+    nonisolated static func encode(_ image: CGImage) -> (Data, Data)? {
+        guard var data = jpeg(image, quality: 0.6) else { return nil }
+        let digest = Data(SHA256.hash(data: data))
+        if data.count > 900_000, let smaller = jpeg(image, quality: 0.35) { data = smaller }
+        return (data, digest)
     }
 
     nonisolated static func jpeg(_ image: CGImage, quality: Double) -> Data? {
@@ -327,9 +352,9 @@ final class WatchService {
             }
             await body(wid)
             if !quiet { self?.app.log.add("watch \(what)") }
-            w.kick = true
+            w.wake()
             try? await Task.sleep(nanoseconds: 400_000_000)
-            w.kick = true
+            w.wake()
         }
     }
 
