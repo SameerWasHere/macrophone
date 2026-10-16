@@ -33,8 +33,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
         item.menu = menu
-        model.$connected.combineLatest(model.$peers).receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in self?.refreshIcon() }.store(in: &bag)
+        model.$connected.combineLatest(model.$peers, model.$watching).receive(on: RunLoop.main)
+            .sink { [weak self] _, _, _ in self?.refreshIcon() }.store(in: &bag)
         // A scan finishing while Send to is open shows up in it straight away.
         model.$targets.receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -88,9 +88,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func refreshIcon() {
         guard !flashing, let b = item.button else { return }
         let on = model.connectedPeer != nil
-        b.image = Self.image(on ? "MenuBarIconConnected" : "MenuBarIcon")
-        b.setAccessibilityLabel(on ? "Macrophone — \(model.statusLine)" : "Macrophone")
-        b.toolTip = model.statusLine
+        // The dot becomes a ring while a phone is looking at a window here: a glance at the menu
+        // bar says this Mac is being shown somewhere, the way the camera light does.
+        let watched = model.watching.values.sorted().first
+        b.image = Self.image(watched != nil ? "MenuBarIconWatching" : on ? "MenuBarIconConnected" : "MenuBarIcon")
+        let line = watched.map { "\(model.statusLine) · watching \($0)" } ?? model.statusLine
+        b.setAccessibilityLabel(on ? "Macrophone — \(line)" : "Macrophone")
+        b.toolTip = line
     }
 
     /// A tick on the icon for two seconds (silent copies).

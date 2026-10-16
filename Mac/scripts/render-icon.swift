@@ -148,7 +148,7 @@ func appIcon(size: Int) -> CGImage {
 
 // MARK: Menu bar template glyphs (18pt, black on clear; the system tints them)
 
-enum Glyph { case idle, connected, received }
+enum Glyph { case idle, connected, received, watching }
 
 func menuGlyph(scale: Int, kind: Glyph) -> CGImage {
     let W = 22, H = 16
@@ -164,6 +164,11 @@ func menuGlyph(scale: Int, kind: Glyph) -> CGImage {
     case .connected:
         // A small dot under the right shoulder: a phone is connected.
         ctx.fillEllipse(in: CGRect(x: 17.2 * k, y: 0.6 * k, width: 3.6 * k, height: 3.6 * k))
+    case .watching:
+        // A ring where the connected dot sits: a phone is looking at a window on this Mac.
+        ctx.setStrokeColor(rgb(0x000000)); ctx.setLineWidth(1.2 * k)
+        ctx.strokeEllipse(in: CGRect(x: 16.6 * k, y: 0.0 * k, width: 4.8 * k, height: 4.8 * k).insetBy(dx: 0.6 * k, dy: 0.6 * k))
+        ctx.fillEllipse(in: CGRect(x: 18.2 * k, y: 1.6 * k, width: 1.6 * k, height: 1.6 * k))
     case .received:
         // A tick in the top-right corner, shown for a moment after a silent copy.
         ctx.setStrokeColor(rgb(0x000000)); ctx.setLineWidth(1.6 * k); ctx.setLineCap(.round); ctx.setLineJoin(.round)
@@ -191,7 +196,7 @@ let iconJSON: [String: Any] = ["images": images, "info": ["author": "render-icon
 try JSONSerialization.data(withJSONObject: iconJSON, options: [.prettyPrinted, .sortedKeys])
     .write(to: iconSet.appendingPathComponent("Contents.json"))
 
-for (kind, setName) in [(Glyph.idle, "MenuBarIcon"), (.connected, "MenuBarIconConnected"), (.received, "MenuBarIconReceived")] {
+for (kind, setName) in [(Glyph.idle, "MenuBarIcon"), (.connected, "MenuBarIconConnected"), (.received, "MenuBarIconReceived"), (.watching, "MenuBarIconWatching")] {
     let dir = assets.appendingPathComponent("\(setName).imageset")
     try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
     var list: [[String: String]] = []
