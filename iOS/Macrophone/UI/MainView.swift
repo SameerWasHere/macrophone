@@ -42,13 +42,23 @@ struct MainView: View {
             VStack(spacing: 0) {
                 // The top area: the settings at rest; the transcript while the mic is open.
                 ZStack(alignment: .top) {
-                    VStack(spacing: 0) {
-                        topBar
-                        header
-                            .padding(.horizontal, 24)
-                            .padding(.top, compact ? 8 : 18)
-                        Spacer(minLength: compact ? 8 : 12)
-                        quickControls
+                    // At rest the settings fill the area (the panel in thumb reach, just above the
+                    // Thread); at large text sizes, when they don't fit, they scroll instead of
+                    // being cut off at the Thread.
+                    GeometryReader { area in
+                        ScrollView(.vertical) {
+                            VStack(spacing: 0) {
+                                topBar
+                                header
+                                    .padding(.horizontal, 24)
+                                    .padding(.top, compact ? 8 : 18)
+                                Spacer(minLength: compact ? 8 : 12)
+                                quickControls
+                            }
+                            .frame(minHeight: area.size.height)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .scrollIndicators(.hidden)
                     }
                     .opacity(showSettings ? 1 : 0)
                     .allowsHitTesting(showSettings)

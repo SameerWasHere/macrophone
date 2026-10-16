@@ -33,6 +33,10 @@ struct WatchPanel: View {
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, compact ? 8 : 14)
+        // The window is a picture; its chrome (the kicker, Done, the keys) stays a moderate size so
+        // the whole panel always fits above the Thread — at accessibility sizes it overflowed both ends.
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var header: some View {
