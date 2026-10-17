@@ -134,7 +134,8 @@ public final class LinkClient: @unchecked Sendable {
     /// Start looking for Macs; also (re)connects to the paired Mac when it appears.
     /// Triggers the local network permission prompt the first time.
     public func start() {
-        let existing = lock.sync { () -> NWBrowser? in wantsConnection = true; return browser }
+        // Back in the foreground: a fresh start, with the first retry a second away, not thirty.
+        let existing = lock.sync { () -> NWBrowser? in wantsConnection = true; retryDelay = 1; return browser }
         if existing == nil {
             let params = LinkServer.parameters()
             let b = NWBrowser(for: .bonjourWithTXTRecord(type: Product.serviceType, domain: nil), using: params)
@@ -449,7 +450,9 @@ public final class LinkClient: @unchecked Sendable {
         lock.lock()
         let want = wantsConnection
         let delay = retryDelay
-        retryDelay = min(retryDelay * 2, 30)
+        // Doubling, capped at ten seconds: a Mac that comes back is usually noticed by Bonjour
+        // first, but when it isn't, ten seconds is the most a reconnect waits.
+        retryDelay = min(retryDelay * 2, 10)
         lock.unlock()
         guard want else { return }
         retryTask?.cancel()
