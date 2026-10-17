@@ -51,3 +51,39 @@ final class WatchFrameRuleTests: XCTestCase {
         XCTAssertFalse(WatchFrame.focusMoved(from: nil, to: nil))
     }
 }
+
+final class WatchPacingTests: XCTestCase {
+    func testASliverWaitsAndARealChangeGoesAtOnce() {
+        // Nothing changed: no picture. A caret (a few dozen pixels of 1.7 million): one every
+        // few seconds. A highlight moving a row: about one a second. New output: right away.
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0), .infinity)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 40.0 / 1_700_000), 3)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.008), 1)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.05), 0.3)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 1), 0.3)
+    }
+
+    func testPixelSampleSeesABoxButNotACaret() throws {
+        func image(box: CGRect?) -> CGImage {
+            let ctx = CGContext(data: nil, width: 400, height: 300, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
+            ctx.setFillColor(CGColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 300))
+            if let box {
+                ctx.setFillColor(CGColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1))
+                ctx.fill(box)
+            }
+            return ctx.makeImage()!
+        }
+        let still = WatchChange.sample(image(box: nil))
+        XCTAssertEqual(still.count, 100 * 75)
+        XCTAssertEqual(WatchChange.changedShare(still, WatchChange.sample(image(box: nil))), 0)
+        // A caret: two pixels wide, a line tall — a sliver.
+        let caret = WatchChange.changedShare(still, WatchChange.sample(image(box: CGRect(x: 100, y: 100, width: 2, height: 16))))
+        XCTAssertLessThan(caret, WatchPacing.sliver)
+        // A row of output: a real change.
+        let row = WatchChange.changedShare(still, WatchChange.sample(image(box: CGRect(x: 0, y: 100, width: 400, height: 20))))
+        XCTAssertGreaterThan(row, WatchPacing.small)
+        XCTAssertEqual(WatchChange.changedShare(still, []), 1)
+    }
+}
