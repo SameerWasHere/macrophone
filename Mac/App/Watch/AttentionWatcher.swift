@@ -1,5 +1,4 @@
 import AppKit
-import CryptoKit
 import Foundation
 import MacrophoneKit
 import ScreenCaptureKit
@@ -11,15 +10,25 @@ import ScreenCaptureKit
 /// Mac; only the app's name, the window's title and the question go to the phone.
 ///
 /// Needs Screen Recording, and never asks for it: without it, it does nothing.
+///
+/// Cheap when nothing happens (Oct 16 2026): a window whose picture hasn't changed — a caret or a
+/// spinner doesn't count — isn't read at all (no Accessibility walk, no text recognition), the
+/// list of windows is fetched once a while, and the looks space out to ten seconds while every
+/// window stays still.
 @MainActor
 final class AttentionWatcher {
     private unowned let app: AppModel
     private var task: Task<Void, Never>?
-    /// Each window's last picture (so an unchanged one isn't read again) and the question it was
-    /// asking (so each question buzzes once).
-    private var digests: [String: Data] = [:]
+    /// Each window's last picture, sampled (so an unchanged one isn't read again) and the question
+    /// it was asking (so each question buzzes once).
+    private var samples: [String: [UInt32]] = [:]
     private var asked: [String: String] = [:]
-    static let interval: UInt64 = 5_000_000_000
+    private var content: SCShareableContent?
+    private var contentAt = Date.distantPast
+    /// Seconds between looks: `interval` while something changes, up to `restInterval` when nothing does.
+    private var pace: Double = interval
+    static let interval = 5.0
+    static let restInterval = 10.0
     static let maxWindows = 6
 
     init(app: AppModel) { self.app = app }
@@ -43,13 +52,15 @@ final class AttentionWatcher {
             task = Task { [weak self] in
                 while !Task.isCancelled {
                     await self?.look()
-                    try? await Task.sleep(nanoseconds: Self.interval)
+                    try? await Task.sleep(nanoseconds: UInt64((self?.pace ?? Self.interval) * 1e9))
                 }
             }
         } else if !wanted, let t = task {
             t.cancel()
             task = nil
-            digests = [:]
+            samples = [:]
+            content = nil
+            pace = Self.interval
         }
     }
 
@@ -60,21 +71,29 @@ final class AttentionWatcher {
         guard !candidates.isEmpty else { return }
         let trusted = Paster.isTrusted
         let pictures = CGPreflightScreenCaptureAccess()
-        let content = pictures ? try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true) : nil
         let watched = app.watch.watchedWindows
+        var changed = false
         for (t, wid, pid) in candidates {
             let key = t.id
             // A window someone is looking at answers on its own screen.
             guard !watched.contains(wid) else { continue }
             var found: WatchPrompt?
+            var image: CGImage?
+            // The picture, when it changed since the last look (a caret or a spinner doesn't count):
+            // an unchanged window isn't read at all. One that can't be pictured (on another desktop)
+            // still gets its controls read.
+            if pictures, let scw = await scWindow(wid), let img = await Self.capture(scw) {
+                let sample = await Task.detached(priority: .utility) { WatchChange.sample(img) }.value
+                let share = samples[key].map { WatchChange.changedShare($0, sample) } ?? 1
+                samples[key] = sample
+                guard share >= WatchPacing.sliver else { continue }
+                image = img
+                changed = true
+            }
             // Controls first (a question card, Allow / Deny: exact, and no Screen Recording needed).
             if trusted, let ax = await Task.detached(priority: .utility, operation: { AXPrompt.read(pid: pid, windowID: wid) }).value {
                 found = ax.prompt
-            } else if let scw = content?.windows.first(where: { $0.windowID == wid }), let image = await Self.capture(scw) {
-                // Else the picture, when it changed.
-                let digest = await Task.detached(priority: .utility) { Self.digest(image) }.value
-                if digest == digests[key] { continue }
-                digests[key] = digest
+            } else if let image {
                 found = await PromptVision.read(image)
             } else {
                 continue
@@ -92,6 +111,18 @@ final class AttentionWatcher {
                 app.log.add("attention: \(t.appName) is asking — told the phone")
             }
         }
+        // Still windows earn longer rests; a change brings the looks back to every five seconds.
+        pace = changed || !pictures ? Self.interval : min(Self.restInterval, pace * 1.5)
+    }
+
+    /// The window as ScreenCaptureKit knows it, from a list fetched once a while (fetching it
+    /// means every window's title: tens of milliseconds).
+    private func scWindow(_ id: CGWindowID) async -> SCWindow? {
+        if let c = content, Date().timeIntervalSince(contentAt) < 30, let w = c.windows.first(where: { $0.windowID == id }) { return w }
+        guard let c = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true) else { return nil }
+        content = c
+        contentAt = Date()
+        return c.windows.first { $0.windowID == id }
     }
 
     /// The agent windows (and the place dictations go), newest first, each with its window.
@@ -123,10 +154,5 @@ final class AttentionWatcher {
         cfg.showsCursor = false
         cfg.ignoreShadowsSingleWindow = true
         return try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-    }
-
-    nonisolated private static func digest(_ image: CGImage) -> Data {
-        guard let data = image.dataProvider?.data as Data? else { return Data() }
-        return Data(SHA256.hash(data: data))
     }
 }
