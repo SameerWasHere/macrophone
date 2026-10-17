@@ -84,10 +84,26 @@ public struct PairedPeer: Codable, Sendable, Identifiable, Hashable {
     public var name: String
     public var pairedAt: Date
     public var lastSeen: Date?
-    public init(id: UUID, name: String, pairedAt: Date = Date(), lastSeen: Date? = nil) {
+    /// Phone side: where this Mac can be reached from away — what it told the phone while they
+    /// were connected at home, plus anything the person typed. Empty for a Mac that never said.
+    public var remoteAddresses: [RemoteAddress]
+    public init(id: UUID, name: String, pairedAt: Date = Date(), lastSeen: Date? = nil, remoteAddresses: [RemoteAddress] = []) {
         self.id = id
         self.name = name
         self.pairedAt = pairedAt
         self.lastSeen = lastSeen
+        self.remoteAddresses = remoteAddresses
+    }
+
+    enum CodingKeys: String, CodingKey { case id, name, pairedAt, lastSeen, remoteAddresses }
+
+    /// A list written before remote access has no addresses: it still loads.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        pairedAt = try c.decode(Date.self, forKey: .pairedAt)
+        lastSeen = try c.decodeIfPresent(Date.self, forKey: .lastSeen)
+        remoteAddresses = try c.decodeIfPresent([RemoteAddress].self, forKey: .remoteAddresses) ?? []
     }
 }

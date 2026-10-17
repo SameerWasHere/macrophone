@@ -132,6 +132,10 @@ public enum Message: Codable, Sendable {
     case watchState(WatchState)
     /// Mac → phone: the window, when it changed.
     case watchFrame(WatchFrame)
+    /// Mac → phone (only to a phone whose hello named "remote"): the addresses this Mac can be
+    /// reached at from away, with remote access on — sent after welcome and whenever they
+    /// change; empty when remote access is off. The phone keeps them with the pairing.
+    case remoteAddresses([RemoteAddress])
     // Either way
     case ping
     case pong

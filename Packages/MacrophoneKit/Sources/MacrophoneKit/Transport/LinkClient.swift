@@ -43,6 +43,11 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, installedApps: [MacApp])
     /// An app asked for with `openApp` opened (or didn't).
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String)
+    /// The Mac said where it can be reached from away (already kept with the pairing).
+    func linkClient(_ client: LinkClient, remoteAddresses: [RemoteAddress], macID: UUID)
+    /// The link moved between the local path (Bonjour) and a remote one while staying connected
+    /// — back home, it moves to the local path by itself.
+    func linkClient(_ client: LinkClient, pathChanged remote: Bool)
 }
 
 public extension LinkClientDelegate {
@@ -55,6 +60,8 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, attention: Attention) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {}
+    func linkClient(_ client: LinkClient, remoteAddresses: [RemoteAddress], macID: UUID) {}
+    func linkClient(_ client: LinkClient, pathChanged remote: Bool) {}
 }
 
 /// The iPhone end of the link: browses for Macs, pairs, and keeps one encrypted session to
@@ -81,6 +88,12 @@ public final class LinkClient: @unchecked Sendable {
     public var features: [String] = []
     @MainActor public weak var delegate: LinkClientDelegate?
     public var log: DiagnosticLog?
+    /// Away from home: when Bonjour hasn't shown the Mac this long after looking began, the
+    /// phone dials the addresses the Mac gave it (all at once; the first to answer wins).
+    public var awayAfter: TimeInterval = 3
+    /// Whether to look for the Mac with Bonjour at all. Off only in the protocol proof (mpctl),
+    /// to stand in for a network where Bonjour finds nothing.
+    public var browsesBonjour = true
 
     private let queue = DispatchQueue(label: "macrophone.client")
     private let lock = NSLock()
@@ -95,6 +108,10 @@ public final class LinkClient: @unchecked Sendable {
     private var retryDelay: TimeInterval = 1
     private var wantsConnection = false
     private var _state: State = .notPaired
+    /// The session runs over a remote address, not Bonjour.
+    private var _remote = false
+    private var browserStartedAt: Date?
+    private var movingHome = false
 
     /// The phone's current Send-to choice. Sent to the Mac right after every welcome, so the
     /// phone's choice wins when the two reconnect.
@@ -109,6 +126,10 @@ public final class LinkClient: @unchecked Sendable {
     }
 
     public var state: State { lock.lock(); defer { lock.unlock() }; return _state }
+    /// Connected over a remote address (away from home) rather than Bonjour.
+    public var isRemote: Bool { lock.sync { session != nil && _remote } }
+    /// Where the active Mac can be reached from away, in the order they'd be dialled.
+    public var remoteAddresses: [RemoteAddress] { RemoteAddressRule.ordered(activeMac?.remoteAddresses ?? []) }
     public var discoveredMacs: [DiscoveredMac] { lock.lock(); defer { lock.unlock() }; return macs }
     public var pairedMacs: [PairedPeer] { store.peers() }
 
@@ -136,7 +157,7 @@ public final class LinkClient: @unchecked Sendable {
     public func start() {
         // Back in the foreground: a fresh start, with the first retry a second away, not thirty.
         let existing = lock.sync { () -> NWBrowser? in wantsConnection = true; retryDelay = 1; return browser }
-        if existing == nil {
+        if existing == nil, browsesBonjour {
             let params = LinkServer.parameters()
             let b = NWBrowser(for: .bonjourWithTXTRecord(type: Product.serviceType, domain: nil), using: params)
             b.browseResultsChangedHandler = { [weak self] results, _ in self?.updateResults(results) }
@@ -152,10 +173,24 @@ public final class LinkClient: @unchecked Sendable {
                 default: break
                 }
             }
-            lock.sync { browser = b }
+            lock.sync { browser = b; browserStartedAt = Date() }
             b.start(queue: queue)
         }
         if activeMac == nil { setState(.notPaired) } else { ensureConnected() }
+    }
+
+    /// The protocol proof's switch: stop or start looking with Bonjour while connected, to stand
+    /// in for leaving home (nothing changes until the link drops) and coming back (the Mac shows
+    /// up and the link moves to the local path).
+    public func setBrowsesBonjour(_ on: Bool) {
+        browsesBonjour = on
+        if on {
+            if lock.sync({ browser }) == nil, lock.sync({ wantsConnection }) { start() }
+        } else {
+            let b = lock.sync { () -> NWBrowser? in let v = browser; browser = nil; browserStartedAt = nil; return v }
+            b?.cancel()
+            lock.sync { macs = [] }
+        }
     }
 
     /// Stop browsing and drop the session (app went to the background with nothing to send).
@@ -163,7 +198,7 @@ public final class LinkClient: @unchecked Sendable {
         lock.lock()
         wantsConnection = false
         let b = browser; browser = nil
-        let s = session; session = nil; sessionMacID = nil
+        let s = session; session = nil; sessionMacID = nil; _remote = false; browserStartedAt = nil
         lock.unlock()
         b?.cancel()
         s?.close()
@@ -218,15 +253,54 @@ public final class LinkClient: @unchecked Sendable {
             guard let self else { return }
             self.delegate?.linkClient(self, discovered: found)
         }
-        if let active = activeMac, found.contains(where: { $0.macID == active.id }) { ensureConnected() }
+        if let active = activeMac, found.contains(where: { $0.macID == active.id }) {
+            // Back home: the Mac is on this network again while the link still runs over a remote
+            // address — move to the local path.
+            if isRemote { moveHome(active) } else { ensureConnected() }
+        }
     }
 
-    /// `verified` = Bonjour's TXT record says this endpoint IS that Mac (by id). A dial by name
-    /// may reach a different Mac that happens to share the name.
-    private func endpoint(for mac: PairedPeer) -> (endpoint: NWEndpoint, verified: Bool) {
-        if let d = discoveredMacs.first(where: { $0.macID == mac.id }) { return (d.endpoint, true) }
+    /// How to reach the Mac right now: its Bonjour endpoint (verified = the TXT record says it IS
+    /// that Mac by id; a dial by name may reach another Mac with the same name), or — once Bonjour
+    /// has had `awayAfter` seconds and found nothing — the addresses it gave for away.
+    private enum Route { case bonjour(NWEndpoint, verified: Bool), remote([RemoteAddress]) }
+
+    private func route(for mac: PairedPeer) async -> Route {
+        func local() -> NWEndpoint? { discoveredMacs.first(where: { $0.macID == mac.id })?.endpoint }
+        if let e = local() { return .bonjour(e, verified: true) }
+        let remotes = RemoteAddressRule.ordered(mac.remoteAddresses)
+        if !remotes.isEmpty, browsesBonjour {
+            // Give Bonjour its few seconds before dialling away.
+            while let started = lock.sync({ browserStartedAt }), Date().timeIntervalSince(started) < awayAfter {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                if let e = local() { return .bonjour(e, verified: true) }
+            }
+        }
+        if !remotes.isEmpty { return .remote(remotes) }
         // Not browsed yet — dial the service by name and let Bonjour resolve it.
-        return (.service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil), false)
+        return .bonjour(.service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil), verified: false)
+    }
+
+    /// Dials every remote address at once and keeps the first whose connection opens; the
+    /// others are closed before any handshake, so the Mac only ever sees one session.
+    private func raceConnect(_ addresses: [RemoteAddress], timeout: TimeInterval) async throws -> FramedConnection {
+        log?.add("dialling \(addresses.count) remote address(es)")
+        let conns = addresses.map { FramedConnection(NWConnection(to: $0.endpoint, using: LinkServer.parameters()), queue: queue) }
+        return try await withThrowingTaskGroup(of: FramedConnection.self) { g in
+            for c in conns { g.addTask { try await c.start(timeout: timeout); return c } }
+            var winner: FramedConnection?
+            var lastError: Error = LinkError.macNotFound
+            while winner == nil, let r = await g.nextResult() {
+                switch r {
+                case .success(let c): winner = c
+                case .failure(let e): lastError = e
+                }
+            }
+            g.cancelAll()
+            for c in conns where c !== winner { c.cancel() }
+            guard let winner else { throw lastError }
+            return winner
+        }
     }
 
     // MARK: Session
@@ -268,12 +342,34 @@ public final class LinkClient: @unchecked Sendable {
         }
     }
 
-    private func dial(mac: PairedPeer, key: SymmetricKey, timeout: TimeInterval) async throws -> SecureSession {
-        setState(.connecting(mac.name))
-        let target = endpoint(for: mac)
-        let conn = FramedConnection(NWConnection(to: target.endpoint, using: LinkServer.parameters()), queue: queue)
+    /// `replacing`: a move back home — the new session takes the place of the remote one and the
+    /// state never leaves `.connected`.
+    private func dial(mac: PairedPeer, key: SymmetricKey, timeout: TimeInterval, replacing: Bool = false) async throws -> SecureSession {
+        if !replacing { setState(.connecting(mac.name)) }
+        let route: Route = replacing
+            ? .bonjour(discoveredMacs.first(where: { $0.macID == mac.id })?.endpoint ?? .service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil), verified: true)
+            : await route(for: mac)
+        let conn: FramedConnection
+        let verified: Bool
+        let remote: Bool
         do {
-            try await conn.start(timeout: timeout)
+            switch route {
+            case let .bonjour(endpoint, v):
+                conn = FramedConnection(NWConnection(to: endpoint, using: LinkServer.parameters()), queue: queue)
+                try await conn.start(timeout: timeout)
+                verified = v
+                remote = false
+            case let .remote(list):
+                conn = try await raceConnect(list, timeout: min(timeout, 6))
+                verified = false
+                remote = true
+            }
+        } catch {
+            log?.add("connect failed: \(String(describing: error))")
+            if !replacing { setState(.unreachable(mac.name)); scheduleRetry() }
+            throw error
+        }
+        do {
             let phoneNonce = LinkCrypto.randomBytes(32)
             try await conn.sendHandshake(.clientHello(phoneID: identity.id, nonce: phoneNonce, version: Product.protocolVersion))
             let reply = try await conn.receiveHandshake(timeout: timeout)
@@ -285,23 +381,35 @@ public final class LinkClient: @unchecked Sendable {
                 }
                 try await conn.sendHandshake(.clientFinish(proof: LinkCrypto.sessionProof(key, role: "phone", phoneNonce: phoneNonce, macNonce: macNonce)))
                 let keys = LinkCrypto.sessionKeys(key, phoneNonce: phoneNonce, macNonce: macNonce)
-                let s = SecureSession(connection: conn, peerID: mac.id, sendKey: keys.phoneToMac, receiveKey: keys.macToPhone)
+                let s = SecureSession(connection: conn, peerID: mac.id, sendKey: keys.phoneToMac, receiveKey: keys.macToPhone, isRemote: remote)
                 try await s.send(.hello(phoneName: identity.name, appVersion: appVersion, os: osDescription, features: features))
                 guard case let .welcome(macName, _) = try await receive(s, timeout: timeout) else {
                     throw LinkError.protocolError("expected welcome")
                 }
-                lock.sync { session = s; sessionMacID = mac.id; retryDelay = 1 }
+                let old = lock.sync { () -> SecureSession? in
+                    let o = session
+                    session = s; sessionMacID = mac.id; retryDelay = 1; _remote = remote
+                    return o
+                }
+                old?.close()
                 if let sel = selectionProvider?() { try? await s.send(.selection(sel)) }
                 store.touch(mac.id)
-                log?.add("connected to Mac")
+                log?.add(remote ? "connected to Mac from away" : (replacing ? "back home: moved to the local path" : "connected to Mac"))
                 setState(.connected(macName))
+                if replacing || remote {
+                    let r = remote
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.delegate?.linkClient(self, pathChanged: r)
+                    }
+                }
                 conn.onState { [weak self, weak s] state in
                     if case .failed = state, let s { self?.sessionEnded(s, error: LinkError.connectionFailed("dropped")) }
                     if case .cancelled = state, let s { self?.sessionEnded(s, error: LinkError.cancelled) }
                 }
                 startLoops(s, macID: mac.id)
                 return s
-            case .failure(.unknownPeer) where !target.verified:
+            case .failure(.unknownPeer) where !verified:
                 // Dialled by name: this may be another Mac with the same name. Never forget the
                 // pairing on its word — wait until Bonjour shows our Mac by id.
                 log?.add("a Mac with this name doesn't know this phone; not ours, keeping the pairing")
@@ -326,12 +434,38 @@ public final class LinkClient: @unchecked Sendable {
         } catch {
             conn.cancel()
             log?.add("connect failed: \(String(describing: error))")
+            if replacing { throw error }
             if case LinkError.handshake(.unknownPeer) = error {} else {
                 setState(.unreachable(mac.name))
                 scheduleRetry()
             }
             throw error
         }
+    }
+
+    /// Back home while connected from away: open the local path and swap the remote session for
+    /// it. If that fails, the remote one simply stays.
+    private func moveHome(_ mac: PairedPeer) {
+        guard let key = store.key(for: mac.id) else { return }
+        let go = lock.sync { () -> Bool in
+            guard _remote, session != nil, !movingHome else { return false }
+            movingHome = true
+            return true
+        }
+        guard go else { return }
+        Task {
+            defer { lock.sync { movingHome = false } }
+            _ = try? await dial(mac: mac, key: key, timeout: 6, replacing: true)
+        }
+    }
+
+    /// Keep (or clear, with nil) the one address the person typed for the active Mac.
+    public func setTypedAddress(_ address: RemoteAddress?, for macID: UUID) {
+        guard var peer = store.peers().first(where: { $0.id == macID }) else { return }
+        peer.remoteAddresses.removeAll { $0.source == .typed }
+        if let address { peer.remoteAddresses.append(RemoteAddress(host: address.host, port: address.port, source: .typed)) }
+        store.update(peer)
+        log?.add(address == nil ? "typed address cleared" : "typed address kept")
     }
 
     private func receive(_ s: SecureSession, timeout: TimeInterval) async throws -> Message {
@@ -409,6 +543,20 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, attention: a)
             }
+        case let .remoteAddresses(list):
+            // Kept with the pairing: what the Mac says replaces what it said before; a typed
+            // address stays.
+            if var peer = store.peers().first(where: { $0.id == macID }) {
+                let clean = list.prefix(12).filter { !$0.host.isEmpty && $0.port > 0 }
+                peer.remoteAddresses = RemoteAddressRule.merge(told: clean, into: peer.remoteAddresses)
+                store.update(peer)
+                log?.add("Mac gave \(clean.count) remote address(es)")
+                let kept = peer.remoteAddresses
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.delegate?.linkClient(self, remoteAddresses: kept, macID: macID)
+                }
+            }
         case .ping:
             Task { try? await s.send(.pong) }
         case .unpair:
@@ -430,6 +578,7 @@ public final class LinkClient: @unchecked Sendable {
         guard session === s else { lock.unlock(); return }
         session = nil
         sessionMacID = nil
+        _remote = false
         lock.unlock()
         s.close()
         pingTask?.cancel()

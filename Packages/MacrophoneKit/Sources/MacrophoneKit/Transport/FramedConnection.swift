@@ -147,13 +147,17 @@ public final class FramedConnection: @unchecked Sendable {
 public final class SecureSession: @unchecked Sendable {
     public let connection: FramedConnection
     public let peerID: UUID
+    /// The link runs beyond the local network (a Tailscale or forwarded-port address, not
+    /// Bonjour): a slower path, so watching favours smaller pictures.
+    public let isRemote: Bool
     private var sealer: FrameSealer
     private var opener: FrameOpener
     private let sendLock = AsyncLock()
 
-    init(connection: FramedConnection, peerID: UUID, sendKey: SymmetricKey, receiveKey: SymmetricKey) {
+    init(connection: FramedConnection, peerID: UUID, sendKey: SymmetricKey, receiveKey: SymmetricKey, isRemote: Bool = false) {
         self.connection = connection
         self.peerID = peerID
+        self.isRemote = isRemote
         self.sealer = FrameSealer(key: sendKey)
         self.opener = FrameOpener(key: receiveKey)
     }

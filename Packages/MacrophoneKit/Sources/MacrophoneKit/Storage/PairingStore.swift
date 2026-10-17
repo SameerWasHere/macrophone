@@ -8,6 +8,8 @@ public protocol PairingStore: AnyObject, Sendable {
     func peers() -> [PairedPeer]
     func key(for peerID: UUID) -> SymmetricKey?
     func save(_ peer: PairedPeer, key: SymmetricKey)
+    /// Rewrite what's known about a peer (its name, its remote addresses); the key stays.
+    func update(_ peer: PairedPeer)
     func touch(_ peerID: UUID)
     func remove(_ peerID: UUID)
 }
@@ -63,6 +65,14 @@ public final class KeychainPairingStore: PairingStore, @unchecked Sendable {
         writeList(list)
     }
 
+    public func update(_ peer: PairedPeer) {
+        lock.lock(); defer { lock.unlock() }
+        var list = readList()
+        guard let i = list.firstIndex(where: { $0.id == peer.id }) else { return }
+        list[i] = peer
+        writeList(list)
+    }
+
     public func touch(_ peerID: UUID) {
         lock.lock(); defer { lock.unlock() }
         var list = readList()
@@ -113,6 +123,11 @@ public final class FilePairingStore: PairingStore, @unchecked Sendable {
     public func save(_ peer: PairedPeer, key: SymmetricKey) {
         lock.lock(); defer { lock.unlock() }
         write(read().filter { $0.peer.id != peer.id } + [Entry(peer: peer, key: key.rawData)])
+    }
+    public func update(_ peer: PairedPeer) {
+        lock.lock(); defer { lock.unlock() }
+        var e = read()
+        if let i = e.firstIndex(where: { $0.peer.id == peer.id }) { e[i].peer = peer; write(e) }
     }
     public func touch(_ peerID: UUID) {
         lock.lock(); defer { lock.unlock() }

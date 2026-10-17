@@ -40,6 +40,9 @@ public protocol LinkServerDelegate: AnyObject {
     func installedApps(_ server: LinkServer) async -> [MacApp]
     /// Open an app and bring it forward. Returns whether it opened and a plain line about it.
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String)
+    /// Where this Mac can be reached from away (remote access on), sent to a phone that asked
+    /// for them right after its welcome. Empty with remote access off.
+    func remoteAddresses(_ server: LinkServer) -> [RemoteAddress]
 }
 
 public extension LinkServerDelegate {
@@ -54,6 +57,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
     func installedApps(_ server: LinkServer) async -> [MacApp] { [] }
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't open apps") }
+    func remoteAddresses(_ server: LinkServer) -> [RemoteAddress] { [] }
 }
 
 /// True for exactly one caller.
@@ -82,6 +86,10 @@ public final class LinkServer: @unchecked Sendable {
     private var listener: NWListener?
     private let lock = NSLock()
     private var sessions: [UUID: SecureSession] = [:]
+    /// Remote access: listen on a fixed port and take connections from beyond the local network
+    /// (a Tailscale address, a forwarded port). Nil (the default) = local and nearby only; a
+    /// connection from away is closed before any handshake.
+    private var remote: RemoteConfig?
     /// What each connected phone said it understands (its hello's features).
     private var features: [UUID: Set<String>] = [:]
 
@@ -104,11 +112,36 @@ public final class LinkServer: @unchecked Sendable {
 
     // MARK: Listener
 
+    public var remoteConfig: RemoteConfig? { lock.sync { remote } }
+
+    /// Turn remote access on (with its port) or off. Only the listener restarts — phones already
+    /// connected stay connected.
+    public func setRemote(_ config: RemoteConfig?) {
+        let changed = lock.sync { () -> Bool in
+            guard remote != config else { return false }
+            remote = config
+            return true
+        }
+        guard changed else { return }
+        log?.add(config.map { "remote access on, port \($0.port)" } ?? "remote access off")
+        if lock.sync({ listener }) != nil { start() }
+    }
+
+    /// Whether that phone's session came from beyond the local network.
+    public func isRemote(_ peerID: UUID) -> Bool { lock.sync { sessions[peerID]?.isRemote ?? false } }
+
     public func start() {
-        stop()
+        let old = lock.sync { () -> NWListener? in let l = listener; listener = nil; return l }
+        old?.cancel()
         let params = Self.parameters()
+        let config = lock.sync { remote }
         do {
-            let l = try NWListener(using: params)
+            let l: NWListener
+            if let config, let port = NWEndpoint.Port(rawValue: config.port) {
+                l = try NWListener(using: params, on: port)
+            } else {
+                l = try NWListener(using: params)
+            }
             let txt = NWTXTRecord(["id": identity.id.uuidString, "v": String(Product.protocolVersion)])
             l.service = NWListener.Service(name: identity.name, type: Product.serviceType, domain: nil, txtRecord: txt)
             l.stateUpdateHandler = { [weak self, weak l] state in
@@ -116,7 +149,7 @@ public final class LinkServer: @unchecked Sendable {
                 switch state {
                 case .ready:
                     let port = l?.port?.rawValue ?? 0
-                    self.log?.add("listener ready on port \(port), advertising \(Product.serviceType)")
+                    self.log?.add("listener ready on port \(port)\(config != nil ? " (remote access on)" : ""), advertising \(Product.serviceType)")
                     self.notify { $0.linkServer(self, listenerChanged: .ready(port: port)) }
                 case .failed(let e):
                     self.log?.add("listener failed: \(e)")
@@ -240,17 +273,27 @@ public final class LinkServer: @unchecked Sendable {
     // MARK: Connections
 
     private func accept(_ nw: NWConnection) {
+        // Where it came from: a local or nearby address, or from away. With remote access off a
+        // connection from away is closed at once — the handshake would refuse a stranger anyway,
+        // but off means off.
+        let host = RemoteAddressRule.host(of: nw.endpoint)
+        let fromAway = host.map { !RemoteAddressRule.isLocal($0) } ?? false
+        if fromAway, lock.sync({ remote }) == nil {
+            log?.add("connection from away refused: remote access is off")
+            nw.cancel()
+            return
+        }
         let conn = FramedConnection(nw, queue: queue)
         conn.startAccepted()
-        Task { await self.handle(conn) }
+        Task { await self.handle(conn, fromAway: fromAway) }
     }
 
-    private func handle(_ conn: FramedConnection) async {
+    private func handle(_ conn: FramedConnection, fromAway: Bool) async {
         do {
             let first = try await conn.receiveHandshake(timeout: 15)
             switch first {
             case let .clientHello(phoneID, nonce, version):
-                try await runSession(conn, phoneID: phoneID, phoneNonce: nonce, version: version)
+                try await runSession(conn, phoneID: phoneID, phoneNonce: nonce, version: version, fromAway: fromAway)
             case let .pairQR(phoneID, phoneName, phonePub, inviteID, proof, version):
                 try await pairByQR(conn, phoneID: phoneID, phoneName: phoneName, phonePub: phonePub,
                                    inviteID: inviteID, proof: proof, version: version)
@@ -360,7 +403,7 @@ public final class LinkServer: @unchecked Sendable {
 
     // MARK: Sessions
 
-    private func runSession(_ conn: FramedConnection, phoneID: UUID, phoneNonce: Data, version: Int) async throws {
+    private func runSession(_ conn: FramedConnection, phoneID: UUID, phoneNonce: Data, version: Int, fromAway: Bool) async throws {
         guard version == Product.protocolVersion else {
             try? await conn.sendHandshake(.failure(reason: .versionMismatch)); conn.cancel(); return
         }
@@ -378,12 +421,12 @@ public final class LinkServer: @unchecked Sendable {
             try? await conn.sendHandshake(.failure(reason: .badProof)); conn.cancel(); return
         }
         let keys = LinkCrypto.sessionKeys(key, phoneNonce: phoneNonce, macNonce: macNonce)
-        let session = SecureSession(connection: conn, peerID: phoneID, sendKey: keys.macToPhone, receiveKey: keys.phoneToMac)
+        let session = SecureSession(connection: conn, peerID: phoneID, sendKey: keys.macToPhone, receiveKey: keys.phoneToMac, isRemote: fromAway)
 
         let old = lock.sync { () -> SecureSession? in let o = sessions[phoneID]; sessions[phoneID] = session; return o }
         old?.close()
         store.touch(phoneID)
-        log?.add("session open")
+        log?.add(fromAway ? "session open (from away)" : "session open")
 
         defer {
             let mine = lock.sync { () -> Bool in
@@ -413,6 +456,11 @@ public final class LinkServer: @unchecked Sendable {
                 let p = peer
                 try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion))
                 try await session.send(.targets(await targetsOnMain()))
+                // Only a phone that named "remote" gets the addresses (an unknown message would end
+                // an older phone's session).
+                if phoneFeatures?.contains(RemoteAccess.feature) == true {
+                    try await session.send(.remoteAddresses(await remoteAddressesOnMain()))
+                }
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
                 if seen.contains(d.id) {
@@ -467,7 +515,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .attention, .apps, .appOpened:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .attention, .apps, .appOpened, .remoteAddresses:
                 break
             }
         }
@@ -481,6 +529,17 @@ public final class LinkServer: @unchecked Sendable {
     @MainActor private func targetsOnMain() -> [LiveTarget] {
         guard let delegate else { return [] }
         return delegate.liveTargets(self)
+    }
+
+    @MainActor private func remoteAddressesOnMain() -> [RemoteAddress] {
+        guard let delegate else { return [] }
+        return delegate.remoteAddresses(self)
+    }
+
+    /// The addresses changed (remote access toggled, the network moved): tell every phone that
+    /// understands them.
+    public func broadcastRemoteAddresses(_ list: [RemoteAddress]) {
+        for id in phones(with: RemoteAccess.feature) { Task { await self.send(.remoteAddresses(list), to: id) } }
     }
 
     private func notify(_ body: @escaping @MainActor (LinkServerDelegate) -> Void) {
