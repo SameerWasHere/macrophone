@@ -87,7 +87,9 @@ public enum DeliveryOutcome: String, Codable, Sendable {
 
 public enum Message: Codable, Sendable {
     // Phone → Mac
-    case hello(phoneName: String, appVersion: String, os: String)
+    /// `features`: what this phone understands beyond the first version ("attention"); the Mac
+    /// sends a newer message only to a phone that names it (an unknown message ends a session).
+    case hello(phoneName: String, appVersion: String, os: String, features: [String]? = nil)
     case dictation(Dictation, delayed: Bool)
     // Mac → Phone
     case welcome(macName: String, appVersion: String)
@@ -124,6 +126,8 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: answer the prompt the window showed (`WatchPrompt.id`) with its answer at
     /// `index`. The Mac ignores it if the window has moved on to another question.
     case watchChoose(promptID: String, index: Int)
+    /// Mac → phone: a window is asking a question (only to phones whose hello named "attention").
+    case attention(Attention)
     /// Mac → phone: how watching is going.
     case watchState(WatchState)
     /// Mac → phone: the window, when it changed.

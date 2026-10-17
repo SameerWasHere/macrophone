@@ -35,6 +35,14 @@ enum AppQuirks {
         "com.raphaelamorim.rio", "dev.commandline.waveterm",
     ]
 
+    /// Where coding agents ask questions (besides terminals): their windows are watched for a
+    /// question while a phone listens for alerts.
+    static let agentApps: Set<String> = [
+        "com.anthropic.claudefordesktop", "com.openai.chat", "com.openai.codex",
+        "com.todesktop.230313mzl4w4u92", // Cursor
+        "com.microsoft.VSCode", "com.exafunction.windsurf", "dev.zed.Zed", "com.google.antigravity",
+    ]
+
     /// Apps whose message box can't be seen through Accessibility at all (it isn't in their
     /// tree), but which keep the cursor in it: Macrophone brings the window forward and pastes
     /// where the cursor is. Found by looking at the app's tree (docs/TARGETS.md).

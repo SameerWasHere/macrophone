@@ -82,6 +82,8 @@ public final class LinkServer: @unchecked Sendable {
     private var listener: NWListener?
     private let lock = NSLock()
     private var sessions: [UUID: SecureSession] = [:]
+    /// What each connected phone said it understands (its hello's features).
+    private var features: [UUID: Set<String>] = [:]
 
     // Pairing state
     private struct ActiveInvite { var invite: PairingInvite; var privateKey: Curve25519.KeyAgreement.PrivateKey; var expires: Date }
@@ -221,6 +223,11 @@ public final class LinkServer: @unchecked Sendable {
     public func send(_ message: Message, to peerID: UUID) async -> Bool {
         guard let s = lock.sync({ sessions[peerID] }) else { return false }
         do { try await s.send(message); return true } catch { return false }
+    }
+
+    /// The connected phones that understand `feature` ("attention").
+    public func phones(with feature: String) -> [UUID] {
+        lock.sync { features.filter { sessions[$0.key] != nil && $0.value.contains(feature) }.map(\.key) }
     }
 
     /// The Send-to choice changed on the Mac (or arrived from one phone): tell every phone
@@ -381,7 +388,7 @@ public final class LinkServer: @unchecked Sendable {
         defer {
             let mine = lock.sync { () -> Bool in
                 let mine = sessions[phoneID] === session
-                if mine { sessions.removeValue(forKey: phoneID) }
+                if mine { sessions.removeValue(forKey: phoneID); features.removeValue(forKey: phoneID) }
                 return mine
             }
             session.close()
@@ -394,7 +401,8 @@ public final class LinkServer: @unchecked Sendable {
         while true {
             let message = try await session.receive()
             switch message {
-            case let .hello(phoneName, appVersion, os):
+            case let .hello(phoneName, appVersion, os, phoneFeatures):
+                lock.sync { features[phoneID] = Set(phoneFeatures ?? []) }
                 // The phone may have been renamed since pairing: remember its current name.
                 let name = phoneName.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !name.isEmpty, name != peer.name {
@@ -459,7 +467,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .apps, .appOpened:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .attention, .apps, .appOpened:
                 break
             }
         }

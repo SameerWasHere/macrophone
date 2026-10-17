@@ -106,7 +106,7 @@ final class PromptTests: XCTestCase {
         XCTAssertEqual(p.choices.count, 3)
         XCTAssertEqual(p.choices.first?.label, "Yes")
         XCTAssertEqual(p.highlighted, 0)
-        XCTAssertEqual(p.question, "Do you want to make this edit to AuthView. swift?")
+        XCTAssertEqual(p.question, "Do you want to make this edit to AuthView.swift?")
         XCTAssertEqual(p.choices[1].label, "Yes, and don't ask again this session")
     }
 
@@ -119,6 +119,14 @@ final class PromptTests: XCTestCase {
         XCTAssertEqual(p.question, "Overwrite package-lock.json?")
         XCTAssertEqual(p.keys(for: 0), [.character("y"), .returnKey])
         XCTAssertEqual(p.keys(for: 1), [.character("n"), .returnKey])
+    }
+
+    func testHelloWithoutFeaturesStillDecodes() throws {
+        // A phone from before alerts sends a hello without features.
+        let json = #"{"hello":{"phoneName":"P","appVersion":"1.0","os":"iOS"}}"#
+        let m = try JSONDecoder().decode(Message.self, from: Data(json.utf8))
+        guard case let .hello(_, _, _, features) = m else { return XCTFail() }
+        XCTAssertNil(features)
     }
 
     func testIDIsStableAndDiffers() {

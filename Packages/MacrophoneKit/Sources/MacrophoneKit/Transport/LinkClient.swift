@@ -37,6 +37,8 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, watchState: WatchState)
     /// Watching: a new picture of the window.
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame)
+    /// A window on the Mac is asking something (only when `features` names "attention").
+    func linkClient(_ client: LinkClient, attention: Attention)
     /// The apps installed on the Mac (answer to `listApps`).
     func linkClient(_ client: LinkClient, installedApps: [MacApp])
     /// An app asked for with `openApp` opened (or didn't).
@@ -50,6 +52,7 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String) {}
     func linkClient(_ client: LinkClient, watchState: WatchState) {}
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {}
+    func linkClient(_ client: LinkClient, attention: Attention) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {}
 }
@@ -74,6 +77,8 @@ public final class LinkClient: @unchecked Sendable {
     public let store: PairingStore
     public let appVersion: String
     public let osDescription: String
+    /// What this phone understands beyond the first version, told to the Mac in the hello.
+    public var features: [String] = []
     @MainActor public weak var delegate: LinkClientDelegate?
     public var log: DiagnosticLog?
 
@@ -280,7 +285,7 @@ public final class LinkClient: @unchecked Sendable {
                 try await conn.sendHandshake(.clientFinish(proof: LinkCrypto.sessionProof(key, role: "phone", phoneNonce: phoneNonce, macNonce: macNonce)))
                 let keys = LinkCrypto.sessionKeys(key, phoneNonce: phoneNonce, macNonce: macNonce)
                 let s = SecureSession(connection: conn, peerID: mac.id, sendKey: keys.phoneToMac, receiveKey: keys.macToPhone)
-                try await s.send(.hello(phoneName: identity.name, appVersion: appVersion, os: osDescription))
+                try await s.send(.hello(phoneName: identity.name, appVersion: appVersion, os: osDescription, features: features))
                 guard case let .welcome(macName, _) = try await receive(s, timeout: timeout) else {
                     throw LinkError.protocolError("expected welcome")
                 }
@@ -397,6 +402,11 @@ public final class LinkClient: @unchecked Sendable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.delegate?.linkClient(self, watchFrame: frame)
+            }
+        case let .attention(a):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, attention: a)
             }
         case .ping:
             Task { try? await s.send(.pong) }

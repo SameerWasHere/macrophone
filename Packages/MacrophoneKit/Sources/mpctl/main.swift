@@ -61,6 +61,20 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, didPair peer: PairedPeer) { stdout("PAIRED with \(peer.name)") }
     func linkServer(_ server: LinkServer, didUnpair peerID: UUID) { stdout("UNPAIRED by phone") }
     func linkServer(_ server: LinkServer, peerConnected peer: PairedPeer, appVersion: String, os: String) {
+        // Alerts: a phone that understands them hears, after a while, that the codex window (one it
+        // isn't watching) is asking — read off that window's picture like the Mac app does.
+        if server.phones(with: Attention.feature).contains(peer.id), flag("--no-attention") == nil {
+            let codex = LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "codex — ~/api", windowKey: "42")
+            let demo = self.demo(for: codex.ref)
+            demo.finish()
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64((Double(flag("--attention-after") ?? "8") ?? 8) * 1e9))
+                guard let image = demo.image(), let p = await PromptVision.read(image) else { stdout("ATTENTION none read"); return }
+                let a = Attention(ref: codex.ref, appName: "Terminal", title: codex.title, question: p.question, promptID: p.id)
+                await server.send(.attention(a), to: peer.id)
+                stdout("ATTENTION sent: \(codex.title) — \(p.question ?? "-")")
+            }
+        }
         stdout("CONNECTED \(peer.name) (\(os), v\(appVersion))")
     }
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) { stdout("DISCONNECTED") }

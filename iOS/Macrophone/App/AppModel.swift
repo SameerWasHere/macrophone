@@ -135,6 +135,12 @@ final class AppModel: ObservableObject {
         watcher.sendClick = { [weak self] p in self?.client.watchClick(p) }
         watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }
+        AgentAlerts.shared.install(self)
+        // Notifications are asked for the first time a window is watched — the moment they make sense.
+        watcher.$isOpen.filter { $0 }.first().sink { [weak self] _ in
+            guard self?.settings.agentAlerts == true else { return }
+            Task { await AgentAlerts.shared.askIfNeeded() }
+        }.store(in: &bag)
         recorder.onFinish = { [weak self] outcome in self?.recordingFinished(outcome) }
         recorder.$phase.sink { [weak self] in self?.recorderPhase = $0 }.store(in: &bag)
         recorder.$softCapReached.filter { $0 }.sink { [weak self] _ in
@@ -155,6 +161,8 @@ final class AppModel: ObservableObject {
         c.log = log
         // The phone's choice goes to the Mac after every welcome, so on reconnect the phone's wins.
         c.selectionProvider = { Settings.storedSelection() }
+        // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts).
+        c.features = [Attention.feature]
         return c
     }
 
@@ -1149,6 +1157,20 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {
         guard client === self.client else { return }
         watcher.received(watchFrame)
+    }
+
+    func linkClient(_ client: LinkClient, attention: Attention) {
+        guard client === self.client, settings.agentAlerts else { return }
+        // Already looking at that window: its answers are on screen.
+        if sceneActive, watcher.isOpen, watcher.target == attention.ref, !watcher.phase.isPaused { return }
+        AgentAlerts.shared.post(attention)
+        log.add("attention: \(attention.appName) is asking")
+    }
+
+    /// A tapped alert: watch that window (and send there), where its answers wait.
+    func openAttention(_ ref: TargetRef) {
+        if case .app = ref, ref != settings.selection.target { pick(ref) }
+        watcher.open(ref)
     }
 
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {

@@ -98,11 +98,19 @@ public enum PromptReader {
     /// or a question sits right above — a numbered list in an agent's reply isn't a prompt.
     public static func read(_ lines: [ReadLine]) -> WatchPrompt? {
         let sorted = lines
-            .map { ReadLine(text: $0.text.trimmingCharacters(in: .whitespaces), minX: $0.minX, midY: $0.midY) }
+            .map { ReadLine(text: tidy($0.text), minX: $0.minX, midY: $0.midY) }
             .filter { !$0.text.isEmpty }
             .sorted { $0.midY < $1.midY }
         guard !sorted.isEmpty else { return nil }
         return menu(sorted) ?? typed(sorted)
+    }
+
+    /// Recognition puts a space after the dot in a file name ("AuthView. swift"): take it out.
+    static func tidy(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        guard t.contains(". ") else { return t }
+        return t.replacingOccurrences(of: #"(\w)\. (swift|js|jsx|ts|tsx|py|rb|go|rs|java|kt|md|json|ya?ml|toml|html|css|scss|sh|txt|c|h|m|cpp|lock)\b"#,
+                                      with: "$1.$2", options: .regularExpression)
     }
 
     // MARK: Menus
@@ -207,7 +215,7 @@ public enum PromptReader {
         if t.hasSuffix("?") { return t }
         let lower = t.lowercased()
         guard t.count >= 6, questionStarts.contains(where: lower.hasPrefix) else { return nil }
-        return t.hasSuffix("7") ? String(t.dropLast()) + "?" : nil
+        return t.hasSuffix("7") ? tidy(String(t.dropLast()) + "?") : nil
     }
 
     // MARK: (y/n)
@@ -227,4 +235,29 @@ public enum PromptReader {
         }
         return nil
     }
+}
+
+/// A window on the Mac is asking something and nobody's looking at it (Oct 16 2026): the phone
+/// buzzes, and a tap opens that window with the answers as buttons.
+public struct Attention: Codable, Sendable, Equatable {
+    /// The window, to watch it.
+    public var ref: TargetRef
+    /// "Claude", "Terminal".
+    public var appName: String
+    /// "Terminal — codex ~/api" — tells two windows of one app apart.
+    public var title: String
+    /// "Do you want to make this edit to AuthView.swift?" — nil when it couldn't be read.
+    public var question: String?
+    public var promptID: String
+
+    public init(ref: TargetRef, appName: String, title: String, question: String?, promptID: String) {
+        self.ref = ref
+        self.appName = appName
+        self.title = title
+        self.question = question
+        self.promptID = promptID
+    }
+
+    /// What the phone understands, sent in its hello.
+    public static let feature = "attention"
 }

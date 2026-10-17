@@ -27,6 +27,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var delivery: DeliveryEngine!
     /// A phone watching the window it sends to (WatchService).
     private(set) var watch: WatchService!
+    private(set) var attention: AttentionWatcher!
     /// Phone → the app it's watching, for the menu.
     @Published private(set) var watching: [UUID: String] = [:]
 
@@ -82,6 +83,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
         delivery = DeliveryEngine(app: self)
         watch = WatchService(app: self)
+        attention = AttentionWatcher(app: self)
         watch.onChange = { [weak self] in
             guard let self, self.watching != self.watch.watching else { return }
             self.watching = self.watch.watching
@@ -490,6 +492,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         peers = list
         log.add("phone connected (app \(appVersion))")
         pushStatus()
+        attention.update()
     }
 
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) {
@@ -497,6 +500,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         peers = server.store.peers()
         log.add("phone disconnected")
         pushStatus()
+        attention.update()
     }
 
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {

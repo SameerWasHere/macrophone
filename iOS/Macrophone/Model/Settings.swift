@@ -17,6 +17,8 @@ final class Settings: ObservableObject {
     @Published var historyEnabled: Bool { didSet { d.set(historyEnabled, forKey: K.history) } }
     /// After a dictation is sent into an app, show that app's window (Watching, Oct 14 2026).
     @Published var watchAfterSending: Bool { didSet { d.set(watchAfterSending, forKey: K.watchAfterSending) } }
+    /// A notification when a window on the Mac asks something nobody is watching (Oct 16 2026).
+    @Published var agentAlerts: Bool { didSet { d.set(agentAlerts, forKey: K.agentAlerts) } }
     /// The Custom cleanup level's instructions as the person wrote them. Empty = the default
     /// (exactly Medium's). Applied to the cleaner the moment it changes, and at launch.
     @Published var customInstructions: String {
@@ -48,6 +50,7 @@ final class Settings: ObservableObject {
         autoStopDelay = defaults.object(forKey: K.autoStopDelay) as? Double ?? 3
         historyEnabled = defaults.object(forKey: K.history) as? Bool ?? true
         watchAfterSending = defaults.object(forKey: K.watchAfterSending) as? Bool ?? true
+        agentAlerts = defaults.object(forKey: K.agentAlerts) as? Bool ?? true
         let custom = defaults.string(forKey: K.customInstructions) ?? ""
         customInstructions = custom
         CleanupPrompts.setCustomInstructions(custom)
@@ -101,6 +104,7 @@ final class Settings: ObservableObject {
         static let autoStopDelay = "settings.autoStopDelay"
         static let history = "settings.historyEnabled"
         static let watchAfterSending = "settings.watchAfterSending"
+        static let agentAlerts = "settings.agentAlerts"
         static let deviceName = "settings.deviceName"
         static let selection = "settings.selection"
         static let sendByTarget = "settings.sendByTarget"

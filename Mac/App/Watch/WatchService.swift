@@ -108,6 +108,9 @@ final class WatchService {
 
     func stopAll() { watches.keys.forEach(stop) }
 
+    /// The windows phones are looking at now.
+    var watchedWindows: Set<CGWindowID> { Set(watches.values.compactMap(\.windowID)) }
+
     // MARK: The loop
 
     private func run(_ w: Watch) async {

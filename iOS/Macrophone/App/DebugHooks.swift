@@ -50,7 +50,8 @@ import UIKit
 /// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
 ///                                            answer@1 (the window's question, second answer), keys,
-///                                            next / prev (the next or previous window)
+///                                            next / prev (the next or previous window), attend@<bundle>@<window>
+///                                            (what tapping an alert does)
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
@@ -229,6 +230,10 @@ enum DebugHooks {
                         if v.count == 3 { model.watcher.scroll(at: CGPoint(x: v[0], y: v[1]), by: CGVector(dx: 0, dy: v[2])) }
                     } else if a.hasPrefix("answer@"), let i = Int(a.dropFirst(7)) {
                         model.watcher.choose(i)
+                    } else if a.hasPrefix("attend@") {
+                        // What a tapped alert does: attend@com.apple.Terminal@42
+                        let v = a.split(separator: "@").dropFirst().map(String.init)
+                        if v.count == 2 { model.openAttention(.app(bundleID: v[0], windowKey: v[1], name: "Terminal — codex ~/api")) }
                     } else if a == "next" || a == "prev" {
                         model.watchStep(a == "next" ? 1 : -1)
                     } else if a == "keys" {
