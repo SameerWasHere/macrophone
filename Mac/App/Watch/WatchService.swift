@@ -70,6 +70,10 @@ final class WatchService {
         /// Milliseconds each frame took to encode (video) or make (pictures), for the line the log
         /// gets when the watch ends — numbers only; and when each went, for the peak a second.
         var frameMs: [Int] = []
+        /// Where frames go while a watch runs (numbers only, for the log line): given by the
+        /// window, of those changed, held for the pace, held for the wire, and milliseconds sending.
+        var given = 0, givenChanged = 0, heldForPace = 0, heldForWire = 0
+        var sendMs: [Int] = []
         var sentAt: [Date] = []
         var videoFrames = 0
         /// Frames handed to the encoder and not yet on the wire: a new one is handed in only
@@ -238,7 +242,7 @@ final class WatchService {
         if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
         if !w.frameMs.isEmpty {
             let ms = w.frameMs.sorted()
-            app.log.add("watching: \(ms.count) frames (\(w.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make · peak \(Self.peakPerSecond(w.sentAt)) a second · \(w.scrolls) scroll steps in \(w.gestures) swipes")
+            app.log.add("watching: \(ms.count) frames (\(w.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make · peak \(Self.peakPerSecond(w.sentAt)) a second · \(w.scrolls) scroll steps in \(w.gestures) swipes · window gave \(w.given) (\(w.givenChanged) changed), held \(w.heldForPace) for pace, \(w.heldForWire) for the wire, sending median \(w.sendMs.sorted().dropFirst(w.sendMs.count / 2).first ?? 0) ms")
         }
         w.restoreFit()
         w.dropStream()
@@ -307,6 +311,8 @@ final class WatchService {
             s.onFrame = { [weak self, weak w, weak s] pixels, changed in
                 Task { @MainActor in
                     guard let self, let w, let s, w.stream === s else { return }
+                    w.given += 1
+                    if changed > 0 { w.givenChanged += 1 }
                     self.arrived(pixels, changed: changed, w)
                 }
             }
@@ -374,10 +380,10 @@ final class WatchService {
             let interval = Date() < w.forceUntil ? 0 : WatchPacing.minimumInterval(changed: w.changedSince, quick: quick(w), rate: rate(w))
             if interval == .infinity { w.latest = nil; continue }
             let due = w.lastSentAt.addingTimeInterval(interval)
-            if Date() < due { await w.pause(due.timeIntervalSinceNow); continue }
+            if Date() < due { w.heldForPace += 1; await w.pause(due.timeIntervalSinceNow); continue }
             if w.wantsVideo, w.seq > 0 {
                 // The wire is behind: the newest frame waits here, where a newer one replaces it.
-                if w.inFlight >= 2 { await w.pause(0.02); continue }
+                if w.inFlight >= 2 { w.heldForWire += 1; await w.pause(0.02); continue }
                 submitVideo(pixels, w)
                 if w.latestSeq == seq { w.latest = nil }
                 continue
@@ -475,6 +481,7 @@ final class WatchService {
                 let frame = WatchVideoFrame(seq: w.seq, data: encoded.data, parameterSets: encoded.parameterSets, keyframe: encoded.keyframe,
                                             width: v.width, height: v.height, appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
                 await app.server.send(.watchVideo(frame), to: w.peer)
+                if w.sendMs.count < 2000 { w.sendMs.append(Self.ms(t)) }
                 w.inFlight = max(0, w.inFlight - 1)
                 if timing { print("[watch] video encode \(ms) · send \(encoded.data.count / 1024) KB\(encoded.keyframe ? " key" : "") \(Self.ms(t))"); fflush(stdout) }
                 // A video chip busy elsewhere for good: pictures from here on.
