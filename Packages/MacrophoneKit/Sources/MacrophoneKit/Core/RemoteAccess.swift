@@ -74,6 +74,36 @@ public enum RemoteAddressRule {
         return false
     }
 
+    /// The same, counting a source on one of this machine's own subnets as local too — a home
+    /// network with public IPv6, a campus with public IPv4 — so a phone Bonjour found is never
+    /// refused while remote access is off. A Tailscale subnet never counts (that IS away).
+    public static func isLocal(_ host: String, subnets: [OwnSubnet]) -> Bool {
+        if isLocal(host) { return true }
+        if isTailscale(host) { return false }
+        let h = stripScope(host)
+        return subnets.contains { !isTailscale($0.address) && sameSubnet(h, $0) }
+    }
+
+    static func sameSubnet(_ host: String, _ s: OwnSubnet) -> Bool {
+        guard let a = ipBytes(host), let b = ipBytes(s.address), a.count == b.count else { return false }
+        let bits = min(max(s.prefix, 0), a.count * 8)
+        for i in 0..<(bits / 8) where a[i] != b[i] { return false }
+        let rest = bits % 8
+        if rest > 0 {
+            let mask = UInt8(0xFF) << UInt8(8 - rest)
+            if a[bits / 8] & mask != b[bits / 8] & mask { return false }
+        }
+        return true
+    }
+
+    /// 4 bytes for IPv4, 16 for IPv6, nil for a name.
+    static func ipBytes(_ host: String) -> [UInt8]? {
+        if let v4 = ipv4Bytes(host) { return v4 }
+        var v6 = in6_addr()
+        guard inet_pton(AF_INET6, stripScope(host), &v6) == 1 else { return nil }
+        return withUnsafeBytes(of: &v6) { Array($0) }
+    }
+
     /// The addresses a Mac can be reached at from away, in the order worth trying: Tailscale
     /// first (works from anywhere), then its MagicDNS name, the ones the person typed, and last
     /// the Mac's local addresses (useful on a network that blocks Bonjour but not the Mac).
@@ -160,6 +190,13 @@ public enum RemoteAddressRule {
     }
 }
 
+/// One of this machine's own networks: an address and its prefix length (192.168.4.22/22).
+public struct OwnSubnet: Hashable, Sendable {
+    public var address: String
+    public var prefix: Int
+    public init(address: String, prefix: Int) { self.address = address; self.prefix = prefix }
+}
+
 /// An address this machine has on one of its interfaces.
 public struct InterfaceAddress: Hashable, Sendable {
     public var interface: String
@@ -192,6 +229,39 @@ public enum NetworkAddresses {
             list.append(InterfaceAddress(interface: name, host: host))
         }
         return order(list)
+    }
+
+    /// Every network this machine is on (IPv4 and IPv6, loopback and link-local left out), for
+    /// telling a connection from this network apart from one from away.
+    public static func ownSubnets() -> [OwnSubnet] {
+        var list: [OwnSubnet] = []
+        var ifap: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifap) == 0, let first = ifap else { return [] }
+        defer { freeifaddrs(ifap) }
+        var p: UnsafeMutablePointer<ifaddrs>? = first
+        while let i = p {
+            defer { p = i.pointee.ifa_next }
+            guard let addr = i.pointee.ifa_addr, let mask = i.pointee.ifa_netmask else { continue }
+            let family = Int32(addr.pointee.sa_family)
+            guard family == AF_INET || family == AF_INET6 else { continue }
+            let flags = Int32(i.pointee.ifa_flags)
+            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0 else { continue }
+            var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(addr, socklen_t(addr.pointee.sa_len), &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let host = RemoteAddressRule.stripScope(String(cString: buf))
+            if host.hasPrefix("169.254.") || host.lowercased().hasPrefix("fe80") { continue }
+            // The prefix length is the number of leading one bits in the netmask.
+            let maskBytes: [UInt8]
+            if family == AF_INET {
+                maskBytes = mask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { withUnsafeBytes(of: $0.pointee.sin_addr) { Array($0) } }
+            } else {
+                maskBytes = mask.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { withUnsafeBytes(of: $0.pointee.sin6_addr) { Array($0) } }
+            }
+            var prefix = 0
+            for b in maskBytes { if b == 0xFF { prefix += 8 } else { prefix += (~b).leadingZeroBitCount; break } }
+            list.append(OwnSubnet(address: host, prefix: prefix))
+        }
+        return list
     }
 
     /// Tailscale first, then en* (Wi-Fi, Ethernet), then anything else (bridges, other VPNs last).

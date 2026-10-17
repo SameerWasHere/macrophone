@@ -30,6 +30,26 @@ final class RemoteAddressRuleTests: XCTestCase {
         }
     }
 
+    func testOwnSubnetCountsAsLocal() {
+        let home = [OwnSubnet(address: "2601:1:2:3::9", prefix: 64), OwnSubnet(address: "203.0.113.4", prefix: 24),
+                    OwnSubnet(address: "100.101.2.3", prefix: 32)]
+        // Public IPv6 at home, public IPv4 on a campus: on one of the Mac's own networks.
+        XCTAssertTrue(RemoteAddressRule.isLocal("2601:1:2:3::5", subnets: home))
+        XCTAssertTrue(RemoteAddressRule.isLocal("203.0.113.77", subnets: home))
+        XCTAssertFalse(RemoteAddressRule.isLocal("2601:1:2:4::5", subnets: home))
+        XCTAssertFalse(RemoteAddressRule.isLocal("203.0.114.1", subnets: home))
+        XCTAssertFalse(RemoteAddressRule.isLocal("8.8.8.8", subnets: home))
+        // Another Tailscale device is never "local", even with a /10 own subnet.
+        XCTAssertFalse(RemoteAddressRule.isLocal("100.101.2.3", subnets: home))
+        XCTAssertFalse(RemoteAddressRule.isLocal("100.101.2.9", subnets: [OwnSubnet(address: "100.101.2.3", prefix: 10)]))
+        XCTAssertTrue(RemoteAddressRule.isLocal("192.168.4.9", subnets: []))
+        XCTAssertTrue(RemoteAddressRule.sameSubnet("10.1.2.3", OwnSubnet(address: "10.1.2.200", prefix: 22)))
+        XCTAssertFalse(RemoteAddressRule.sameSubnet("10.1.4.3", OwnSubnet(address: "10.1.2.200", prefix: 22)))
+        XCTAssertFalse(RemoteAddressRule.sameSubnet("example.com", OwnSubnet(address: "10.1.2.200", prefix: 22)))
+        // This machine really has some (at least the loopback-free Wi-Fi), each with a sane prefix.
+        for s in NetworkAddresses.ownSubnets() { XCTAssertTrue((1...128).contains(s.prefix), s.address) }
+    }
+
     func testTypedAddresses() throws {
         let a = try XCTUnwrap(RemoteAddressRule.parse("100.101.2.3"))
         XCTAssertEqual(a.host, "100.101.2.3")

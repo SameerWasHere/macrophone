@@ -277,7 +277,7 @@ public final class LinkServer: @unchecked Sendable {
         // connection from away is closed at once — the handshake would refuse a stranger anyway,
         // but off means off.
         let host = RemoteAddressRule.host(of: nw.endpoint)
-        let fromAway = host.map { !RemoteAddressRule.isLocal($0) } ?? false
+        let fromAway = host.map { !RemoteAddressRule.isLocal($0, subnets: NetworkAddresses.ownSubnets()) } ?? false
         log?.add(host == nil ? "connection (source not an address)" : fromAway ? "connection from away" : "connection from this network")
         if fromAway, lock.sync({ remote }) == nil {
             log?.add("connection from away refused: remote access is off")

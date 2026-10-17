@@ -130,9 +130,9 @@ final class AppModel: ObservableObject, LinkServerDelegate {
             if on { self.api.start() } else { self.api.stop() }
             self.log.add("API \(on ? "on" : "off")")
         }.store(in: &bag)
-        settings.$remoteAccess.dropFirst().combineLatest(settings.$remotePort.dropFirst().prepend(settings.remotePort))
+        Publishers.Merge(settings.$remoteAccess.dropFirst().map { _ in () }, settings.$remotePort.dropFirst().map { _ in () })
             .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
-            .sink { [weak self] _, _ in self?.applyRemoteAccess() }
+            .sink { [weak self] in self?.applyRemoteAccess() }
             .store(in: &bag)
 
         DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.accessibility.api"))
