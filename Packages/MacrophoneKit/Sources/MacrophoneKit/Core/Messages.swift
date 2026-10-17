@@ -92,7 +92,9 @@ public enum Message: Codable, Sendable {
     case hello(phoneName: String, appVersion: String, os: String, features: [String]? = nil)
     case dictation(Dictation, delayed: Bool)
     // Mac → Phone
-    case welcome(macName: String, appVersion: String)
+    /// `features`: what this Mac understands beyond the first version ("video", "fit"); the phone
+    /// sends a newer message only to a Mac that names it (an older Mac leaves it out).
+    case welcome(macName: String, appVersion: String, features: [String]? = nil)
     /// `detail` is a short human line, e.g. "Pasted into Claude" or "Copied to clipboard".
     case ack(id: UUID, outcome: DeliveryOutcome, detail: String?)
     /// Mac → phone, after delivery finishes: where it actually landed. `detail` is one plain line
@@ -130,12 +132,19 @@ public enum Message: Codable, Sendable {
     case attention(Attention)
     /// Mac → phone: how watching is going.
     case watchState(WatchState)
-    /// Mac → phone: the window, when it changed.
+    /// Mac → phone: the window, when it changed (a picture — to a phone that didn't name "video").
     case watchFrame(WatchFrame)
     /// Mac → phone (only to a phone whose hello named "remote"): the addresses this Mac can be
     /// reached at from away, with remote access on — sent after welcome and whenever they
     /// change; empty when remote access is off. The phone keeps them with the pairing.
     case remoteAddresses([RemoteAddress])
+    /// Mac → phone: the window, when it changed, as video (only to a phone that named "video").
+    case watchVideo(WatchVideoFrame)
+    /// Phone → Mac: send a frame that stands on its own (the phone started, came back, or lost
+    /// one). Only to a Mac that named "video".
+    case watchKeyframe
+    /// Phone → Mac: size the watched window for readable text (only to a Mac that named "fit").
+    case watchFit(WatchFit)
     // Either way
     case ping
     case pong

@@ -37,6 +37,8 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, watchState: WatchState)
     /// Watching: a new picture of the window.
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame)
+    /// Watching: a new frame of the window, as video (only when `features` names "video").
+    func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame)
     /// A window on the Mac is asking something (only when `features` names "attention").
     func linkClient(_ client: LinkClient, attention: Attention)
     /// The apps installed on the Mac (answer to `listApps`).
@@ -57,6 +59,7 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, landed id: UUID, result: LandingResult, detail: String) {}
     func linkClient(_ client: LinkClient, watchState: WatchState) {}
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {}
+    func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame) {}
     func linkClient(_ client: LinkClient, attention: Attention) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {}
@@ -86,6 +89,9 @@ public final class LinkClient: @unchecked Sendable {
     public let osDescription: String
     /// What this phone understands beyond the first version, told to the Mac in the hello.
     public var features: [String] = []
+    /// What the connected Mac said it understands (its welcome's features): a newer message goes
+    /// only to a Mac that named it.
+    public private(set) var macFeatures: Set<String> = []
     @MainActor public weak var delegate: LinkClientDelegate?
     public var log: DiagnosticLog?
     /// Away from home: when Bonjour hasn't shown the Mac this long after looking began, the
@@ -383,12 +389,12 @@ public final class LinkClient: @unchecked Sendable {
                 let keys = LinkCrypto.sessionKeys(key, phoneNonce: phoneNonce, macNonce: macNonce)
                 let s = SecureSession(connection: conn, peerID: mac.id, sendKey: keys.phoneToMac, receiveKey: keys.macToPhone, isRemote: remote)
                 try await s.send(.hello(phoneName: identity.name, appVersion: appVersion, os: osDescription, features: features))
-                guard case let .welcome(macName, _) = try await receive(s, timeout: timeout) else {
+                guard case let .welcome(macName, _, macFeatures) = try await receive(s, timeout: timeout) else {
                     throw LinkError.protocolError("expected welcome")
                 }
                 let old = lock.sync { () -> SecureSession? in
                     let o = session
-                    session = s; sessionMacID = mac.id; retryDelay = 1; _remote = remote
+                    session = s; sessionMacID = mac.id; retryDelay = 1; _remote = remote; self.macFeatures = Set(macFeatures ?? [])
                     return o
                 }
                 old?.close()
@@ -543,6 +549,11 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, watchFrame: frame)
             }
+        case let .watchVideo(frame):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, watchVideo: frame)
+            }
         case let .attention(a):
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -573,7 +584,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .watchChoose, .listApps, .openApp:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .listApps, .openApp:
             break
         }
     }
@@ -708,6 +719,24 @@ public final class LinkClient: @unchecked Sendable {
     public func watchClick(_ p: CGPoint) {
         guard let s = lock.sync({ session }) else { return }
         Task { try? await s.send(.watchClick(x: Double(p.x), y: Double(p.y))) }
+    }
+
+    /// Ask for a video frame that stands on its own. Only a Mac that named "video" gets it
+    /// (an unknown message would end an older Mac's session). False when it wasn't sent.
+    @discardableResult
+    public func watchKeyframe() -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(WatchVideo.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchKeyframe) }
+        return true
+    }
+
+    /// Size the watched window for readable text. Only a Mac that named "fit" gets it. False
+    /// when it wasn't sent.
+    @discardableResult
+    public func watchFit(_ fit: WatchFit) -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(WatchVideo.fitFeature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchFit(fit)) }
+        return true
     }
 
     // MARK: Pairing

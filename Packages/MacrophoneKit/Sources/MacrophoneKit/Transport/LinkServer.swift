@@ -36,6 +36,10 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID)
     /// Answer the prompt the watched window showed (`WatchPrompt.id`) with the answer at `index`.
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID)
+    /// The phone wants the next video frame to stand on its own (it started, came back or lost one).
+    func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID)
+    /// Size the window that phone is watching for readable text (Aa).
+    func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID)
     /// The apps installed on this Mac, by name (Open an app).
     func installedApps(_ server: LinkServer) async -> [MacApp]
     /// Open an app and bring it forward. Returns whether it opened and a plain line about it.
@@ -55,6 +59,8 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID) {}
     func installedApps(_ server: LinkServer) async -> [MacApp] { [] }
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't open apps") }
     func remoteAddresses(_ server: LinkServer) -> [RemoteAddress] { [] }
@@ -79,6 +85,9 @@ public final class LinkServer: @unchecked Sendable {
     public let identity: DeviceIdentity
     public let store: PairingStore
     public let appVersion: String
+    /// What this Mac understands beyond the first version, told to each phone in the welcome
+    /// ("video", "fit").
+    public var macFeatures: [String] = []
     @MainActor public weak var delegate: LinkServerDelegate?
     public var log: DiagnosticLog?
 
@@ -455,7 +464,7 @@ public final class LinkServer: @unchecked Sendable {
                     store.save(peer, key: key)
                 }
                 let p = peer
-                try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion))
+                try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion, features: macFeatures))
                 try await session.send(.targets(await targetsOnMain()))
                 // Only a phone that named "remote" gets the addresses (an unknown message would end
                 // an older phone's session).
@@ -493,6 +502,10 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watch: target, from: phoneID) }
             case let .watchAction(action):
                 notify { $0.linkServer(self, watchAction: action, from: phoneID) }
+            case .watchKeyframe:
+                notify { $0.linkServer(self, watchKeyframeFrom: phoneID) }
+            case let .watchFit(fit):
+                notify { $0.linkServer(self, watchFit: fit, from: phoneID) }
             case .listApps:
                 let s = session
                 Task { @MainActor [weak self] in
@@ -516,7 +529,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .attention, .apps, .appOpened, .remoteAddresses:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .remoteAddresses:
                 break
             }
         }

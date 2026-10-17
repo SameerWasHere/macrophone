@@ -100,12 +100,14 @@ public enum WatchPacing {
     public static let unreadable = 0.0002
 
     /// The least time since the last picture before this change (the share of the window that
-    /// changed since then) earns the next one.
-    public static func minimumInterval(changed: Double) -> TimeInterval {
+    /// changed since then) earns the next one. Video frames cost a fraction of a picture (a few KB
+    /// for a line of output, no decode of a whole JPEG), so a real change earns one faster — new
+    /// output and scrolling at the window stream's own rate.
+    public static func minimumInterval(changed: Double, video: Bool = false) -> TimeInterval {
         if changed <= 0 { return .infinity }
         if changed < sliver { return 3 }
-        if changed < small { return 1 }
-        return 0.3
+        if changed < small { return video ? 0.5 : 1 }
+        return video ? 0.1 : 0.3
     }
 }
 
