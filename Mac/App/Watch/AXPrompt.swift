@@ -3,8 +3,8 @@ import MacrophoneKit
 
 /// A question an app shows as real controls (Oct 16 2026) — Claude's question card ("Option one",
 /// "Option two", Skip, Submit), an Allow / Deny pair — read through Accessibility instead of off
-/// the picture: exact, no Screen Recording, and answered by pressing the controls themselves, so
-/// the window doesn't have to come forward. Terminals have no such controls: their menus are read
+/// the picture: exact, and no Screen Recording. An answer is a real click on the choice (pressing
+/// it through Accessibility reports success and selects nothing in Claude's card), then Submit. Terminals have no such controls: their menus are read
 /// off the picture (PromptReader).
 struct AXPrompt: @unchecked Sendable {
     var prompt: WatchPrompt
@@ -17,15 +17,19 @@ struct AXPrompt: @unchecked Sendable {
     static let yesWords = ["allow", "always allow", "approve", "accept", "yes", "run", "proceed"]
     static let noWords = ["deny", "don't allow", "reject", "decline", "no", "cancel"]
 
-    /// Answers `index`: press it, then submit. False if a control is gone.
-    func answer(_ index: Int) async -> Bool {
-        guard presses.indices.contains(index) else { return false }
-        guard AXUIElementPerformAction(presses[index], kAXPressAction as CFString) == .success else { return false }
-        if let submit {
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            return AXUIElementPerformAction(submit, kAXPressAction as CFString) == .success
-        }
-        return true
+    /// Where to click for answer `index`, on screen (nil if it's gone).
+    func point(for index: Int) -> CGPoint? {
+        guard presses.indices.contains(index) else { return nil }
+        let f = AX.frame(presses[index])
+        guard f.width > 2, f.height > 2 else { return nil }
+        // Near the start of the row: on the choice's own words, never past its edge.
+        return CGPoint(x: f.minX + min(40, f.width / 2), y: f.midY)
+    }
+
+    /// Submits the card after the choice is clicked (nothing to do for a row of buttons).
+    func pressSubmit() -> Bool {
+        guard let submit else { return true }
+        return AXUIElementPerformAction(submit, kAXPressAction as CFString) == .success
     }
 
     /// The question the window shows as controls, if any. Walks the window (a few hundred nodes

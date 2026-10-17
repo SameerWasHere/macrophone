@@ -361,10 +361,11 @@ final class WatchService {
         if let w = watches[peer], let p = w.prompt, p.id == promptID, p.style == .pressed, let ax = w.axPrompt {
             w.promptStale = true
             w.promptAt = .distantPast
-            Task { [weak self] in
-                let ok = await ax.answer(index)
-                self?.app.log.add(ok ? "watch choose" : "watch choose: the card's controls are gone")
-                w.wake()
+            act(on: peer, what: "choose") { [weak self] _ in
+                guard let pt = ax.point(for: index) else { self?.app.log.add("watch choose: the card's controls are gone"); return }
+                await Self.click(at: pt)
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                if !ax.pressSubmit() { self?.app.log.add("watch choose: Submit didn't press") }
             }
             return
         }
@@ -425,7 +426,11 @@ final class WatchService {
     /// A left click at a fraction of the window. The pointer goes there for the click and is put back.
     private static func click(window id: CGWindowID, at p: CGPoint) async {
         guard let b = WindowServer.appWindows().first(where: { $0.id == id })?.bounds else { return }
-        let pt = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
+        await click(at: CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height))
+    }
+
+    /// A left click at a point on screen; the pointer goes back where it was.
+    private static func click(at pt: CGPoint) async {
         let original = CGEvent(source: nil)?.location
         let src = CGEventSource(stateID: .hidSystemState)
         CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
