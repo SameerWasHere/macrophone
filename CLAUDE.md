@@ -95,35 +95,50 @@ variant itself) and is prewarmed when the mic opens.
   the window server says the whole window changed on every frame it gives, thirty a second, so the
   sample is the real gate) at **30 a second** (`videoRate`; 12 away from home, `remoteVideoRate`;
   pictures 10 at home, 6 away) and `WatchPacing.minimumInterval(quick:rate:)` waits half the
-  stream's period for a real change (a wait of a whole period lost every other frame). `VideoEncoder`
-  (MacrophoneKit `Core/Video.swift`) is **never waited on**: `submit` hands a frame in and returns —
-  one frame inside VideoToolbox, a one-slot mailbox where a newer frame replaces a waiting one,
-  `onEncoded` on VideoToolbox's thread in order with how long each took, a watchdog that gives up on
-  a session holding a frame 1.5 s (`onHung`), `PrioritizeEncodingSpeedOverQuality`; `encode()` (sync)
-  is for a proof or a test. `WatchService.drain` submits a due frame and goes on (holding the newest
-  back while two are in flight, so a slow link drops rather than queues); `sendLoop` sends what comes
-  back in order, the words alone in the same order; the question is read off the send path. A chip
-  that can't keep up — `EncoderHealth`: most of the last eight encodes ≥ 50 ms after four settling
-  ones, or two stalls ≥ 0.5 s, or a hang — turns the watch to **pictures, never software video**
-  (the BGRA stream is made again). The first picture of a video watch is still a JPEG, and the same
-  pixels start the encoder, whose first frame follows as the keyframe. The phone: `VideoCanvas`
+  stream's period for a real change (a wait of a whole period lost every other frame). **The frame
+  path is off the main thread end to end (`VideoPipe`, Mac/App/Watch, after Sill's WindowCapture →
+  HEVCEncoder → network):** the stream hands each frame to the pipe's own serial queue, which
+  keeps the pacing (a frame that doesn't earn a send yet waits as `pending`, the newest replacing
+  it, and goes by a timer there; a still window sends nothing), hands a due frame straight into
+  `VideoEncoder`'s mailbox (`submit` returns at once — one frame inside VideoToolbox, a newer one
+  replaces a waiting one, `onEncoded` in order with how long each took, a 1.5 s watchdog,
+  `PrioritizeEncodingSpeedOverQuality`), holds the newest back while two frames are handed in and
+  not yet sent (an encoded frame is never dropped — the decoder needs each — so the holding is
+  before the encode), gives each encoded frame its seq and the words it carries (`Words`, set by the
+  main-actor side when the name, the place to type or the question change) and sends it from one
+  detached task in order. While a swipe is under way (`swiped`, 0.5 s after each step) any change
+  bigger than a caret goes at the stream's rate: a chat column scrolling in a big dark window
+  changes a small share of it, which read as a highlight moving (one frame a second). The main
+  actor only hears the fallbacks (`onFallback`: sustained slow encodes — `EncoderHealth`, most of
+  the last eight ≥ 50 ms after four settling ones, or two stalls, or a hang — turns the watch to
+  **pictures, never software video**; the BGRA stream is made again), reads the question when the
+  window settles (`onSettled`, at most about once a second, off the send path; a change goes back
+  as a words-only frame) and the counters at the end (`snapshot`). A video watch's first frame is
+  the keyframe (no JPEG first). Pictures (a phone from before, or the fallback) keep the main-actor
+  loop. `encode()` (sync) is for a proof or a test.
+  The phone: `VideoCanvas`
   (`UI/VideoCanvas.swift`, an `AVSampleBufferDisplayLayer` view — the system decodes in hardware and
   draws, `DisplayImmediately`, nothing per frame through SwiftUI) inside the same zooming
   `ViewerScrollView` (a `canvas` holds the picture with the video over it; `Watcher.video`, one per
   watch, hosted by whichever viewer is on screen — the window or the strip while the mic is open; the
   one it leaves keeps a snapshot for its fade); a frame that can't be shown asks for a keyframe; a
   picture after video (the Mac's chip got busy) clears it. Measured on the Mac Debug instance
-  (-Onone) against a TextEdit page, mpctl as the phone, Finder in front, one swipe (10 steps, a
-  1500 pt/s flick): **before** (pictures, bare wheel ticks) the first picture 380 ms after the
-  swipe, 1–6 pictures in the 3 s after it (peak 4–6 a second), 230 KB each, Mac CPU 15–20% in the
-  swipe's second; **after** (video, a gesture) the first frame **50–100 ms** after the swipe, 17–19
-  frames in those 3 s (peak 16–18 a second — the stream gives 30 while the finger moves; TextEdit
-  redraws less as the coast fades), 5–60 KB a frame (700 KB a swipe against 2.1 MB), encode 8–9 ms,
-  Mac CPU 8–11% in the swipe's second, 4% on a still window (pictures 3%; at -O the sample is
-  cheaper); pictures with the gesture: 58 ms, 8 frames. The simulator (software decode, 1400×900
+  (-Onone), mpctl as the phone, Finder in front, one swipe (10 steps, a 1500 pt/s flick):
+  **before** (pictures, bare wheel ticks, everything through the main actor) the first picture
+  380 ms after the swipe, 1–6 pictures in the 3 s after it (peak 4–6 a second), 230 KB each, Mac
+  CPU 15–20% in the swipe's second; Sameer's installed build with the first video pass (still
+  through the main actor): peak 9 a second. **After** (video, a gesture, nothing on main): the
+  Claude desktop window (Electron, 1431×1084) **65 frames in the swipe's 3 s, peak 30 a second
+  (the stream's own rate: window gave 433, 91 changed, 69 sent), the first 60 ms after the swipe**;
+  a TextEdit page 17–20 frames (every changed frame it gives: 432 given, 19 changed, 18 sent),
+  first 50–94 ms; 5–60 KB a frame, encode 8–11 ms, sends 0 ms median, the first scroll event
+  posted 0–28 ms after its message; Mac CPU 7–9% in the swipe's second, 3–4% on a still window
+  (pictures 2–3%; at -O the sample is cheaper).
+  The simulator (software decode, 1400×900
   from `mpctl serve`): 4.6% CPU in the swipe's second, 0.1–0.5% still. The log line at the end of a
-  watch: "watching: N frames (M video) · median … · peak P a second · S scroll steps in G swipes"
-  (the phone's: "N video frames, KB, peak P a second"). `MACROPHONE_WATCH_TIMING=1` prints each
+  watch: "watching: N frames (M video) · median … · peak P a second · S scroll steps in G swipes ·
+  window gave N (C changed), held P for pace, W for the wire, sending median S ms" (the phone's:
+  "N video frames, KB, peak P a second"). `MACROPHONE_WATCH_TIMING=1` prints each
   stage, "[stream] N frames this second" and a swipe's "scroll began posted N ms after the action" /
   "frame from the window N ms after the action". Needs a real-device check: HEVC hardware decode on
   the iPhone, and a real Claude Code window scrolling.
@@ -132,13 +147,18 @@ variant itself) and is prewarmed when the mic opens.
   brackets the `watchScroll` deltas, which go once a display frame (a `CADisplayLink` pinned to 60,
   coalesced), and after a flick the phone runs the coast itself (`ScrollMomentum`, MacrophoneKit
   `Core/Scroll.swift`: decays 0.96 a tick, stops under 0.3 pt, ≈1.6–2.1 s — macOS adds momentum
-  below where a posted event enters, so the Mac won't). The Mac (`ScrollEvents`, pure, tested) posts
-  each delta as a continuous scroll event with point deltas and the phase / momentum-phase fields at
-  the finger's spot (the event's own location routes it to the window under it, in front or not — a
-  posted scroll event also moves the pointer there, so it's put back 0.6 s after the swipe), carries
-  sub-point remainders, never posts an end without a beginning, and closes a swipe gone quiet (2 s
-  for fingers, 0.5 s for a coast); the first step goes at once unless an on-screen window covers the
-  spot (`WindowServer.isOnTop`), then the window is brought forward first. To a Mac that doesn't name
+  below where a posted event enters, so the Mac won't). The Mac posts them off the main thread too
+  (`ScrollPoster`, Mac/App/Watch): `LinkServer.watchInput` hands each step and phase straight from
+  the receive loop to the watch's poster, whose own serial queue turns them into continuous scroll
+  events (`ScrollEvents`, pure, tested) with point deltas and the phase / momentum-phase fields at
+  the finger's spot (the event's own location routes it to the window under it, in front or not —
+  a posted scroll event also moves the pointer there, so it's put back 0.6 s after the swipe), with
+  the window's frame looked up at a swipe's start and once a second, sub-point remainders carried,
+  never an end without a beginning, and a swipe gone quiet closed by a timer (2 s for fingers,
+  0.5 s for a coast). Only a swipe's start reaches the main actor (`onBegan`): if an on-screen
+  window covers the spot (`WindowServer.isOnTop`) the watched one is brought forward — the steps
+  don't wait for that.
+  To a Mac that doesn't name
   `scroll` the phone sends the deltas alone and one flick delta, as before. `mpctl watch --swipe 0.3
   [--flick 1500]` swipes as the phone does; `mpctl serve` draws a page to scroll back through and
   answers at 30 Hz. Proven on the simulator with a real touch (began · 12 steps · ended · 83 momentum

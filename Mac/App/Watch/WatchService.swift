@@ -17,16 +17,12 @@ import UniformTypeIdentifiers
 /// picture goes (`WatchPacing`): a caret or a spinner every few seconds, new output at once.
 /// A loop every 1.5 s only checks the window is still there and on screen.
 ///
-/// To a phone that named "video" in its hello the frames go as HEVC (Oct 17 2026, `VideoEncoder`:
-/// hardware, real time, a keyframe on start, when the phone asks and every few seconds) — the
-/// same gating, a frame only when the window changed, but a few KB each instead of a JPEG, at
-/// thirty a second while the window scrolls. The encoder is never waited on: a frame that's due
-/// is handed to it and the next can arrive meanwhile (the newest wins; one frame is inside the
-/// chip at a time, and at most one encoded frame waits for the wire, so a slow link drops rather
-/// than queues); its bytes come back in order and go out in order (`sendLoop`). A chip that can't
-/// keep up (busy elsewhere — `EncoderHealth`, or a frame it never returns) turns the watch to
-/// pictures. Any other phone keeps getting pictures. A phone that asks (Aa) gets the window sized
-/// for readable text (`WindowFit`), put back when the watch ends.
+/// To a phone that named "video" in its hello the frames go as HEVC (Oct 17 2026, `VideoPipe`:
+/// the window's stream, the pacing, the encoder's mailbox and the wire on their own queue — no
+/// frame touches the main actor; a chip that can't keep up turns the watch to pictures), at
+/// thirty a second while the window scrolls. Any other phone keeps getting pictures, from here.
+/// Swipes go the same way (`ScrollPoster`: the link hands each step straight to it). A phone that
+/// asks (Aa) gets the window sized for readable text (`WindowFit`), put back when the watch ends.
 ///
 /// Needs Screen Recording for the pictures (the phone says so and can open the setting here) and
 /// Accessibility for the actions (which pasting already needs).
@@ -67,46 +63,20 @@ final class WatchService {
         var promptAt = Date.distantPast
         /// The phone decodes video (its hello named it); else it gets pictures.
         var wantsVideo = false
-        /// Milliseconds each frame took to encode (video) or make (pictures), for the line the log
-        /// gets when the watch ends — numbers only; and when each went, for the peak a second.
+        /// Milliseconds each picture took to make, for the line the log gets when the watch ends
+        /// — numbers only; and when each went, for the peak a second. (Video's are the pipe's.)
         var frameMs: [Int] = []
-        /// Where frames go while a watch runs (numbers only, for the log line): given by the
-        /// window, of those changed, held for the pace, held for the wire, and milliseconds sending.
-        var given = 0, givenChanged = 0, heldForPace = 0, heldForWire = 0
-        var sendMs: [Int] = []
         var sentAt: [Date] = []
-        var videoFrames = 0
-        /// Frames handed to the encoder and not yet on the wire: a new one is handed in only
-        /// while fewer than two are, so a slow link holds the newest back (where it's replaced)
-        /// instead of growing a queue.
-        var inFlight = 0
-        /// What comes back from the encoder, in order, for `sendLoop` — and the words alone
-        /// (the question, the place to type), in the same order.
-        var encoded: AsyncStream<Outgoing>?
-        var encodedContinuation: AsyncStream<Outgoing>.Continuation?
-        var sendLoop: Task<Void, Never>?
+        /// Video, off the main thread: made with the stream, gone with it.
+        var pipe: VideoPipe?
         /// The question being read off the latest frame (one read at a time, off the send path).
         var reading: Task<Void, Never>?
-        var scrolls = 0
-        /// Swipes as trackpad gestures (Oct 17 2026): the phone's phases and deltas become
-        /// continuous scroll events (`ScrollEvents`), a watchdog closes one that goes quiet.
-        var scrollEvents = ScrollEvents()
-        var scrollWatchdog: Task<Void, Never>?
-        var scrollPoint = CGPoint.zero
-        var gestures = 0
-        /// When the window was last found uncovered at the swipe's spot (checked once a second).
-        var uncoveredAt = Date.distantPast
-        /// Where the pointer was before the swipe moved it (a scroll event posted at a spot moves
-        /// it there); put back once the swipe is over.
-        var cursorBeforeSwipe: CGPoint?
+        /// Swipes, off the main thread.
+        let poster: ScrollPoster
         /// When the window was last seen in front: a swipe's steps skip the check for a moment
         /// (each one listed every window on the Mac, thirty times a second, on the thread that
         /// sends the pictures).
         var inFrontAt = Date.distantPast
-        /// The window's video encoder, made with the stream (and again when the size changes).
-        var video: VideoEncoder?
-        /// The last frame sent, to send again as a keyframe when the phone asks and nothing changed.
-        var lastSent: CVPixelBuffer?
         /// The window sized for readable text (Aa), to put back when the watch ends — and the
         /// size the phone asked for, applied once the window is found.
         var fit: WindowFit.Record?
@@ -116,7 +86,7 @@ final class WatchService {
         private var waitTimer: Task<Void, Never>?
         /// The wait before the next picture is due (pacing), cut short by an action.
         private var pacing: Task<Void, Never>?
-        init(peer: UUID, target: TargetRef) { self.peer = peer; self.target = target }
+        init(peer: UUID, target: TargetRef, timing: Bool) { self.peer = peer; self.target = target; poster = ScrollPoster(timing: timing) }
 
         /// Sleeps `seconds`, or until `wake()` — one timer, no polling in between.
         @MainActor func wait(_ seconds: Double) async {
@@ -151,12 +121,12 @@ final class WatchService {
             hurriedAt = Date()
             pacing?.cancel()
             pacing = nil
+            pipe?.hurry()
         }
 
         @MainActor func dropStream() {
-            video = nil
-            inFlight = 0
-            lastSent = nil
+            pipe?.stop()
+            pipe = nil
             guard let s = stream else { return }
             stream = nil
             latest = nil
@@ -171,14 +141,11 @@ final class WatchService {
         }
     }
 
-    /// What a video watch sends, in order: a frame the encoder gave (and how long it took), or
-    /// the words alone.
-    enum Outgoing: Sendable {
-        case frame(VideoEncoder.Encoded, TimeInterval)
-        case words
-    }
-
     private var watches: [UUID: Watch] = [:]
+    /// The swipe posters by phone, for the link's receive loop (no main actor between): guarded
+    /// by the lock, not the actor.
+    private nonisolated let postersLock = NSLock()
+    private nonisolated(unsafe) var posters: [UUID: ScrollPoster] = [:]
     private var content: SCShareableContent?
     private var contentAt = Date.distantPast
     private var askedForPermission = false
@@ -221,10 +188,19 @@ final class WatchService {
             w.wake()
             return
         }
-        let w = Watch(peer: peer, target: target)
+        let w = Watch(peer: peer, target: target, timing: timing)
         // Video to a phone that decodes it (Oct 17 2026) — a busy chip turns a watch to pictures
         // by itself. `defaults write com.sameer.macrophone.mac watch.video -bool NO` keeps pictures.
         w.wantsVideo = app.server.phones(with: WatchVideo.feature).contains(peer) && (AppPaths.defaults.object(forKey: "watch.video") as? Bool ?? true)
+        // A swipe's start: the window is brought forward only when another covers the spot; the
+        // steps don't wait for that.
+        w.poster.onBegan = { [weak self, weak w] spot in
+            Task { @MainActor in
+                guard let self, let w, let wid = w.windowID, !WindowServer.isOnTop(wid, at: spot) else { return }
+                self.act(on: w.peer, what: "scroll", quiet: true) { _ in }
+            }
+        }
+        postersLock.lock(); posters[peer] = w.poster; postersLock.unlock()
         watches[peer] = w
         app.log.add("watching started (\(AppModel.kind(SendSelection(target: target))), \(w.wantsVideo ? "video" : "pictures"))")
         w.task = Task { [weak self] in await self?.run(w) }
@@ -234,15 +210,15 @@ final class WatchService {
         guard let w = watches.removeValue(forKey: peer) else { return }
         w.task?.cancel()
         w.sendTask?.cancel()
-        w.sendLoop?.cancel()
-        w.encodedContinuation?.finish()
         w.reading?.cancel()
-        w.scrollWatchdog?.cancel()
-        if let c = w.cursorBeforeSwipe { CGWarpMouseCursorPosition(c) }
+        postersLock.lock(); posters[peer] = nil; postersLock.unlock()
+        w.poster.stop()
         if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
-        if !w.frameMs.isEmpty {
-            let ms = w.frameMs.sorted()
-            app.log.add("watching: \(ms.count) frames (\(w.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make · peak \(Self.peakPerSecond(w.sentAt)) a second · \(w.scrolls) scroll steps in \(w.gestures) swipes · window gave \(w.given) (\(w.givenChanged) changed), held \(w.heldForPace) for pace, \(w.heldForWire) for the wire, sending median \(w.sendMs.sorted().dropFirst(w.sendMs.count / 2).first ?? 0) ms")
+        let v = w.pipe?.snapshot() ?? VideoPipe.Stats()
+        let ms = (w.frameMs + v.frameMs).sorted()
+        if !ms.isEmpty {
+            func median(_ a: [Int]) -> Int { let s = a.sorted(); return s.isEmpty ? 0 : s[s.count / 2] }
+            app.log.add("watching: \(ms.count) frames (\(v.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make · peak \(Self.peakPerSecond(w.sentAt + v.sentAt)) a second · \(w.poster.steps) scroll steps in \(w.poster.gestures) swipes · window gave \(v.given) (\(v.givenChanged) changed), held \(v.heldForPace) for pace, \(v.heldForWire) for the wire, sending median \(median(v.sendMs)) ms")
         }
         w.restoreFit()
         w.dropStream()
@@ -308,11 +284,36 @@ final class WatchService {
                 return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
             }
             let s = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
+            if w.wantsVideo {
+                let pipe = VideoPipe(peer: w.peer, server: app.server, rate: rate(w), timing: timing)
+                pipe.onFallback = { [weak self, weak w] why in
+                    Task { @MainActor in
+                        guard let self, let w else { return }
+                        self.app.log.add("watching: \(why) — pictures instead")
+                        self.pictures(w)
+                    }
+                }
+                pipe.onSettled = { [weak self, weak w] pixels in
+                    Task { @MainActor in
+                        guard let self, let w, w.reading == nil else { return }
+                        w.reading = Task { [weak self, weak w] in
+                            defer { w?.reading = nil }
+                            guard let self, let w, let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value else { return }
+                            let changed = await self.readPrompt(w, image)
+                            w.pipe?.readDone()
+                            if changed { self.tellPipe(w); w.pipe?.sendWords() }
+                        }
+                    }
+                }
+                w.pipe = pipe
+                pipe.set(words(w))
+                w.poster.onInput = { [weak pipe] in pipe?.swiped() }
+            }
             s.onFrame = { [weak self, weak w, weak s] pixels, changed in
+                // Video: straight to the pipe, off the main thread. Pictures: the main actor's loop.
+                if let pipe = w?.pipe { pipe.arrived(pixels, changed: changed); return }
                 Task { @MainActor in
                     guard let self, let w, let s, w.stream === s else { return }
-                    w.given += 1
-                    if changed > 0 { w.givenChanged += 1 }
                     self.arrived(pixels, changed: changed, w)
                 }
             }
@@ -340,9 +341,15 @@ final class WatchService {
             w.focusAt = Date()
             let pid = w.pid, bid = w.bundleID
             w.focus = await Task.detached(priority: .utility) { Self.focusRect(pid: pid, windowID: wid, bundleID: bid) }.value ?? w.focus
+            tellPipe(w)
         }
+        if w.poster.window != wid { w.poster.window = wid }
         return .live(appName: w.appName)
     }
+
+    /// What each video frame carries, as of now.
+    private func words(_ w: Watch) -> VideoPipe.Words { .init(appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt) }
+    private func tellPipe(_ w: Watch) { w.pipe?.set(words(w)) }
 
     // MARK: Pictures
 
@@ -372,150 +379,38 @@ final class WatchService {
         return best
     }
 
-    /// Sends pictures as they're due, newest first, until none is waiting. A video frame is handed
-    /// to the encoder and the loop goes on; its bytes go out from `sendLoop`.
+    /// Sends pictures as they're due, newest first, until none is waiting.
     private func drain(_ w: Watch) async {
         while watches[w.peer] === w, !Task.isCancelled, let pixels = w.latest {
             let seq = w.latestSeq
             let interval = Date() < w.forceUntil ? 0 : WatchPacing.minimumInterval(changed: w.changedSince, quick: quick(w), rate: rate(w))
             if interval == .infinity { w.latest = nil; continue }
             let due = w.lastSentAt.addingTimeInterval(interval)
-            if Date() < due { w.heldForPace += 1; await w.pause(due.timeIntervalSinceNow); continue }
-            if w.wantsVideo, w.seq > 0 {
-                // The wire is behind: the newest frame waits here, where a newer one replaces it.
-                if w.inFlight >= 2 { w.heldForWire += 1; await w.pause(0.02); continue }
-                submitVideo(pixels, w)
-                if w.latestSeq == seq { w.latest = nil }
-                continue
-            }
+            if Date() < due { await w.pause(due.timeIntervalSinceNow); continue }
             // Only a picture that goes is made into an image (a copy of the window's pixels).
             guard let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value else { w.latest = nil; continue }
             // The question it's asking: read after the picture is out (about once a second at most),
             // and the picture sent again with it when it changed.
             await send(image, w)
-            // Video, from the second picture on: the first goes as a JPEG, which is on the phone in
-            // tens of milliseconds, and the same pixels start the encoder (its first frame can take
-            // a moment on a busy Mac) — that frame follows as the first keyframe.
-            if w.wantsVideo { submitVideo(pixels, w) }
             if w.latestSeq == seq { w.latest = nil }
-            if w.latest == nil, !w.wantsVideo, await readPrompt(w, image) { await send(image, w) }
+            if w.latest == nil, await readPrompt(w, image) { await send(image, w) }
         }
         w.sendTask = nil
     }
 
-    /// One frame of video, handed to the encoder (made with the stream's size, again when it
-    /// changes); the loop never waits for it. The question is read off the same pixels when it's
-    /// due, off the send path, and sent as words if it changed.
-    private func submitVideo(_ pixels: CVPixelBuffer, _ w: Watch) {
-        let width = CVPixelBufferGetWidth(pixels), height = CVPixelBufferGetHeight(pixels)
-        // A new size (the window was resized, Aa): a new encoder.
-        if let v = w.video, v.width != width & ~1 || v.height != height & ~1 { w.video = nil }
-        if w.video == nil {
-            guard let v = try? VideoEncoder(width: width, height: height, rate: rate(w)) else {
-                app.log.add("watching: the video encoder didn't start — pictures instead")
-                pictures(w)
-                return
-            }
-            if w.encoded == nil {
-                let (stream, continuation) = AsyncStream.makeStream(of: Outgoing.self, bufferingPolicy: .unbounded)
-                w.encoded = stream
-                w.encodedContinuation = continuation
-                w.sendLoop = Task { [weak self] in await self?.sendLoop(w, stream) }
-            }
-            let out = w.encodedContinuation
-            v.onEncoded = { e, took in out?.yield(.frame(e, took)) }
-            v.onHung = { [weak self, weak w] in
-                Task { @MainActor in
-                    guard let self, let w else { return }
-                    self.app.log.add("watching: the video encoder returned nothing for \(Int(VideoEncoder.hangAfter * 1000)) ms — pictures instead")
-                    self.pictures(w)
-                }
-            }
-            w.video = v
-        }
-        guard let encoder = w.video else { return }
-        w.lastSentAt = Date()
-        w.changedSince = 0
-        w.forceUntil = .distantPast
-        w.lastSent = pixels
-        switch encoder.submit(pixels) {
-        case .goesIn: w.inFlight += 1
-        case .waits(let replaced): if !replaced { w.inFlight += 1 }
-        case .dropped: pictures(w); return
-        }
-        // Not while newer frames wait (a swipe): the question is read once the window settles.
-        if w.latest == nil, w.reading == nil, promptDue(w) {
-            w.reading = Task { [weak self, weak w] in
-                defer { w?.reading = nil }
-                guard let self, let w, let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value,
-                      await self.readPrompt(w, image), w.wantsVideo else { return }
-                w.encodedContinuation?.yield(.words)
-            }
-        }
-    }
-
-    /// Pictures from here on (this watch only): the chip is busy elsewhere or gave up.
+    /// Pictures from here on (this watch only): the chip is busy elsewhere or gave up. The stream
+    /// gives BGRA for pictures: made again.
     private func pictures(_ w: Watch) {
         guard w.wantsVideo else { return }
         w.wantsVideo = false
-        w.video = nil
-        w.inFlight = 0
-        // The stream gives BGRA for pictures: made again.
-        if let s = w.stream { w.stream = nil; w.latest = nil; Task { await s.stop() }; w.wake() }
-    }
-
-    /// What the encoder gives, in order, onto the wire in order: each send waits until the frame
-    /// is on the wire, and the loop that hands frames in holds the newest back while two are here.
-    private func sendLoop(_ w: Watch, _ stream: AsyncStream<Outgoing>) async {
-        for await out in stream {
-            guard watches[w.peer] === w, !Task.isCancelled else { return }
-            switch out {
-            case let .frame(encoded, took):
-                let t = DispatchTime.now()
-                let ms = Int(took * 1000)
-                if w.frameMs.count < 2000 { w.frameMs.append(ms) }
-                w.videoFrames += 1
-                guard w.wantsVideo, let v = w.video else { w.inFlight = max(0, w.inFlight - 1); continue }
-                w.seq += 1
-                w.sentAt.append(Date())
-                let frame = WatchVideoFrame(seq: w.seq, data: encoded.data, parameterSets: encoded.parameterSets, keyframe: encoded.keyframe,
-                                            width: v.width, height: v.height, appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
-                await app.server.send(.watchVideo(frame), to: w.peer)
-                if w.sendMs.count < 2000 { w.sendMs.append(Self.ms(t)) }
-                w.inFlight = max(0, w.inFlight - 1)
-                if timing { print("[watch] video encode \(ms) · send \(encoded.data.count / 1024) KB\(encoded.keyframe ? " key" : "") \(Self.ms(t))"); fflush(stdout) }
-                // A video chip busy elsewhere for good: pictures from here on.
-                if v.struggling {
-                    app.log.add("watching: the Mac's video encoder is busy — pictures instead")
-                    pictures(w)
-                }
-            case .words:
-                await sendWords(w)
-            }
-        }
-    }
-
-    /// The words alone (the question, the place to type): a frame with nothing to decode.
-    private func sendWords(_ w: Watch) async {
-        guard w.wantsVideo, let v = w.video else { return }
-        w.seq += 1
-        let frame = WatchVideoFrame(seq: w.seq, data: Data(), parameterSets: nil, keyframe: false, width: v.width, height: v.height,
-                                    appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
-        await app.server.send(.watchVideo(frame), to: w.peer)
+        w.dropStream()
+        w.wake()
     }
 
     /// The phone wants a frame that stands on its own (it started, came back, or lost one): the
     /// next frame is a keyframe — the last one again, when the window hasn't changed since.
     func keyframe(for peer: UUID) {
-        guard let w = watches[peer], w.wantsVideo else { return }
-        w.video?.requestKeyframe()
-        if w.latest == nil, let last = w.lastSent {
-            w.latest = last
-            w.latestSeq &+= 1
-            w.changedSince = 1
-        }
-        w.hurry()
-        if w.latest != nil, w.sendTask == nil { w.sendTask = Task { [weak self] in await self?.drain(w) } }
+        watches[peer]?.pipe?.requestKeyframe()
     }
 
     /// The question is worth reading again: not within a second of the last read, and only once
@@ -541,6 +436,7 @@ final class WatchService {
         if timing { print("[watch] prompt(\(ax != nil ? "ax" : "vision")) \(Self.ms(t))"); fflush(stdout) }
         guard p != w.prompt else { return false }
         w.prompt = p
+        tellPipe(w)
         return true
     }
 
@@ -709,90 +605,14 @@ final class WatchService {
         w.wake()
     }
 
-    /// A swipe on the phone's picture: scroll the window right there, as the finger moves. A delta
-    /// goes out as a scroll event at the finger's spot, with the phase a trackpad would stamp on
-    /// it while the phone's swipe is open (`scrollPhase`) — a bare wheel tick from a phone that
-    /// sends no phases.
-    func scroll(at p: CGPoint, by d: CGVector, for peer: UUID) {
-        guard let w = watches[peer] else { return }
-        w.scrolls += 1
-        swipe(w, at: p) { [timing] b in
-            guard let e = w.scrollEvents.delta(dx: d.dx * b.width, dy: d.dy * b.height) else { return }
-            Self.post(e, at: w.scrollPoint)
-            if timing, e.phase == .began || e.phase == .momentumBegan { print("[watch] scroll \(e.phase) posted \(Int(Date().timeIntervalSince(w.hurriedAt) * 1000)) ms after the action"); fflush(stdout) }
+    /// A swipe's steps and phases, straight from the link's receive loop (no main actor): to the
+    /// watch's poster, which posts them from its own queue.
+    nonisolated func scrollInput(_ peer: UUID, _ input: WatchInput) {
+        postersLock.lock(); let poster = posters[peer]; postersLock.unlock()
+        switch input {
+        case let .scroll(p, d): poster?.scroll(at: p, by: d)
+        case let .phase(phase, p): poster?.phase(phase, at: p)
         }
-    }
-
-    /// Where the phone's swipe is: the finger landed or lifted, the coast after a flick began or
-    /// ended. Each delta until the next phase is part of that gesture, so the window rubber-bands
-    /// at its edge and coasts after a flick as it does under a trackpad.
-    func scrollPhase(_ phase: WatchScrollPhase, at p: CGPoint, for peer: UUID) {
-        guard let w = watches[peer] else { return }
-        if phase == .began { w.gestures += 1 }
-        // Timing: a swipe's frames are measured from where the finger landed.
-        if timing, phase == .began { w.hurriedAt = Date() }
-        swipe(w, at: p) { _ in
-            if let e = w.scrollEvents.phase(phase) { Self.post(e, at: w.scrollPoint) }
-        }
-    }
-
-    /// Runs one step of a swipe with the window's frame. A scroll event goes to the window under
-    /// its spot whether or not that window is in front, so the window is brought forward only when
-    /// another covers it there (checked once a second — sixty steps a second can't each list every
-    /// window), and the step is posted at once otherwise. Then re-arms the watchdog that closes a
-    /// swipe gone quiet, and puts the pointer back once the swipe is over.
-    private func swipe(_ w: Watch, at p: CGPoint, _ body: @escaping @MainActor (CGRect) -> Void) {
-        guard let wid = w.windowID, Paster.isTrusted else { return }
-        let step: @MainActor (CGWindowID) -> Void = { wid in
-            guard let b = WindowServer.bounds(of: wid) else { return }
-            w.scrollPoint = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
-            if w.cursorBeforeSwipe == nil { w.cursorBeforeSwipe = CGEvent(source: nil)?.location }
-            body(b)
-        }
-        if Date().timeIntervalSince(w.uncoveredAt) < 1 {
-            step(wid)
-        } else if let b = WindowServer.bounds(of: wid), WindowServer.isOnTop(wid, at: CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)) {
-            w.uncoveredAt = Date()
-            step(wid)
-        } else {
-            act(on: w.peer, what: "scroll", quiet: true) { wid in w.uncoveredAt = Date(); step(wid) }
-        }
-        w.scrollWatchdog?.cancel()
-        if let timeout = w.scrollEvents.idleTimeout {
-            w.scrollWatchdog = Task { @MainActor [weak w] in
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1e9))
-                guard !Task.isCancelled, let w, let e = w.scrollEvents.quiet() else { return }
-                Self.post(e, at: w.scrollPoint)
-            }
-        } else {
-            w.scrollWatchdog = Task { @MainActor [weak w] in
-                try? await Task.sleep(nanoseconds: 600_000_000)
-                guard !Task.isCancelled, let w, let c = w.cursorBeforeSwipe else { return }
-                w.cursorBeforeSwipe = nil
-                CGWarpMouseCursorPosition(c)
-            }
-        }
-    }
-
-    /// One scroll event, at the spot (the event carries its own place: the pointer stays where it
-    /// is). Inside a gesture it is a continuous (trackpad) scroll with point deltas and the phase
-    /// fields set — what makes an app rubber-band and coast; outside one the plain pixel wheel
-    /// event a phone from before always got. Content follows the finger: dragging down shows
-    /// what's above (a positive wheel).
-    private static func post(_ e: ScrollEvents.Event, at pt: CGPoint) {
-        guard let ev = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: e.wheel1, wheel2: e.wheel2, wheel3: 0) else { return }
-        ev.location = pt
-        if e.phase != .none {
-            ev.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-            ev.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(e.wheel1))
-            ev.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(e.wheel2))
-            // Exactly one of the two is set: a coast's events carry no scroll phase.
-            let scroll: CGScrollPhase? = switch e.phase { case .began: .began; case .changed: .changed; case .ended: .ended; default: nil }
-            let momentum: CGMomentumScrollPhase? = switch e.phase { case .momentumBegan: .begin; case .momentumChanged: .continuous; case .momentumEnded: .end; default: nil }
-            ev.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(scroll?.rawValue ?? 0))
-            ev.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum?.rawValue ?? 0))
-        }
-        ev.post(tap: .cghidEventTap)
     }
 
     /// A tap on the phone's picture: a click at that spot in the window.

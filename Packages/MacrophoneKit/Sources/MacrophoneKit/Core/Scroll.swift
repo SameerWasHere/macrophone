@@ -18,6 +18,14 @@ public enum WatchScroll {
     public static let feature = "scroll"
 }
 
+/// A swipe's input as the Mac's link hands it on, straight from its receive loop
+/// (`LinkServer.watchInput`): a step, or a phase.
+public enum WatchInput: Sendable, Equatable {
+    /// Scroll at a point (fractions of the window) by a delta (fractions).
+    case scroll(at: CGPoint, by: CGVector)
+    case phase(WatchScrollPhase, at: CGPoint)
+}
+
 /// Where a swipe is: the finger landed, lifted; the coast after a flick began, ended.
 public enum WatchScrollPhase: String, Codable, Sendable, CaseIterable {
     case began

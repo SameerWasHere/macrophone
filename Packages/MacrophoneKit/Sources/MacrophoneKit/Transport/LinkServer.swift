@@ -91,6 +91,10 @@ public final class LinkServer: @unchecked Sendable {
     /// What this Mac understands beyond the first version, told to each phone in the welcome
     /// ("video", "fit").
     public var macFeatures: [String] = []
+    /// A swipe's steps and phases, handed on from the receive loop itself — sixty a second during
+    /// a swipe, none of them through the main actor. Set once at start; while set, the delegate
+    /// doesn't hear them.
+    public var watchInput: (@Sendable (UUID, WatchInput) -> Void)?
     @MainActor public weak var delegate: LinkServerDelegate?
     public var log: DiagnosticLog?
 
@@ -511,6 +515,7 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchFit: fit, from: phoneID) }
             case let .watchScrollPhase(phase, x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
+                if let direct = watchInput { direct(phoneID, .phase(phase, at: CGPoint(x: x, y: y))); break }
                 notify { $0.linkServer(self, watchScrollPhase: phase, at: CGPoint(x: x, y: y), from: phoneID) }
             case .listApps:
                 let s = session
@@ -528,6 +533,7 @@ public final class LinkServer: @unchecked Sendable {
                 }
             case let .watchScroll(x, y, dx, dy):
                 guard (0...1).contains(x), (0...1).contains(y), abs(dx) <= 2, abs(dy) <= 2 else { break }
+                if let direct = watchInput { direct(phoneID, .scroll(at: CGPoint(x: x, y: y), by: CGVector(dx: dx, dy: dy))); break }
                 notify { $0.linkServer(self, watchScroll: CGPoint(x: x, y: y), delta: CGVector(dx: dx, dy: dy), from: phoneID) }
             case let .watchChoose(promptID, index):
                 guard (0..<10).contains(index), promptID.count <= 32 else { break }
