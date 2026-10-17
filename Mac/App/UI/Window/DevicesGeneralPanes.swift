@@ -9,6 +9,9 @@ struct DevicesPane: View {
     @State private var editing: UUID?
     @State private var draft = ""
     @FocusState private var nameFocused: Bool
+    @State private var portDraft = ""
+    @FocusState private var portFocused: Bool
+    @State private var copied: String?
 
     var body: some View {
         PanePage {
@@ -55,7 +58,10 @@ struct DevicesPane: View {
                 Text("Your iPhone sees this name. Change it in System Settings › General › Sharing.")
                     .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary).padding(.leading, 4)
             }
+
+            awayFromHome
         }
+        .onAppear { portDraft = String(model.settings.remotePort) }
         .confirmationDialog("Forget \(forgetting.map(model.displayName) ?? "this iPhone")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })) {
             Button("Forget", role: .destructive) { if let p = forgetting { model.forget(p) }; forgetting = nil }
         } message: {
@@ -69,10 +75,89 @@ struct DevicesPane: View {
 
     private var listenerLine: String {
         switch model.listenerState {
-        case .ready: return "Visible to your iPhone on this network and nearby (peer-to-peer)."
+        case .ready: return model.settings.remoteAccess
+            ? "Visible to your iPhone on this network, nearby (peer-to-peer), and away from home."
+            : "Visible to your iPhone on this network and nearby (peer-to-peer)."
         case .starting: return "Getting ready to listen on your network…"
         case .failed: return "Your iPhone can't reach this Mac. Turn on Macrophone in System Settings › Privacy & Security › Local Network."
         }
+    }
+
+    // MARK: Away from home (remote access)
+
+    @ViewBuilder private var awayFromHome: some View {
+        let settings = model.settings
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("Away from home")
+            Plate {
+                PlateRow(title: "Remote access",
+                         subtitle: settings.remoteAccess
+                            ? "Your paired iPhone can reach this Mac from anywhere it can reach this address — only iPhones paired here, and the link is encrypted the same way as at home."
+                            : "Off: your iPhone reaches this Mac only on this network and nearby.",
+                         icon: "globe") {
+                    Toggle("", isOn: Binding(get: { settings.remoteAccess }, set: { settings.remoteAccess = $0 }))
+                        .toggleStyle(.switch).labelsHidden()
+                        .accessibilityLabel("Remote access")
+                }
+                if settings.remoteAccess {
+                    PlateDivider(inset: 50)
+                    if let ts = model.tailscaleAddress {
+                        addressRow(title: "Over Tailscale", address: ts, icon: "point.3.connected.trianglepath.dotted", tint: Light.cyan,
+                                   note: model.tailscaleName.map { "Also \($0.display)" } ?? "Works from anywhere, as long as Tailscale is on for both.")
+                    } else {
+                        PlateRow(title: "Over Tailscale", subtitle: "Tailscale isn't running on this Mac. Install it (free), sign in, and this Mac's Tailscale address appears here.",
+                                 subtitleColor: Light.ochre, icon: "point.3.connected.trianglepath.dotted", iconColor: Light.ochre) {
+                            Link("Get Tailscale", destination: URL(string: "https://tailscale.com/download")!)
+                                .font(.system(size: 12.5, weight: .medium)).foregroundStyle(Light.teal)
+                        }
+                    }
+                    ForEach(model.localAddresses, id: \.self) { a in
+                        PlateDivider(inset: 50)
+                        addressRow(title: "On this network", address: a, icon: "wifi", tint: Ink.secondary,
+                                   note: "From outside, only if you forward port \(a.port) to this Mac on your router.")
+                    }
+                    PlateDivider(inset: 50)
+                    PlateRow(title: "Port", subtitle: "The port in the addresses above. Change it only if something else on this Mac uses it.", icon: "number") {
+                        TextField("Port", text: $portDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .font(Typeface.mono(12.5, .medium))
+                            .frame(width: 76)
+                            .multilineTextAlignment(.trailing)
+                            .focused($portFocused)
+                            .onSubmit { commitPort() }
+                            .onChange(of: portFocused) { _, f in if !f { commitPort() } }
+                            .accessibilityLabel("Remote access port")
+                    }
+                }
+            }
+            Text("The easy way is Tailscale (free): install it on this Mac and on your iPhone and sign in to both with the same account — then your iPhone learns this Mac's address the next time it connects here at home, and reaches it from anywhere. Without Tailscale, forward the port to this Mac on your router and type your home's address into Macrophone on the iPhone (Settings › Mac). Nothing goes through a server either way.")
+                .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary).padding(.leading, 4)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func addressRow(title: String, address: RemoteAddress, icon: String, tint: Color, note: String) -> some View {
+        PlateRow(title: title, subtitle: note, icon: icon, iconColor: tint) {
+            HStack(spacing: 10) {
+                Text(address.display).font(Typeface.mono(12.5, .medium)).foregroundStyle(Ink.ink).textSelection(.enabled)
+                Button(copied == address.display ? "Copied" : "Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(address.display, forType: .string)
+                    copied = address.display
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { if copied == address.display { copied = nil } }
+                }
+                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                .accessibilityLabel("Copy \(address.display)")
+            }
+        }
+    }
+
+    private func commitPort() {
+        let settings = model.settings
+        if let p = Int(portDraft.trimmingCharacters(in: .whitespaces)), (1024...65_535).contains(p) {
+            if p != settings.remotePort { settings.remotePort = p }
+        }
+        portDraft = String(settings.remotePort)
     }
 
     private func phoneRow(_ p: PairedPeer) -> some View {

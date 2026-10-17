@@ -91,7 +91,7 @@ struct StatusLine: View {
                 if model.isNotOpen(model.selection.target) {
                     return ("\(model.selection.target.displayName) isn't open on your Mac — it'll be copied instead", Light.ochre)
                 }
-                return ("Ready · \(name)", Light.cyan)
+                return (model.isRemote ? "Ready · \(name) · away from home" : "Ready · \(name)", Light.cyan)
             case .connecting(let name): return ("Connecting to \(name)", Ink.tertiary)
             case .unreachable(let name):
                 if model.localNetworkDenied { return ("Local Network is off for Macrophone — turn it on in Settings to reach \(name)", Light.ochre) }

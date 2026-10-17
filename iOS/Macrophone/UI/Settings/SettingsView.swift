@@ -9,6 +9,9 @@ struct SettingsView: View {
     @State private var confirmClear = false
     @State private var name = ""
     @FocusState private var nameFocused: Bool
+    @State private var address = ""
+    @State private var addressProblem = false
+    @FocusState private var addressFocused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
     var initialPath: [SettingsRoute] = []
     @State private var path: [SettingsRoute] = []
@@ -20,6 +23,7 @@ struct SettingsView: View {
                 cleanupSection
                 recordingSection
                 macSection
+                if model.isPaired { awaySection }
                 historySection
                 aboutSection
             }
@@ -42,6 +46,7 @@ struct SettingsView: View {
             }
             .onAppear {
                 name = settings.deviceName
+                address = model.typedAddress?.display ?? ""
                 if path.isEmpty, !initialPath.isEmpty { path = initialPath }
                 model.refreshAvailability()
             }
@@ -225,7 +230,7 @@ struct SettingsView: View {
 
     private var connectionWord: String {
         switch model.linkState {
-        case .connected: return "Connected"
+        case .connected: return model.isRemote ? "Connected · away from home" : "Connected"
         case .connecting: return "Connecting"
         case .unreachable: return "Not found right now"
         case .searching: return "Looking for it"
@@ -242,6 +247,67 @@ struct SettingsView: View {
     private func commitName() {
         model.renameDevice(name)
         name = settings.deviceName
+    }
+
+    // MARK: Away from home
+
+    private var awaySection: some View {
+        Section {
+            if let ts = model.macToldAddresses.first(where: \.isTailscale) {
+                LabeledContent("Over Tailscale") {
+                    Text(ts.display).font(.system(.body, design: .monospaced)).foregroundStyle(Ink.ink)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+            } else if let a = model.macToldAddresses.first {
+                LabeledContent("From your Mac") {
+                    Text(a.display).font(.system(.body, design: .monospaced)).foregroundStyle(Ink.ink)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+            } else {
+                Text("Your Mac hasn't shared an address yet. Turn on Remote access in Macrophone on your Mac (Devices), then connect here at home once.")
+                    .font(.footnote).foregroundStyle(Ink.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            let field = TextField("name or address:port", text: $address)
+                .foregroundStyle(Ink.secondary)
+                .focused($addressFocused)
+                .submitLabel(.done)
+                .onSubmit(commitAddress)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityLabel("Your Mac's address from away")
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Or type its address")
+                    field
+                }
+            } else {
+                HStack {
+                    Text("Or type its address")
+                    Spacer()
+                    field.multilineTextAlignment(.trailing)
+                }
+            }
+            if addressProblem {
+                Text("That doesn't look like an address. Try something like 100.101.2.3 or home.example.com:47821.")
+                    .font(.footnote).foregroundStyle(Light.ochre)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } header: {
+            Text("Away from home")
+        } footer: {
+            Text("When your Mac isn't nearby, this iPhone dials these addresses instead — the same paired, encrypted link, through no server. The easy way is Tailscale (free): install it on your Mac and on this iPhone, sign in to both with the same account, and turn on Remote access in Macrophone on your Mac; the address arrives here by itself. Without Tailscale, forward the port on your router and type your home's address above.")
+        }
+        .listRowBackground(Ink.raised)
+        .onChange(of: addressFocused) { _, focused in if !focused { commitAddress() } }
+    }
+
+    private func commitAddress() {
+        let t = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t == (model.typedAddress?.display ?? "") || t == (model.typedAddress?.host ?? "") { addressProblem = false; return }
+        addressProblem = !model.setTypedAddress(t)
+        if !addressProblem { address = model.typedAddress?.display ?? "" }
     }
 
     // MARK: History

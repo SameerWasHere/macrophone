@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import MacrophoneKit
+import Network
 import ServiceManagement
 
 /// A phone asking to pair by code, waiting for the person's answer.
@@ -41,6 +42,14 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private var menuOpen = false
     @Published private(set) var peers: [PairedPeer] = []
     @Published private(set) var connected: Set<UUID> = [] { didSet { if connected != oldValue { updateScanning() } } }
+    /// Phones connected from beyond this network (remote access): the status line says so, and
+    /// watching sends them smaller pictures.
+    @Published private(set) var remotePeers: Set<UUID> = []
+    /// Where this Mac can be reached from away right now (remote access on): its Tailscale
+    /// address and name when Tailscale is running, then its local addresses — all with the port.
+    @Published private(set) var remoteAddresses: [RemoteAddress] = []
+    private var pathMonitor: NWPathMonitor?
+    private var addressRefresh: Task<Void, Never>?
     @Published private(set) var phoneVersions: [UUID: String] = [:]
     @Published private(set) var listenerState: LinkServer.ListenerState = .starting
     @Published private(set) var apiState: LocalAPIServer.State = .off
@@ -121,6 +130,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
             if on { self.api.start() } else { self.api.stop() }
             self.log.add("API \(on ? "on" : "off")")
         }.store(in: &bag)
+        settings.$remoteAccess.dropFirst().combineLatest(settings.$remotePort.dropFirst().prepend(settings.remotePort))
+            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+            .sink { [weak self] _, _ in self?.applyRemoteAccess() }
+            .store(in: &bag)
 
         DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.accessibility.api"))
             .receive(on: RunLoop.main)
@@ -137,7 +150,13 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func start() {
         log.add("app started \(AppPaths.appVersion) (\(AppPaths.buildNumber)) · Accessibility \(accessibilityGranted ? "on" : "off") · Screen Recording \(CGPreflightScreenCaptureAccess() ? "on" : "off")")
+        server.setRemote(remoteConfig)
         server.start()
+        // The addresses follow the network: Tailscale starting or stopping, a new Wi-Fi.
+        let m = NWPathMonitor()
+        m.pathUpdateHandler = { [weak self] _ in Task { @MainActor in self?.refreshRemoteAddresses() } }
+        m.start(queue: DispatchQueue(label: "macrophone.path", qos: .utility))
+        pathMonitor = m
         if settings.apiEnabled { api.start() } else { apiState = .off }
         attention.update()
         pushStatus()
@@ -149,6 +168,46 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         let t = Paster.isTrusted
         if t != accessibilityGranted { accessibilityGranted = t; log.add("accessibility \(t ? "granted" : "not granted")") }
     }
+
+    // MARK: Away from home (remote access)
+
+    private var remoteConfig: RemoteConfig? {
+        settings.remoteAccess ? RemoteConfig(port: UInt16(clamping: settings.remotePort)) : nil
+    }
+
+    /// The setting or the port changed: the listener moves (phones stay connected), and every
+    /// phone that keeps addresses hears the new list (empty when off).
+    private func applyRemoteAccess() {
+        server.setRemote(remoteConfig)
+        log.add(settings.remoteAccess ? "remote access on (port \(settings.remotePort))" : "remote access off")
+        refreshRemoteAddresses()
+    }
+
+    /// Re-reads this Mac's addresses (a reverse lookup for the Tailscale name, off the main
+    /// thread), publishes them and tells the connected phones when they changed.
+    func refreshRemoteAddresses() {
+        addressRefresh?.cancel()
+        guard let config = remoteConfig else {
+            if !remoteAddresses.isEmpty { remoteAddresses = []; server.broadcastRemoteAddresses([]) }
+            return
+        }
+        addressRefresh = Task { [weak self] in
+            let own = NetworkAddresses.current()
+            var name: String?
+            if let ts = own.first(where: \.isTailscale) { name = await NetworkAddresses.tailscaleName(for: ts.host) }
+            guard !Task.isCancelled, let self else { return }
+            let list = NetworkAddresses.remoteAddresses(port: config.port, tailscaleName: name)
+            guard list != self.remoteAddresses else { return }
+            self.remoteAddresses = list
+            self.log.add("remote addresses: \(list.count) (Tailscale \(list.contains { $0.isTailscale } ? "yes" : "no"))")
+            self.server.broadcastRemoteAddresses(list)
+        }
+    }
+
+    /// The Tailscale address among them, if Tailscale is running here.
+    var tailscaleAddress: RemoteAddress? { remoteAddresses.first { RemoteAddressRule.isTailscale($0.host) } }
+    var tailscaleName: RemoteAddress? { remoteAddresses.first { RemoteAddressRule.isTailscaleName($0.host) } }
+    var localAddresses: [RemoteAddress] { remoteAddresses.filter { !$0.isTailscale } }
 
     // MARK: History
 
@@ -445,9 +504,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     /// "Connected to Sameer's iPhone" / "Waiting for your iPhone" / "Pair your iPhone to start".
     var statusLine: String {
         let on = peers.filter { connected.contains($0.id) }
-        if on.count == 2 { return "Connected to \(displayName(on[0])) and \(displayName(on[1]))" }
-        if on.count > 2 { return "Connected to \(on.count) iPhones" }
-        if let p = on.first { return "Connected to \(displayName(p))" }
+        let away = on.contains { remotePeers.contains($0.id) } ? " · away from home" : ""
+        if on.count == 2 { return "Connected to \(displayName(on[0])) and \(displayName(on[1]))\(away)" }
+        if on.count > 2 { return "Connected to \(on.count) iPhones\(away)" }
+        if let p = on.first { return "Connected to \(displayName(p))\(away)" }
         if peers.isEmpty { return "No iPhone paired yet" }
         return "Waiting for your iPhone"
     }
@@ -485,19 +545,21 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, peerConnected peer: PairedPeer, appVersion: String, os: String) {
         connected.insert(peer.id)
+        if server.isRemote(peer.id) { remotePeers.insert(peer.id) } else { remotePeers.remove(peer.id) }
         phoneVersions[peer.id] = "\(appVersion) · \(os)"
         // A phone renamed on the iPhone brings its new name in its hello; the store has it and
         // so does `peer`. (A name given on this Mac still wins — displayName.)
         var list = server.store.peers()
         if let i = list.firstIndex(where: { $0.id == peer.id }) { list[i].name = peer.name }
         peers = list
-        log.add("phone connected (app \(appVersion))")
+        log.add("phone connected (app \(appVersion))\(remotePeers.contains(peer.id) ? " from away" : "")")
         pushStatus()
         attention.update()
     }
 
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) {
         connected.remove(peerID)
+        remotePeers.remove(peerID)
         peers = server.store.peers()
         log.add("phone disconnected")
         pushStatus()
@@ -511,7 +573,13 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, listenerChanged state: LinkServer.ListenerState) {
         listenerState = state
+        if case .ready = state { refreshRemoteAddresses() }
     }
+
+    func remoteAddresses(_ server: LinkServer) -> [RemoteAddress] { remoteAddresses }
+
+    /// Whether that phone's link runs beyond this network (watching sends it smaller pictures).
+    func isRemote(_ peerID: UUID) -> Bool { remotePeers.contains(peerID) }
 
     func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {
         // The phone's choice wins (on connect it sends its own first).

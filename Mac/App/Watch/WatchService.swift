@@ -106,8 +106,11 @@ final class WatchService {
     private var content: SCShareableContent?
     private var contentAt = Date.distantPast
     private var askedForPermission = false
-    /// The widest picture sent, in pixels.
+    /// The widest picture sent, in pixels — narrower over a remote link (away from home), where
+    /// every picture crosses a slower path.
     static let maxWidth: CGFloat = 1500
+    static let remoteMaxWidth: CGFloat = 1000
+    private func maxWidth(for w: Watch) -> CGFloat { app.isRemote(w.peer) ? Self.remoteMaxWidth : Self.maxWidth }
 
     /// Who's watching what, for the menu ("Your iPhone is watching Claude").
     private(set) var watching: [UUID: String] = [:]
@@ -204,13 +207,13 @@ final class WatchService {
         }
 
         if let s = w.stream {
-            await s.resize(to: place.bounds.size, maxWidth: Self.maxWidth)
+            await s.resize(to: place.bounds.size, maxWidth: maxWidth(for: w))
         } else {
             guard let scw = await scWindow(wid) else {
                 w.windowID = nil
                 return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
             }
-            let s = WindowStream(window: scw, maxWidth: Self.maxWidth)
+            let s = WindowStream(window: scw, maxWidth: maxWidth(for: w))
             s.onFrame = { [weak self, weak w, weak s] pixels, changed in
                 Task { @MainActor in
                     guard let self, let w, let s, w.stream === s else { return }
@@ -301,7 +304,8 @@ final class WatchService {
         let t = DispatchTime.now()
         // Encoding a window-sized JPEG takes a few milliseconds: off the main thread, so the menu,
         // the popup and a paste never wait on a picture.
-        guard let data = await Task.detached(priority: .utility) { Self.encode(image) }.value else { return }
+        let remote = app.isRemote(w.peer)
+        guard let data = await Task.detached(priority: .utility) { Self.encode(image, remote: remote) }.value else { return }
         let encoded = Self.ms(t)
         w.seq += 1
         w.lastSentAt = Date()
@@ -379,9 +383,10 @@ final class WatchService {
 
     /// The picture for the wire. A very large one is encoded again smaller, so a frame always
     /// fits the link.
-    nonisolated static func encode(_ image: CGImage) -> Data? {
-        guard let data = jpeg(image, quality: 0.6) else { return nil }
-        if data.count > 900_000, let smaller = jpeg(image, quality: 0.35) { return smaller }
+    nonisolated static func encode(_ image: CGImage, remote: Bool = false) -> Data? {
+        // Away from home the link is slower: a little more compression, a lower ceiling.
+        guard let data = jpeg(image, quality: remote ? 0.45 : 0.6) else { return nil }
+        if data.count > (remote ? 400_000 : 900_000), let smaller = jpeg(image, quality: 0.35) { return smaller }
         return data
     }
 

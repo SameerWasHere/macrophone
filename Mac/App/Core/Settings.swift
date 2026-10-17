@@ -93,6 +93,11 @@ final class Settings: ObservableObject {
     @Published var deviceNames: [String: String] { didSet { d.set(deviceNames, forKey: "deviceNames") } }
     /// The one-time "your menu bar is hiding Macrophone's icon" notice has been seen.
     @Published var toldAboutHiddenIcon: Bool { didSet { d.set(toldAboutHiddenIcon, forKey: "toldAboutHiddenIcon") } }
+    /// Devices › Away from home (Oct 17 2026): listen on a fixed port and take paired phones from
+    /// beyond this network — over Tailscale, or a port forwarded on the router. Off by default.
+    @Published var remoteAccess: Bool { didSet { d.set(remoteAccess, forKey: "remoteAccess") } }
+    /// The fixed port remote access listens on (shown next to the addresses).
+    @Published var remotePort: Int { didSet { d.set(remotePort, forKey: "remotePort") } }
 
     init() {
         // Before live targets there was a "delivery mode": it becomes the first Send to choice
@@ -122,6 +127,9 @@ final class Settings: ObservableObject {
         hotkey = key
         deviceNames = d.dictionary(forKey: "deviceNames") as? [String: String] ?? [:]
         toldAboutHiddenIcon = d.bool(forKey: "toldAboutHiddenIcon")
+        remoteAccess = d.bool(forKey: "remoteAccess")
+        let port = d.integer(forKey: "remotePort")
+        remotePort = (1024...65_535).contains(port) ? port : Int(RemoteAddressRule.defaultPort)
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
         // Retired with live targets: the Return list and per-app rules (the phone's "Send after pasting"

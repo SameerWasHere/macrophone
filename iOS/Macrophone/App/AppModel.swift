@@ -87,6 +87,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var latest: HistoryItem?
     @Published private(set) var historyItems: [HistoryItem] = []
     @Published private(set) var linkState: LinkClient.State = .notPaired
+    /// Connected over an address the Mac gave for away (or one typed here), not Bonjour: the
+    /// status line says "away from home" (Oct 17 2026).
+    @Published private(set) var isRemote = false
+    /// Where the paired Mac can be reached from away, in the order they'd be dialled — what it
+    /// told this iPhone at home (with Remote access on), plus the one address typed in Settings.
+    @Published private(set) var remoteAddresses: [RemoteAddress] = []
     @Published private(set) var discoveredMacs: [DiscoveredMac] = []
     /// iOS is blocking the local network for this app — nothing can be found until it's on.
     @Published private(set) var localNetworkDenied = false
@@ -128,6 +134,7 @@ final class AppModel: ObservableObject {
         client.delegate = self
         linkState = client.state
         pairedMac = client.activeMac
+        remoteAddresses = client.remoteAddresses
         recorder.log = log
         watcher.log = log
         watcher.sendWatch = { [weak self] t in self?.client.watch(t) ?? false }
@@ -162,8 +169,9 @@ final class AppModel: ObservableObject {
         c.log = log
         // The phone's choice goes to the Mac after every welcome, so on reconnect the phone's wins.
         c.selectionProvider = { Settings.storedSelection() }
-        // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts).
-        c.features = [Attention.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+        // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts);
+        // one with remote access on tells it where it can be reached from away.
+        c.features = [Attention.feature, RemoteAccess.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         return c
     }
 
@@ -734,8 +742,32 @@ final class AppModel: ObservableObject {
         forgetMac()
     }
 
+    /// Settings › Away from home: keep one typed address for the paired Mac (empty clears it).
+    /// False when the words aren't an address.
+    @discardableResult
+    func setTypedAddress(_ text: String) -> Bool {
+        guard let mac = client.activeMac else { return false }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty {
+            client.setTypedAddress(nil, for: mac.id)
+        } else {
+            guard let a = RemoteAddressRule.parse(t) else { return false }
+            client.setTypedAddress(a, for: mac.id)
+        }
+        remoteAddresses = client.remoteAddresses
+        pairedMac = client.activeMac
+        return true
+    }
+
+    /// The one address typed here, if any.
+    var typedAddress: RemoteAddress? { remoteAddresses.first { $0.source == .typed } }
+    /// What the Mac itself said (its Tailscale address first).
+    var macToldAddresses: [RemoteAddress] { remoteAddresses.filter { $0.source == .mac } }
+
     private func forgetMac() {
         pairedMac = client.activeMac
+        remoteAddresses = []
+        isRemote = false
         liveTargets = []
         targetsCurrent = false
         saveTargets([])
@@ -966,7 +998,7 @@ final class AppModel: ObservableObject {
         case .notPaired: connection = "not paired"
         case .searching: connection = "searching"
         case .connecting: connection = "connecting"
-        case .connected: connection = "connected"
+        case .connected: connection = isRemote ? "connected (away from home)" : "connected"
         case .unreachable: connection = "Mac not found"
         }
         return log.export(header: [
@@ -976,6 +1008,7 @@ final class AppModel: ObservableObject {
             ("Paired Macs", "\(client.pairedMacs.count)"),
             ("Connection", connection),
             ("Macs seen on the network", "\(discoveredMacs.count)"),
+            ("Addresses for away", "\(macToldAddresses.count) from the Mac\(typedAddress != nil ? ", 1 typed" : "")"),
             ("Queued dictations", "\(queue.count)"),
             ("Language", settings.language),
             ("Cleanup", "\(settings.cleanupLevel.title)\(settings.cleanupLevel == .custom ? (customInstructionsEdited ? " (edited, \(settings.customInstructions.count) characters)" : " (default)") : "") · \(cleanupAvailability.isAvailable ? "available" : String(describing: cleanupAvailability))"),
@@ -1070,6 +1103,7 @@ extension AppModel: LinkClientDelegate {
         #endif
         linkState = state
         pairedMac = client.activeMac
+        isRemote = client.isRemote
         if case .connected = state { flushQueue() } else { targetsCurrent = false }
         if case .connected = state { watcher.linkChanged(connected: true) } else { watcher.linkChanged(connected: false) }
     }
@@ -1184,6 +1218,18 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {
         guard client === self.client else { return }
         self.localNetworkDenied = localNetworkDenied
+    }
+
+    func linkClient(_ client: LinkClient, remoteAddresses: [RemoteAddress], macID: UUID) {
+        guard client === self.client else { return }
+        self.remoteAddresses = client.remoteAddresses
+        pairedMac = client.activeMac
+    }
+
+    func linkClient(_ client: LinkClient, pathChanged remote: Bool) {
+        guard client === self.client else { return }
+        isRemote = remote
+        log.add(remote ? "link is away from home" : "link is back on the home network")
     }
 
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) {
