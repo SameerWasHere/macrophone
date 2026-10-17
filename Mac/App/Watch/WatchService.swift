@@ -34,6 +34,8 @@ final class WatchService {
         var seq = 0
         /// The question the window is asking, as last read (sent with each picture).
         var prompt: WatchPrompt?
+        /// When it's asked with real controls (a question card), the controls to press.
+        var axPrompt: AXPrompt?
         /// The picture changed since the prompt was last read.
         var promptStale = true
         var promptAt = Date.distantPast
@@ -190,7 +192,13 @@ final class WatchService {
         if w.promptStale, w.seq > 0, Date().timeIntervalSince(w.promptAt) > 0.8 {
             w.promptStale = false
             w.promptAt = Date()
-            let p = await PromptVision.read(image)
+            // Controls first (exact: Claude's question card), else the picture — only the
+            // conversation's column of it, so a sidebar of chats isn't read in.
+            let pid = w.pid
+            let ax = Paster.isTrusted ? await Task.detached(priority: .utility) { AXPrompt.read(pid: pid, windowID: wid) }.value : nil
+            w.axPrompt = ax
+            let column = w.focus.map { max(0, Double($0.minX) - 0.04)...min(1, Double($0.maxX) + 0.02) }
+            let p: WatchPrompt? = if let ax { ax.prompt } else { await PromptVision.read(image, column: column) }
             if p != w.prompt { w.prompt = p; promptChanged = true }
         }
         guard changed || promptChanged else { return live }
@@ -349,6 +357,17 @@ final class WatchService {
     /// A tap on the phone's picture: a click at that spot in the window.
     /// An answer tapped on the phone: the keys that give it, if the window still asks that question.
     func choose(_ promptID: String, index: Int, for peer: UUID) {
+        // A question card: press its controls where they are; the window stays where it is.
+        if let w = watches[peer], let p = w.prompt, p.id == promptID, p.style == .pressed, let ax = w.axPrompt {
+            w.promptStale = true
+            w.promptAt = .distantPast
+            Task { [weak self] in
+                let ok = await ax.answer(index)
+                self?.app.log.add(ok ? "watch choose" : "watch choose: the card's controls are gone")
+                w.wake()
+            }
+            return
+        }
         guard let w = watches[peer], let p = w.prompt, p.id == promptID, let keys = p.keys(for: index) else {
             app.log.add("watch choose skipped: the window moved on")
             return

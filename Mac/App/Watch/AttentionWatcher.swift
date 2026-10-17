@@ -42,22 +42,32 @@ final class AttentionWatcher {
     }
 
     private func look() async {
-        guard CGPreflightScreenCaptureAccess() else { return }
         let phones = app.server.phones(with: Attention.feature)
         guard !phones.isEmpty else { return }
         let candidates = windows()
-        guard !candidates.isEmpty,
-              let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true) else { return }
+        guard !candidates.isEmpty else { return }
+        let trusted = Paster.isTrusted
+        let pictures = CGPreflightScreenCaptureAccess()
+        let content = pictures ? try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true) : nil
         let watched = app.watch.watchedWindows
-        for (t, wid) in candidates {
+        for (t, wid, pid) in candidates {
             let key = t.id
             // A window someone is looking at answers on its own screen.
-            guard !watched.contains(wid), let scw = content.windows.first(where: { $0.windowID == wid }) else { continue }
-            guard let image = await Self.capture(scw) else { continue }
-            let digest = await Task.detached(priority: .utility) { Self.digest(image) }.value
-            if digest == digests[key] { continue }
-            digests[key] = digest
-            guard let p = await PromptVision.read(image) else { asked[key] = nil; continue }
+            guard !watched.contains(wid) else { continue }
+            var found: WatchPrompt?
+            // Controls first (a question card, Allow / Deny: exact, and no Screen Recording needed).
+            if trusted, let ax = await Task.detached(priority: .utility, operation: { AXPrompt.read(pid: pid, windowID: wid) }).value {
+                found = ax.prompt
+            } else if let scw = content?.windows.first(where: { $0.windowID == wid }), let image = await Self.capture(scw) {
+                // Else the picture, when it changed.
+                let digest = await Task.detached(priority: .utility) { Self.digest(image) }.value
+                if digest == digests[key] { continue }
+                digests[key] = digest
+                found = await PromptVision.read(image)
+            } else {
+                continue
+            }
+            guard let p = found else { asked[key] = nil; continue }
             guard asked[key] != p.id else { continue }
             asked[key] = p.id
             let a = Attention(ref: t.ref, appName: t.appName, title: t.title, question: p.question, promptID: p.id)
@@ -67,18 +77,17 @@ final class AttentionWatcher {
     }
 
     /// The agent windows (and the place dictations go), newest first, each with its window.
-    private func windows() -> [(LiveTarget, CGWindowID)] {
+    private func windows() -> [(LiveTarget, CGWindowID, pid_t)] {
         let selected = app.settings.selection.target
         let all = WindowServer.appWindows()
-        var out: [(LiveTarget, CGWindowID)] = []
+        var out: [(LiveTarget, CGWindowID, pid_t)] = []
         for t in app.targets {
             let wanted = AppQuirks.isTerminal(t.bundleID) || AppQuirks.agentApps.contains(t.bundleID) || selected.matches(t)
-            guard wanted else { continue }
+            guard wanted, let pid = NSRunningApplication.runningApplications(withBundleIdentifier: t.bundleID).first?.processIdentifier else { continue }
             if let key = t.windowKey, let id = CGWindowID(key) {
-                out.append((t, id))
-            } else if let pid = NSRunningApplication.runningApplications(withBundleIdentifier: t.bundleID).first?.processIdentifier,
-                      let front = all.filter({ $0.pid == pid }).min(by: { $0.z < $1.z }) {
-                out.append((t, front.id))
+                out.append((t, id, pid))
+            } else if let front = all.filter({ $0.pid == pid }).min(by: { $0.z < $1.z }) {
+                out.append((t, front.id, pid))
             }
             if out.count == Self.maxWindows { break }
         }

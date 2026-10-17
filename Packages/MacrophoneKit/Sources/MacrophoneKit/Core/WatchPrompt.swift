@@ -29,6 +29,8 @@ public struct WatchPrompt: Codable, Sendable, Equatable {
         case menu
         /// A letter then Return ("(y/n)").
         case typed
+        /// Controls the Mac presses itself (a question card's choices and Submit, Allow / Deny).
+        case pressed
     }
 
     /// "Do you want to make this edit to AuthView.swift?" — nil when it couldn't be read.
@@ -65,6 +67,8 @@ public struct WatchPrompt: Codable, Sendable, Equatable {
         case .typed:
             guard let k = choices[index].key else { return nil }
             return [.character(k), .returnKey]
+        case .pressed:
+            return nil
         }
     }
 }

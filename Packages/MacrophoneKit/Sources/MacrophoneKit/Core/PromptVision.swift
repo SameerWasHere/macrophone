@@ -14,11 +14,13 @@ public enum PromptVision {
 
     /// Reads on its own queue: text recognition blocks its thread while it waits on work of its
     /// own, and on a Swift concurrency thread that wait never ends.
-    public static func read(_ image: CGImage) async -> WatchPrompt? {
-        await withCheckedContinuation { c in queue.async { c.resume(returning: readNow(image)) } }
+    /// `column`: the horizontal span of the conversation (fractions of the window), so a sidebar's
+    /// list of chats isn't read in among its lines.
+    public static func read(_ image: CGImage, column: ClosedRange<Double>? = nil) async -> WatchPrompt? {
+        await withCheckedContinuation { c in queue.async { c.resume(returning: readNow(image, column: column)) } }
     }
 
-    public static func readNow(_ image: CGImage) -> WatchPrompt? {
+    public static func readNow(_ image: CGImage, column: ClosedRange<Double>? = nil) -> WatchPrompt? {
         let request = VNRecognizeTextRequest()
         // Fast: a few hundredths of a second for the band, and the reader forgives its usual
         // slips ("1" read as "l", "?" as "7"). Accurate is ten times the work, and on some Macs
@@ -35,7 +37,7 @@ public enum PromptVision {
             let b = o.boundingBox
             return ReadLine(text: text, minX: Double(b.minX), midY: Double(1 - b.midY * band))
         }
-        return PromptReader.read(lines)
+        return PromptReader.read(column.map { c in lines.filter { c.contains($0.minX) } } ?? lines)
     }
 }
 #endif
