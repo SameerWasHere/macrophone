@@ -29,6 +29,7 @@ import SwiftUI
 ///   MACROPHONE_INSTANCE=<name>      a debug copy with its own settings, folder, pairing keys and identity (AppPaths)
 ///   Distributed notification "com.sameer.macrophone.debug.openMenu" opens the menu bar menu.
 ///   MACROPHONE_TARGETS_DEBUG=1      print every target scan (timing, what was found) to stdout
+///   MACROPHONE_WATCH_TIMING=1       print each watched picture's stages in milliseconds (WatchService)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
 ///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
 ///   "window"?: "<window key>", "send"?: bool, "delayed"?: bool, "level"?: "off|light|medium|heavy|custom"}.

@@ -63,6 +63,25 @@ variant itself) and is prewarmed when the mic opens.
   `iCloud.com.sameer.macrophone`, iCloud + Push on the App IDs, then the schema deployed to
   Production in the CloudKit Console. Xcode here has no signed-in account and the API key can't
   make containers.
+- **The pictures are a stream, paced by what changed (the performance pass, Oct 16 2026).**
+  `WindowStream` (an `SCStream` of the one window, at most 6 a second) replaces a screenshot per
+  look — a screenshot cost ~150 ms each and ran all the time; a still window now costs nothing.
+  `WatchPacing` (MacrophoneKit) decides how soon a change earns a picture from how much of the
+  window changed (measured from a pixel sample in place — an Electron app reports its whole window
+  dirty for a caret): a caret or spinner (<0.1%) every 3 s, a highlight moving a row (<2%) once a
+  second, new output at once (0.3 s); a key or a tap from the phone sends the next picture at once
+  (45–77 ms after a Return in TextEdit, loopback). The question is re-read only after a change
+  bigger than a caret or a spinner (`WatchPacing.unreadable`) — Vision costs ~115 ms on the
+  utility queue — and Vision reads nothing left of the conversation's column. `AttentionWatcher`
+  pictures each agent window first and skips the Accessibility walk and Vision when the picture
+  hasn't changed (same sample rule), keeps the window list 30 s, and rests up to 10 s between
+  looks while nothing changes (a window it can't picture still gets its controls read). Measured on
+  the Mac Debug instance: watching a Claude window that only animates 5.4–7.8% CPU (Debug) →
+  0.7–3.4% (Debug at -O; 1.6–4.3% at -Onone, where the pixel sample is slow) and a 210 KB picture
+  every 0.85 s → every 3.2 s; a TextEdit window with a blinking caret 0.7%; the lookout's 5 s look
+  2.7% spikes → 0–0.2%; idle 0%. Hook: `MACROPHONE_WATCH_TIMING=1` prints each
+  stage's milliseconds; `mpctl watch` prints "CONNECTED in N ms", "N ms after asking", "+N ms" and
+  "N ms after the action" (`--features attention` to be a phone that wants alerts).
 - Demo: `mpctl serve` draws a window per place, reads its prompt with the same reader, answers
   `watchChoose`, and sends one alert for its codex window (`--attention-after <s>`,
   `--no-attention`). Phone hooks: `MACROPHONE_WATCH_ACTIONS=pan,scroll,answer@N,keys,next,prev,attend@<bundle>@<window>`.
