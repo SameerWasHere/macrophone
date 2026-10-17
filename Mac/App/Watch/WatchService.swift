@@ -744,8 +744,7 @@ final class WatchService {
         }
         if Date().timeIntervalSince(w.uncoveredAt) < 1 {
             step(wid)
-        } else if let b = WindowServer.bounds(of: wid),
-                  WindowServer.appWindows().first(where: { $0.bounds.contains(CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)) })?.id == wid {
+        } else if let b = WindowServer.bounds(of: wid), WindowServer.isOnTop(wid, at: CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)) {
             w.uncoveredAt = Date()
             step(wid)
         } else {

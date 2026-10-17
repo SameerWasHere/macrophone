@@ -203,9 +203,13 @@ final class ServeDelegate: LinkServerDelegate {
             // Video to a phone that named it (unless --jpeg: a Mac from before video).
             let video = server.phones(with: WatchVideo.feature).contains(peerID) && !has("--jpeg")
             self.lock.sync { self.encoders[peerID] = nil; self.keyframeWanted.remove(peerID) }
-            var seq = 0, n = 0
+            var n = 0
             var drawn = -1, read = -1
             var prompt: WatchPrompt?
+            /// One count for pictures and frames, given out as each goes; the task sending frames.
+            let seqs = Counter()
+            var sender: Task<Void, Never>?
+            defer { sender?.cancel() }
             while !Task.isCancelled {
                 n += 1
                 // A line of the answer every second; the window is looked at thirty times a second
@@ -214,7 +218,6 @@ final class ServeDelegate: LinkServerDelegate {
                 let keyframe = self.lock.sync { self.keyframeWanted.remove(peerID) != nil }
                 if demo.version != drawn || keyframe, let jpeg = demo.jpeg() {
                     drawn = demo.version
-                    seq += 1
                     let image = demo.image()
                     // The question is read again only when the words changed (a tenth of a second
                     // a read; a swipe at display rate would starve the frames).
@@ -225,22 +228,32 @@ final class ServeDelegate: LinkServerDelegate {
                         if let prompt { stdout("WATCH PROMPT \(prompt.question ?? "-") → \(prompt.choices.map(\.label).joined(separator: " | ")) (on \(prompt.highlighted.map(String.init) ?? "-"))") }
                     }
                     if video, let image, let pixels = VideoEncoder.pixelBuffer(from: image) {
-                        // The encoder is made with the window's size, again when it changes (Aa).
+                        // The encoder is handed the frame and never waited on, as on the Mac: its
+                        // bytes come back in order and go out in order (`sender`).
                         var encoder = self.lock.sync { self.encoders[peerID] }
                         if encoder == nil || encoder!.width != image.width & ~1 || encoder!.height != image.height & ~1 {
-                            encoder = try? VideoEncoder(width: image.width, height: image.height, software: encoder?.software ?? has("--software"))
+                            sender?.cancel()
+                            encoder = try? VideoEncoder(width: image.width, height: image.height, software: has("--software"))
                             self.lock.sync { self.encoders[peerID] = encoder }
+                            let (stream, continuation) = AsyncStream.makeStream(of: (VideoEncoder.Encoded, TimeInterval).self, bufferingPolicy: .unbounded)
+                            encoder?.onEncoded = { e, took in continuation.yield((e, took)) }
+                            let (w, h) = (encoder?.width ?? 0, encoder?.height ?? 0)
+                            sender = Task {
+                                for await (e, took) in stream {
+                                    guard !Task.isCancelled else { return }
+                                    let frame = WatchVideoFrame(seq: seqs.next(), data: e.data, parameterSets: e.parameterSets, keyframe: e.keyframe,
+                                                                width: w, height: h, appName: appName, bundleID: target.bundleID,
+                                                                focus: demo.focus, prompt: self.lock.sync { self.prompts[peerID] })
+                                    stdout("WATCH VIDEO #\(frame.seq) \(e.data.count / 1024) KB\(e.keyframe ? " key" : "") encoded in \(Int(took * 1000)) ms")
+                                    await server.send(.watchVideo(frame), to: peerID)
+                                }
+                            }
                         }
-                        if keyframe { encoder?.requestKeyframe() }
-                        let t = Date()
-                        guard let encoder, let e = encoder.encode(pixels) else { stdout("WATCH VIDEO: the encoder gave nothing"); continue }
-                        let frame = WatchVideoFrame(seq: seq, data: e.data, parameterSets: e.parameterSets, keyframe: e.keyframe,
-                                                    width: encoder.width, height: encoder.height, appName: appName, bundleID: target.bundleID,
-                                                    focus: demo.focus, prompt: prompt)
-                        stdout("WATCH VIDEO #\(seq) \(e.data.count / 1024) KB\(e.keyframe ? " key" : "") encoded in \(Int(Date().timeIntervalSince(t) * 1000)) ms\(encoder.software ? " (software)" : "")")
-                        await server.send(.watchVideo(frame), to: peerID)
+                        guard let encoder else { stdout("WATCH VIDEO: no encoder"); continue }
+                        if keyframe { encoder.requestKeyframe() }
+                        if case .dropped = encoder.submit(pixels) { stdout("WATCH VIDEO: the encoder gave up") }
                     } else {
-                        let frame = WatchFrame(seq: seq, jpeg: jpeg, width: demo.width, height: demo.height,
+                        let frame = WatchFrame(seq: seqs.next(), jpeg: jpeg, width: demo.width, height: demo.height,
                                                appName: appName, bundleID: target.bundleID, focus: demo.focus, prompt: prompt)
                         await server.send(.watchFrame(frame), to: peerID)
                     }
@@ -320,6 +333,13 @@ final class ServeDelegate: LinkServerDelegate {
         stdout("WATCH CLICK \(String(format: "%.3f, %.3f", point.x, point.y))")
         lock.sync { watched[peerID] }?.click(point)
     }
+}
+
+/// A count given out in order from any thread.
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    func next() -> Int { lock.lock(); defer { lock.unlock() }; n += 1; return n }
 }
 
 /// An installed app's icon as PNG (nil when it isn't installed here).
