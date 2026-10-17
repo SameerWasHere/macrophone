@@ -10,7 +10,19 @@ import UniformTypeIdentifiers
 /// without a real Mac app or Screen Recording.
 final class DemoWindow: @unchecked Sendable {
     private let lock = NSLock()
-    private var lines: [String] = [
+    /// An earlier exchange above the live one, so there's a page to scroll back through (a swipe
+    /// on the phone shows it, line by line).
+    private var lines: [String] = (1...40).map { i in
+        switch i % 8 {
+        case 1: return "› earlier question \(i / 8 + 1): where is the session kept?"
+        case 2: return ""
+        case 3: return "The session lives in SessionStore.swift, keyed by"
+        case 4: return "the account id, and is refreshed on launch."
+        case 5: return "● Read(SessionStore.swift)"
+        case 6: return "  ⎿ 80 lines"
+        default: return ""
+        }
+    } + [
         "› fix the login bug where the token expires early",
         "",
         "Looking at AuthView.swift and TokenStore.swift.",
@@ -46,6 +58,10 @@ final class DemoWindow: @unchecked Sendable {
     /// resize a real one; the lines wrap to the columns that fit, like a terminal's.
     private(set) var width = 1400
     let height = 900
+    /// Bumped by every change to what the window shows (`mpctl serve` draws a frame when it moved),
+    /// and by one that could change the question it asks (a scroll or a click can't).
+    private(set) var version = 0
+    private(set) var wordsVersion = 0
 
     /// Readable text: the window narrower (the Mac app resizes the real window through Accessibility).
     func fit(_ f: WatchFit) {
@@ -55,14 +71,17 @@ final class DemoWindow: @unchecked Sendable {
             case .larger: width = 760
             case .largest: width = 540
             }
+            version += 1
         }
     }
 
     /// One more line of the answer (until the prompt is up).
-    func tick() { lock.sync { if next < script.count { lines.append(script[next]); next += 1 } } }
+    func tick() { lock.sync { if next < script.count { lines.append(script[next]); next += 1; version += 1; wordsVersion += 1 } } }
 
     func apply(_ action: WatchAction) {
         lock.sync {
+            version += 1
+            wordsVersion += 1
             switch action {
             case .scrollUp: scroll = min(scroll + 6, max(0, lines.count - 6))
             case .scrollDown: scroll = max(0, scroll - 6)
@@ -83,16 +102,19 @@ final class DemoWindow: @unchecked Sendable {
         }
     }
 
-    func click(_ p: CGPoint) { lock.sync { lastClick = p } }
+    func click(_ p: CGPoint) { lock.sync { lastClick = p; version += 1 } }
 
-    /// A swipe: content follows the finger (dy > 0 shows earlier lines).
+    /// A swipe: content follows the finger (dy > 0 shows earlier lines), a line at a time with the
+    /// rest carried into the next step.
     private var scrollRemainder = 0.0
     func scrollBy(_ dy: Double) {
         lock.sync {
             scrollRemainder += dy * Double(height) / 38
             let whole = Int(scrollRemainder.rounded(.towardZero))
             scrollRemainder -= Double(whole)
+            let was = scroll
             scroll = min(max(scroll + whole, 0), max(0, lines.count - 6))
+            if scroll != was { version += 1 }
         }
     }
 
@@ -102,7 +124,7 @@ final class DemoWindow: @unchecked Sendable {
     }
 
     /// The whole answer, up to the question (for the App Store hero's Mac screen).
-    func finish() { lock.sync { while next < script.count { lines.append(script[next]); next += 1 } } }
+    func finish() { lock.sync { while next < script.count { lines.append(script[next]); next += 1 }; version += 1; wordsVersion += 1 } }
 
     func png() -> Data? { image().flatMap { encode($0, type: UTType.png.identifier, quality: 1) } }
     func jpeg() -> Data? { image().flatMap { encode($0, type: UTType.jpeg.identifier, quality: 0.55) } }

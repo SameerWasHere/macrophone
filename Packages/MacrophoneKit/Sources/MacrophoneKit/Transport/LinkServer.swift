@@ -40,6 +40,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID)
     /// Size the window that phone is watching for readable text (Aa).
     func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID)
+    /// A swipe on the watched window landed, lifted, or its coast began or ended, at `point`.
+    func linkServer(_ server: LinkServer, watchScrollPhase phase: WatchScrollPhase, at point: CGPoint, from peerID: UUID)
     /// The apps installed on this Mac, by name (Open an app).
     func installedApps(_ server: LinkServer) async -> [MacApp]
     /// Open an app and bring it forward. Returns whether it opened and a plain line about it.
@@ -61,6 +63,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchScrollPhase phase: WatchScrollPhase, at point: CGPoint, from peerID: UUID) {}
     func installedApps(_ server: LinkServer) async -> [MacApp] { [] }
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't open apps") }
     func remoteAddresses(_ server: LinkServer) -> [RemoteAddress] { [] }
@@ -506,6 +509,9 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchKeyframeFrom: phoneID) }
             case let .watchFit(fit):
                 notify { $0.linkServer(self, watchFit: fit, from: phoneID) }
+            case let .watchScrollPhase(phase, x, y):
+                guard (0...1).contains(x), (0...1).contains(y) else { break }
+                notify { $0.linkServer(self, watchScrollPhase: phase, at: CGPoint(x: x, y: y), from: phoneID) }
             case .listApps:
                 let s = session
                 Task { @MainActor [weak self] in

@@ -67,6 +67,12 @@ final class WatchService {
         var frameMs: [Int] = []
         var videoFrames = 0
         var scrolls = 0
+        /// Swipes as trackpad gestures (Oct 17 2026): the phone's phases and deltas become
+        /// continuous scroll events (`ScrollEvents`), a watchdog closes one that goes quiet.
+        var scrollEvents = ScrollEvents()
+        var scrollWatchdog: Task<Void, Never>?
+        var scrollPoint = CGPoint.zero
+        var gestures = 0
         /// When the window was last seen in front: a swipe's steps skip the check for a moment
         /// (each one listed every window on the Mac, thirty times a second, on the thread that
         /// sends the pictures).
@@ -200,10 +206,11 @@ final class WatchService {
         guard let w = watches.removeValue(forKey: peer) else { return }
         w.task?.cancel()
         w.sendTask?.cancel()
+        w.scrollWatchdog?.cancel()
         if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
         if !w.frameMs.isEmpty {
             let ms = w.frameMs.sorted()
-            app.log.add("watching: \(ms.count) frames (\(w.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make · \(w.scrolls) scroll steps")
+            app.log.add("watching: \(ms.count) frames (\(w.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make · \(w.scrolls) scroll steps in \(w.gestures) swipes")
         }
         w.restoreFit()
         w.dropStream()
@@ -308,6 +315,7 @@ final class WatchService {
     /// A new picture from the stream: the newest wins; it goes when the pacing allows.
     private func arrived(_ pixels: CVPixelBuffer, changed: Double, _ w: Watch) {
         if timing, Date() < w.forceUntil, w.hurriedAt != .distantPast { print("[watch] picture \(Int(Date().timeIntervalSince(w.hurriedAt) * 1000)) ms after the action, \(String(format: "%.4f", changed)) changed"); fflush(stdout) }
+        if timing, changed >= WatchPacing.sliver { print("[watch] frame from the window, \(String(format: "%.3f", changed)) changed\(w.latest == nil ? "" : ", one waiting")"); fflush(stdout) }
         w.latest = pixels
         w.latestSeq &+= 1
         w.changedSince = min(1, w.changedSince + changed)
@@ -628,33 +636,72 @@ final class WatchService {
         w.wake()
     }
 
-    /// A swipe on the phone's picture: scroll the window right there, as the finger moves.
+    /// A swipe on the phone's picture: scroll the window right there, as the finger moves. A delta
+    /// goes out as a scroll event at the finger's spot, with the phase a trackpad would stamp on
+    /// it while the phone's swipe is open (`scrollPhase`) — a bare wheel tick from a phone that
+    /// sends no phases.
     func scroll(at p: CGPoint, by d: CGVector, for peer: UUID) {
-        watches[peer]?.scrolls += 1
-        act(on: peer, what: "scroll", quiet: true) { wid in Self.scroll(window: wid, at: p, by: d) }
+        guard let w = watches[peer] else { return }
+        w.scrolls += 1
+        swipe(w, at: p) { b in
+            guard let e = w.scrollEvents.delta(dx: d.dx * b.width, dy: d.dy * b.height) else { return }
+            Self.post(e, at: w.scrollPoint)
+        }
     }
 
-    /// Where the pointer was before a swipe moved it; put back once the swipe has paused.
-    private static var cursorBeforeScroll: CGPoint?
-    private static var restoreCursor: Task<Void, Never>?
-
-    private static func scroll(window id: CGWindowID, at p: CGPoint, by d: CGVector) {
-        guard let b = WindowServer.bounds(of: id) else { return }
-        let pt = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
-        if cursorBeforeScroll == nil { cursorBeforeScroll = CGEvent(source: nil)?.location }
-        CGWarpMouseCursorPosition(pt)
-        // Content follows the finger: dragging down shows what's above (a positive wheel).
-        let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
-                        wheel1: Int32((d.dy * b.height).rounded()), wheel2: Int32((d.dx * b.width).rounded()), wheel3: 0)
-        e?.location = pt
-        e?.post(tap: .cghidEventTap)
-        restoreCursor?.cancel()
-        restoreCursor = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            guard !Task.isCancelled, let c = cursorBeforeScroll else { return }
-            CGWarpMouseCursorPosition(c)
-            cursorBeforeScroll = nil
+    /// Where the phone's swipe is: the finger landed or lifted, the coast after a flick began or
+    /// ended. Each delta until the next phase is part of that gesture, so the window rubber-bands
+    /// at its edge and coasts after a flick as it does under a trackpad.
+    func scrollPhase(_ phase: WatchScrollPhase, at p: CGPoint, for peer: UUID) {
+        guard let w = watches[peer] else { return }
+        if phase == .began { w.gestures += 1 }
+        swipe(w, at: p) { _ in
+            if let e = w.scrollEvents.phase(phase) { Self.post(e, at: w.scrollPoint) }
         }
+    }
+
+    /// Runs one step of a swipe with the window's frame, at once when the window was seen in
+    /// front within the last second (sixty steps a second can't each list every window), else
+    /// after bringing it forward. Then re-arms the watchdog that closes a swipe gone quiet.
+    private func swipe(_ w: Watch, at p: CGPoint, _ body: @escaping @MainActor (CGRect) -> Void) {
+        let step: @MainActor (CGWindowID) -> Void = { wid in
+            guard let b = WindowServer.bounds(of: wid) else { return }
+            w.scrollPoint = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
+            body(b)
+        }
+        if let wid = w.windowID, Date().timeIntervalSince(w.inFrontAt) < 1 {
+            step(wid)
+        } else {
+            act(on: w.peer, what: "scroll", quiet: true) { wid in step(wid) }
+        }
+        w.scrollWatchdog?.cancel()
+        guard let timeout = w.scrollEvents.idleTimeout else { w.scrollWatchdog = nil; return }
+        w.scrollWatchdog = Task { @MainActor [weak w] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1e9))
+            guard !Task.isCancelled, let w, let e = w.scrollEvents.quiet() else { return }
+            Self.post(e, at: w.scrollPoint)
+        }
+    }
+
+    /// One scroll event, at the spot (the event carries its own place: the pointer stays where it
+    /// is). Inside a gesture it is a continuous (trackpad) scroll with point deltas and the phase
+    /// fields set — what makes an app rubber-band and coast; outside one the plain pixel wheel
+    /// event a phone from before always got. Content follows the finger: dragging down shows
+    /// what's above (a positive wheel).
+    private static func post(_ e: ScrollEvents.Event, at pt: CGPoint) {
+        guard let ev = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: e.wheel1, wheel2: e.wheel2, wheel3: 0) else { return }
+        ev.location = pt
+        if e.phase != .none {
+            ev.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            ev.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(e.wheel1))
+            ev.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(e.wheel2))
+            // Exactly one of the two is set: a coast's events carry no scroll phase.
+            let scroll: CGScrollPhase? = switch e.phase { case .began: .began; case .changed: .changed; case .ended: .ended; default: nil }
+            let momentum: CGMomentumScrollPhase? = switch e.phase { case .momentumBegan: .begin; case .momentumChanged: .continuous; case .momentumEnded: .end; default: nil }
+            ev.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(scroll?.rawValue ?? 0))
+            ev.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum?.rawValue ?? 0))
+        }
+        ev.post(tap: .cghidEventTap)
     }
 
     /// A tap on the phone's picture: a click at that spot in the window.

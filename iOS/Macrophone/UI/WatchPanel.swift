@@ -243,9 +243,11 @@ struct WatchWindow: View {
             Ink.raised
             if let image = watcher.image {
                 WindowViewer(image: image, focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
-                             drag: watcher.drag,
+                             drag: watcher.drag, phased: watcher.macCanScroll,
                              onTouch: { watcher.touch() },
-                             onTap: { watcher.click($0) }, onScroll: { watcher.scroll(at: $0, by: $1) }, onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } })
+                             onTap: { watcher.click($0) }, onScroll: { watcher.scroll(at: $0, by: $1) },
+                             onScrollPhase: { watcher.scrollPhase($0, at: $1) },
+                             onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } })
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
@@ -556,15 +558,23 @@ private extension View {
 /// ring where it landed. One finger moves the picture (Pan, the default) or scrolls the Mac's
 /// window right there (Scroll — Sameer, Oct 14 2026: "swipe gestures could trigger small scrolls
 /// … where the swipe occurs"); in Scroll, two fingers move the picture; a pinch zooms it.
+///
+/// A swipe is a trackpad gesture on the Mac (Oct 17 2026): its deltas go once a display frame,
+/// bracketed by where the finger is (landed, lifted), and a flick coasts — the phone steps the
+/// momentum on a display link and sends it, so the Mac's window keeps moving after the finger
+/// lifts, as under a trackpad. A Mac from before gets the deltas alone, and one flick delta.
 struct WindowViewer: UIViewRepresentable {
     var image: UIImage
     var focus: CGRect?
     var recenter: Int
     var interactive: Bool
     var drag: Watcher.Drag
+    /// The Mac takes a swipe's phases (it named "scroll").
+    var phased: Bool
     var onTouch: () -> Void
     var onTap: (CGPoint) -> Void
     var onScroll: (CGPoint, CGVector) -> Void
+    var onScrollPhase: (WatchScrollPhase, CGPoint) -> Void
     var onAdjusted: (Bool) -> Void
 
     func makeUIView(context: Context) -> ViewerScrollView {
@@ -575,13 +585,14 @@ struct WindowViewer: UIViewRepresentable {
 
     func updateUIView(_ v: ViewerScrollView, context: Context) {
         wire(v)
-        v.update(image: image, focus: focus, recenter: recenter, interactive: interactive, drag: drag)
+        v.update(image: image, focus: focus, recenter: recenter, interactive: interactive, drag: drag, phased: phased)
     }
 
     private func wire(_ v: ViewerScrollView) {
         v.onTouch = onTouch
         v.onTap = onTap
         v.onScroll = onScroll
+        v.onScrollPhase = onScrollPhase
         v.onAdjusted = onAdjusted
     }
 }
@@ -597,13 +608,20 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     var onTouch: () -> Void = {}
     var onTap: (CGPoint) -> Void = { _ in }
     var onScroll: (CGPoint, CGVector) -> Void = { _, _ in }
+    var onScrollPhase: (WatchScrollPhase, CGPoint) -> Void = { _, _ in }
     var onAdjusted: (Bool) -> Void = { _ in }
     private var tapper: UITapGestureRecognizer!
     private var swiper: UIPanGestureRecognizer!
-    /// The swipe so far, not yet sent (sent ~30 times a second), and where it started.
+    /// The swipe so far, not yet sent (sent once a display frame), and where it started.
     private var pendingScroll = CGVector.zero
     private var scrollAnchor = CGPoint.zero
-    private var lastScrollSend = Date.distantPast
+    /// The Mac takes the swipe's phases: a gesture, then a coast.
+    private var phased = false
+    /// Ticks once a display frame while a finger swipes or a flick coasts: the deltas since the
+    /// last tick go out as one (sixty a second at most, whatever the display's rate).
+    private var scrollLink: CADisplayLink?
+    private var momentum: ScrollMomentum?
+    private var lastTick: CFTimeInterval = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -634,10 +652,11 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         swiper.isEnabled = drag == .scroll && isScrollEnabled
     }
 
-    func update(image: UIImage, focus: CGRect?, recenter: Int, interactive: Bool, drag: Watcher.Drag) {
+    func update(image: UIImage, focus: CGRect?, recenter: Int, interactive: Bool, drag: Watcher.Drag, phased: Bool) {
         isScrollEnabled = interactive
         pinchGestureRecognizer?.isEnabled = interactive
         tapper.isEnabled = interactive
+        self.phased = phased
         apply(drag: drag)
         let focusChanged = focus != self.focus && !adjusted
         self.focus = focus
@@ -726,32 +745,96 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         switch g.state {
         case .began:
             onTouch()
+            // A new swipe while the last flick still coasts ends the coast first, so the Mac sees
+            // its end before this gesture's beginning.
+            endMomentum()
             let p = g.location(in: imageView)
             scrollAnchor = CGPoint(x: min(max(p.x / imageSize.width, 0), 1), y: min(max(p.y / imageSize.height, 0), 1))
             pendingScroll = .zero
             g.setTranslation(.zero, in: self)
+            if phased { onScrollPhase(.began, scrollAnchor) }
+            startLink()
         case .changed:
             let t = g.translation(in: self)
             g.setTranslation(.zero, in: self)
             // As fractions of the window, so the Mac moves its content as far as the finger did.
             pendingScroll.dx += t.x / shown.width
             pendingScroll.dy += t.y / shown.height
-            if Date().timeIntervalSince(lastScrollSend) > 0.033 { flushScroll() }
         case .ended:
-            // A flick carries on a little, like a trackpad.
-            let v = g.velocity(in: self)
-            pendingScroll.dy += min(max(v.y * 0.12, -900), 900) / shown.height
             flushScroll()
+            let v = g.velocity(in: self)
+            if phased {
+                onScrollPhase(.ended, scrollAnchor)
+                // A flick coasts, a delta per frame from the lift-off speed, until it fades.
+                if let m = ScrollMomentum(velocity: CGVector(dx: v.x, dy: v.y)) {
+                    momentum = m
+                    onScrollPhase(.momentumBegan, scrollAnchor)
+                    step(dt: 1 / ScrollMomentum.tickRate)
+                } else {
+                    stopLink()
+                }
+            } else {
+                // A Mac from before: a flick carries on a little, in one delta.
+                pendingScroll.dy += min(max(v.y * 0.12, -900), 900) / shown.height
+                flushScroll()
+                stopLink()
+            }
         default:
             flushScroll()
+            if phased { onScrollPhase(.ended, scrollAnchor) }
+            stopLink()
         }
+    }
+
+    private func startLink() {
+        guard scrollLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        let rate = Float(ScrollMomentum.tickRate)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
+        link.add(to: .main, forMode: .common)
+        scrollLink = link
+        lastTick = CACurrentMediaTime()
+    }
+
+    private func stopLink() {
+        scrollLink?.invalidate()
+        scrollLink = nil
+        momentum = nil
+    }
+
+    /// Once a display frame: the finger's deltas since the last, or the coast's next step.
+    @objc private func tick(_ link: CADisplayLink) {
+        let now = link.targetTimestamp
+        let dt = now - lastTick
+        lastTick = now
+        if momentum != nil { step(dt: dt) } else { flushScroll() }
+    }
+
+    /// One step of the coast, in the picture's points as the finger's deltas are — nothing left
+    /// to move ends it.
+    private func step(dt: CFTimeInterval) {
+        guard var m = momentum, let s = m.step(dt: dt) else { endMomentum(); return }
+        momentum = m
+        let shown = CGSize(width: imageSize.width * zoomScale, height: imageSize.height * zoomScale)
+        guard shown.width > 0, shown.height > 0 else { endMomentum(); return }
+        onScroll(scrollAnchor, CGVector(dx: s.dx / shown.width, dy: s.dy / shown.height))
+    }
+
+    private func endMomentum() {
+        let coasting = momentum != nil
+        stopLink()
+        if coasting { onScrollPhase(.momentumEnded, scrollAnchor) }
     }
 
     private func flushScroll() {
         guard abs(pendingScroll.dx) + abs(pendingScroll.dy) > 0.0005 else { return }
         onScroll(scrollAnchor, pendingScroll)
         pendingScroll = .zero
-        lastScrollSend = Date()
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil { endMomentum() }
     }
 
     /// Where the click landed: a ring that grows and fades.

@@ -28,6 +28,7 @@ import MacrophoneKit
 //              Bonjour on after N s so a remote link moves home; --expect fails the run if that never happens
 //   mpctl serve --jpeg                        # pictures to every phone, even one that named video (a Mac from before)
 //   mpctl serve --software                    # encode in software from the start (the hardware encoder is busy elsewhere)
+//   mpctl watch --swipe 0.3 [--flick 1500]    # a swipe as the phone sends it: a gesture, then the coast after a flick
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -203,19 +204,26 @@ final class ServeDelegate: LinkServerDelegate {
             let video = server.phones(with: WatchVideo.feature).contains(peerID) && !has("--jpeg")
             self.lock.sync { self.encoders[peerID] = nil; self.keyframeWanted.remove(peerID) }
             var seq = 0, n = 0
-            var last: Data?
+            var drawn = -1, read = -1
+            var prompt: WatchPrompt?
             while !Task.isCancelled {
                 n += 1
-                if n % 2 == 0 { demo.tick() }
+                // A line of the answer every second; the window is looked at thirty times a second
+                // and a frame goes whenever it changed (a swipe moves it at display rate).
+                if n % 30 == 0 { demo.tick() }
                 let keyframe = self.lock.sync { self.keyframeWanted.remove(peerID) != nil }
-                if let jpeg = demo.jpeg(), jpeg != last || keyframe {
-                    last = jpeg
+                if demo.version != drawn || keyframe, let jpeg = demo.jpeg() {
+                    drawn = demo.version
                     seq += 1
-                    var prompt: WatchPrompt?
                     let image = demo.image()
-                    if let image { prompt = await PromptVision.read(image) }
-                    self.lock.sync { self.prompts[peerID] = prompt }
-                    if let prompt { stdout("WATCH PROMPT \(prompt.question ?? "-") → \(prompt.choices.map(\.label).joined(separator: " | ")) (on \(prompt.highlighted.map(String.init) ?? "-"))") }
+                    // The question is read again only when the words changed (a tenth of a second
+                    // a read; a swipe at display rate would starve the frames).
+                    if let image, demo.wordsVersion != read {
+                        read = demo.wordsVersion
+                        prompt = await PromptVision.read(image)
+                        self.lock.sync { self.prompts[peerID] = prompt }
+                        if let prompt { stdout("WATCH PROMPT \(prompt.question ?? "-") → \(prompt.choices.map(\.label).joined(separator: " | ")) (on \(prompt.highlighted.map(String.init) ?? "-"))") }
+                    }
                     if video, let image, let pixels = VideoEncoder.pixelBuffer(from: image) {
                         // The encoder is made with the window's size, again when it changes (Aa).
                         var encoder = self.lock.sync { self.encoders[peerID] }
@@ -237,7 +245,7 @@ final class ServeDelegate: LinkServerDelegate {
                         await server.send(.watchFrame(frame), to: peerID)
                     }
                 }
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                try? await Task.sleep(nanoseconds: 33_000_000)
             }
         }
     }
@@ -295,8 +303,17 @@ final class ServeDelegate: LinkServerDelegate {
     }
 
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {
-        stdout("WATCH SCROLL at \(String(format: "%.2f, %.2f", point.x, point.y)) by \(String(format: "%.3f", delta.dy))")
+        scrollSteps += 1
+        if has("--verbose") { stdout("WATCH SCROLL at \(String(format: "%.2f, %.2f", point.x, point.y)) by \(String(format: "%.3f", delta.dy))") }
         lock.sync { watched[peerID] }?.scrollBy(delta.dy)
+    }
+
+    /// Steps since the last phase, for the line each phase prints (a swipe at display rate is
+    /// too many lines to read one by one).
+    var scrollSteps = 0
+    func linkServer(_ server: LinkServer, watchScrollPhase phase: WatchScrollPhase, at point: CGPoint, from peerID: UUID) {
+        stdout("WATCH SCROLL \(phase.rawValue) at \(String(format: "%.2f, %.2f", point.x, point.y)) after \(scrollSteps) steps")
+        scrollSteps = 0
     }
 
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {
@@ -357,6 +374,16 @@ final class PhoneDelegate: LinkClientDelegate {
     var frames = 0
     /// Bytes of pictures or frames received (bandwidth, printed at the end).
     var bytes = 0
+    /// When each picture or frame came, for the peak frames-a-second at the end.
+    var frameTimes: [Date] = []
+    var peakPerSecond: Int {
+        var best = 0
+        for (i, t) in frameTimes.enumerated() {
+            let n = frameTimes[i...].prefix { $0.timeIntervalSince(t) < 1 }.count
+            best = max(best, n)
+        }
+        return best
+    }
     /// Timing (numbers only): when the watch was asked for, the last picture, and the last action.
     var watchAsked: Date?
     var lastFrame: Date?
@@ -376,6 +403,7 @@ final class PhoneDelegate: LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {
         frames += 1
         bytes += watchFrame.jpeg.count
+        frameTimes.append(Date())
         stdout("WATCH FRAME #\(watchFrame.seq) \(watchFrame.width)x\(watchFrame.height) \(watchFrame.jpeg.count / 1024) KB\(watchFrame.focus.map { " focus \($0)" } ?? "")\(timing())")
         if let dir = flag("--save") {
             let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(watchFrame.seq).jpg")
@@ -392,6 +420,7 @@ final class PhoneDelegate: LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchVideo f: WatchVideoFrame) {
         frames += 1
         bytes += f.data.count
+        if !f.isWordsOnly { frameTimes.append(Date()) }
         let t = timing()
         if f.isWordsOnly {
             stdout("WATCH VIDEO #\(f.seq) words only\(f.prompt.map { " prompt \($0.choices.count) answers" } ?? "")\(t)")
@@ -471,7 +500,7 @@ func run() async -> Int32 {
             server.setRemote(RemoteConfig(port: port))
         }
         // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
-        server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature]
+        server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature]
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -634,10 +663,32 @@ func run() async -> Int32 {
             d.lastAction = Date()
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
         } else if let dy = flag("--swipe").flatMap(Double.init) {
-            // A swipe in the middle of the window, in ten steps (dy: content dragged down, as a fraction).
+            // A swipe in the middle of the window as the phone sends it: the finger lands, ten
+            // steps a display frame apart (dy: content dragged down, as a fraction of the window),
+            // lifts, then the coast after a flick (--flick, points a second; 0 = none) — to a Mac
+            // that takes the phases; to one from before, the steps alone.
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
-            stdout("SWIPE \(dy)")
-            for _ in 0..<10 { client.watchScroll(at: CGPoint(x: 0.5, y: 0.5), by: CGVector(dx: 0, dy: dy / 10)); try? await Task.sleep(nanoseconds: 30_000_000) }
+            let at = CGPoint(x: 0.5, y: 0.5)
+            let phased = client.macFeatures.contains(WatchScroll.feature)
+            stdout("SWIPE \(dy)\(phased ? " as a gesture" : " as bare steps")")
+            d.lastAction = Date()
+            if phased { client.watchScrollPhase(.began, at: at) }
+            for _ in 0..<10 { client.watchScroll(at: at, by: CGVector(dx: 0, dy: dy / 10)); try? await Task.sleep(nanoseconds: 16_000_000) }
+            if phased {
+                client.watchScrollPhase(.ended, at: at)
+                // A picture about 800 points tall, as the phone shows it.
+                if var m = ScrollMomentum(velocity: CGVector(dx: 0, dy: (Double(flag("--flick") ?? "1500") ?? 1500) * (dy < 0 ? -1 : 1))) {
+                    client.watchScrollPhase(.momentumBegan, at: at)
+                    var steps = 0
+                    while let step = m.step(dt: 1 / ScrollMomentum.tickRate) {
+                        client.watchScroll(at: at, by: CGVector(dx: 0, dy: step.dy / 800))
+                        steps += 1
+                        try? await Task.sleep(nanoseconds: 16_000_000)
+                    }
+                    client.watchScrollPhase(.momentumEnded, at: at)
+                    stdout("COAST \(steps) steps")
+                }
+            }
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
         } else if let a = flag("--action").flatMap(WatchAction.init(rawValue:)) {
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
@@ -651,7 +702,7 @@ func run() async -> Int32 {
         client.watch(nil)
         try? await Task.sleep(nanoseconds: 300_000_000)
         client.stop()
-        stdout("FRAMES \(d.frames) · \(d.bytes / 1024) KB in \(Int(seconds)) s")
+        stdout("FRAMES \(d.frames) · \(d.bytes / 1024) KB in \(Int(seconds)) s · peak \(d.peakPerSecond) a second")
         return d.frames > 0 ? 0 : 1
 
     case "roam":

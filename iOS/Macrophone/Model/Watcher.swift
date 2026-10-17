@@ -88,6 +88,10 @@ final class Watcher: ObservableObject {
     var sendAction: (WatchAction) -> Void = { _ in }
     var sendClick: (CGPoint) -> Void = { _ in }
     var sendScroll: (CGPoint, CGVector) -> Void = { _, _ in }
+    var sendScrollPhase: (WatchScrollPhase, CGPoint) -> Void = { _, _ in }
+    /// The connected Mac takes a swipe as a trackpad gesture (it named "scroll" in its welcome):
+    /// the finger's phases go with the deltas, and a flick coasts.
+    @Published private(set) var macCanScroll = false
     /// Asks the Mac for a video frame that stands on its own; false when it can't be sent.
     var sendKeyframe: () -> Bool = { false }
     var log: DiagnosticLog?
@@ -160,6 +164,7 @@ final class Watcher: ObservableObject {
         awaitingFirstPicture = true
         askedAt = Date()
         macCanFit = macFeatures().contains(WatchVideo.fitFeature)
+        macCanScroll = macFeatures().contains(WatchScroll.feature)
         phase = image == nil ? .starting : phase == .live ? .live : .starting
         if !sendWatch(target) { phase = .offline; return }
         // A frame that stands on its own first (a Mac that sends pictures never hears this).
@@ -219,6 +224,11 @@ final class Watcher: ObservableObject {
     func scroll(at p: CGPoint, by d: CGVector) {
         touch()
         sendScroll(p, d)
+    }
+
+    /// Where the swipe is (landed, lifted, coasting): the Mac makes one gesture of the deltas.
+    func scrollPhase(_ phase: WatchScrollPhase, at p: CGPoint) {
+        sendScrollPhase(phase, p)
     }
 
     func setDrag(_ d: Drag) {

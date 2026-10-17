@@ -584,7 +584,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .listApps, .openApp:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp:
             break
         }
     }
@@ -713,6 +713,16 @@ public final class LinkClient: @unchecked Sendable {
     public func watchScroll(at p: CGPoint, by d: CGVector) {
         guard let s = lock.sync({ session }) else { return }
         Task { try? await s.send(.watchScroll(x: Double(p.x), y: Double(p.y), dx: Double(d.dx), dy: Double(d.dy))) }
+    }
+
+    /// Where a swipe on the watched window is (it landed, lifted, its coast began or ended), so
+    /// the Mac posts the deltas as one trackpad gesture. Only a Mac that named "scroll" gets it
+    /// (an unknown message would end an older Mac's session). False when it wasn't sent.
+    @discardableResult
+    public func watchScrollPhase(_ phase: WatchScrollPhase, at p: CGPoint) -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(WatchScroll.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchScrollPhase(phase, x: Double(p.x), y: Double(p.y))) }
+        return true
     }
 
     /// Click the watched window at a fraction of its size (top-left origin).

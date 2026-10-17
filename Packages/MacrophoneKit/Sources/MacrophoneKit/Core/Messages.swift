@@ -145,6 +145,11 @@ public enum Message: Codable, Sendable {
     case watchKeyframe
     /// Phone → Mac: size the watched window for readable text (only to a Mac that named "fit").
     case watchFit(WatchFit)
+    /// Phone → Mac: where a swipe on the watched window is — the finger landed or lifted, the
+    /// coast after a flick began or ended — at (x, y), fractions of the window. The `watchScroll`
+    /// deltas between two phases are one trackpad gesture on the Mac. Only to a Mac that named
+    /// "scroll".
+    case watchScrollPhase(WatchScrollPhase, x: Double, y: Double)
     // Either way
     case ping
     case pong
