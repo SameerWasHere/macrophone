@@ -783,6 +783,34 @@ final class AppModel: ObservableObject {
         log.add("asked the Mac to open an app")
     }
 
+    // MARK: Watching — flipping between windows (Oct 16 2026)
+
+    /// Every window the Mac can show, in a steady order (the Mac's own list re-sorts by use, which
+    /// would move the next one while flipping).
+    var watchSessions: [LiveTarget] {
+        liveTargets.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    /// Watch that window, and send there too — the window on screen is where the words go.
+    @discardableResult
+    func watchSession(_ t: LiveTarget) -> Bool {
+        guard !(watcher.target?.matches(t) ?? false) else { return false }
+        Haptics.tick()
+        pick(t.ref)
+        watcher.open(t.ref)
+        return true
+    }
+
+    /// The next (1) or previous (-1) window, wrapping round. Returns the one it went to.
+    @discardableResult
+    func watchStep(_ step: Int) -> LiveTarget? {
+        let list = watchSessions
+        guard list.count > 1 else { return nil }
+        let at = watcher.target.flatMap { t in list.firstIndex { t.matches($0) } }
+        let t = list[at.map { ($0 + step + list.count) % list.count } ?? 0]
+        return watchSession(t) ? t : nil
+    }
+
     func pick(_ target: TargetRef) {
         setSelection(SendSelection(target: target, send: settings.rememberedSend(for: target)))
     }

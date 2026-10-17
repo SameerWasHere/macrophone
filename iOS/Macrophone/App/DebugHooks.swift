@@ -49,7 +49,8 @@ import UIKit
 /// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
 /// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
-///                                            answer@1 (the window's question, second answer), keys
+///                                            answer@1 (the window's question, second answer), keys,
+///                                            next / prev (the next or previous window)
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
@@ -228,6 +229,8 @@ enum DebugHooks {
                         if v.count == 3 { model.watcher.scroll(at: CGPoint(x: v[0], y: v[1]), by: CGVector(dx: 0, dy: v[2])) }
                     } else if a.hasPrefix("answer@"), let i = Int(a.dropFirst(7)) {
                         model.watcher.choose(i)
+                    } else if a == "next" || a == "prev" {
+                        model.watchStep(a == "next" ? 1 : -1)
                     } else if a == "keys" {
                         model.watcher.showKeys()
                     } else if a == "pan" || a == "scroll" {

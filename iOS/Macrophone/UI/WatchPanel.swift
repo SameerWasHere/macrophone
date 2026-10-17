@@ -20,6 +20,9 @@ struct WatchPanel: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
     var compact = false
+    /// The window just switched to, named for a moment ("Terminal — codex ~/api").
+    @State private var switchedTo: String?
+    @State private var switchedTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: compact ? 8 : 10) {
@@ -34,15 +37,106 @@ struct WatchPanel: View {
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, compact ? 8 : 14)
+        // Swipe in from a side edge (in the margin beside the window, under a thumb) for the
+        // previous or next window; the menu on the name is the visible way to the same thing.
+        .overlay(alignment: .leading) { edge(step: -1) }
+        .overlay(alignment: .trailing) { edge(step: 1) }
+        .overlay(alignment: .top) {
+            if let switchedTo {
+                Text(switchedTo)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Ink.ink)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 62)
+                    .padding(.horizontal, 32)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityAction(named: "Next window") { go(1) }
+        .accessibilityAction(named: "Previous window") { go(-1) }
         // The window is a picture; its chrome (the kicker, Done, the keys) stays a moderate size so
         // the whole panel always fits above the Thread — at accessibility sizes it overflowed both ends.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
+    // MARK: Sessions — the windows to flip between
+
+    private var sessions: [LiveTarget] { model.watchSessions }
+
+    private var current: Int? {
+        guard let t = watcher.target else { return nil }
+        return sessions.firstIndex { t.matches($0) }
+    }
+
+    private func go(_ step: Int) {
+        if let t = model.watchStep(step) { announce(t) }
+    }
+
+    private func show(_ t: LiveTarget) {
+        if model.watchSession(t) { announce(t) }
+    }
+
+    private func announce(_ t: LiveTarget) {
+        switchedTask?.cancel()
+        withAnimation(.easeOut(duration: 0.15)) { switchedTo = t.title }
+        UIAccessibility.post(notification: .announcement, argument: t.title)
+        switchedTask = Task {
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.3)) { switchedTo = nil }
+        }
+    }
+
+    /// A strip in the margin beside the window: a swipe in from it flips to the next window.
+    private func edge(step: Int) -> some View {
+        Color.clear
+            .frame(width: 14)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 12).onEnded { v in
+                let dx = v.translation.width
+                guard abs(dx) > 40, abs(dx) > abs(v.translation.height) else { return }
+                // From the right edge, a swipe to the left is the next; from the left, to the right, the previous.
+                if (step > 0 && dx < 0) || (step < 0 && dx > 0) { go(step) }
+            })
+            .accessibilityHidden(true)
+    }
+
     private var header: some View {
         HStack(spacing: 10) {
-            WatchKicker(watcher: watcher)
+            if sessions.count > 1 {
+                Menu {
+                    ForEach(sessions) { t in
+                        Button { show(t) } label: {
+                            if watcher.target?.matches(t) ?? false { Label(t.title, systemImage: "checkmark") } else { Text(t.title) }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        WatchKicker(watcher: watcher)
+                        Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Ink.tertiary)
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Window: \(watcher.name)")
+                .accessibilityHint("Shows another window from your Mac — and sends there. You can also swipe in from the side.")
+                .accessibilityIdentifier("watch-sessions")
+                if sessions.count <= 8, let i = current {
+                    HStack(spacing: 5) {
+                        ForEach(0..<sessions.count, id: \.self) { k in
+                            Circle().fill(k == i ? Ink.secondary : Ink.line).frame(width: 5, height: 5)
+                        }
+                    }
+                    .accessibilityHidden(true)
+                }
+            } else {
+                WatchKicker(watcher: watcher)
+            }
             Spacer(minLength: 8)
             Button("Done") {
                 Haptics.tick()
