@@ -77,6 +77,8 @@ final class Watcher: ObservableObject {
 
     private var idleTask: Task<Void, Never>?
     private var newestSeq = 0
+    /// When the Mac was asked, for the log's "first picture N ms after asking".
+    private var askedAt = Date.distantPast
     /// No picture has arrived since the last open or resume.
     private var awaitingFirstPicture = true
     static let idleLimit: TimeInterval = 120
@@ -123,6 +125,7 @@ final class Watcher: ObservableObject {
         // The Mac starts a fresh watch (its pictures count from 1 again), so does the phone.
         newestSeq = 0
         awaitingFirstPicture = true
+        askedAt = Date()
         phase = image == nil ? .starting : phase == .live ? .live : .starting
         if !sendWatch(target) { phase = .offline }
         touch()
@@ -238,9 +241,10 @@ final class Watcher: ObservableObject {
             let img = await Task.detached(priority: .userInitiated) { UIImage(data: data)?.preparingForDisplay() }.value
             // A newer picture may have been decoded first: never go back to an older one.
             guard let img, self.isOpen, !self.phase.isPaused, frame.seq == 1 || frame.seq >= self.newestSeq else { return }
+            // Each published change re-renders every view watching this; only what changed is set.
             self.image = img
-            self.appName = frame.appName
-            self.bundleID = frame.bundleID
+            if self.appName != frame.appName { self.appName = frame.appName }
+            if self.bundleID != frame.bundleID { self.bundleID = frame.bundleID }
             // Only a real move re-centres the view; the frame jitters as the window redraws.
             if WatchFrame.focusMoved(from: self.focus, to: frame.focus) { self.focus = frame.focus }
             if frame.prompt?.id != self.prompt?.id {
@@ -248,11 +252,12 @@ final class Watcher: ObservableObject {
                 self.keysInstead = false
                 if frame.prompt != nil { self.answeredID = nil }
             }
-            self.prompt = frame.prompt
-            self.phase = .live
+            if self.prompt != frame.prompt { self.prompt = frame.prompt }
+            if self.phase != .live { self.phase = .live }
             if self.awaitingFirstPicture {
                 self.awaitingFirstPicture = false
                 self.cameAlive &+= 1
+                self.log?.add("watching: first picture \(Int(Date().timeIntervalSince(self.askedAt) * 1000)) ms after asking, \(data.count / 1024) KB")
             }
         }
     }
