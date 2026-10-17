@@ -82,37 +82,67 @@ variant itself) and is prewarmed when the mic opens.
   2.7% spikes → 0–0.2%; idle 0%. Hook: `MACROPHONE_WATCH_TIMING=1` prints each
   stage's milliseconds; `mpctl watch` prints "CONNECTED in N ms", "N ms after asking", "+N ms" and
   "N ms after the action" (`--features attention` to be a phone that wants alerts).
-- **The window is video (Oct 17 2026).** A phone that names `video` in its hello gets the
-  window as HEVC (`watchVideo`: the NAL data, the parameter sets with each keyframe, a keyframe
-  flag — and the question and the place to type, as `watchFrame` carried them; an empty frame is
-  words only); any other phone (App Store 1.0) keeps getting `watchFrame` JPEGs, and a new phone
-  sends `watchKeyframe` / `watchFit` only to a Mac whose welcome named `video` / `fit`
-  (`Message.welcome(features:)`, `LinkServer.macFeatures`, `LinkClient.macFeatures`). The gating
-  is unchanged — a frame only when the window changed, `WatchPacing` with `video: true` (new
-  output at the stream's own 10 a second, a caret still every 3 s), the newest frame wins and a
-  slow link drops rather than queues (a frame is encoded only when it's about to go, so the
-  decoder never misses a reference). `VideoEncoder` / `VideoDecoder` (MacrophoneKit `Core/Video.swift`,
-  shared with mpctl; the codec round-trips through the wire in `VideoTests`): hardware HEVC, real
-  time, no B-frames, a keyframe on start, on request (the phone asks on start, resume and any
-  decode failure) and every 40 frames; frames stamped by count, not the clock, so a window that
-  changes once a minute doesn't pay a keyframe each time. **The first picture of a video watch
-  is still a JPEG** (on the phone in tens of ms) while the encoder warms on the same pixels — the
-  hardware's first frame can take a second. **When the hardware encoder is busy** (this Mac's
-  `VTEncoderXPCService` has been at 6% for days — something else is encoding; hardware encodes
-  took 200–1800 ms) the watch goes on in **software** after a slow first encode (≥0.3 s), two
-  slow ones (≥80 ms) or one stall (≥0.8 s); software took 15–60 ms a frame at 1312×844. Measured
-  on the Mac Debug instance against a TextEdit page, mpctl as the phone: a JPEG 200–240 KB per
-  picture vs a keyframe 80–100 KB and a changed line 0–2 KB (a caret blink costs 1 KB every 3 s
-  instead of 240 KB); phone-side decode 2–4 ms a frame vs a JPEG decode; a Return in TextEdit
-  showed 70–330 ms after the action as JPEG (the spread is bringing the window forward) and
-  364–481 ms as video on the contended encoder (the Mac's share ~120 ms: encode 50 + the
-  question read 50); Mac CPU during a watch 2.1% (JPEG) vs 2.9% (video, software), 0.7% at rest.
-  `MACROPHONE_WATCH_TIMING=1` prints "video encode N (software) · send N KB key" and "picture N ms
-  after the action"; `mpctl watch --features video` decodes with the same decoder and prints
-  "decoded in N ms", `--save` writes PNGs, `--keyframe` asks for one; `mpctl serve --jpeg` is a
-  Mac from before, `--software` starts in software. Phone hook `MACROPHONE_VIDEO=0`. Needs a
-  real-device check: HEVC hardware decode on an iPhone (the simulator decodes in software), and
-  a real Claude Code window scrolling.
+- **The window is video, like Sill's (Oct 17 2026, the smooth pass; Sill's source is the reference —
+  MIT, github.com/Saffsanity/sill).** A phone that names `video` in its hello gets the window as
+  HEVC (`watchVideo`: the NAL data, the parameter sets with each keyframe, a keyframe flag — and
+  the question and the place to type, as `watchFrame` carried them; an empty frame is words
+  only); any other phone (App Store 1.0) keeps getting `watchFrame` JPEGs, and a new phone sends
+  `watchKeyframe` / `watchFit` / `watchScrollPhase` only to a Mac whose welcome named `video` /
+  `fit` / `scroll` (`Message.welcome(features:)`, `LinkServer.macFeatures`, `LinkClient.macFeatures`).
+  **Video is on by default** (`defaults write com.sameer.macrophone.mac watch.video -bool NO` keeps
+  pictures): a busy chip turns a watch to pictures by itself. The Mac: `WindowStream` captures the
+  window as the chip takes it (420f planes, the change sampled off the brightness plane at step 8 —
+  the window server says the whole window changed on every frame it gives, thirty a second, so the
+  sample is the real gate) at **30 a second** (`videoRate`; 12 away from home, `remoteVideoRate`;
+  pictures 10 at home, 6 away) and `WatchPacing.minimumInterval(quick:rate:)` waits half the
+  stream's period for a real change (a wait of a whole period lost every other frame). `VideoEncoder`
+  (MacrophoneKit `Core/Video.swift`) is **never waited on**: `submit` hands a frame in and returns —
+  one frame inside VideoToolbox, a one-slot mailbox where a newer frame replaces a waiting one,
+  `onEncoded` on VideoToolbox's thread in order with how long each took, a watchdog that gives up on
+  a session holding a frame 1.5 s (`onHung`), `PrioritizeEncodingSpeedOverQuality`; `encode()` (sync)
+  is for a proof or a test. `WatchService.drain` submits a due frame and goes on (holding the newest
+  back while two are in flight, so a slow link drops rather than queues); `sendLoop` sends what comes
+  back in order, the words alone in the same order; the question is read off the send path. A chip
+  that can't keep up — `EncoderHealth`: most of the last eight encodes ≥ 50 ms after four settling
+  ones, or two stalls ≥ 0.5 s, or a hang — turns the watch to **pictures, never software video**
+  (the BGRA stream is made again). The first picture of a video watch is still a JPEG, and the same
+  pixels start the encoder, whose first frame follows as the keyframe. The phone: `VideoCanvas`
+  (`UI/VideoCanvas.swift`, an `AVSampleBufferDisplayLayer` view — the system decodes in hardware and
+  draws, `DisplayImmediately`, nothing per frame through SwiftUI) inside the same zooming
+  `ViewerScrollView` (a `canvas` holds the picture with the video over it; `Watcher.video`, one per
+  watch, hosted by whichever viewer is on screen — the window or the strip while the mic is open; the
+  one it leaves keeps a snapshot for its fade); a frame that can't be shown asks for a keyframe; a
+  picture after video (the Mac's chip got busy) clears it. Measured on the Mac Debug instance
+  (-Onone) against a TextEdit page, mpctl as the phone, Finder in front, one swipe (10 steps, a
+  1500 pt/s flick): **before** (pictures, bare wheel ticks) the first picture 380 ms after the
+  swipe, 1–6 pictures in the 3 s after it (peak 4–6 a second), 230 KB each, Mac CPU 15–20% in the
+  swipe's second; **after** (video, a gesture) the first frame **50–100 ms** after the swipe, 17–19
+  frames in those 3 s (peak 16–18 a second — the stream gives 30 while the finger moves; TextEdit
+  redraws less as the coast fades), 5–60 KB a frame (700 KB a swipe against 2.1 MB), encode 8–9 ms,
+  Mac CPU 8–11% in the swipe's second, 4% on a still window (pictures 3%; at -O the sample is
+  cheaper); pictures with the gesture: 58 ms, 8 frames. The simulator (software decode, 1400×900
+  from `mpctl serve`): 4.6% CPU in the swipe's second, 0.1–0.5% still. The log line at the end of a
+  watch: "watching: N frames (M video) · median … · peak P a second · S scroll steps in G swipes"
+  (the phone's: "N video frames, KB, peak P a second"). `MACROPHONE_WATCH_TIMING=1` prints each
+  stage, "[stream] N frames this second" and a swipe's "scroll began posted N ms after the action" /
+  "frame from the window N ms after the action". Needs a real-device check: HEVC hardware decode on
+  the iPhone, and a real Claude Code window scrolling.
+- **Scrolling like a trackpad (Oct 17 2026, after Sill's InputInjector / InputOverlay).** A swipe
+  on the phone is a phased gesture: `watchScrollPhase(began|ended|momentumBegan|momentumEnded, x, y)`
+  brackets the `watchScroll` deltas, which go once a display frame (a `CADisplayLink` pinned to 60,
+  coalesced), and after a flick the phone runs the coast itself (`ScrollMomentum`, MacrophoneKit
+  `Core/Scroll.swift`: decays 0.96 a tick, stops under 0.3 pt, ≈1.6–2.1 s — macOS adds momentum
+  below where a posted event enters, so the Mac won't). The Mac (`ScrollEvents`, pure, tested) posts
+  each delta as a continuous scroll event with point deltas and the phase / momentum-phase fields at
+  the finger's spot (the event's own location routes it to the window under it, in front or not — a
+  posted scroll event also moves the pointer there, so it's put back 0.6 s after the swipe), carries
+  sub-point remainders, never posts an end without a beginning, and closes a swipe gone quiet (2 s
+  for fingers, 0.5 s for a coast); the first step goes at once unless an on-screen window covers the
+  spot (`WindowServer.isOnTop`), then the window is brought forward first. To a Mac that doesn't name
+  `scroll` the phone sends the deltas alone and one flick delta, as before. `mpctl watch --swipe 0.3
+  [--flick 1500]` swipes as the phone does; `mpctl serve` draws a page to scroll back through and
+  answers at 30 Hz. Proven on the simulator with a real touch (began · 12 steps · ended · 83 momentum
+  steps · momentumEnded on the demo).
 - **Aa — readable text (Oct 17 2026).** A menu in the watch header (Normal · Larger · Largest,
   `WatchFitMenu`, remembered per app in `watch.fit.<bundle id>`): the Mac resizes the watched
   window through Accessibility (`WindowFit`, `WatchFit.frame`: the display's full height, 560 or
@@ -170,6 +200,7 @@ lookup — no Tailscale CLI). Unit tests in `RemoteAccessTests`.
 cd Packages/MacrophoneKit && swift test
 swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url>' / pair-code / send
 .build/debug/mpctl cleanup-eval                           # cleanup test set on the real on-device model
+.build/debug/mpctl watch --target com.anthropic.claudefordesktop --swipe 0.3 --features video   # a swipe as the phone sends it, video back
 .build/debug/mpctl serve --remote --port 47899 --auto-approve   # then: mpctl pair '<url>' (at home), and
 .build/debug/mpctl roam --no-bonjour --bonjour-after 3 --expect home   # away by the stored address, then back home
 ```
@@ -183,6 +214,7 @@ swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url
   (no entitlements, so no Keychain): it pairs and never connects. Build for the simulator with
   the project's normal signing.
 - Testing on Sameer's Mac (he uses it while you work): stop only processes you started, by PID
-  or exact path. Never `pkill -f`/`killall` with a short pattern — on Oct 13 2026
+  or exact path. Run at most one Mac Debug copy (`MACROPHONE_INSTANCE=<name> MACROPHONE_HIDE_ICON=1`),
+  only while measuring, and quit it by PID in the same command. Never `pkill -f`/`killall` with a short pattern — on Oct 13 2026
   `pkill -f "cat"` matched "/Applications" and closed every app he had open. Never auto-send
   into Messages, Mail, Slack, Muse or anything that reaches a person.
