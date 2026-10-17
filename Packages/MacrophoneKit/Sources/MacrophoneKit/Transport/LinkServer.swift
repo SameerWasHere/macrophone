@@ -278,6 +278,7 @@ public final class LinkServer: @unchecked Sendable {
         // but off means off.
         let host = RemoteAddressRule.host(of: nw.endpoint)
         let fromAway = host.map { !RemoteAddressRule.isLocal($0) } ?? false
+        log?.add(host == nil ? "connection (source not an address)" : fromAway ? "connection from away" : "connection from this network")
         if fromAway, lock.sync({ remote }) == nil {
             log?.add("connection from away refused: remote access is off")
             nw.cancel()

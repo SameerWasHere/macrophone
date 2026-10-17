@@ -17,6 +17,12 @@ import MacrophoneKit
 //              prints the connect time, when each picture came (after asking, after the last, after the action)
 //   --features attention,attention-cloud   what this "phone" says it understands (any phone-side command)
 //   mpctl serve --watch-state permission|unavailable   # answer every watch with that state instead of the demo window
+//   mpctl serve --remote [--port 47821]       # remote access on: a fixed port, connections from away, the addresses told to phones
+//   --dial <host[:port]>                      # phone side: keep this typed address with the pairing (as the phone's Settings does)
+//   --no-bonjour                              # phone side: never look with Bonjour — stands in for a network where it finds nothing
+//   mpctl roam [--no-bonjour] [--dial …] [--bonjour-after 4] [--seconds 10] [--expect remote|local|home]
+//              connects (away or at home), prints PATH changes, sends one dictation; --bonjour-after N turns
+//              Bonjour on after N s so a remote link moves home; --expect fails the run if that never happens
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -77,7 +83,7 @@ final class ServeDelegate: LinkServerDelegate {
                 stdout("ATTENTION sent: \(codex.title) — \(p.question ?? "-")")
             }
         }
-        stdout("CONNECTED \(peer.name) (\(os), v\(appVersion))")
+        stdout("CONNECTED \(peer.name) (\(os), v\(appVersion))\(server.isRemote(peer.id) ? " from away" : "")")
     }
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) { stdout("DISCONNECTED") }
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {
@@ -111,7 +117,25 @@ final class ServeDelegate: LinkServerDelegate {
     }
     func linkServer(_ server: LinkServer, listenerChanged state: LinkServer.ListenerState) {
         stdout("LISTENER \(state)")
+        if case .ready = state, server.remoteConfig != nil {
+            // Like the Mac app: the list it would tell a phone, sent to any already connected.
+            Task { @MainActor in
+                let list = await self.refreshRemoteAddresses(server)
+                stdout("REMOTE on port \(server.remoteConfig?.port ?? 0): " + (list.isEmpty ? "no addresses" : list.map(\.display).joined(separator: ", ")))
+            }
+        }
     }
+    var remoteList: [RemoteAddress] = []
+    func refreshRemoteAddresses(_ server: LinkServer) async -> [RemoteAddress] {
+        guard let config = server.remoteConfig else { remoteList = []; return [] }
+        let own = NetworkAddresses.current()
+        var name: String?
+        if let ts = own.first(where: \.isTailscale) { name = await NetworkAddresses.tailscaleName(for: ts.host) }
+        remoteList = NetworkAddresses.remoteAddresses(port: config.port, tailscaleName: name)
+        server.broadcastRemoteAddresses(remoteList)
+        return remoteList
+    }
+    func remoteAddresses(_ server: LinkServer) -> [RemoteAddress] { remoteList }
     func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {
         stdout("SELECTION \(selection.target.displayName)\(selection.send ? " + send" : "") from \(peer.name)")
     }
@@ -282,6 +306,14 @@ final class PhoneDelegate: LinkClientDelegate {
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {
         stdout("OPENED \(ok ? "ok" : "failed"): \(detail)")
     }
+    func linkClient(_ client: LinkClient, remoteAddresses: [RemoteAddress], macID: UUID) {
+        stdout("REMOTE ADDRESSES \(remoteAddresses.count): " + remoteAddresses.map { "\($0.display) (\($0.source.rawValue))" }.joined(separator: ", "))
+    }
+    var paths: [String] = []
+    func linkClient(_ client: LinkClient, pathChanged remote: Bool) {
+        paths.append(remote ? "remote" : "local")
+        stdout("PATH \(remote ? "remote (away from home)" : "local (back home)")")
+    }
     var frames = 0
     /// Timing (numbers only): when the watch was asked for, the last picture, and the last action.
     var watchAsked: Date?
@@ -320,6 +352,17 @@ func makeClient() -> (LinkClient, PhoneDelegate) {
     if has("--verbose") { client.log = DiagnosticLog(url: nil) }
     // --features attention,attention-cloud: what this "phone" says it understands in its hello.
     if let f = flag("--features") { client.features = f.split(separator: ",").map(String.init) }
+    // A phone that keeps the Mac's remote addresses says so; --no-bonjour stands in for a network
+    // where Bonjour finds nothing; --dial keeps a typed address with the pairing, as Settings does.
+    if !client.features.contains(RemoteAccess.feature) { client.features.append(RemoteAccess.feature) }
+    if has("--no-bonjour") { client.browsesBonjour = false }
+    if let a = flag("--away-after").flatMap(Double.init) { client.awayAfter = a }
+    if let text = flag("--dial") {
+        guard let addr = RemoteAddressRule.parse(text) else { stdout("bad --dial address: \(text)"); exit(2) }
+        guard let mac = client.activeMac else { stdout("--dial needs a paired Mac (pair first)"); exit(2) }
+        client.setTypedAddress(addr, for: mac.id)
+        stdout("DIAL \(addr.display) kept for \(mac.name)")
+    }
     return (client, d)
 }
 
@@ -338,6 +381,10 @@ func run() async -> Int32 {
         let d = ServeDelegate()
         server.delegate = d
         if has("--verbose") { server.log = DiagnosticLog(url: nil) }
+        if has("--remote") {
+            let port = flag("--port").flatMap(UInt16.init) ?? RemoteAddressRule.defaultPort
+            server.setRemote(RemoteConfig(port: port))
+        }
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -508,6 +555,39 @@ func run() async -> Int32 {
         client.stop()
         stdout("FRAMES \(d.frames)")
         return d.frames > 0 ? 0 : 1
+
+    case "roam":
+        // The away-and-back proof. With --no-bonjour the phone can only reach the Mac by the
+        // addresses it keeps (--dial, or what the Mac told it earlier); --bonjour-after N then lets
+        // Bonjour look again, and a remote link should move to the local path by itself.
+        let (client, d) = makeClient()
+        let t0 = Date()
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        stdout("CONNECTED \(client.isRemote ? "remote (away from home)" : "local (at home)") in \(Int(Date().timeIntervalSince(t0) * 1000)) ms")
+        let seconds = Double(flag("--seconds") ?? "8") ?? 8
+        let deadline = Date().addingTimeInterval(seconds)
+        if let after = flag("--bonjour-after").flatMap(Double.init) {
+            try? await Task.sleep(nanoseconds: UInt64(after * 1e9))
+            stdout("BONJOUR on")
+            client.setBrowsesBonjour(true)
+        }
+        // The link stays usable through it all: one dictation, whichever path it's on.
+        while Date() < deadline, !(flag("--expect") == "home" && d.paths.contains("local")) {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        do {
+            let ack = try await client.send(Dictation(raw: "roam check", sourceDevice: "mpctl"), delayed: false)
+            stdout("ACK \(ack.outcome.rawValue) \(client.isRemote ? "from away" : "at home")")
+        } catch { stdout("SEND FAILED: \(error)") }
+        stdout("PATHS \(d.paths.isEmpty ? "none" : d.paths.joined(separator: " → ")) · now \(client.isRemote ? "remote" : "local")")
+        client.stop()
+        switch flag("--expect") {
+        case "remote": return d.paths.first == "remote" ? 0 : 1
+        case "local": return !client.remoteAddresses.isEmpty || d.paths.isEmpty ? (d.paths.contains("remote") ? 1 : 0) : 0
+        case "home": return d.paths.first == "remote" && d.paths.last == "local" ? 0 : 1
+        default: return 0
+        }
 
     case "unpair":
         let (client, _) = makeClient()

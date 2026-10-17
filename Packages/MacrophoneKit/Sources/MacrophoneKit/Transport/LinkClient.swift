@@ -454,8 +454,13 @@ public final class LinkClient: @unchecked Sendable {
         }
         guard go else { return }
         Task {
-            defer { lock.sync { movingHome = false } }
-            _ = try? await dial(mac: mac, key: key, timeout: 6, replacing: true)
+            let moved = (try? await dial(mac: mac, key: key, timeout: 6, replacing: true)) != nil
+            let lost = lock.sync { () -> Bool in movingHome = false; return session == nil }
+            if !moved, lost {
+                // The remote session went while the local one failed: say so and try again.
+                setState(.unreachable(mac.name))
+                scheduleRetry()
+            }
         }
     }
 
@@ -579,11 +584,15 @@ public final class LinkClient: @unchecked Sendable {
         session = nil
         sessionMacID = nil
         _remote = false
+        // Moving home: the Mac closes the remote session the moment the local one's handshake
+        // lands, a beat before this side installs it — not a drop, so no "not found" in between.
+        let moving = movingHome
         lock.unlock()
         s.close()
         pingTask?.cancel()
         failPending(error)
-        log?.add("session ended")
+        log?.add(moving ? "remote session closed by the move home" : "session ended")
+        guard !moving else { return }
         if let mac = activeMac {
             setState(.unreachable(mac.name))
             scheduleRetry()
