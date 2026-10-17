@@ -133,3 +133,17 @@ repo isn't touched). Use it to check a change to the pipeline.
 - **A bad release is out** — ship a fixed one with a higher build number. To stop new
   downloads first, point `Macrophone-latest.dmg` back at the previous DMG and remove the bad
   `<item>` from both appcast files, then push.
+
+## Homebrew and iCloud (Oct 17 2026)
+
+- **Homebrew:** `brew install --cask sameerwashere/macrophone/macrophone` reads the tap at
+  `~/claude-projects/homebrew-macrophone` (github.com/SameerWasHere/homebrew-macrophone).
+  `release.sh` writes the new version and the DMG's SHA-256 into `Casks/macrophone.rb` and
+  commits it; push the tap (`git -C ~/claude-projects/homebrew-macrophone push`) after the website
+  deploy, so the URL it names is live. The cask's livecheck reads the Sparkle appcast.
+- **iCloud:** the Mac app signs with the Developer ID profile "Macrophone Mac iCloud Developer ID"
+  (container `iCloud.com.sameer.macrophone`, Production) so it can send alerts through the
+  person's iCloud; `release.sh` passes the `MACROPHONE_*` settings and a manual export. If that
+  profile expires or the Developer ID certificate is renewed, make a new MAC_APP_DIRECT profile for
+  `com.sameer.macrophone.mac` with the App Store Connect API (bundle ID + Developer ID cert) and
+  install it in `~/Library/Developer/Xcode/UserData/Provisioning Profiles`.
