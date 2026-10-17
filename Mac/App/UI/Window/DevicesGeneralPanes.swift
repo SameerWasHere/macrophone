@@ -335,7 +335,7 @@ struct GeneralPane: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Privacy").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.secondary)
-                Text("Speech is transcribed and cleaned up on your iPhone. No audio is kept, there's no account, and what you dictate travels only between your iPhone and this Mac. Macrophone collects no analytics.")
+                Text("Speech is transcribed and cleaned up on your iPhone. No audio is kept, there's no account, and what you dictate travels only between your iPhone and this Mac — at home or, with Remote access, from away. Macrophone collects no analytics.")
                     .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }

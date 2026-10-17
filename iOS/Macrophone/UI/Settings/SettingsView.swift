@@ -347,7 +347,7 @@ struct SettingsView: View {
             Text("About")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Speech is transcribed on this iPhone. No audio is kept. Nothing leaves your devices.")
+                Text("Speech is transcribed on this iPhone. No audio is kept. Nothing leaves your devices — at home or away, it travels straight to your Mac.")
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(Ink.secondary)
                 Text("No account, no analytics.")

@@ -86,12 +86,49 @@ variant itself) and is prewarmed when the mic opens.
   `watchChoose`, and sends one alert for its codex window (`--attention-after <s>`,
   `--no-attention`). Phone hooks: `MACROPHONE_WATCH_ACTIONS=pan,scroll,answer@N,keys,next,prev,attend@<bundle>@<window>`.
 
+## Away from home — Remote access (Oct 17 2026)
+
+Modelled on Sill's Remote Access. At home the phone finds the Mac with Bonjour; away, it dials
+addresses the Mac gave it. `Core/RemoteAccess.swift` holds the rules: `RemoteAddress` (host, port,
+`.mac` told / `.typed`), `RemoteAddressRule` (the Tailscale range 100.64.0.0/10 and `.ts.net`
+names, `isLocal` — private, link-local, loopback —, `parse("host[:port]")`, the dial order
+Tailscale → MagicDNS name → typed → local, `merge`: the Mac's list replaces its own, the typed one
+stays), `NetworkAddresses` (this Mac's addresses off `getifaddrs`, the MagicDNS name by a reverse
+lookup — no Tailscale CLI). Unit tests in `RemoteAccessTests`.
+- **Mac:** Devices › Away from home — Remote access (off by default; `Settings.remoteAccess`,
+  `remotePort`, default 47821). On, `LinkServer.setRemote` listens on the fixed port and takes
+  connections from beyond the network; off, a connection from away (`!isLocal(source)`) is closed
+  before any handshake. `AppModel.refreshRemoteAddresses` (on listener ready, the setting, an
+  `NWPathMonitor` change) publishes the list and `broadcastRemoteAddresses` to phones whose hello
+  named `"remote"` (`RemoteAccess.feature`); the pane shows the Tailscale address and name (or Get
+  Tailscale), the local addresses with Copy, the port, and two sentences on Tailscale / port
+  forwarding. `SecureSession.isRemote`, `LinkServer.isRemote(peer)`, `AppModel.remotePeers` —
+  the status line says "· away from home"; `WatchService` sends a remote phone narrower pictures
+  (1000 px, quality 0.45, 400 KB ceiling: the only touch in the watch code).
+- **Phone:** `.remoteAddresses` lands in `PairedPeer.remoteAddresses` (`PairingStore.update`; a
+  list from before still decodes). `LinkClient.route(for:)`: Bonjour has the Mac → its endpoint;
+  else after `awayAfter` (3 s) with remote addresses → `raceConnect` (every address at once, the
+  first open connection takes the handshake, the rest are cancelled before any handshake, so the
+  Mac never sees two sessions); else the by-name dial as before. `updateResults` finding the Mac
+  while `isRemote` → `moveHome` (a `replacing` dial: the state never leaves `.connected`, the
+  Mac's close of the old session is quiet, `pathChanged` tells the app). `AppModel.isRemote`:
+  "Ready · Mac · away from home"; Settings › Away from home shows what the Mac said and takes one
+  typed address (`setTypedAddress`); diagnostics count the addresses, never print them.
+- **mpctl:** `serve --remote [--port N]`; phone side `--dial host[:port]`, `--no-bonjour` (stands
+  in for a network where Bonjour finds nothing), `--away-after`; `mpctl roam [--bonjour-after N]
+  [--expect remote|home]` prints `PATH remote (away from home)` / `PATH local (back home)`.
+  Proven on one Mac (the LAN IP 192.168.4.22 as the VPN stand-in): away in 5–9 ms, a dictation
+  lands, the move home with no "not found" in between. Still needs a real phone on cellular with
+  Tailscale on both.
+
 ## Checks
 
 ```
 cd Packages/MacrophoneKit && swift test
 swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url>' / pair-code / send
 .build/debug/mpctl cleanup-eval                           # cleanup test set on the real on-device model
+.build/debug/mpctl serve --remote --port 47899 --auto-approve   # then: mpctl pair '<url>' (at home), and
+.build/debug/mpctl roam --no-bonjour --bonjour-after 3 --expect home   # away by the stored address, then back home
 ```
 
 ## Rules

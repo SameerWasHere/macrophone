@@ -92,6 +92,14 @@ The phone and Mac talk directly over the local network with no account and no se
 - Peer-to-peer connection is enabled so it can still work when the devices are not on shared Wi-Fi or the network isolates clients. This needs early testing on real corporate, hotel, and guest networks.
 - iOS shows a one-time local network permission prompt. Onboarding explains it in plain language before the system prompt appears.
 
+**Away from home (Remote access, Oct 17 2026)**
+
+- Off by default. On, the Mac listens on a fixed port (47821 unless changed) and also accepts connections from beyond the local network: a Tailscale address (the 100.64.0.0/10 interface, detected without Tailscale's CLI; its MagicDNS name by a reverse lookup) or a port forwarded on the router. Off, a connection whose source isn't a local, private or link-local address is closed before any handshake.
+- While a paired phone is connected at home, the Mac tells it the addresses it can be reached at (`remoteAddresses`, sent only to a phone whose hello names `remote`; an unknown message would end an older phone's session). The phone keeps them with the pairing; the person can also type one (`host[:port]`) in Settings.
+- Away — Bonjour showing nothing for a few seconds — the phone dials every stored address at once (Tailscale first, then the MagicDNS name, the typed one, local addresses last), and the first connection to open takes the handshake; the others are closed before any handshake, so the Mac only ever sees one session. Back home, when Bonjour sees the Mac again, the link moves to the local path by itself, staying connected throughout.
+- Only paired phones, the same nonce handshake and ChaCha20-Poly1305 session — remote access changes where a connection may come from, never who may connect. No server anywhere; nothing is sent to anyone but the person's own devices. Over a remote link, watching sends smaller pictures.
+- Status lines say "away from home" in plain words; the settings explain Tailscale (free; install on both, sign in with the same account) or port forwarding in two sentences.
+
 **Pairing**
 
 - **Primary: QR code.** The Mac shows a QR code holding a one-time secret and its network identity. The phone scans it, both devices store a shared key, and all later traffic is encrypted and authenticated with it. Pairing happens once per Mac.

@@ -33,7 +33,9 @@ brew install --cask sameerwashere/macrophone/macrophone
   SFSpeechRecognizer before that) and cleaned up by Apple's **on-device** language model.
   No audio is ever kept.
 - The phone talks **directly to your Mac** over the local network (Bonjour, peer-to-peer Wi-Fi
-  when nearby). There's no server and no account.
+  when nearby). There's no server and no account. Away from home it dials your Mac directly too
+  — over Tailscale, or a port you forward — once you turn on **Remote access** on the Mac; the
+  same pairing and encryption, still no server.
 - Everything on the wire is end-to-end encrypted: pairing by QR code or a six-digit code creates a
   shared key (X25519 + HKDF); every session uses ChaCha20-Poly1305 with per-direction keys.
 - The window view captures **only the one window you picked**, only while you look, and never
