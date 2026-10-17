@@ -17,6 +17,12 @@ Notes, Mail — any app on your Mac with somewhere to type.
 Website and downloads: **[sameer.us/macrophone](https://sameer.us/macrophone)** · who it's for and
 why: [`docs/POSITIONING.md`](docs/POSITIONING.md)
 
+Install the Mac app with [Homebrew](https://brew.sh):
+
+```
+brew install --cask sameerwashere/macrophone/macrophone
+```
+
 <p align="center">
   <img src="https://sameer.us/macrophone/img/iphone-watch-demo-poster.webp" width="300" alt="Macrophone on iPhone: a Terminal window running Claude Code, live, asking to make an edit, with Esc, up, down and Return keys under it">
 </p>

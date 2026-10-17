@@ -263,11 +263,23 @@ cp "$NOTES" "$DEST/releases/notes-$VERSION.html"
 cp "$APPCAST" "$DEST/appcast.xml"
 ok "Wrote releases/$DMG_NAME, Macrophone-latest.dmg, notes-$VERSION.html, releases/appcast.xml and appcast.xml into $DEST"
 
+# ── 8. The Homebrew cask ───────────────────────────────────────────────────────────────────
+# brew install --cask sameerwashere/macrophone/macrophone reads ~/claude-projects/homebrew-macrophone
+# (github.com/SameerWasHere/homebrew-macrophone). Its version and checksum follow this DMG; it's
+# committed here and pushed together with the website, once the DMG is live at its URL.
+TAP_DIR=${MACROPHONE_TAP_DIR:-$HOME/claude-projects/homebrew-macrophone}
+if (( ! DRY_RUN )) && [[ -f "$TAP_DIR/Casks/macrophone.rb" ]]; then
+  SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+  sed -i '' -E "s/^  version \".*\"/  version \"$VERSION\"/; s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$TAP_DIR/Casks/macrophone.rb"
+  git -C "$TAP_DIR" commit -qam "Macrophone $VERSION" && ok "Homebrew cask set to $VERSION (committed in $TAP_DIR, not pushed)"
+fi
+
 echo
 if (( DRY_RUN )); then
   ok "Dry run finished. Nothing was notarized or published."
 else
   ok "Macrophone $VERSION ($BUILD) is signed, notarized and staged."
   echo "  Next: in ${WEB_DIR:h:h:h}, commit public/macrophone and push to deploy."
+  echo "  After the site is live: git -C $TAP_DIR push   (Homebrew then serves $VERSION)"
   echo "  Then: open an older copy and choose Check for Updates… to see the update arrive."
 fi
