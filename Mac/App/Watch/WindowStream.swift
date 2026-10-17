@@ -25,29 +25,34 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     private(set) var windowSize: CGSize
     private let scale: CGFloat
     /// At most this many pictures a second, when the window keeps changing (the fastest a picture
-    /// is sent is three a second; more only costs the window server).
-    static let maxRate: Int32 = 6
+    /// is sent is three a second; more only costs the window server) — and frames of video, which
+    /// cost little each, so scrolling can be smooth.
+    static let pictureRate = 6
+    static let videoRate = 10
+    private let maxRate: Int
 
-    init(window: SCWindow, maxWidth: CGFloat) {
+    init(window: SCWindow, maxWidth: CGFloat, maxRate: Int = pictureRate) {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         scale = CGFloat(filter.pointPixelScale)
-        let (cfg, size) = Self.configuration(for: window.frame.size, scale: scale, maxWidth: maxWidth)
+        self.maxRate = maxRate
+        let (cfg, size) = Self.configuration(for: window.frame.size, scale: scale, maxWidth: maxWidth, maxRate: maxRate)
         self.size = size
         windowSize = window.frame.size
         stream = SCStream(filter: filter, configuration: cfg, delegate: nil)
         super.init()
     }
 
-    private static func configuration(for window: CGSize, scale: CGFloat, maxWidth: CGFloat) -> (SCStreamConfiguration, (Int, Int)) {
+    private static func configuration(for window: CGSize, scale: CGFloat, maxWidth: CGFloat, maxRate: Int) -> (SCStreamConfiguration, (Int, Int)) {
         let cfg = SCStreamConfiguration()
         let pxW = max(1, window.width * scale), pxH = max(1, window.height * scale)
         let k = min(1, maxWidth / pxW)
-        cfg.width = Int(pxW * k)
-        cfg.height = Int(pxH * k)
+        // Even sizes: what a video encoder takes whole.
+        cfg.width = max(2, Int(pxW * k) & ~1)
+        cfg.height = max(2, Int(pxH * k) & ~1)
         cfg.showsCursor = false
         cfg.ignoreShadowsSingleWindow = true
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
-        cfg.minimumFrameInterval = CMTime(value: 1, timescale: maxRate)
+        cfg.minimumFrameInterval = CMTime(value: 1, timescale: Int32(maxRate))
         cfg.queueDepth = 5
         return (cfg, (cfg.width, cfg.height))
     }
@@ -66,7 +71,7 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// The window was resized: pictures follow its new shape.
     func resize(to window: CGSize, maxWidth: CGFloat) async {
         guard window != windowSize else { return }
-        let (cfg, size) = Self.configuration(for: window, scale: scale, maxWidth: maxWidth)
+        let (cfg, size) = Self.configuration(for: window, scale: scale, maxWidth: maxWidth, maxRate: maxRate)
         windowSize = window
         self.size = size
         try? await stream.updateConfiguration(cfg)

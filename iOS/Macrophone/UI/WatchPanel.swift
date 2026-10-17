@@ -4,8 +4,8 @@ import UIKit
 
 // Watching (Oct 14 2026) — the picked app's window on the Mac, in the area above the Thread:
 //
-//   ● LIVE · CLAUDE                        [Done]
-//   ┌──────────────────────────────────────────┐
+//   ● LIVE · CLAUDE                   [Aa] [Done]   Aa: the Mac's window narrower, so its text
+//   ┌──────────────────────────────────────────┐   reads larger here (Normal · Larger · Largest)
 //   │  the window, pinned to its newest output │  tap = a click there on the Mac;
 //   │  (centred on the column you type in)     │  one finger looks around (Pan) or scrolls
 //   └─────────────────────────────── [Newest] ┘  the Mac's window (Scroll); pinch zooms
@@ -138,6 +138,9 @@ struct WatchPanel: View {
                 WatchKicker(watcher: watcher)
             }
             Spacer(minLength: 8)
+            if watcher.macCanFit, watcher.target != .clipboard {
+                WatchFitMenu(watcher: watcher)
+            }
             Button("Done") {
                 Haptics.tick()
                 watcher.close()
@@ -148,6 +151,33 @@ struct WatchPanel: View {
             .accessibilityIdentifier("watch-done")
         }
         .frame(minHeight: 44)
+    }
+}
+
+/// "Aa" — readable text (Oct 17 2026): a menu of Normal · Larger · Largest. Larger and Largest
+/// make the Mac's window narrower and taller, about the phone's shape, so its text reads larger
+/// here; the Mac puts the window back when watching stops. Remembered per app.
+struct WatchFitMenu: View {
+    @ObservedObject var watcher: Watcher
+
+    var body: some View {
+        Menu {
+            // One short line: a menu cuts a long one with "…".
+            Text("Narrows \(watcher.name)'s window so its text reads larger here")
+            Picker("Text size", selection: Binding(get: { watcher.fit }, set: { watcher.setFit($0) })) {
+                ForEach(WatchFit.allCases, id: \.self) { f in Text(f.title).tag(f) }
+            }
+        } label: {
+            Text("Aa")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(watcher.fit == .normal ? Ink.ink : Light.cyan)
+                .frame(minWidth: 30, minHeight: 30)
+        }
+        .nativeGlassButton()
+        .disabled(watcher.phase != .live)
+        .accessibilityLabel("Text size on your Mac's window: \(watcher.fit.title)")
+        .accessibilityHint("Makes \(watcher.name)'s window narrower on your Mac so its text reads larger here.")
+        .accessibilityIdentifier("watch-fit")
     }
 }
 
@@ -202,7 +232,7 @@ struct WatchKicker: View {
 struct WatchWindow: View {
     @ObservedObject var watcher: Watcher
     var interactive: Bool
-    /// A moment of words after the Pan | Scroll switch flips: what one finger does now.
+    /// A moment of words after the Pan | Scroll switch flips or Aa changes: what happens now.
     @State private var dragNote: String?
     @State private var dragNoteTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -263,14 +293,14 @@ struct WatchWindow: View {
             }
         }
         .onChange(of: watcher.cameAlive) { _, _ in if interactive { Haptics.soft() } }
-        .onChange(of: watcher.drag) { _, d in
+        .onChange(of: watcher.noteSeq) { _, _ in
             guard interactive else { return }
-            let words = d == .pan ? "One finger moves the picture" : "One finger scrolls your Mac's window"
+            let words = watcher.noteWords
             UIAccessibility.post(notification: .announcement, argument: words)
             dragNoteTask?.cancel()
             withAnimation(.easeOut(duration: 0.15)) { dragNote = words }
             dragNoteTask = Task {
-                try? await Task.sleep(nanoseconds: 1_600_000_000)
+                try? await Task.sleep(nanoseconds: 2_200_000_000)
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeIn(duration: 0.3)) { dragNote = nil }
             }

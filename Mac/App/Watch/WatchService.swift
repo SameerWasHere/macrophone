@@ -17,6 +17,12 @@ import UniformTypeIdentifiers
 /// picture goes (`WatchPacing`): a caret or a spinner every few seconds, new output at once.
 /// A loop every 1.5 s only checks the window is still there and on screen.
 ///
+/// To a phone that named "video" in its hello the frames go as HEVC (Oct 17 2026, `VideoEncoder`:
+/// hardware, real time, a keyframe on start, when the phone asks and every few seconds) — the
+/// same gating, a frame only when the window changed, but a few KB each instead of a JPEG; any
+/// other phone keeps getting pictures. A phone that asks (Aa) gets the window sized for readable
+/// text (`WindowFit`), put back when the watch ends.
+///
 /// Needs Screen Recording for the pictures (the phone says so and can open the setting here) and
 /// Accessibility for the actions (which pasting already needs).
 @MainActor
@@ -47,12 +53,26 @@ final class WatchService {
         var lastSentAt = Date.distantPast
         /// Until when the next picture goes at once, whatever changed (an action just happened).
         var forceUntil = Date.distantPast
+        var hurriedAt = Date.distantPast
         var sendTask: Task<Void, Never>?
         /// The question the window is asking, as last read (sent with each picture).
         var prompt: WatchPrompt?
         /// When it's asked with real controls (a question card), the controls to press.
         var axPrompt: AXPrompt?
         var promptAt = Date.distantPast
+        /// The phone decodes video (its hello named it); else it gets pictures.
+        var wantsVideo = false
+        /// The window's video encoder, made with the stream (and again when the size changes).
+        var video: VideoEncoder?
+        /// The last frame sent, to send again as a keyframe when the phone asks and nothing changed.
+        var lastSent: CVPixelBuffer?
+        /// The encoder's first encode, off the first picture (a JPEG), so the second picture
+        /// doesn't wait for it — the hardware's first frame can take a second.
+        var warming: Task<Void, Never>?
+        /// The window sized for readable text (Aa), to put back when the watch ends — and the
+        /// size the phone asked for, applied once the window is found.
+        var fit: WindowFit.Record?
+        var wantedFit: WatchFit = .normal
         /// The wait between looks, so an action can cut it short.
         private var waiting: CheckedContinuation<Void, Never>?
         private var waitTimer: Task<Void, Never>?
@@ -90,15 +110,27 @@ final class WatchService {
         /// The next picture goes now, whatever changed (an action just happened).
         @MainActor func hurry() {
             forceUntil = Date().addingTimeInterval(2)
+            hurriedAt = Date()
             pacing?.cancel()
             pacing = nil
         }
 
         @MainActor func dropStream() {
+            video = nil
+            warming?.cancel()
+            warming = nil
+            lastSent = nil
             guard let s = stream else { return }
             stream = nil
             latest = nil
             Task { await s.stop() }
+        }
+
+        /// Puts a window sized for the phone back to its own size and place.
+        @MainActor func restoreFit() {
+            guard let r = fit else { return }
+            fit = nil
+            WindowFit.restore(r)
         }
     }
 
@@ -134,6 +166,8 @@ final class WatchService {
         guard let target else { stop(peer); return }
         if let w = watches[peer] {
             if w.target != target {
+                w.restoreFit()
+                w.wantedFit = .normal
                 w.target = target
                 w.windowID = nil
                 w.dropStream()
@@ -144,8 +178,9 @@ final class WatchService {
             return
         }
         let w = Watch(peer: peer, target: target)
+        w.wantsVideo = app.server.phones(with: WatchVideo.feature).contains(peer)
         watches[peer] = w
-        app.log.add("watching started (\(AppModel.kind(SendSelection(target: target))))")
+        app.log.add("watching started (\(AppModel.kind(SendSelection(target: target))), \(w.wantsVideo ? "video" : "pictures"))")
         w.task = Task { [weak self] in await self?.run(w) }
     }
 
@@ -153,6 +188,8 @@ final class WatchService {
         guard let w = watches.removeValue(forKey: peer) else { return }
         w.task?.cancel()
         w.sendTask?.cancel()
+        if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
+        w.restoreFit()
         w.dropStream()
         w.wake()
         watching[peer] = nil
@@ -205,6 +242,8 @@ final class WatchService {
         guard place.onScreen else {
             return .unavailable("\(w.appName)'s window is minimized or on another desktop", canReveal: true)
         }
+        // The size the phone asked for before the window was found (Aa).
+        if w.wantedFit != .normal, w.fit == nil { applyFit(w) }
 
         if let s = w.stream {
             await s.resize(to: place.bounds.size, maxWidth: maxWidth(for: w))
@@ -213,7 +252,7 @@ final class WatchService {
                 w.windowID = nil
                 return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
             }
-            let s = WindowStream(window: scw, maxWidth: maxWidth(for: w))
+            let s = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: w.wantsVideo ? WindowStream.videoRate : WindowStream.pictureRate)
             s.onFrame = { [weak self, weak w, weak s] pixels, changed in
                 Task { @MainActor in
                     guard let self, let w, let s, w.stream === s else { return }
@@ -252,6 +291,7 @@ final class WatchService {
 
     /// A new picture from the stream: the newest wins; it goes when the pacing allows.
     private func arrived(_ pixels: CVPixelBuffer, changed: Double, _ w: Watch) {
+        if timing, Date() < w.forceUntil, w.hurriedAt != .distantPast { print("[watch] picture \(Int(Date().timeIntervalSince(w.hurriedAt) * 1000)) ms after the action, \(String(format: "%.4f", changed)) changed"); fflush(stdout) }
         w.latest = pixels
         w.latestSeq &+= 1
         w.changedSince = min(1, w.changedSince + changed)
@@ -263,12 +303,21 @@ final class WatchService {
     private func drain(_ w: Watch) async {
         while watches[w.peer] === w, !Task.isCancelled, let pixels = w.latest {
             let seq = w.latestSeq
-            let interval = Date() < w.forceUntil ? 0 : WatchPacing.minimumInterval(changed: w.changedSince)
+            let interval = Date() < w.forceUntil ? 0 : WatchPacing.minimumInterval(changed: w.changedSince, video: w.wantsVideo)
             if interval == .infinity { w.latest = nil; continue }
             let due = w.lastSentAt.addingTimeInterval(interval)
             if Date() < due { await w.pause(due.timeIntervalSinceNow); continue }
+            // Video, from the second picture on: the first goes as a JPEG, which is on the phone in
+            // tens of milliseconds, while the encoder warms up on the same pixels (its first frame
+            // can take a second on a busy Mac).
+            if w.wantsVideo, w.seq > 0 {
+                await sendVideo(pixels, w)
+                if w.latestSeq == seq { w.latest = nil }
+                continue
+            }
             // Only a picture that goes is made into an image (a copy of the window's pixels).
             guard let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value else { w.latest = nil; continue }
+            if w.wantsVideo { warm(pixels, w) }
             // The question it's asking: read with each picture (about once a second at most) — but
             // not before the first one, which goes out as fast as it can; then once it's out.
             if w.seq > 0 { _ = await readPrompt(w, image) }
@@ -279,13 +328,98 @@ final class WatchService {
         w.sendTask = nil
     }
 
+    /// The encoder, made and run once on the first picture while that picture goes as a JPEG, so
+    /// its warm-up never delays a frame; the first real frame after it is a keyframe.
+    private func warm(_ pixels: CVPixelBuffer, _ w: Watch) {
+        guard w.video == nil, w.warming == nil, let v = try? VideoEncoder(width: CVPixelBufferGetWidth(pixels), height: CVPixelBufferGetHeight(pixels), rate: WindowStream.videoRate) else { return }
+        w.video = v
+        w.lastSent = pixels
+        w.warming = Task.detached(priority: .utility) {
+            _ = v.encode(pixels)
+            v.requestKeyframe()
+        }
+    }
+
+    /// One frame of video: encoded (the encoder made with the stream's size, again when it changes),
+    /// the question read off the same pixels when it's due, sent with the words. When the phone
+    /// hasn't decoded yet (the first frame) the question is read right after and sent alone if it
+    /// changed — nothing to decode, the picture stays.
+    private func sendVideo(_ pixels: CVPixelBuffer, _ w: Watch) async {
+        let t = DispatchTime.now()
+        if let warming = w.warming { await warming.value; w.warming = nil }
+        let width = CVPixelBufferGetWidth(pixels), height = CVPixelBufferGetHeight(pixels)
+        // A new size (the window was resized, Aa): a new encoder — in software still, if the last
+        // one found the hardware busy.
+        var software = false
+        if let v = w.video, v.width != width & ~1 || v.height != height & ~1 { software = v.software; w.video = nil }
+        if w.video == nil {
+            guard let v = try? VideoEncoder(width: width, height: height, rate: WindowStream.videoRate, software: software) else {
+                app.log.add("watching: the video encoder didn't start — pictures instead")
+                w.wantsVideo = false
+                return
+            }
+            w.video = v
+        }
+        guard let encoder = w.video else { return }
+        let read = w.seq > 0 && promptDue(w)
+        let (encoded, image) = await Task.detached(priority: .utility) { (encoder.encode(pixels), read ? WindowStream.image(pixels) : nil) }.value
+        let encodeMs = Self.ms(t)
+        guard let encoded else {
+            // The encoder gave nothing: a new one next time, starting on a keyframe.
+            w.video = nil
+            return
+        }
+        if let image { _ = await readPrompt(w, image) }
+        w.seq += 1
+        w.lastSentAt = Date()
+        w.changedSince = 0
+        w.forceUntil = .distantPast
+        w.lastSent = pixels
+        let frame = WatchVideoFrame(seq: w.seq, data: encoded.data, parameterSets: encoded.parameterSets, keyframe: encoded.keyframe,
+                                    width: encoder.width, height: encoder.height, appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
+        await app.server.send(.watchVideo(frame), to: w.peer)
+        if timing { print("[watch] video encode \(encodeMs)\(encoder.software ? " (software)" : "") · send \(encoded.data.count / 1024) KB\(encoded.keyframe ? " key" : "") \(Self.ms(t) - encodeMs)"); fflush(stdout) }
+        if w.seq == 1, w.latest == nil, let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value,
+           await readPrompt(w, image) {
+            await sendWords(w)
+        }
+    }
+
+    /// The words alone (the question, the place to type): a frame with nothing to decode.
+    private func sendWords(_ w: Watch) async {
+        guard w.wantsVideo, let v = w.video else { return }
+        w.seq += 1
+        let frame = WatchVideoFrame(seq: w.seq, data: Data(), parameterSets: nil, keyframe: false, width: v.width, height: v.height,
+                                    appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
+        await app.server.send(.watchVideo(frame), to: w.peer)
+    }
+
+    /// The phone wants a frame that stands on its own (it started, came back, or lost one): the
+    /// next frame is a keyframe — the last one again, when the window hasn't changed since.
+    func keyframe(for peer: UUID) {
+        guard let w = watches[peer], w.wantsVideo else { return }
+        w.video?.requestKeyframe()
+        if w.latest == nil, let last = w.lastSent {
+            w.latest = last
+            w.latestSeq &+= 1
+            w.changedSince = 1
+        }
+        w.hurry()
+        if w.latest != nil, w.sendTask == nil { w.sendTask = Task { [weak self] in await self?.drain(w) } }
+    }
+
+    /// The question is worth reading again: not within a second of the last read, and only once
+    /// something bigger than a caret or a spinner changed since.
+    private func promptDue(_ w: Watch) -> Bool {
+        w.windowID != nil && Date().timeIntervalSince(w.promptAt) > 0.8 && (w.changedSinceRead >= WatchPacing.unreadable || w.promptAt == .distantPast)
+    }
+
     /// Reads the question off the window (controls first — exact, Claude's question card — else
     /// the picture, only the conversation's column of it, so a sidebar of chats isn't read in).
     /// Not for a caret or a spinner: only once something bigger than that changed since the last
     /// read (text recognition takes a tenth of a second). Returns whether it changed.
     private func readPrompt(_ w: Watch, _ image: CGImage) async -> Bool {
-        guard let wid = w.windowID, Date().timeIntervalSince(w.promptAt) > 0.8,
-              w.changedSinceRead >= WatchPacing.unreadable || w.promptAt == .distantPast else { return false }
+        guard let wid = w.windowID, promptDue(w) else { return false }
         w.promptAt = Date()
         w.changedSinceRead = 0
         let t = DispatchTime.now()
@@ -430,6 +564,37 @@ final class WatchService {
             case .reveal, .openScreenRecordingSettings: break
             }
         }
+    }
+
+    /// Readable text (Aa): size the watched window for the phone, or put it back. The next picture
+    /// follows the new shape, and the place to type is read again.
+    func fit(_ f: WatchFit, for peer: UUID) {
+        guard let w = watches[peer] else { return }
+        w.wantedFit = f
+        // Not found yet: applied when it is (`look`).
+        if w.windowID != nil { applyFit(w) }
+    }
+
+    private func applyFit(_ w: Watch) {
+        guard let wid = w.windowID else { return }
+        let f = w.wantedFit
+        guard Paster.isTrusted else {
+            app.log.add("watch fit skipped: Accessibility not granted")
+            return
+        }
+        let r = WindowFit.apply(f, pid: w.pid, windowID: wid, record: w.fit)
+        if f == .normal {
+            w.fit = nil
+            app.log.add("watch fit: the window is back to its own size")
+        } else if let r {
+            w.fit = r
+            app.log.add("watch fit \(f.rawValue): \(Int(r.original.width))×\(Int(r.original.height)) → \(Int(r.applied.width))×\(Int(r.applied.height))")
+        } else {
+            app.log.add("watch fit \(f.rawValue): the window didn't take the size")
+        }
+        w.focusAt = .distantPast
+        w.hurry()
+        w.wake()
     }
 
     /// A swipe on the phone's picture: scroll the window right there, as the finger moves.

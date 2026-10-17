@@ -68,12 +68,13 @@ final class WatchFitTests: XCTestCase {
         let window = CGRect(x: 300, y: 200, width: 1200, height: 800)
         XCTAssertNil(WatchFit.normal.frame(for: window, in: area))
         let larger = WatchFit.larger.frame(for: window, in: area)!
-        XCTAssertEqual(larger, CGRect(x: 300, y: 25, width: 786, height: 1092))
+        XCTAssertEqual(larger, CGRect(x: 300, y: 25, width: 560, height: 1092))
         let largest = WatchFit.largest.frame(for: window, in: area)!
-        XCTAssertEqual(largest, CGRect(x: 300, y: 25, width: 546, height: 1092))
+        XCTAssertEqual(largest, CGRect(x: 300, y: 25, width: 420, height: 1092))
         // Never wider than the window is now, and never off the edge.
         let narrow = CGRect(x: 1500, y: 200, width: 500, height: 800)
         XCTAssertEqual(WatchFit.larger.frame(for: narrow, in: area)!, CGRect(x: 1228, y: 25, width: 500, height: 1092))
+        XCTAssertEqual(WatchFit.largest.frame(for: narrow, in: area)!, CGRect(x: 1308, y: 25, width: 420, height: 1092))
         XCTAssertEqual(WatchFit.larger.title, "Larger")
         XCTAssertEqual(WatchFit.largest.explanation(appName: "Claude"), "Claude's window is as narrow as it goes, so its text reads largest here")
     }
@@ -100,8 +101,10 @@ final class VideoCodecTests: XCTestCase {
     }
 
     func testAFrameSurvivesTheWire() throws {
+        // In software, so the count of keyframes is the encoder's own doing — a busy hardware
+        // encoder (this Mac's, most days) switches to software mid-run and starts on a keyframe.
         let w = 640, h = 400
-        let encoder = try VideoEncoder(width: w, height: h)
+        let encoder = try VideoEncoder(width: w, height: h, software: true)
         let decoder = VideoDecoder()
         var sizes: [Int] = []
         var keyframes = 0
@@ -132,7 +135,24 @@ final class VideoCodecTests: XCTestCase {
         let e = try XCTUnwrap(encoder.encode(pb))
         XCTAssertTrue(e.keyframe)
         XCTAssertNotNil(e.parameterSets)
-        print("[video] frames \(sizes) bytes, keyframe \(e.data.count) bytes")
+        print("[video] frames \(sizes) bytes, keyframe \(e.data.count) bytes, \(encoder.software ? "software" : "hardware")")
+    }
+
+    func testTheHardwareEncoderEncodesToo() throws {
+        // The Mac's own path (it may fall back to software when the hardware is busy; either way
+        // every frame decodes).
+        let w = 640, h = 400
+        let encoder = try VideoEncoder(width: w, height: h)
+        let decoder = VideoDecoder()
+        for i in 0..<3 {
+            let pb = try XCTUnwrap(VideoEncoder.pixelBuffer(from: picture(w, h, words: String(repeating: "x", count: i + 3))))
+            let e = try XCTUnwrap(encoder.encode(pb))
+            if i == 0 { XCTAssertTrue(e.keyframe) }
+            if e.keyframe { XCTAssertNotNil(e.parameterSets) }
+            let out = try decoder.decode(WatchVideoFrame(seq: i + 1, data: e.data, parameterSets: e.parameterSets, keyframe: e.keyframe, width: w, height: h, appName: "", bundleID: nil, focus: nil))
+            XCTAssertEqual(CVPixelBufferGetWidth(out), w)
+        }
+        print("[video] hardware test ended in \(encoder.software ? "software" : "hardware")")
     }
 
     func testADecoderWithoutAKeyframeSaysSo() {

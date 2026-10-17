@@ -142,6 +142,9 @@ final class AppModel: ObservableObject {
         watcher.sendClick = { [weak self] p in self?.client.watchClick(p) }
         watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }
+        watcher.sendKeyframe = { [weak self] in self?.client.watchKeyframe() ?? false }
+        watcher.sendFit = { [weak self] f in self?.client.watchFit(f) ?? false }
+        watcher.macFeatures = { [weak self] in self?.client.macFeatures ?? [] }
         AgentAlerts.shared.install(self)
         Task { await AgentAlerts.shared.subscribeInCloud() }
         // Notifications are asked for the first time a window is watched — the moment they make sense.
@@ -170,8 +173,13 @@ final class AppModel: ObservableObject {
         // The phone's choice goes to the Mac after every welcome, so on reconnect the phone's wins.
         c.selectionProvider = { Settings.storedSelection() }
         // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts);
-        // one with remote access on tells it where it can be reached from away.
-        c.features = [Attention.feature, RemoteAccess.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+        // one with remote access on tells it where it can be reached from away; one that can sends
+        // the watched window as video (Watcher decodes it).
+        c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+        #if DEBUG
+        // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
+        if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
+        #endif
         return c
     }
 
@@ -1192,6 +1200,11 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {
         guard client === self.client else { return }
         watcher.received(watchFrame)
+    }
+
+    func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame) {
+        guard client === self.client else { return }
+        watcher.received(watchVideo)
     }
 
     func linkClient(_ client: LinkClient, attention: Attention) {

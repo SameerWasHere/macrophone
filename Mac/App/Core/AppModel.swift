@@ -99,6 +99,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         }
         server.log = log
         server.delegate = self
+        // What this Mac can do beyond the first version, for phones that can too.
+        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature]
         history = historyStore.all
         peers = server.store.peers()
         lastReceived = historyStore.latest?.receivedAt
@@ -616,6 +618,14 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {
         watch.choose(promptID, index: index, for: peerID)
+    }
+
+    func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {
+        watch.keyframe(for: peerID)
+    }
+
+    func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID) {
+        watch.fit(fit, for: peerID)
     }
 
     func installedApps(_ server: LinkServer) async -> [MacApp] {

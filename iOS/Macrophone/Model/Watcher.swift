@@ -6,6 +6,11 @@ import UIKit
 /// Thread — a tap clicks there, and a key row sends Esc, ↑, ↓ and Return. It opens after a dictation is sent into an app
 /// (Settings › Show the app after sending) or from the Watch button by Send to; it pauses after
 /// two idle minutes or when the app leaves the screen, and Done closes it.
+///
+/// The window comes as video from a Mac that can (Oct 17 2026): HEVC frames decoded here in
+/// order, on one queue, each into the same picture the viewer always showed — a frame that can't
+/// be decoded asks the Mac for one that stands on its own. A Mac from before sends pictures, as
+/// before. And "Aa": the Mac's window narrower, so its text reads larger here, remembered per app.
 @MainActor
 final class Watcher: ObservableObject {
     /// Why the pictures stopped (the note over the picture says which).
@@ -65,6 +70,16 @@ final class Watcher: ObservableObject {
     }
     var sendChoose: (WatchPrompt, Int) -> Void = { _, _ in }
 
+    /// Readable text ("Aa", Oct 17 2026): how the Mac's window is sized for this phone.
+    @Published private(set) var fit: WatchFit = .normal
+    /// The connected Mac can size windows (it named "fit" in its welcome).
+    @Published private(set) var macCanFit = false
+    /// A moment of words over the window: what just changed, in a sentence.
+    @Published private(set) var noteSeq = 0
+    private(set) var noteWords = ""
+    var sendFit: (WatchFit) -> Bool = { _ in false }
+    var macFeatures: () -> Set<String> = { [] }
+
     /// The person zoomed or moved the picture away from the newest output (Newest shows).
     @Published private(set) var movedAway = false
     func setMovedAway(_ b: Bool) { if b != movedAway { movedAway = b } }
@@ -73,6 +88,8 @@ final class Watcher: ObservableObject {
     var sendAction: (WatchAction) -> Void = { _ in }
     var sendClick: (CGPoint) -> Void = { _ in }
     var sendScroll: (CGPoint, CGVector) -> Void = { _, _ in }
+    /// Asks the Mac for a video frame that stands on its own; false when it can't be sent.
+    var sendKeyframe: () -> Bool = { false }
     var log: DiagnosticLog?
 
     private var idleTask: Task<Void, Never>?
@@ -82,6 +99,17 @@ final class Watcher: ObservableObject {
     /// No picture has arrived since the last open or resume.
     private var awaitingFirstPicture = true
     static let idleLimit: TimeInterval = 120
+
+    /// Video: decoded in order on one queue; a frame out of order or that fails waits for a
+    /// keyframe. `generation` ties a decode to the watch it belongs to (a restart begins again at 1).
+    private let decoder = VideoDecoder()
+    private let decodeQueue = DispatchQueue(label: "macrophone.watch-decode", qos: .userInitiated)
+    private var waitingForKeyframe = true
+    private var generation = 0
+    private var keyframeAskedAt = Date.distantPast
+    /// How the pictures come, for the log (numbers only).
+    private var videoFrames = 0
+    private var videoBytes = 0
 
     /// "Claude" — what the header calls it before the Mac has answered.
     var name: String {
@@ -105,6 +133,7 @@ final class Watcher: ObservableObject {
             focus = nil
             prompt = nil
             keysInstead = false
+            fit = Self.rememberedFit(for: target)
         }
         isOpen = true
         start()
@@ -124,10 +153,19 @@ final class Watcher: ObservableObject {
         guard let target else { return }
         // The Mac starts a fresh watch (its pictures count from 1 again), so does the phone.
         newestSeq = 0
+        waitingForKeyframe = true
+        generation &+= 1
+        videoFrames = 0
+        videoBytes = 0
         awaitingFirstPicture = true
         askedAt = Date()
+        macCanFit = macFeatures().contains(WatchVideo.fitFeature)
         phase = image == nil ? .starting : phase == .live ? .live : .starting
-        if !sendWatch(target) { phase = .offline }
+        if !sendWatch(target) { phase = .offline; return }
+        // A frame that stands on its own first (a Mac that sends pictures never hears this).
+        askKeyframe()
+        // The size this app's window is remembered at: the Mac applies it once it finds the window.
+        if fit != .normal { _ = sendFit(fit) }
         touch()
     }
 
@@ -189,6 +227,7 @@ final class Watcher: ObservableObject {
         Haptics.tick()
         drag = d
         log?.add("watching: one finger \(d == .pan ? "moves the picture" : "scrolls the window")")
+        say(d == .pan ? "One finger moves the picture" : "One finger scrolls your Mac's window")
     }
 
     /// An answer tapped: the Mac presses the keys that give it, if the question is still up.
@@ -213,6 +252,43 @@ final class Watcher: ObservableObject {
     func showNewest() {
         touch()
         recenter &+= 1
+    }
+
+    // MARK: Readable text (Aa)
+
+    /// Size the Mac's window for this phone, and remember the choice for this app.
+    func setFit(_ f: WatchFit) {
+        guard f != fit else { return }
+        touch()
+        Haptics.tick()
+        fit = f
+        if let target { Self.remember(f, for: target) }
+        if sendFit(f) {
+            say(f.explanation(appName: name))
+            recenter &+= 1
+        } else {
+            say("Your Mac can't resize windows yet — update Macrophone there")
+        }
+        log?.add("watching: text \(f.rawValue)")
+    }
+
+    /// The fit this app's window was last watched at.
+    static func rememberedFit(for target: TargetRef) -> WatchFit {
+        guard let key = fitKey(target) else { return .normal }
+        return UserDefaults.standard.string(forKey: key).flatMap(WatchFit.init(rawValue:)) ?? .normal
+    }
+
+    private static func remember(_ f: WatchFit, for target: TargetRef) {
+        guard let key = fitKey(target) else { return }
+        if f == .normal { UserDefaults.standard.removeObject(forKey: key) } else { UserDefaults.standard.set(f.rawValue, forKey: key) }
+    }
+
+    private static func fitKey(_ target: TargetRef) -> String? { target.bundleID.map { "watch.fit." + $0 } }
+
+    /// A sentence over the window for a moment.
+    private func say(_ words: String) {
+        noteWords = words
+        noteSeq &+= 1
     }
 
     // MARK: From the Mac
@@ -241,25 +317,84 @@ final class Watcher: ObservableObject {
             let img = await Task.detached(priority: .userInitiated) { UIImage(data: data)?.preparingForDisplay() }.value
             // A newer picture may have been decoded first: never go back to an older one.
             guard let img, self.isOpen, !self.phase.isPaused, frame.seq == 1 || frame.seq >= self.newestSeq else { return }
-            // Each published change re-renders every view watching this; only what changed is set.
-            self.image = img
-            if self.appName != frame.appName { self.appName = frame.appName }
-            if self.bundleID != frame.bundleID { self.bundleID = frame.bundleID }
-            // Only a real move re-centres the view; the frame jitters as the window redraws.
-            if WatchFrame.focusMoved(from: self.focus, to: frame.focus) { self.focus = frame.focus }
-            if frame.prompt?.id != self.prompt?.id {
-                // A new question (or none): its answers show, and "Keys" applies to one prompt only.
-                self.keysInstead = false
-                if frame.prompt != nil { self.answeredID = nil }
+            self.show(img, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: data.count, how: "picture")
+        }
+    }
+
+    /// A frame of video: decoded in order on the decode queue, then shown like a picture. Only
+    /// the words (the question, the place to type) when there's nothing to decode.
+    func received(_ frame: WatchVideoFrame) {
+        guard isOpen, !phase.isPaused else { return }
+        // One count for pictures, frames and words: the first picture of a video watch is a JPEG.
+        if frame.isWordsOnly {
+            newestSeq = frame.seq
+            words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt)
+            return
+        }
+        guard WatchVideoFrame.canDecode(seq: frame.seq, keyframe: frame.keyframe, newest: newestSeq, waitingForKeyframe: waitingForKeyframe) else {
+            if !waitingForKeyframe { log?.add("watching: a frame was missed — asking for a keyframe") }
+            waitingForKeyframe = true
+            askKeyframe()
+            return
+        }
+        newestSeq = frame.seq
+        waitingForKeyframe = false
+        let gen = generation
+        let decoder = self.decoder
+        decodeQueue.async { [weak self] in
+            let image: UIImage?
+            do {
+                let pixels = try decoder.decode(frame)
+                image = VideoDecoder.image(pixels).map { UIImage(cgImage: $0) }
+            } catch {
+                image = nil
             }
-            if self.prompt != frame.prompt { self.prompt = frame.prompt }
-            if self.phase != .live { self.phase = .live }
-            if self.awaitingFirstPicture {
-                self.awaitingFirstPicture = false
-                self.cameAlive &+= 1
-                self.log?.add("watching: first picture \(Int(Date().timeIntervalSince(self.askedAt) * 1000)) ms after asking, \(data.count / 1024) KB")
+            Task { @MainActor [weak self] in
+                guard let self, self.isOpen, !self.phase.isPaused, gen == self.generation else { return }
+                guard let image else {
+                    self.log?.add("watching: a frame didn't decode — asking for a keyframe")
+                    self.waitingForKeyframe = true
+                    self.askKeyframe()
+                    return
+                }
+                self.videoFrames += 1
+                self.videoBytes += frame.data.count
+                self.show(image, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: frame.data.count,
+                          how: frame.keyframe ? "keyframe" : "frame")
             }
         }
+    }
+
+    /// Asks the Mac for a frame that stands on its own, at most once a second.
+    private func askKeyframe() {
+        guard Date().timeIntervalSince(keyframeAskedAt) > 1 else { return }
+        keyframeAskedAt = Date()
+        _ = sendKeyframe()
+    }
+
+    /// Each published change re-renders every view watching this; only what changed is set.
+    private func show(_ img: UIImage, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, bytes: Int, how: String) {
+        image = img
+        words(appName: appName, bundleID: bundleID, focus: focus, prompt: prompt)
+        if phase != .live { phase = .live }
+        if awaitingFirstPicture {
+            awaitingFirstPicture = false
+            cameAlive &+= 1
+            log?.add("watching: first \(how) \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(bytes / 1024) KB")
+        }
+    }
+
+    private func words(appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?) {
+        if self.appName != appName { self.appName = appName }
+        if self.bundleID != bundleID { self.bundleID = bundleID }
+        // Only a real move re-centres the view; the frame jitters as the window redraws.
+        if WatchFrame.focusMoved(from: self.focus, to: focus) { self.focus = focus }
+        if prompt?.id != self.prompt?.id {
+            // A new question (or none): its answers show, and "Keys" applies to one prompt only.
+            keysInstead = false
+            if prompt != nil { answeredID = nil }
+        }
+        if self.prompt != prompt { self.prompt = prompt }
     }
 
     /// The link came or went.

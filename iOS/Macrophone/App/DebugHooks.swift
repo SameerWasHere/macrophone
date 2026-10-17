@@ -51,7 +51,8 @@ import UIKit
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
 ///                                            answer@1 (the window's question, second answer), keys,
 ///                                            next / prev (the next or previous window), attend@<bundle>@<window>
-///                                            (what tapping an alert does)
+///                                            (what tapping an alert does), fit@larger|largest|normal (Aa)
+/// MACROPHONE_VIDEO=0                         a phone from before video: the Mac sends pictures (to compare the two)
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
@@ -238,6 +239,8 @@ enum DebugHooks {
                         model.watchStep(a == "next" ? 1 : -1)
                     } else if a == "keys" {
                         model.watcher.showKeys()
+                    } else if a.hasPrefix("fit@"), let f = WatchFit(rawValue: String(a.dropFirst(4))) {
+                        model.watcher.setFit(f)
                     } else if a == "pan" || a == "scroll" {
                         model.watcher.setDrag(a == "pan" ? .pan : .scroll)
                     } else if a.hasPrefix("tap@") {

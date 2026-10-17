@@ -82,9 +82,52 @@ variant itself) and is prewarmed when the mic opens.
   2.7% spikes → 0–0.2%; idle 0%. Hook: `MACROPHONE_WATCH_TIMING=1` prints each
   stage's milliseconds; `mpctl watch` prints "CONNECTED in N ms", "N ms after asking", "+N ms" and
   "N ms after the action" (`--features attention` to be a phone that wants alerts).
+- **The window is video (Oct 17 2026).** A phone that names `video` in its hello gets the
+  window as HEVC (`watchVideo`: the NAL data, the parameter sets with each keyframe, a keyframe
+  flag — and the question and the place to type, as `watchFrame` carried them; an empty frame is
+  words only); any other phone (App Store 1.0) keeps getting `watchFrame` JPEGs, and a new phone
+  sends `watchKeyframe` / `watchFit` only to a Mac whose welcome named `video` / `fit`
+  (`Message.welcome(features:)`, `LinkServer.macFeatures`, `LinkClient.macFeatures`). The gating
+  is unchanged — a frame only when the window changed, `WatchPacing` with `video: true` (new
+  output at the stream's own 10 a second, a caret still every 3 s), the newest frame wins and a
+  slow link drops rather than queues (a frame is encoded only when it's about to go, so the
+  decoder never misses a reference). `VideoEncoder` / `VideoDecoder` (MacrophoneKit `Core/Video.swift`,
+  shared with mpctl; the codec round-trips through the wire in `VideoTests`): hardware HEVC, real
+  time, no B-frames, a keyframe on start, on request (the phone asks on start, resume and any
+  decode failure) and every 40 frames; frames stamped by count, not the clock, so a window that
+  changes once a minute doesn't pay a keyframe each time. **The first picture of a video watch
+  is still a JPEG** (on the phone in tens of ms) while the encoder warms on the same pixels — the
+  hardware's first frame can take a second. **When the hardware encoder is busy** (this Mac's
+  `VTEncoderXPCService` has been at 6% for days — something else is encoding; hardware encodes
+  took 200–1800 ms) the watch goes on in **software** after a slow first encode (≥0.3 s), two
+  slow ones (≥80 ms) or one stall (≥0.8 s); software took 15–60 ms a frame at 1312×844. Measured
+  on the Mac Debug instance against a TextEdit page, mpctl as the phone: a JPEG 200–240 KB per
+  picture vs a keyframe 80–100 KB and a changed line 0–2 KB (a caret blink costs 1 KB every 3 s
+  instead of 240 KB); phone-side decode 2–4 ms a frame vs a JPEG decode; a Return in TextEdit
+  showed 70–330 ms after the action as JPEG (the spread is bringing the window forward) and
+  364–481 ms as video on the contended encoder (the Mac's share ~120 ms: encode 50 + the
+  question read 50); Mac CPU during a watch 2.1% (JPEG) vs 2.9% (video, software), 0.7% at rest.
+  `MACROPHONE_WATCH_TIMING=1` prints "video encode N (software) · send N KB key" and "picture N ms
+  after the action"; `mpctl watch --features video` decodes with the same decoder and prints
+  "decoded in N ms", `--save` writes PNGs, `--keyframe` asks for one; `mpctl serve --jpeg` is a
+  Mac from before, `--software` starts in software. Phone hook `MACROPHONE_VIDEO=0`. Needs a
+  real-device check: HEVC hardware decode on an iPhone (the simulator decodes in software), and
+  a real Claude Code window scrolling.
+- **Aa — readable text (Oct 17 2026).** A menu in the watch header (Normal · Larger · Largest,
+  `WatchFitMenu`, remembered per app in `watch.fit.<bundle id>`): the Mac resizes the watched
+  window through Accessibility (`WindowFit`, `WatchFit.frame`: the display's full height, 560 or
+  420 points wide, never wider than it was) so its text reads larger on the phone, applied once
+  the window is found (`Watch.wantedFit`) and sent again on resume; the window goes back to its
+  own size and place when the watch ends — Done, another window, the phone gone, the Mac's Stop,
+  Quit (`applicationWillTerminate`) — unless it was moved or resized on the Mac meanwhile
+  (`WindowFit.restore` compares with the frame it left). Checked on a TextEdit window: 656×422
+  → 420×1084 → 656×422. `mpctl serve` narrows its drawn window (`DemoWindow.fit`); `mpctl watch
+  --fit larger`; phone hook `MACROPHONE_WATCH_ACTIONS=fit@larger`. Needs a real check on an
+  Electron window (Claude desktop): its AX size reads fine; whether it takes a width under its
+  minimum is the app's call (the Mac reads back what it took).
 - Demo: `mpctl serve` draws a window per place, reads its prompt with the same reader, answers
   `watchChoose`, and sends one alert for its codex window (`--attention-after <s>`,
-  `--no-attention`). Phone hooks: `MACROPHONE_WATCH_ACTIONS=pan,scroll,answer@N,keys,next,prev,attend@<bundle>@<window>`.
+  `--no-attention`). Phone hooks: `MACROPHONE_WATCH_ACTIONS=pan,scroll,answer@N,keys,next,prev,attend@<bundle>@<window>,fit@larger`.
 
 ## Away from home — Remote access (Oct 17 2026)
 
@@ -136,6 +179,9 @@ swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url
 - Never upload to App Store Connect / TestFlight unless Sameer explicitly asks to submit.
 - The apps collect nothing. Diagnostics never contain dictation text or keys.
 - Primary users are developers dictating long prompts; when in doubt, optimize for them.
+- The simulator can't store the pairing key from a build made with `CODE_SIGNING_ALLOWED=NO`
+  (no entitlements, so no Keychain): it pairs and never connects. Build for the simulator with
+  the project's normal signing.
 - Testing on Sameer's Mac (he uses it while you work): stop only processes you started, by PID
   or exact path. Never `pkill -f`/`killall` with a short pattern — on Oct 13 2026
   `pkill -f "cat"` matched "/Applications" and closed every app he had open. Never auto-send

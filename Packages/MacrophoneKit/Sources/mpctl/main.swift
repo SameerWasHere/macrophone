@@ -14,8 +14,11 @@ import MacrophoneKit
 //   mpctl browse
 //   mpctl apps / mpctl open <bundleID>        # the Mac's installed apps; open one there
 //   mpctl watch [--target <bundleID|front>] [--window <key>] [--seconds 6] [--save DIR] [--action returnKey]
-//              prints the connect time, when each picture came (after asking, after the last, after the action)
-//   --features attention,attention-cloud   what this "phone" says it understands (any phone-side command)
+//              prints the connect time, when each picture came (after asking, after the last, after the action);
+//              with --features video the frames come as HEVC, are decoded here (decode time printed, --save
+//              writes them as PNG); --fit larger|largest|normal asks for readable text; --keyframe asks for
+//              a keyframe halfway
+//   --features attention,attention-cloud,video   what this "phone" says it understands (any phone-side command)
 //   mpctl serve --watch-state permission|unavailable   # answer every watch with that state instead of the demo window
 //   mpctl serve --remote [--port 47821]       # remote access on: a fixed port, connections from away, the addresses told to phones
 //   --dial <host[:port]>                      # phone side: keep this typed address with the pairing (as the phone's Settings does)
@@ -23,6 +26,8 @@ import MacrophoneKit
 //   mpctl roam [--no-bonjour] [--dial …] [--bonjour-after 4] [--seconds 10] [--expect remote|local|home]
 //              connects (away or at home), prints PATH changes, sends one dictation; --bonjour-after N turns
 //              Bonjour on after N s so a remote link moves home; --expect fails the run if that never happens
+//   mpctl serve --jpeg                        # pictures to every phone, even one that named video (a Mac from before)
+//   mpctl serve --software                    # encode in software from the start (the hardware encoder is busy elsewhere)
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -157,6 +162,9 @@ final class ServeDelegate: LinkServerDelegate {
     var demos: [String: DemoWindow] = [:]
     var watched: [UUID: DemoWindow] = [:]
     var prompts: [UUID: WatchPrompt] = [:]
+    /// A phone that named "video" gets HEVC: its encoder, and whether it asked for a keyframe.
+    var encoders: [UUID: VideoEncoder] = [:]
+    var keyframeWanted: Set<UUID> = []
     let lock = NSLock()
 
     func demo(for target: TargetRef) -> DemoWindow {
@@ -191,25 +199,57 @@ final class ServeDelegate: LinkServerDelegate {
                 return
             }
             await server.send(.watchState(.live(appName: appName)), to: peerID)
+            // Video to a phone that named it (unless --jpeg: a Mac from before video).
+            let video = server.phones(with: WatchVideo.feature).contains(peerID) && !has("--jpeg")
+            self.lock.sync { self.encoders[peerID] = nil; self.keyframeWanted.remove(peerID) }
             var seq = 0, n = 0
             var last: Data?
             while !Task.isCancelled {
                 n += 1
                 if n % 2 == 0 { demo.tick() }
-                if let jpeg = demo.jpeg(), jpeg != last {
+                let keyframe = self.lock.sync { self.keyframeWanted.remove(peerID) != nil }
+                if let jpeg = demo.jpeg(), jpeg != last || keyframe {
                     last = jpeg
                     seq += 1
                     var prompt: WatchPrompt?
-                    if let image = demo.image() { prompt = await PromptVision.read(image) }
+                    let image = demo.image()
+                    if let image { prompt = await PromptVision.read(image) }
                     self.lock.sync { self.prompts[peerID] = prompt }
                     if let prompt { stdout("WATCH PROMPT \(prompt.question ?? "-") → \(prompt.choices.map(\.label).joined(separator: " | ")) (on \(prompt.highlighted.map(String.init) ?? "-"))") }
-                    let frame = WatchFrame(seq: seq, jpeg: jpeg, width: demo.width, height: demo.height,
-                                           appName: appName, bundleID: target.bundleID, focus: demo.focus, prompt: prompt)
-                    await server.send(.watchFrame(frame), to: peerID)
+                    if video, let image, let pixels = VideoEncoder.pixelBuffer(from: image) {
+                        // The encoder is made with the window's size, again when it changes (Aa).
+                        var encoder = self.lock.sync { self.encoders[peerID] }
+                        if encoder == nil || encoder!.width != image.width & ~1 || encoder!.height != image.height & ~1 {
+                            encoder = try? VideoEncoder(width: image.width, height: image.height, software: encoder?.software ?? has("--software"))
+                            self.lock.sync { self.encoders[peerID] = encoder }
+                        }
+                        if keyframe { encoder?.requestKeyframe() }
+                        let t = Date()
+                        guard let encoder, let e = encoder.encode(pixels) else { stdout("WATCH VIDEO: the encoder gave nothing"); continue }
+                        let frame = WatchVideoFrame(seq: seq, data: e.data, parameterSets: e.parameterSets, keyframe: e.keyframe,
+                                                    width: encoder.width, height: encoder.height, appName: appName, bundleID: target.bundleID,
+                                                    focus: demo.focus, prompt: prompt)
+                        stdout("WATCH VIDEO #\(seq) \(e.data.count / 1024) KB\(e.keyframe ? " key" : "") encoded in \(Int(Date().timeIntervalSince(t) * 1000)) ms\(encoder.software ? " (software)" : "")")
+                        await server.send(.watchVideo(frame), to: peerID)
+                    } else {
+                        let frame = WatchFrame(seq: seq, jpeg: jpeg, width: demo.width, height: demo.height,
+                                               appName: appName, bundleID: target.bundleID, focus: demo.focus, prompt: prompt)
+                        await server.send(.watchFrame(frame), to: peerID)
+                    }
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
         }
+    }
+
+    func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {
+        stdout("WATCH KEYFRAME asked")
+        lock.sync { _ = keyframeWanted.insert(peerID) }
+    }
+
+    func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID) {
+        stdout("WATCH FIT \(fit.rawValue)")
+        lock.sync { watched[peerID] }?.fit(fit)
     }
 
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {
@@ -315,24 +355,69 @@ final class PhoneDelegate: LinkClientDelegate {
         stdout("PATH \(remote ? "remote (away from home)" : "local (back home)")")
     }
     var frames = 0
+    /// Bytes of pictures or frames received (bandwidth, printed at the end).
+    var bytes = 0
     /// Timing (numbers only): when the watch was asked for, the last picture, and the last action.
     var watchAsked: Date?
     var lastFrame: Date?
     var lastAction: Date?
     func linkClient(_ client: LinkClient, watchState: WatchState) { stdout("WATCH STATE \(watchState)") }
-    func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {
-        frames += 1
+
+    private func timing() -> String {
         let now = Date()
         var timing = ""
         if let a = lastAction { timing += " \(Int(now.timeIntervalSince(a) * 1000)) ms after the action"; lastAction = nil }
         else if let l = lastFrame { timing += " +\(Int(now.timeIntervalSince(l) * 1000)) ms" }
         else if let w = watchAsked { timing += " \(Int(now.timeIntervalSince(w) * 1000)) ms after asking" }
         lastFrame = now
-        stdout("WATCH FRAME #\(watchFrame.seq) \(watchFrame.width)x\(watchFrame.height) \(watchFrame.jpeg.count / 1024) KB\(watchFrame.focus.map { " focus \($0)" } ?? "")\(timing)")
+        return timing
+    }
+
+    func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {
+        frames += 1
+        bytes += watchFrame.jpeg.count
+        stdout("WATCH FRAME #\(watchFrame.seq) \(watchFrame.width)x\(watchFrame.height) \(watchFrame.jpeg.count / 1024) KB\(watchFrame.focus.map { " focus \($0)" } ?? "")\(timing())")
         if let dir = flag("--save") {
             let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(watchFrame.seq).jpg")
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? watchFrame.jpeg.write(to: url)
+        }
+    }
+
+    /// Video, decoded here like the phone does (the same decoder); a frame that can't be decoded
+    /// asks for a keyframe and the ones until it comes are dropped.
+    let decoder = VideoDecoder()
+    var newestVideo = 0
+    var waitingForKeyframe = true
+    func linkClient(_ client: LinkClient, watchVideo f: WatchVideoFrame) {
+        frames += 1
+        bytes += f.data.count
+        let t = timing()
+        if f.isWordsOnly {
+            stdout("WATCH VIDEO #\(f.seq) words only\(f.prompt.map { " prompt \($0.choices.count) answers" } ?? "")\(t)")
+            return
+        }
+        guard WatchVideoFrame.canDecode(seq: f.seq, keyframe: f.keyframe, newest: newestVideo, waitingForKeyframe: waitingForKeyframe) else {
+            stdout("WATCH VIDEO #\(f.seq) dropped (waiting for a keyframe)")
+            if !waitingForKeyframe { waitingForKeyframe = true; client.watchKeyframe() }
+            return
+        }
+        let t0 = Date()
+        do {
+            let pixels = try decoder.decode(f)
+            newestVideo = f.seq
+            waitingForKeyframe = false
+            stdout("WATCH VIDEO #\(f.seq) \(f.width)x\(f.height) \(f.data.count / 1024) KB\(f.keyframe ? " key" : "") decoded in \(Int(Date().timeIntervalSince(t0) * 1000)) ms\(f.focus.map { " focus \($0)" } ?? "")\(t)")
+            if let dir = flag("--save"), let image = VideoDecoder.image(pixels) {
+                let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(f.seq).png")
+                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let rep = NSBitmapImageRep(cgImage: image)
+                try? rep.representation(using: .png, properties: [:])?.write(to: url)
+            }
+        } catch {
+            stdout("WATCH VIDEO #\(f.seq) failed to decode (\(error)) — asking for a keyframe")
+            waitingForKeyframe = true
+            client.watchKeyframe()
         }
     }
 }
@@ -385,6 +470,8 @@ func run() async -> Int32 {
             let port = flag("--port").flatMap(UInt16.init) ?? RemoteAddressRule.defaultPort
             server.setRemote(RemoteConfig(port: port))
         }
+        // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
+        server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature]
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -534,8 +621,19 @@ func run() async -> Int32 {
         }
         d.watchAsked = Date()
         client.watch(target)
+        if client.macFeatures.contains(WatchVideo.feature) { client.watchKeyframe() }
         let seconds = Double(flag("--seconds") ?? "6") ?? 6
-        if let dy = flag("--swipe").flatMap(Double.init) {
+        if let fit = flag("--fit").flatMap(WatchFit.init(rawValue:)) {
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 3 * 1e9))
+            stdout("FIT \(fit.rawValue) sent: \(client.watchFit(fit))")
+            d.lastAction = Date()
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 2 / 3 * 1e9))
+        } else if has("--keyframe") {
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
+            stdout("KEYFRAME asked: \(client.watchKeyframe())")
+            d.lastAction = Date()
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
+        } else if let dy = flag("--swipe").flatMap(Double.init) {
             // A swipe in the middle of the window, in ten steps (dy: content dragged down, as a fraction).
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
             stdout("SWIPE \(dy)")
@@ -553,7 +651,7 @@ func run() async -> Int32 {
         client.watch(nil)
         try? await Task.sleep(nanoseconds: 300_000_000)
         client.stop()
-        stdout("FRAMES \(d.frames)")
+        stdout("FRAMES \(d.frames) · \(d.bytes / 1024) KB in \(Int(seconds)) s")
         return d.frames > 0 ? 0 : 1
 
     case "roam":

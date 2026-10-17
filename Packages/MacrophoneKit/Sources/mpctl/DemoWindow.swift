@@ -42,7 +42,21 @@ final class DemoWindow: @unchecked Sendable {
     private var scroll = 0
     /// Where the phone last clicked (a ring is drawn there, to check the mapping).
     private var lastClick: CGPoint?
-    let width = 1400, height = 900
+    /// The window's size: narrower when the phone asked for readable text (Aa), as the Mac would
+    /// resize a real one; the lines wrap to the columns that fit, like a terminal's.
+    private(set) var width = 1400
+    let height = 900
+
+    /// Readable text: the window narrower (the Mac app resizes the real window through Accessibility).
+    func fit(_ f: WatchFit) {
+        lock.sync {
+            switch f {
+            case .normal: width = 1400
+            case .larger: width = 760
+            case .largest: width = 540
+            }
+        }
+    }
 
     /// One more line of the answer (until the prompt is up).
     func tick() { lock.sync { if next < script.count { lines.append(script[next]); next += 1 } } }
@@ -82,8 +96,10 @@ final class DemoWindow: @unchecked Sendable {
         }
     }
 
-    /// The chat column, as a fraction of the window.
-    var focus: CGRect { CGRect(x: 0.22, y: 0.1, width: 0.56, height: 0.85) }
+    /// The chat column, as a fraction of the window (the whole width once the window is narrow).
+    var focus: CGRect {
+        lock.sync { width < 1000 ? CGRect(x: 0.04, y: 0.1, width: 0.92, height: 0.85) : CGRect(x: 0.22, y: 0.1, width: 0.56, height: 0.85) }
+    }
 
     /// The whole answer, up to the question (for the App Store hero's Mac screen).
     func finish() { lock.sync { while next < script.count { lines.append(script[next]); next += 1 } } }
@@ -93,15 +109,21 @@ final class DemoWindow: @unchecked Sendable {
 
     /// The window as a picture (what the Mac would capture).
     func image() -> CGImage? {
-        let (shown, offset, clicked, app, title) = lock.sync { () -> ([String], Int, CGPoint?, String, String) in
+        let (shown, offset, clicked, app, title, w) = lock.sync { () -> ([String], Int, CGPoint?, String, String, Int) in
             var l = lines
             if asking {
                 l += answers.enumerated().map { i, a in (i == highlighted ? "❯ " : "  ") + "\(i + 1). \(a)" }
             }
-            return (l, scroll, lastClick, self.app, self.title)
+            return (l, scroll, lastClick, self.app, self.title, width)
         }
-        let all = shown
-        let w = width, h = height
+        let h = height
+        // The columns that fit (Menlo 24 is ~14.5 px a character); a longer line wraps.
+        let columns = max(10, Int((Double(w) - focus.minX * Double(w) - 34) / 14.5))
+        let all = shown.flatMap { line -> [String] in
+            var rest = Substring(line), out: [String] = []
+            repeat { out.append(String(rest.prefix(columns))); rest = rest.dropFirst(columns) } while !rest.isEmpty
+            return out
+        }
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         // CoreGraphics' origin is bottom-left; draw top-down by flipping y.
@@ -126,7 +148,7 @@ final class DemoWindow: @unchecked Sendable {
                        CGColor(red: 0.16, green: 0.79, blue: 0.25, alpha: 1)].enumerated() {
             rect(24 + i * 34, 18, 22, 22, c, radius: 11)
         }
-        text(title, 600, 36, size: 22, CGColor(gray: 0.7, alpha: 1), mono: false)
+        text(title, w / 2 - 100, 36, size: 22, CGColor(gray: 0.7, alpha: 1), mono: false)
         // The column the focus rect names.
         let x0 = Int(focus.minX * Double(w)) + 10
         let lineH = 38

@@ -83,6 +83,14 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   itself when the app comes back), Stopped from your Mac (its menu's Stop; Resume), Mac not connected,
   Screen Recording needed (one button opens the setting on the Mac), unavailable with why
   ("Claude's window is minimized or on another desktop" + Show it on my Mac).
+  **Video (Oct 17 2026):** the window arrives as video from a Mac that can, so new output and
+  scrolling move at the window's own pace and the text is sharper — nothing on the screen changes;
+  the first picture is still a still, so the window appears as fast as before. **Aa** sits by Done
+  in the watch header (cyan while it's on): a menu of Normal · Larger · Largest with one line
+  saying what it does ("Narrows Claude's window so its text reads larger here" — short, a menu
+  cuts a long line with "…"); a pick shows a sentence over the window for a moment ("Claude's window
+  is narrower, so its text reads larger here"), the same words as the Pan | Scroll note. Remembered
+  per app. Only with a Mac that can do it; never for Clipboard.
 
 ## Voice of the words
 

@@ -185,6 +185,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// A window sized for a phone (Aa) goes back to its own size before the app is gone.
+    func applicationWillTerminate(_ notification: Notification) { model.watch.stopAll() }
+
     var debugMainWindow: NSWindow? { mainWindow?.window }
     var debugSetupWindow: NSWindow? { setupWindow?.window }
     var debugDiagnosticsWindow: NSWindow? { diagnosticsWindow }
