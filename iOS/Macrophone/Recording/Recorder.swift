@@ -18,6 +18,11 @@ import Speech
 // - Interruptions (a call, Siri, a route change, the app leaving the screen, the engine
 //   resetting) stop the recording *early*: what was heard is finished, returned and sent.
 // - No audio is ever written anywhere — buffers go straight from the tap to the recognizer.
+// - Instant (Oct 17 2026): the mic opens the moment the finger lands — the session and engine
+//   start on their own queue (never the main thread) while the analyzer starts beside them;
+//   buffers heard before the recognizer is attached wait in `AudioFeed` and are handed over, so
+//   the first syllable is never lost. The slow first-time work (the session's category, the input
+//   unit, the speech model) is done ahead (`ready`, at launch and after each recording).
 
 /// Mic level 0…1, written on the audio thread and read by the Filament every frame.
 final class LevelMeter: @unchecked Sendable {
@@ -25,6 +30,100 @@ final class LevelMeter: @unchecked Sendable {
     private var value: Float = 0
     var level: Float { lock.lock(); defer { lock.unlock() }; return value }
     func set(_ v: Float) { lock.lock(); value = v; lock.unlock() }
+}
+
+/// The words on screen, apart from the recorder's other state: a partial result redraws only
+/// the views that show them (LiveWords, the destination line, the status line), not the whole
+/// mic screen.
+@MainActor
+final class LiveTranscript: ObservableObject {
+    struct Parts: Equatable {
+        /// Words the recognizer has settled on.
+        var settled = ""
+        /// What it's hearing now — shown dimmer, revised until it settles.
+        var pending = ""
+        var text: String { Recorder.join(settled, pending) }
+        var isEmpty: Bool { settled.isEmpty && pending.isEmpty }
+    }
+    @Published private(set) var parts = Parts()
+    var text: String { parts.text }
+
+    func set(settled: String, pending: String) {
+        let p = Parts(settled: settled, pending: pending)
+        if p != parts { parts = p }
+    }
+    func set(_ text: String) { set(settled: text, pending: "") }
+    func clear() { set(settled: "", pending: "") }
+}
+
+/// The audio session and engine on their own serial queue: opening and closing the mic never
+/// holds the main thread, and `ready` does the slow first-time work (the session's category, the
+/// input unit) at launch rather than at the tap.
+final class MicHardware: @unchecked Sendable {
+    let engine = AVAudioEngine()
+    private let queue = DispatchQueue(label: "macrophone.mic", qos: .userInteractive)
+    private var configured = false
+    private var tapInstalled = false
+
+    /// Ahead of the tap: the session's category, once. (Not the input node: touched before the
+    /// session is active it keeps a zero format, and the mic then can't open — seen on the simulator.)
+    func ready() {
+        queue.async { try? self.configure() }
+    }
+
+    private func configure() throws {
+        guard !configured else { return }
+        try AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement, options: [.allowBluetoothHFP])
+        configured = true
+    }
+
+    /// Activates the session, taps the input and starts the engine. Milliseconds for the log.
+    func open(_ feed: AudioFeed) async throws -> (session: Int, engine: Int) {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<(session: Int, engine: Int), Error>) in
+            queue.async {
+                do { c.resume(returning: try self.openNow(feed)) } catch { c.resume(throwing: error) }
+            }
+        }
+    }
+
+    private func openNow(_ feed: AudioFeed) throws -> (session: Int, engine: Int) {
+        let t0 = Date()
+        do {
+            try configure()
+            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            throw Recorder.StartError.audio
+        }
+        let t1 = Date()
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        // A zero format (a call holds the mic) would raise an exception Swift can't catch.
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw Recorder.StartError.noInput }
+        if tapInstalled { input.removeTap(onBus: 0) }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Recorder.tapBlock(feed))
+        tapInstalled = true
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            tapInstalled = false
+            throw Recorder.StartError.audio
+        }
+        return (Int(t1.timeIntervalSince(t0) * 1000), Int(Date().timeIntervalSince(t1) * 1000))
+    }
+
+    /// Stops the engine and lets the session go (other apps' audio resumes).
+    func close() {
+        queue.async {
+            if self.engine.isRunning { self.engine.stop() }
+            if self.tapInstalled {
+                self.engine.inputNode.removeTap(onBus: 0)
+                self.tapInstalled = false
+            }
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
 }
 
 /// Loudness → 0…1 against the room, not against a fixed dB line (the Mac's Hey Claude rule).
@@ -75,28 +174,58 @@ final class AudioFeed: @unchecked Sendable {
     private var lastLoud = Date.distantPast
     private var lastBuffer = Date.distantPast
     private var openedAt = Date.distantPast
+    /// Audio heard before a recognizer was attached (the mic opens first; the analyzer starts
+    /// beside it), handed over in order the moment one is. Copies, so the tap's buffers are never kept.
+    private var held: [AVAudioPCMBuffer] = []
+    private var holding = false
+    /// About twelve seconds of 1024-frame buffers at 48 kHz — far more than a start ever takes.
+    static let holdLimit = 600
     let meter: LevelMeter
 
     init(meter: LevelMeter) { self.meter = meter }
 
-    /// Points the tap at a new request and returns the old one (to be ended).
+    /// Points the tap at a new request and returns the old one (to be ended). Audio held while
+    /// nothing was attached goes into the new one first.
     func swap(_ r: SFSpeechAudioBufferRecognitionRequest?) -> SFSpeechAudioBufferRecognitionRequest? {
         lock.lock(); defer { lock.unlock() }
         let old = request
         request = r
-        if r == nil { meter.set(0) }
+        if let r { for b in takeHeld() { r.append(b) } } else { stopHolding(); meter.set(0) }
         return old
     }
 
-    /// Points the tap at the newer engine (nil detaches it).
+    /// Points the tap at the newer engine (nil detaches it). Held audio goes in first.
     func setSink(_ s: ((AVAudioPCMBuffer) -> Void)?) {
-        lock.lock(); sink = s; lock.unlock()
-        if s == nil { meter.set(0) }
+        lock.lock(); defer { lock.unlock() }
+        sink = s
+        if let s { for b in takeHeld() { s(b) } } else { stopHolding(); meter.set(0) }
     }
 
-    /// A fresh recording: forget the last room.
+    /// Seconds of audio waiting for a recognizer (a number for the log).
+    var heldSeconds: Double {
+        lock.lock(); defer { lock.unlock() }
+        return held.reduce(0) { $0 + Double($1.frameLength) / $1.format.sampleRate }
+    }
+
+    /// Under the lock, so nothing arriving on the audio thread can jump the queue.
+    private func takeHeld() -> [AVAudioPCMBuffer] {
+        let h = held
+        held.removeAll()
+        holding = false
+        return h
+    }
+
+    private func stopHolding() {
+        held.removeAll()
+        holding = false
+    }
+
+    /// A fresh recording: forget the last room, and keep what's heard until a recognizer is attached.
     func reset() {
-        lock.lock(); scale = LevelScale(); lastLoud = .distantPast; openedAt = Date(); lock.unlock()
+        lock.lock()
+        scale = LevelScale(); lastLoud = .distantPast; openedAt = Date()
+        held.removeAll(); holding = true
+        lock.unlock()
         meter.set(0)
     }
 
@@ -111,8 +240,13 @@ final class AudioFeed: @unchecked Sendable {
         lock.lock()
         let r = request
         let k = sink
+        var kept = false
+        if r == nil, k == nil, holding {
+            if held.count < Self.holdLimit, let copy = Self.copy(buffer) { held.append(copy) }
+            kept = true
+        }
         lock.unlock()
-        if let k { k(buffer) } else { r?.append(buffer) }
+        if !kept { if let k { k(buffer) } else { r?.append(buffer) } }
 
         guard let ch = buffer.floatChannelData?[0] else { return }
         let n = Int(buffer.frameLength)
@@ -128,6 +262,18 @@ final class AudioFeed: @unchecked Sendable {
         lock.unlock()
         // Raw (per buffer): the Filament smooths it — attack fast, release slow — at its frame rate.
         meter.set(x)
+    }
+
+    private static func copy(_ b: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let out = AVAudioPCMBuffer(pcmFormat: b.format, frameCapacity: b.frameLength) else { return nil }
+        out.frameLength = b.frameLength
+        let src = UnsafeMutableAudioBufferListPointer(b.mutableAudioBufferList)
+        let dst = UnsafeMutableAudioBufferListPointer(out.mutableAudioBufferList)
+        for i in 0..<min(src.count, dst.count) {
+            guard let s = src[i].mData, let d = dst[i].mData else { continue }
+            memcpy(d, s, Int(min(src[i].mDataByteSize, dst[i].mDataByteSize)))
+        }
+        return out
     }
 }
 
@@ -188,8 +334,13 @@ final class Recorder: ObservableObject {
     static let hardCap: TimeInterval = 10 * 60
 
     @Published private(set) var phase: Phase = .idle
+    /// The words on screen (settled, then the ones still being decided), observed by the views that draw them.
+    let words = LiveTranscript()
     /// Everything heard so far, stitched across segments.
-    @Published private(set) var transcript = ""
+    var transcript: String { words.text }
+    /// The first word has shown (once per recording; the Filament goes from listening to live).
+    @Published private(set) var hasWords = false
+    /// When the mic opened (the timer counts from here).
     @Published private(set) var startedAt: Date?
     @Published private(set) var softCapReached = false
 
@@ -217,7 +368,7 @@ final class Recorder: ObservableObject {
         init(index: Int, request: SFSpeechAudioBufferRecognitionRequest) { self.index = index; self.request = request }
     }
 
-    private let engine = AVAudioEngine()
+    private let hardware = MicHardware()
     private lazy var feed = AudioFeed(meter: meter)
     private var recognizer: SFSpeechRecognizer?
     /// The newer engine for this recording (a ModernSpeech on iOS 26+), when it's the one running.
@@ -229,7 +380,6 @@ final class Recorder: ObservableObject {
     private var segmentStartedAt = Date()
     private var lastWordsAt: Date?
     private var failures = 0
-    private var tapInstalled = false
     private var generation = 0
     private var tick: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
@@ -241,6 +391,11 @@ final class Recorder: ObservableObject {
     private var lastLevelLog = Date.distantPast
     /// When the mic was asked for, so the log can say how long it took to open (a number, no words).
     private var openedAt = Date()
+    /// Numbers for the log: when the first words showed, how many updates, the gaps between them.
+    private var firstWordsAt: Date?
+    private var wordUpdates = 0
+    private var lastWordsUpdate = Date.distantPast
+    private var wordGaps: [Int] = []
 
     /// DEBUG, simulator: the real microphone without the recognizer (it can't load its assets
     /// there), so the Filament can be proven against a real voice. `MACROPHONE_MIC_ONLY=1`;
@@ -283,7 +438,7 @@ final class Recorder: ObservableObject {
         do {
             try await begin(language: language, contextualStrings: contextualStrings, autoStopAfter: autoStopAfter)
         } catch {
-            teardownAudio()
+            hardware.close()
             segments.forEach { $0.task?.cancel() }
             segments.removeAll()
             if #available(iOS 26.0, *), let m = modern as? ModernSpeech { m.cancel() }
@@ -330,7 +485,8 @@ final class Recorder: ObservableObject {
         var useModern = false
         if !Self.micOnly, #available(iOS 26.0, *) {
             let log = self.log
-            useModern = await ModernSpeech.isReady(language) { log?.add($0) }
+            if let known = ModernSpeech.isInstalled(language) { useModern = known }
+            else { useModern = await ModernSpeech.isReady(language) { log?.add($0) } }
         }
         recognizer = nil
         if !Self.micOnly, !useModern { try useOlderRecognizer(language) }
@@ -338,58 +494,71 @@ final class Recorder: ObservableObject {
         contextual = Array(contextualStrings.prefix(DictionaryPass.maxTerms))
         autoStopDelay = autoStopAfter
 
-        let fileInput = Self.audioFile
-        if fileInput == nil {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.record, mode: .measurement, options: [.allowBluetoothHFP])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            throw StartError.audio
-        }
-        let format = engine.inputNode.outputFormat(forBus: 0)
-        // A zero format (a call holds the mic) would raise an exception Swift can't catch.
-        guard format.sampleRate > 0, format.channelCount > 0 else { throw StartError.noInput }
-        }
-
         generation += 1
         segments.removeAll()
-        transcript = ""
+        words.clear()
+        hasWords = false
         lastWordsAt = nil
         failures = 0
         softCapReached = false
         voiced = 0
         feed.reset()
+        firstWordsAt = nil
+        wordUpdates = 0
+        wordGaps.removeAll()
         modern = nil
+        let g = generation
+        let hints = contextual
+
+        // The analyzer starts beside the mic, not after it; the feed holds what's heard meanwhile.
+        var analyzer: Task<(AnyObject, Bool)?, Never>?
         if useModern, #available(iOS 26.0, *) {
-            let g = generation
-            if let m = await ModernSpeech.start(language: language, contextualStrings: contextual,
-                                                onText: { [weak self] t in self?.heard(t, generation: g) }) {
-                modern = m
-                feed.setSink { m.sink.feed($0) }
-            } else {
-                log?.add("newer speech engine couldn't start; using the older one")
-                try useOlderRecognizer(language)
+            analyzer = Task { [weak self] in
+                guard let m = await ModernSpeech.start(language: language, contextualStrings: hints,
+                                                       onText: { s, p in self?.heard(settled: s, pending: p, generation: g) }) else { return nil }
+                return (m.0, m.warm)
             }
+        } else {
+            _ = feed.swap(newSegment().request)
         }
-        if modern == nil { _ = feed.swap(newSegment().request) }
         segmentStartedAt = Date()
 
-        if let fileInput {
+        if let fileInput = Self.audioFile {
             playFile(fileInput)
+            log?.add("test file playing \(Int(Date().timeIntervalSince(openedAt) * 1000)) ms after the tap")
         } else {
-            let input = engine.inputNode
-            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0), block: Self.tapBlock(feed))
-            tapInstalled = true
-            engine.prepare()
-            do { try engine.start() } catch { throw StartError.audio }
+            do {
+                let t = try await hardware.open(feed)
+                log?.add("mic open \(Int(Date().timeIntervalSince(openedAt) * 1000)) ms after the tap (session \(t.session) ms, engine \(t.engine) ms)")
+            } catch {
+                // The analyzer starting beside it has nothing to listen to: let it go.
+                if let analyzer, #available(iOS 26.0, *) {
+                    Task { if let (m, _) = await analyzer.value, let m = m as? ModernSpeech { m.cancel() } }
+                }
+                throw error
+            }
         }
-
         startedAt = Date()
-        phase = .recording
         observe()
+
+        var engineNote = "SFSpeechRecognizer"
+        if let analyzer, #available(iOS 26.0, *) {
+            if let (m, warm) = await analyzer.value, generation == g, let m = m as? ModernSpeech {
+                let held = feed.heldSeconds
+                modern = m
+                feed.setSink { m.sink.feed($0) }
+                engineNote = "SpeechAnalyzer, \(warm ? "made ahead" : "made now"), listening \(Int(Date().timeIntervalSince(openedAt) * 1000)) ms after the tap, \(String(format: "%.2f", held)) s held for it"
+            } else if generation == g {
+                log?.add("newer speech engine couldn't start; using the older one")
+                try useOlderRecognizer(language)
+                _ = feed.swap(newSegment().request)
+            } else {
+                return
+            }
+        }
+        phase = .recording
         startTicking()
-        log?.add("recording started (\(language), \(contextual.count) hints, \(modern == nil ? "SFSpeechRecognizer" : "SpeechAnalyzer")) — mic open \(Int(Date().timeIntervalSince(openedAt) * 1000)) ms after the tap")
+        log?.add("recording started (\(language), \(contextual.count) hints, \(engineNote))")
     }
 
     /// DEBUG stand-in microphone: the file's buffers at real speed, then a stop.
@@ -419,21 +588,54 @@ final class Recorder: ObservableObject {
         recognizer = r
     }
 
-    /// The newer engine's words so far.
-    private func heard(_ text: String, generation g: Int) {
-        guard g == generation, phase == .recording || phase == .finishing, text != transcript else { return }
-        transcript = text
+    /// The newer engine's words so far: settled, and the ones still being decided.
+    private func heard(settled: String, pending: String, generation g: Int) {
+        guard g == generation, phase == .recording || phase == .finishing || phase == .starting else { return }
+        let before = words.parts
+        words.set(settled: settled, pending: pending)
+        guard words.parts != before else { return }
+        noteWords()
         if phase == .recording { lastWordsAt = Date() }
     }
 
-    /// Fetch the newer engine's model for this language ahead of the first recording.
-    static func prepare(language: String, log: DiagnosticLog?) {
-        guard #available(iOS 26.0, *), !micOnly else { return }
-        Task { _ = await ModernSpeech.isReady(language) { log?.add($0) } }
+    /// One more update of the words on screen (timing only, nothing of what was said).
+    private func noteWords() {
+        let now = Date()
+        if !hasWords, !words.parts.isEmpty { hasWords = true }
+        if firstWordsAt == nil { firstWordsAt = now }
+        else { wordGaps.append(Int(now.timeIntervalSince(lastWordsUpdate) * 1000)) }
+        lastWordsUpdate = now
+        wordUpdates += 1
+    }
+
+    private var wordsTimingLine: String {
+        guard let first = firstWordsAt else { return "no words" }
+        let sorted = wordGaps.sorted()
+        let median = sorted.isEmpty ? 0 : sorted[sorted.count / 2]
+        return "first words \(Int(first.timeIntervalSince(openedAt) * 1000)) ms after the tap, \(wordUpdates) updates, median gap \(median) ms"
+    }
+
+    /// Ahead of the next recording: the audio session's category and input unit, and the newer
+    /// engine's analyzer with the model loaded (fetching the model when it isn't on the phone).
+    /// At launch, when the app comes back, and after every recording.
+    func ready(language: String, contextualStrings: [String]) {
+        guard Self.audioFile == nil else { return }
+        // Nothing touches the hardware before he has allowed the mic (no prompt from here).
+        if Self.micStatus == .granted { hardware.ready() }
+        guard #available(iOS 26.0, *), !Self.micOnly else { return }
+        let log = self.log
+        let hints = Array(contextualStrings.prefix(DictionaryPass.maxTerms))
+        Task(priority: .utility) {
+            guard await ModernSpeech.isReady(language, log: { log?.add($0) }) else { return }
+            let t0 = Date()
+            await ModernSpeech.warm(language: language, contextualStrings: hints)
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+            if ms > 20 { log?.add("speech engine ready ahead in \(ms) ms") }
+        }
     }
 
     /// Built outside the main actor: the tap runs on the audio thread.
-    private nonisolated static func tapBlock(_ feed: AudioFeed) -> AVAudioNodeTapBlock {
+    nonisolated static func tapBlock(_ feed: AudioFeed) -> AVAudioNodeTapBlock {
         { buffer, _ in feed.consume(buffer) }
     }
 
@@ -488,7 +690,9 @@ final class Recorder: ObservableObject {
             seg.currentStart = start
             seg.currentEnd = end
             if phase == .recording { lastWordsAt = Date() }
-            transcript = stitched()
+            let parts = stitchedParts()
+            words.set(settled: parts.settled, pending: parts.pending)
+            noteWords()
         }
         guard final, !seg.done else { return }
         seg.done = true
@@ -514,6 +718,13 @@ final class Recorder: ObservableObject {
 
     private func stitched() -> String {
         segments.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// The older engine's words: everything before the utterance it's on, and that one (still changing).
+    private func stitchedParts() -> (settled: String, pending: String) {
+        guard let live = segments.last else { return ("", "") }
+        let earlier = segments.dropLast().map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: " ")
+        return (Self.join(earlier, live.committed), live.current)
     }
 
     /// Starts a fresh request for the tap and ends the old one. The mic never stops.
@@ -548,13 +759,13 @@ final class Recorder: ObservableObject {
                 lastLevelLog = Date()
             }
         }
-        if Self.micOnly, let words = Self.micWords {
+        if Self.micOnly, let standIn = Self.micWords {
             // The real mic, stand-in words: one word per ~0.28 s of voice, so the screen goes from
             // listening to capturing exactly as speech starts.
             if meter.level > 0.2 { voiced += 0.1 }
-            let shown = min(words.count, Int(voiced / 0.28))
-            let text = words.prefix(shown).joined(separator: " ")
-            if text != transcript { transcript = text; lastWordsAt = Date() }
+            let shown = min(standIn.count, Int(voiced / 0.28))
+            let text = standIn.prefix(shown).joined(separator: " ")
+            if text != transcript { words.set(text); hasWords = !text.isEmpty; lastWordsAt = Date() }
         }
         #endif
         let now = Date()
@@ -587,13 +798,13 @@ final class Recorder: ObservableObject {
         tick?.cancel()
         tick = nil
         removeObservers()
-        teardownAudio()
+        hardware.close()
         feed.swap(nil)?.endAudio()
         feed.setSink(nil)
         let g = generation
         let count = max(segments.count, modern == nil ? 0 : 1)
         let lv = feed.levels
-        log?.add("recording stopped (\(reason.logName), \(Int(duration))s, \(modern == nil ? "\(count) segment(s)" : "SpeechAnalyzer")); mic: room \(Int(lv.room)) dB, voice \(lv.voice > -150 ? "\(Int(lv.voice)) dB" : "none")")
+        log?.add("recording stopped (\(reason.logName), \(Int(duration))s, \(modern == nil ? "\(count) segment(s)" : "SpeechAnalyzer")); mic: room \(Int(lv.room)) dB, voice \(lv.voice > -150 ? "\(Int(lv.voice)) dB" : "none"); \(wordsTimingLine)")
 
         if #available(iOS 26.0, *), let m = modern as? ModernSpeech {
             modern = nil
@@ -602,12 +813,12 @@ final class Recorder: ObservableObject {
                 let raw = await m.finish(timeout: reason.isEarly ? 2.0 : 3.0)
                 guard let self, self.generation == g else { return }
                 self.log?.add("words settled in \(Int(Date().timeIntervalSince(t0) * 1000)) ms")
-                if !raw.isEmpty { self.transcript = raw }
+                if !raw.isEmpty { self.words.set(raw) }
                 self.generation += 1
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                 self.phase = .idle
                 self.startedAt = nil
                 self.onFinish?(Outcome(raw: raw, duration: duration, reason: reason, language: self.language, segments: 1))
+                self.ready(language: self.language, contextualStrings: self.contextual)
             }
             return
         }
@@ -615,28 +826,22 @@ final class Recorder: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             // The recognizer finishes the last words after endAudio; give it a moment.
+            let t0 = Date()
             let deadline = Date().addingTimeInterval(reason.isEarly ? 2.0 : 3.0)
             while Date() < deadline, self.generation == g, self.segments.contains(where: { !$0.done && $0.task != nil }) {
-                try? await Task.sleep(nanoseconds: 50_000_000)
+                try? await Task.sleep(nanoseconds: 20_000_000)
             }
             guard self.generation == g else { return }
-            if self.segments.contains(where: { !$0.done }) { self.log?.add("recognizer slow to finish; using what it had") }
+            if self.segments.contains(where: { !$0.done && $0.task != nil }) { self.log?.add("recognizer slow to finish; using what it had") }
+            self.log?.add("words settled in \(Int(Date().timeIntervalSince(t0) * 1000)) ms")
             let raw = self.stitched()
             self.segments.forEach { $0.task?.cancel() }
             self.segments.removeAll()
             self.generation += 1
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             self.phase = .idle
             self.startedAt = nil
             self.onFinish?(Outcome(raw: raw, duration: duration, reason: reason, language: self.language, segments: count))
-        }
-    }
-
-    private func teardownAudio() {
-        if engine.isRunning { engine.stop() }
-        if tapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
+            self.ready(language: self.language, contextualStrings: self.contextual)
         }
     }
 
@@ -655,7 +860,7 @@ final class Recorder: ObservableObject {
                   reason == .oldDeviceUnavailable || reason == .newDeviceAvailable else { return }
             MainActor.assumeIsolated { self?.stop(.interrupted("The microphone changed")) }
         })
-        observers.append(nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+        observers.append(nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: hardware.engine, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.stop(.interrupted("The microphone changed")) }
         })
         observers.append(nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
@@ -675,7 +880,9 @@ final class Recorder: ObservableObject {
     func simulate(_ text: String, seconds: TimeInterval = 600) {
         phase = .recording
         startedAt = Date().addingTimeInterval(-14)
-        let words = text.split(separator: " ").map(String.init)
+        self.words.clear()
+        hasWords = false
+        let spoken = text.split(separator: " ").map(String.init)
         Task { [weak self] in
             var t = 0.0
             var shown = 0
@@ -685,14 +892,20 @@ final class Recorder: ObservableObject {
                 let phrase = max(0, sin(t * 2.1)) > 0.15 ? 1.0 : 0.12
                 let v = max(0, sin(t * 5.3)) * (0.6 + 0.35 * sin(t * 0.9)) * phrase + 0.04
                 self.meter.set(Float(min(max(v, 0), 1)))
-                if shown < words.count, Int(t * 6) > shown { shown += 1; self.transcript = words.prefix(shown).joined(separator: " ") }
+                if shown < spoken.count, Int(t * 6) > shown {
+                    shown += 1
+                    // The last two words still being decided, like a real partial result.
+                    let settled = spoken.prefix(max(0, shown - 2)).joined(separator: " ")
+                    self.words.set(settled: settled, pending: spoken[max(0, shown - 2)..<shown].joined(separator: " "))
+                    self.hasWords = true
+                }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
         }
     }
 
     /// Puts words on screen as if they had just been heard.
-    func debugShow(_ text: String) { transcript = text }
+    func debugShow(_ text: String) { words.set(text); hasWords = !text.isEmpty }
 
     func endSimulation() {
         phase = .idle

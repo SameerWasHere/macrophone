@@ -128,6 +128,7 @@ final class AppModel: ObservableObject {
     static let landingTimeout: TimeInterval = 12
 
     private init() {
+        let t0 = LaunchClock.millisecondsSinceProcessStart
         history = HistoryStore(url: AppFiles.history, capacity: 50, enabled: UserDefaults.standard.object(forKey: Settings.K.history) as? Bool ?? true)
         client = Self.makeClient(store: pairingStore, name: settings.deviceName, log: log)
         showOnboarding = !UserDefaults.standard.bool(forKey: "onboarding.done")
@@ -164,7 +165,8 @@ final class AppModel: ObservableObject {
         refreshAvailability()
         // One line (each write rewrites the log file) and no keychain read: launch stays light.
         log.add("app launched, version \(Bundle.main.shortVersion) (\(Bundle.main.buildNumber)), \(queue.count) queued; "
-                + "language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable"); open apps cached: \(liveTargets.count)")
+                + "language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable"); open apps cached: \(liveTargets.count); "
+                + "model ready \(LaunchClock.millisecondsSinceProcessStart) ms after launch (its own setup \(LaunchClock.millisecondsSinceProcessStart - t0) ms)")
     }
 
     private static func makeClient(store: KeychainPairingStore, name: String, log: DiagnosticLog) -> LinkClient {
@@ -253,8 +255,9 @@ final class AppModel: ObservableObject {
 
     func refreshAvailability() {
         cleanupAvailability = Cleaner.availability(language: settings.language)
-        // The newer speech engine's model for this language, fetched ahead of the first recording.
-        Recorder.prepare(language: settings.language, log: log)
+        // The mic and the newer speech engine, made ready ahead of the tap (the model fetched when
+        // it isn't on the phone yet).
+        recorder.ready(language: settings.language, contextualStrings: settings.dictionary)
         #if DEBUG
         if DebugHooks.env["MACROPHONE_CLEANUP_AVAILABLE"] == "1" { cleanupAvailability = .available }
         #endif

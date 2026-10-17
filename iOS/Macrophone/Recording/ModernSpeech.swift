@@ -9,6 +9,11 @@ import Speech
 // otherwise the Recorder uses SFSpeechRecognizer (on-device) for that recording and the model is
 // fetched in the background for next time. Speech/AVFoundation only, so a Mac harness can
 // compile this file as-is.
+//
+// Ready before the tap (Oct 17 2026): an analyzer is made ahead of each recording — the model
+// loaded, the format set, his words as context (`WarmAnalyzer`) — so at the tap only the input
+// stream starts. The words come as volatile results (what it's hearing now, revised as it goes)
+// and settle into final ones.
 
 /// Takes the microphone's buffers on the audio thread and hands them to the analyzer in the
 /// format it wants (converted here; the tap's buffers are never held on to).
@@ -50,8 +55,62 @@ final class AnalyzerSink: @unchecked Sendable {
     func finish() { continuation.finish() }
 }
 
-/// One recording's analysis. `onText` gets everything heard so far (settled words, then the
-/// ones still being decided), on the main actor.
+/// An analyzer made ahead of a recording: the model loaded, the audio format set, the context given.
+@available(iOS 26.0, macOS 26.0, *)
+struct PreparedAnalyzer {
+    let transcriber: SpeechTranscriber
+    let analyzer: SpeechAnalyzer
+    let format: AVAudioFormat
+    let language: String
+    var contextual: [String]
+}
+
+/// Holds the one analyzer made ahead for the next recording. `warm` builds it (once at a time);
+/// `take` hands it over — waiting for a build under way rather than starting a second one.
+@available(iOS 26.0, macOS 26.0, *)
+actor WarmAnalyzer {
+    static let shared = WarmAnalyzer()
+    private var prepared: PreparedAnalyzer?
+    private var building: Task<PreparedAnalyzer?, Never>?
+    private var buildID = 0
+
+    func warm(language: String, contextualStrings: [String]) async {
+        guard building == nil else { return }
+        if var p = prepared, p.language == language {
+            if p.contextual != contextualStrings {
+                await ModernSpeech.setContext(contextualStrings, on: p.analyzer)
+                p.contextual = contextualStrings
+                prepared = p
+            }
+            return
+        }
+        prepared = nil
+        buildID += 1
+        let id = buildID
+        let task = Task { await ModernSpeech.prepare(language: language, contextualStrings: contextualStrings) }
+        building = task
+        let p = await task.value
+        // A tap during the build took it already (`take`), unless the build is still ours to keep.
+        if buildID == id, building != nil { building = nil; prepared = p }
+    }
+
+    /// The analyzer made ahead for this language, if there is one. `warm` says whether it was warm.
+    func take(language: String) async -> (PreparedAnalyzer, warm: Bool)? {
+        if let task = building {
+            let p = await task.value
+            // Whichever of `warm` and `take` resumes first claims the build; the other finds nothing.
+            if building != nil { building = nil; buildID += 1 }
+            prepared = nil
+            return p.flatMap { $0.language == language ? ($0, false) : nil }
+        }
+        guard let p = prepared, p.language == language else { return nil }
+        prepared = nil
+        return (p, true)
+    }
+}
+
+/// One recording's analysis. `onText` gets the settled words and the ones still being decided,
+/// on the main actor.
 @available(iOS 26.0, macOS 26.0, *)
 final class ModernSpeech: @unchecked Sendable {
     let sink: AnalyzerSink
@@ -62,6 +121,7 @@ final class ModernSpeech: @unchecked Sendable {
     private var pending = ""
     /// The results sequence ended (the analyzer finished, or failed).
     private var ended = false
+    private var waiter: CheckedContinuation<Void, Never>?
 
     /// Which engine runs, for diagnostics.
     static let name = "SpeechAnalyzer"
@@ -85,19 +145,31 @@ final class ModernSpeech: @unchecked Sendable {
     static func transcriber(for language: String) async -> SpeechTranscriber? {
         guard SpeechTranscriber.isAvailable,
               let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: language)) else { return nil }
-        // Volatile results show words as they're spoken; fast results trade a little look-ahead
-        // for less delay — right for words appearing under the mic.
+        // Volatile results show words as they're spoken (revised until they settle); fast results
+        // trade a little look-ahead for less delay — right for words appearing under the mic.
         return SpeechTranscriber(locale: locale, transcriptionOptions: [],
                                  reportingOptions: [.volatileResults, .fastResults], attributeOptions: [])
+    }
+
+    /// Whether the model for this language is known to be on the phone (nil: not checked yet).
+    static func isInstalled(_ language: String) -> Bool? {
+        fetching.lock.withLock {
+            if fetching.installed.contains(language) { return true }
+            if fetching.missing.contains(language) { return false }
+            return nil
+        }
     }
 
     /// Whether the model for this language is on the phone. When it isn't (but could be),
     /// starts fetching it so the next recording uses it.
     static func isReady(_ language: String, log: ((String) -> Void)? = nil) async -> Bool {
-        guard SpeechTranscriber.isAvailable else { log?("newer speech engine: not on this device"); return false }
-        // Once the model is known to be installed it stays so for the session: the tap-to-mic path
-        // skips the inventory lookup from then on.
-        if fetching.lock.withLock({ fetching.installed.contains(language) }) { return true }
+        if let known = isInstalled(language) { return known }
+        guard SpeechTranscriber.isAvailable else {
+            // Once per language, so the log doesn't repeat it on every launch step.
+            fetching.lock.withLock { _ = fetching.missing.insert(language) }
+            log?("newer speech engine: not on this device")
+            return false
+        }
         guard let t = await transcriber(for: language) else { log?("newer speech engine: no model for \(language)"); return false }
         switch await AssetInventory.status(forModules: [t]) {
         case .installed:
@@ -119,6 +191,8 @@ final class ModernSpeech: @unchecked Sendable {
         var languages: Set<String> = []
         /// Languages whose model this run has seen installed.
         var installed: Set<String> = []
+        /// Languages this device can't run with the newer engine (this run).
+        var missing: Set<String> = []
     }
 
     /// Downloads the language's model in the background (Apple's servers; once per language).
@@ -134,6 +208,7 @@ final class ModernSpeech: @unchecked Sendable {
                     log?("speech model downloading")
                     try await request.downloadAndInstall()
                     log?("speech model installed")
+                    f.lock.withLock { _ = f.installed.insert(language) }
                 }
             } catch {
                 log?("speech model download failed")
@@ -141,9 +216,16 @@ final class ModernSpeech: @unchecked Sendable {
         }
     }
 
-    /// Starts an analysis for one recording. Nil when the newer engine can't run right now
-    /// (the Recorder then uses the older one).
-    static func start(language: String, contextualStrings: [String], onText: @escaping @MainActor (String) -> Void) async -> ModernSpeech? {
+    /// His names and terms, as hints (the dictionary pass after cleanup still applies).
+    static func setContext(_ contextualStrings: [String], on analyzer: SpeechAnalyzer) async {
+        let context = AnalysisContext()
+        context.contextualStrings[.general] = contextualStrings
+        try? await analyzer.setContext(context)
+    }
+
+    /// Builds an analyzer with the model loaded and the format set — the slow part, done ahead
+    /// of the tap (`WarmAnalyzer.warm`). Nil when the newer engine can't run right now.
+    static func prepare(language: String, contextualStrings: [String]) async -> PreparedAnalyzer? {
         guard let transcriber = await transcriber(for: language),
               await AssetInventory.status(forModules: [transcriber]) == .installed,
               let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else { return nil }
@@ -160,40 +242,66 @@ final class ModernSpeech: @unchecked Sendable {
         } catch {
             return nil
         }
-        if !contextualStrings.isEmpty {
-            // His names and terms, as hints (the dictionary pass after cleanup still applies).
-            let context = AnalysisContext()
-            context.contextualStrings[.general] = contextualStrings
-            try? await analyzer.setContext(context)
-        }
+        if !contextualStrings.isEmpty { await setContext(contextualStrings, on: analyzer) }
+        return PreparedAnalyzer(transcriber: transcriber, analyzer: analyzer, format: format, language: language, contextual: contextualStrings)
+    }
+
+    /// Makes an analyzer ready for the next recording.
+    static func warm(language: String, contextualStrings: [String]) async {
+        guard isInstalled(language) == true else { return }
+        await WarmAnalyzer.shared.warm(language: language, contextualStrings: contextualStrings)
+    }
+
+    /// Starts an analysis for one recording — on the analyzer made ahead when there is one (`warm`
+    /// says so), else one made now. Nil when the newer engine can't run right now (the Recorder
+    /// then uses the older one).
+    static func start(language: String, contextualStrings: [String],
+                      onText: @escaping @MainActor (_ settled: String, _ pending: String) -> Void) async -> (ModernSpeech, warm: Bool)? {
+        var warm = false
+        var prepared: PreparedAnalyzer?
+        if let (p, w) = await WarmAnalyzer.shared.take(language: language) { prepared = p; warm = w }
+        if prepared == nil { prepared = await prepare(language: language, contextualStrings: contextualStrings) }
+        guard let p = prepared else { return nil }
+        if p.contextual != contextualStrings { await setContext(contextualStrings, on: p.analyzer) }
         let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream(bufferingPolicy: .unbounded)
-        let engine = ModernSpeech(analyzer: analyzer, sink: AnalyzerSink(continuation: continuation, format: format))
+        let engine = ModernSpeech(analyzer: p.analyzer, sink: AnalyzerSink(continuation: continuation, format: p.format))
+        let transcriber = p.transcriber
         engine.results = Task { [weak engine] in
             do {
                 for try await result in transcriber.results {
                     guard let engine else { return }
                     let words = String(result.text.characters)
-                    engine.lock.withLock {
+                    let parts: (String, String) = engine.lock.withLock {
                         if result.isFinal {
                             engine.settled = join(engine.settled, words)
                             engine.pending = ""
                         } else {
                             engine.pending = words
                         }
+                        return (engine.settled, engine.pending)
                     }
-                    let all = engine.text
-                    await onText(all)
+                    await onText(parts.0, parts.1)
                 }
             } catch {}
-            if let engine { engine.lock.withLock { engine.ended = true } }
+            engine?.end()
         }
         do {
-            try await analyzer.start(inputSequence: stream)
+            try await p.analyzer.start(inputSequence: stream)
         } catch {
             engine.results?.cancel()
             return nil
         }
-        return engine
+        return (engine, warm)
+    }
+
+    private func end() {
+        let c: CheckedContinuation<Void, Never>? = lock.withLock {
+            ended = true
+            let w = waiter
+            waiter = nil
+            return w
+        }
+        c?.resume()
     }
 
     /// The mic stopped: settle the last words. Returns everything heard. `timeout` bounds the wait.
@@ -201,11 +309,17 @@ final class ModernSpeech: @unchecked Sendable {
         sink.finish()
         let analyzer = self.analyzer
         Task { try? await analyzer.finalizeAndFinishThroughEndOfInput() }
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let over = lock.withLock { ended }
-            if over { break }
-            try? await Task.sleep(nanoseconds: 40_000_000)
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            let over: Bool = lock.withLock {
+                if ended { return true }
+                waiter = c
+                return false
+            }
+            if over { c.resume(); return }
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1e9))
+                self?.end()
+            }
         }
         return text
     }
@@ -216,5 +330,6 @@ final class ModernSpeech: @unchecked Sendable {
         results?.cancel()
         let analyzer = self.analyzer
         Task { await analyzer.cancelAndFinishNow() }
+        end()
     }
 }

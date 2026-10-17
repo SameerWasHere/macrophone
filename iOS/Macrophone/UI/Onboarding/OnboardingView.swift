@@ -384,7 +384,7 @@ private struct OnboardingTest: View {
             .padding(.top, 16)
             ZStack(alignment: .bottom) {
                 if recording || model.processing || recorder.phase == .finishing {
-                    LiveWords(text: recorder.transcript, listening: recording)
+                    LiveWords(words: recorder.words, listening: recording)
                 } else if let item = model.latest, worked {
                     Text(item.dictation.text)
                         .font(.serif(.title3))

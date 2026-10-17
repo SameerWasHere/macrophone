@@ -113,7 +113,7 @@ struct MainView: View {
         #endif
         .onChange(of: model.pulse) { _, _ in react() }
         .onChange(of: recorder.phase) { _, _ in react() }
-        .onChange(of: recorder.transcript.isEmpty) { _, _ in react() }
+        .onChange(of: recorder.hasWords) { _, _ in react() }
         .onChange(of: model.status) { _, _ in react() }
         .onAppear { react() }
     }
@@ -173,32 +173,12 @@ struct MainView: View {
 
     // MARK: While the mic is open: the transcript takes the whole area
 
-    /// Where this dictation is going, in one quiet line (the quick controls have stepped aside —
-    /// and saying an app's name first changes it as you speak).
-    private var destinationLine: some View {
-        let live = model.liveRoute(recorder.transcript)
-        let name = live.target.displayName
-        let where_ = live.byVoice ? "You said \(name)" : "To \(name)"
-        let parts = [where_, live.target.canSend && live.send ? "sends" : nil,
-                     model.effectiveCleanupLevel == .off ? "no cleanup" : "\(model.effectiveCleanupLevel.title) cleanup"].compactMap { $0 }
-        return Text(parts.joined(separator: " · ").uppercased())
-            .font(.mono(.caption2, weight: .medium))
-            .tracking(1.1)
-            .foregroundStyle(live.byVoice ? Light.ember : Ink.tertiary)
-            // A long window name wraps to a second line rather than being cut with "…".
-            .lineLimit(2)
-            .minimumScaleFactor(0.7)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel(parts.joined(separator: ", "))
-    }
-
     private var transcriptArea: some View {
         VStack(spacing: 0) {
-            destinationLine
+            DestinationLine(words: recorder.words)
                 .padding(.horizontal, 24)
                 .padding(.top, 14)
-            LiveWords(text: recorder.transcript, listening: isRecording)
+            LiveWords(words: recorder.words, listening: isRecording)
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -302,7 +282,7 @@ struct MainView: View {
         settleTask?.cancel()
         let mode: FilamentMode
         if isRecording {
-            mode = recorder.transcript.isEmpty ? .listening : .live
+            mode = recorder.hasWords ? .live : .listening
         } else {
             switch model.status {
             case .cleaning, .sending, .landing: mode = .sending
@@ -345,21 +325,48 @@ struct FixedSlot<Template: View, Content: View>: View {
     }
 }
 
+/// Where this dictation is going, in one quiet line (the quick controls have stepped aside —
+/// and saying an app's name first changes it as you speak). Observes the words itself, so a
+/// partial result redraws this line and LiveWords, not the mic screen.
+struct DestinationLine: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var words: LiveTranscript
+
+    var body: some View {
+        let live = model.liveRoute(words.text)
+        let name = live.target.displayName
+        let where_ = live.byVoice ? "You said \(name)" : "To \(name)"
+        let parts = [where_, live.target.canSend && live.send ? "sends" : nil,
+                     model.effectiveCleanupLevel == .off ? "no cleanup" : "\(model.effectiveCleanupLevel.title) cleanup"].compactMap { $0 }
+        return Text(parts.joined(separator: " · ").uppercased())
+            .font(.mono(.caption2, weight: .medium))
+            .tracking(1.1)
+            .foregroundStyle(live.byVoice ? Light.ember : Ink.tertiary)
+            // A long window name wraps to a second line rather than being cut with "…".
+            .lineLimit(2)
+            .minimumScaleFactor(0.7)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(parts.joined(separator: ", "))
+    }
+}
+
 /// The words as they're heard: serif, written from the top of the area downward like a page.
-/// Only once they fill it does it scroll, keeping the newest line in view.
+/// Only once they fill it does it scroll, keeping the newest line in view. The words still being
+/// decided are dimmer; they settle into ink as the recognizer commits them.
 struct LiveWords: View {
-    var text: String
+    @ObservedObject var words: LiveTranscript
     var listening: Bool
 
     var body: some View {
+        let parts = words.parts
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
                     // Room under the fade, so unscrolled words start clear of it.
                     Color.clear.frame(height: 22)
-                    Text(text.isEmpty ? (listening ? "Listening…" : " ") : text)
+                    label(parts)
                         .font(.serif(.title2))
-                        .foregroundStyle(text.isEmpty ? Ink.tertiary : Ink.ink)
                         .lineSpacing(4)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -375,13 +382,22 @@ struct LiveWords: View {
                 LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 22)
                 Color.black
             })
-            .onChange(of: text) { _, _ in
+            .onChange(of: parts) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) }
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(text.isEmpty ? "Listening" : text)
+        .accessibilityLabel(parts.isEmpty ? "Listening" : parts.text)
+    }
+
+    /// One Text (one layout pass), the settled words in ink and the rest dimmer.
+    private func label(_ parts: LiveTranscript.Parts) -> Text {
+        if parts.isEmpty { return Text(listening ? "Listening…" : " ").foregroundStyle(Ink.tertiary) }
+        let settled = Text(parts.settled).foregroundStyle(Ink.ink)
+        guard !parts.pending.isEmpty else { return settled }
+        let pending = Text(parts.pending).foregroundStyle(Ink.secondary)
+        return parts.settled.isEmpty ? pending : settled + Text(" ") + pending
     }
 }
 

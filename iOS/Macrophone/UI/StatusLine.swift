@@ -6,8 +6,16 @@ import UIKit
 struct StatusLine: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
+    /// The live words (a spoken app name changes the line as it's heard).
+    @ObservedObject private var words: LiveTranscript
     var holding: Bool
     @ScaledMetric(relativeTo: .subheadline) private var dotSize: CGFloat = 7
+
+    init(recorder: Recorder, holding: Bool) {
+        self.recorder = recorder
+        self.words = recorder.words
+        self.holding = holding
+    }
 
     var body: some View {
         let (text, color) = content
@@ -77,7 +85,7 @@ struct StatusLine: View {
         }
         if recorder.phase == .recording || recorder.phase == .starting {
             if recorder.softCapReached { return ("Recording will stop at 10:00", Light.ochre) }
-            let live = model.liveRoute(recorder.transcript)
+            let live = model.liveRoute(words.text)
             if live.byVoice { return ("Listening — this one goes to \(live.target.displayName)", Light.ember) }
             if holding { return ("Listening — let go to send", Light.ember) }
             return ("Listening — tap to send", Light.ember)
