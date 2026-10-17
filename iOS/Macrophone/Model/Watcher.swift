@@ -345,7 +345,9 @@ final class Watcher: ObservableObject {
             let image: UIImage?
             do {
                 let pixels = try decoder.decode(frame)
-                image = VideoDecoder.image(pixels).map { UIImage(cgImage: $0) }
+                // Made ready to draw here, off the main thread: otherwise each frame was converted
+                // as it was drawn, a stutter under a dragging finger every time one arrived.
+                image = VideoDecoder.image(pixels).map { UIImage(cgImage: $0).preparingForDisplay() ?? UIImage(cgImage: $0) }
             } catch {
                 image = nil
             }

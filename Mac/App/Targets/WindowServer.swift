@@ -47,6 +47,14 @@ enum WindowServer {
         return out
     }
 
+    /// One window's frame on screen (top-left origin) — a lookup of that window alone, cheap enough
+    /// for every step of a swipe (the whole list, with each window's desktops, isn't).
+    static func bounds(of id: CGWindowID) -> CGRect? {
+        guard let w = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]])?.first,
+              let b = w[kCGWindowBounds as String] as? [String: Any] else { return nil }
+        return CGRect(dictionaryRepresentation: b as CFDictionary)
+    }
+
     static func exists(_ id: CGWindowID) -> Bool { info(id) != nil }
 
     /// One window's place: nil when it's gone; on screen = on this desktop and not minimized.

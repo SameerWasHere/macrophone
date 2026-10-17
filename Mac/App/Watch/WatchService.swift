@@ -66,6 +66,11 @@ final class WatchService {
         /// gets when the watch ends — numbers only.
         var frameMs: [Int] = []
         var videoFrames = 0
+        var scrolls = 0
+        /// When the window was last seen in front: a swipe's steps skip the check for a moment
+        /// (each one listed every window on the Mac, thirty times a second, on the thread that
+        /// sends the pictures).
+        var inFrontAt = Date.distantPast
         /// The window's video encoder, made with the stream (and again when the size changes).
         var video: VideoEncoder?
         /// The last frame sent, to send again as a keyframe when the phone asks and nothing changed.
@@ -195,7 +200,7 @@ final class WatchService {
         if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
         if !w.frameMs.isEmpty {
             let ms = w.frameMs.sorted()
-            app.log.add("watching: \(ms.count) frames (\(w.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make")
+            app.log.add("watching: \(ms.count) frames (\(w.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make · \(w.scrolls) scroll steps")
         }
         w.restoreFit()
         w.dropStream()
@@ -617,6 +622,7 @@ final class WatchService {
 
     /// A swipe on the phone's picture: scroll the window right there, as the finger moves.
     func scroll(at p: CGPoint, by d: CGVector, for peer: UUID) {
+        watches[peer]?.scrolls += 1
         act(on: peer, what: "scroll", quiet: true) { wid in Self.scroll(window: wid, at: p, by: d) }
     }
 
@@ -625,7 +631,7 @@ final class WatchService {
     private static var restoreCursor: Task<Void, Never>?
 
     private static func scroll(window id: CGWindowID, at p: CGPoint, by d: CGVector) {
-        guard let b = WindowServer.appWindows().first(where: { $0.id == id })?.bounds else { return }
+        guard let b = WindowServer.bounds(of: id) else { return }
         let pt = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
         if cursorBeforeScroll == nil { cursorBeforeScroll = CGEvent(source: nil)?.location }
         CGWarpMouseCursorPosition(pt)
@@ -695,8 +701,10 @@ final class WatchService {
         }
         let name = w.appName
         Task { [weak self] in
-            let frontWindow = WindowServer.appWindows().first { $0.z == 0 }?.id
-            let inFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == running.processIdentifier && frontWindow == wid
+            let recently = quiet && Date().timeIntervalSince(w.inFrontAt) < 1
+            let inFront = recently || (NSWorkspace.shared.frontmostApplication?.processIdentifier == running.processIdentifier
+                && WindowServer.appWindows().first { $0.z == 0 }?.id == wid)
+            if inFront { w.inFrontAt = Date() }
             if !inFront || what == WatchAction.reveal.rawValue {
                 do { _ = try await Paster.bringToFront(running, windowID: wid, required: true, name: name) } catch {
                     self?.app.log.add("watch \(what): window didn't come forward")
