@@ -14,6 +14,8 @@ import MacrophoneKit
 //   mpctl browse
 //   mpctl apps / mpctl open <bundleID>        # the Mac's installed apps; open one there
 //   mpctl watch [--target <bundleID|front>] [--window <key>] [--seconds 6] [--save DIR] [--action returnKey]
+//              prints the connect time, when each picture came (after asking, after the last, after the action)
+//   --features attention,attention-cloud   what this "phone" says it understands (any phone-side command)
 //   mpctl serve --watch-state permission|unavailable   # answer every watch with that state instead of the demo window
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
@@ -281,10 +283,20 @@ final class PhoneDelegate: LinkClientDelegate {
         stdout("OPENED \(ok ? "ok" : "failed"): \(detail)")
     }
     var frames = 0
+    /// Timing (numbers only): when the watch was asked for, the last picture, and the last action.
+    var watchAsked: Date?
+    var lastFrame: Date?
+    var lastAction: Date?
     func linkClient(_ client: LinkClient, watchState: WatchState) { stdout("WATCH STATE \(watchState)") }
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {
         frames += 1
-        stdout("WATCH FRAME #\(watchFrame.seq) \(watchFrame.width)x\(watchFrame.height) \(watchFrame.jpeg.count / 1024) KB\(watchFrame.focus.map { " focus \($0)" } ?? "")")
+        let now = Date()
+        var timing = ""
+        if let a = lastAction { timing += " \(Int(now.timeIntervalSince(a) * 1000)) ms after the action"; lastAction = nil }
+        else if let l = lastFrame { timing += " +\(Int(now.timeIntervalSince(l) * 1000)) ms" }
+        else if let w = watchAsked { timing += " \(Int(now.timeIntervalSince(w) * 1000)) ms after asking" }
+        lastFrame = now
+        stdout("WATCH FRAME #\(watchFrame.seq) \(watchFrame.width)x\(watchFrame.height) \(watchFrame.jpeg.count / 1024) KB\(watchFrame.focus.map { " focus \($0)" } ?? "")\(timing)")
         if let dir = flag("--save") {
             let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(watchFrame.seq).jpg")
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -306,6 +318,8 @@ func makeClient() -> (LinkClient, PhoneDelegate) {
     keepDelegate = d
     client.delegate = d
     if has("--verbose") { client.log = DiagnosticLog(url: nil) }
+    // --features attention,attention-cloud: what this "phone" says it understands in its hello.
+    if let f = flag("--features") { client.features = f.split(separator: ",").map(String.init) }
     return (client, d)
 }
 
@@ -461,14 +475,17 @@ func run() async -> Int32 {
 
     case "watch":
         let (client, d) = makeClient()
+        let t0 = Date()
         client.start()
         do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        stdout("CONNECTED in \(Int(Date().timeIntervalSince(t0) * 1000)) ms")
         let target: TargetRef
         switch flag("--target") ?? "front" {
         case "front": target = .frontApp
         case "clipboard": target = .clipboard
         case let bid: target = .app(bundleID: bid, windowKey: flag("--window"), name: bid)
         }
+        d.watchAsked = Date()
         client.watch(target)
         let seconds = Double(flag("--seconds") ?? "6") ?? 6
         if let dy = flag("--swipe").flatMap(Double.init) {
@@ -480,6 +497,7 @@ func run() async -> Int32 {
         } else if let a = flag("--action").flatMap(WatchAction.init(rawValue:)) {
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
             stdout("ACTION \(a.rawValue)")
+            d.lastAction = Date()
             client.watchAction(a)
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
         } else {
