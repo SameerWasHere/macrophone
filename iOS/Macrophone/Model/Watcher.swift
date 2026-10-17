@@ -47,6 +47,13 @@ final class Watcher: ObservableObject {
     @Published private(set) var recenter = 0
     /// Bumped when the window comes alive: the first picture after opening or resuming.
     @Published private(set) var cameAlive = 0
+    /// What one finger does on the window (Sameer, Oct 16 2026: one-handed, "pan mode as the
+    /// default"): move around the picture, or scroll the Mac's window. Each watch opens on pan.
+    enum Drag: String { case pan, scroll }
+    @Published private(set) var drag: Drag = .pan
+    /// The person zoomed or moved the picture away from the newest output (Newest shows).
+    @Published private(set) var movedAway = false
+    func setMovedAway(_ b: Bool) { if b != movedAway { movedAway = b } }
     /// Sends the watch request to the Mac; false when it isn't connected.
     var sendWatch: (TargetRef?) -> Bool = { _ in false }
     var sendAction: (WatchAction) -> Void = { _ in }
@@ -74,6 +81,7 @@ final class Watcher: ObservableObject {
         guard target != .clipboard else { return }
         let switching = self.target != target
         self.target = target
+        if !isOpen { drag = .pan }
         if switching {
             image = nil
             appName = ""
@@ -154,6 +162,14 @@ final class Watcher: ObservableObject {
     func scroll(at p: CGPoint, by d: CGVector) {
         touch()
         sendScroll(p, d)
+    }
+
+    func setDrag(_ d: Drag) {
+        guard d != drag else { return }
+        touch()
+        Haptics.tick()
+        drag = d
+        log?.add("watching: one finger \(d == .pan ? "moves the picture" : "scrolls the window")")
     }
 
     func showNewest() {

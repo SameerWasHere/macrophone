@@ -48,7 +48,7 @@ import UIKit
 /// MACROPHONE_PAIRING=connecting|code|paired|failed|expired  the pairing panel in that phase
 /// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
 /// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
-///                                            tap@0.2@0.5 (a click there)
+///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does)
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
@@ -225,6 +225,8 @@ enum DebugHooks {
                         // scroll@0.5@0.4@0.2: at (0.5, 0.4), content dragged down by 20% of the window.
                         let v = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if v.count == 3 { model.watcher.scroll(at: CGPoint(x: v[0], y: v[1]), by: CGVector(dx: 0, dy: v[2])) }
+                    } else if a == "pan" || a == "scroll" {
+                        model.watcher.setDrag(a == "pan" ? .pan : .scroll)
                     } else if a.hasPrefix("tap@") {
                         let xy = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if xy.count == 2 { model.watcher.click(CGPoint(x: xy[0], y: xy[1])) }

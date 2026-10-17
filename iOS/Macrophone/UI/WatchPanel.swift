@@ -7,8 +7,9 @@ import UIKit
 //   ● LIVE · CLAUDE                        [Done]
 //   ┌──────────────────────────────────────────┐
 //   │  the window, pinned to its newest output │  tap = a click there on the Mac;
-//   │  (centred on the column you type in)     │  pinch to zoom, drag to look around
-//   └──────────────────────────────────── [Newest] (once you've moved away)
+//   │  (centred on the column you type in)     │  one finger looks around (Pan) or scrolls
+//   └──────────────────────────────────────────┘  the Mac's window (Scroll); pinch zooms
+//   [Newest]                       [Pan | Scroll]  under the thumb, off the picture
 //   [ Esc ] [ ↑ ] [ ↓ ] [ Return ]                 the same keys in every app: move through a
 //                                                 menu, confirm, back out
 //
@@ -25,6 +26,10 @@ struct WatchPanel: View {
             header
             WatchWindow(watcher: watcher, interactive: true)
                 .frame(maxHeight: .infinity)
+            viewRow
+                .opacity(watcher.phase == .live ? 1 : 0)
+                .allowsHitTesting(watcher.phase == .live)
+                .accessibilityHidden(watcher.phase != .live)
             WatchActions(watcher: watcher)
                 .opacity(watcher.phase == .live ? 1 : 0)
                 .allowsHitTesting(watcher.phase == .live)
@@ -37,6 +42,25 @@ struct WatchPanel: View {
         // the whole panel always fits above the Thread — at accessibility sizes it overflowed both ends.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Newest (once the picture has moved away) and Pan | Scroll, on the right where a thumb rests
+    /// holding the phone in one hand — off the picture, so they never cover a reply box.
+    private var viewRow: some View {
+        HStack(spacing: 10) {
+            if watcher.movedAway {
+                Button { watcher.showNewest() } label: {
+                    Label("Newest", systemImage: "arrow.down.to.line").font(.footnote.weight(.semibold))
+                }
+                .nativeGlassButton()
+                .transition(.opacity)
+                .accessibilityHint("Back to the newest output, at the bottom of the window.")
+                .accessibilityIdentifier("watch-newest")
+            }
+            Spacer(minLength: 0)
+            WatchDragSwitch(watcher: watcher)
+        }
+        .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
     }
 
     private var header: some View {
@@ -107,8 +131,9 @@ struct WatchKicker: View {
 struct WatchWindow: View {
     @ObservedObject var watcher: Watcher
     var interactive: Bool
-    /// The person zoomed or dragged away from the start (the Newest button shows).
-    @State private var adjusted = false
+    /// A moment of words after the Pan | Scroll switch flips: what one finger does now.
+    @State private var dragNote: String?
+    @State private var dragNoteTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -117,23 +142,26 @@ struct WatchWindow: View {
             Ink.raised
             if let image = watcher.image {
                 WindowViewer(image: image, focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
+                             drag: watcher.drag,
                              onTouch: { watcher.touch() },
-                             onTap: { watcher.click($0) }, onScroll: { watcher.scroll(at: $0, by: $1) }, onAdjusted: { moved in if moved != adjusted { adjusted = moved } })
+                             onTap: { watcher.click($0) }, onScroll: { watcher.scroll(at: $0, by: $1) }, onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } })
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
-                    .accessibilityHint(interactive ? "Tap to click there on your Mac. Swipe to scroll it. Pinch to zoom; two fingers move the picture." : "")
+                    .accessibilityHint(interactive ? (watcher.drag == .pan
+                        ? "Tap to click there on your Mac. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
+                        : "Tap to click there on your Mac. Swipe to scroll the window on your Mac; two fingers move the picture.") : "")
                     .accessibilityAddTraits(.isImage)
             }
-            if interactive && adjusted && watcher.phase == .live {
-                Button { watcher.showNewest() } label: {
-                    Label("Newest", systemImage: "arrow.down.to.line").font(.footnote.weight(.semibold))
-                }
-                .nativeGlassButton()
-                .controlSize(.small)
-                .padding(10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .transition(.opacity)
-                .accessibilityHint("Back to the newest output, at the bottom of the window.")
-                .accessibilityIdentifier("watch-newest")
+            if let dragNote, interactive && watcher.phase == .live {
+                Text(dragNote)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Ink.ink)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
             if interactive { overlay }
         }
@@ -152,8 +180,19 @@ struct WatchWindow: View {
             }
         }
         .onChange(of: watcher.cameAlive) { _, _ in if interactive { Haptics.soft() } }
+        .onChange(of: watcher.drag) { _, d in
+            guard interactive else { return }
+            let words = d == .pan ? "One finger moves the picture" : "One finger scrolls your Mac's window"
+            UIAccessibility.post(notification: .announcement, argument: words)
+            dragNoteTask?.cancel()
+            withAnimation(.easeOut(duration: 0.15)) { dragNote = words }
+            dragNoteTask = Task {
+                try? await Task.sleep(nanoseconds: 1_600_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeIn(duration: 0.3)) { dragNote = nil }
+            }
+        }
         .animation(.easeInOut(duration: 0.25), value: watcher.phase)
-        .animation(.easeInOut(duration: 0.2), value: adjusted)
     }
 
     @ViewBuilder private var overlay: some View {
@@ -237,6 +276,51 @@ struct WatchWindow: View {
     }
 }
 
+/// Pan | Scroll — what one finger does on the window. Pan (the default) moves around the picture;
+/// Scroll scrolls the window on the Mac, right where the finger is (and two fingers move the
+/// picture). It sits under the window on the right, where the thumb rests, so a watched window
+/// works with one hand.
+struct WatchDragSwitch: View {
+    @ObservedObject var watcher: Watcher
+    @Namespace private var pill
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 2) {
+            option(.pan, "Pan", symbol: "hand.draw")
+            option(.scroll, "Scroll", symbol: "arrow.up.and.down")
+        }
+        .padding(3)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Ink.line, lineWidth: 1))
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("What one finger does")
+    }
+
+    private func option(_ d: Watcher.Drag, _ title: String, symbol: String) -> some View {
+        let on = watcher.drag == d
+        return Button {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.82)) { watcher.setDrag(d) }
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(on ? Ink.ground : Ink.secondary)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 38)
+                .background {
+                    if on { Capsule().fill(Light.cyan).matchedGeometryEffect(id: "pill", in: pill) }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityHint(d == .pan ? "One finger moves around the picture." : "One finger scrolls the window on your Mac.")
+        .accessibilityIdentifier("watch-drag-\(d.rawValue)")
+    }
+}
+
 /// While the mic is open: the bottom of the window, small, so the question stays in view.
 struct WatchStrip: View {
     @ObservedObject var watcher: Watcher
@@ -295,14 +379,15 @@ private extension View {
 /// The window's picture in a zooming scroll view: it opens on the column you type in, at the
 /// bottom (the newest output), and stays there as pictures arrive — until you zoom or drag, then
 /// it stays where you put it (Newest brings it back). A tap is a click there on the Mac, with a
-/// ring where it landed; a one-finger swipe scrolls the Mac's window right there (Sameer, Oct 14
-/// 2026: "swipe gestures could trigger small scrolls … where the swipe occurs"); two fingers move
-/// the picture, a pinch zooms it.
+/// ring where it landed. One finger moves the picture (Pan, the default) or scrolls the Mac's
+/// window right there (Scroll — Sameer, Oct 14 2026: "swipe gestures could trigger small scrolls
+/// … where the swipe occurs"); in Scroll, two fingers move the picture; a pinch zooms it.
 struct WindowViewer: UIViewRepresentable {
     var image: UIImage
     var focus: CGRect?
     var recenter: Int
     var interactive: Bool
+    var drag: Watcher.Drag
     var onTouch: () -> Void
     var onTap: (CGPoint) -> Void
     var onScroll: (CGPoint, CGVector) -> Void
@@ -316,7 +401,7 @@ struct WindowViewer: UIViewRepresentable {
 
     func updateUIView(_ v: ViewerScrollView, context: Context) {
         wire(v)
-        v.update(image: image, focus: focus, recenter: recenter, interactive: interactive)
+        v.update(image: image, focus: focus, recenter: recenter, interactive: interactive, drag: drag)
     }
 
     private func wire(_ v: ViewerScrollView) {
@@ -360,20 +445,26 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         addSubview(imageView)
         tapper = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         addGestureRecognizer(tapper)
-        // One finger scrolls the Mac's window; the picture itself moves with two.
-        panGestureRecognizer.minimumNumberOfTouches = 2
         swiper = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         swiper.maximumNumberOfTouches = 1
         addGestureRecognizer(swiper)
+        apply(drag: .pan)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func update(image: UIImage, focus: CGRect?, recenter: Int, interactive: Bool) {
+    /// Pan: one finger moves the picture (the scroll view's own drag). Scroll: one finger scrolls the
+    /// Mac's window, and the picture moves with two.
+    private func apply(drag: Watcher.Drag) {
+        panGestureRecognizer.minimumNumberOfTouches = drag == .pan ? 1 : 2
+        swiper.isEnabled = drag == .scroll && isScrollEnabled
+    }
+
+    func update(image: UIImage, focus: CGRect?, recenter: Int, interactive: Bool, drag: Watcher.Drag) {
         isScrollEnabled = interactive
         pinchGestureRecognizer?.isEnabled = interactive
         tapper.isEnabled = interactive
-        swiper.isEnabled = interactive
+        apply(drag: drag)
         let focusChanged = focus != self.focus && !adjusted
         self.focus = focus
         imageView.image = image
