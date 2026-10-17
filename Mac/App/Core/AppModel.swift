@@ -139,6 +139,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         log.add("app started \(AppPaths.appVersion) (\(AppPaths.buildNumber)) · Accessibility \(accessibilityGranted ? "on" : "off") · Screen Recording \(CGPreflightScreenCaptureAccess() ? "on" : "off")")
         server.start()
         if settings.apiEnabled { api.start() } else { apiState = .off }
+        attention.update()
         pushStatus()
         // Nothing lands without Accessibility: ask at launch, which also puts Macrophone in the list.
         if !accessibilityGranted { _ = Paster.requestTrust() }

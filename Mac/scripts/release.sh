@@ -88,10 +88,21 @@ ok "Sparkle key matches Info.plist"
 # ── 2. Archive and export ──────────────────────────────────────────────────────────────────
 say "Archiving $VERSION ($BUILD)"
 ARCHIVE="$OUT/Macrophone.xcarchive"
+# Alerts that reach a closed iPhone app go through iCloud: the app target signs with the
+# Developer ID profile that carries the container (made with the App Store Connect API; see
+# docs/RELEASING.md). A dry run signs for development, without iCloud.
+CLOUD_PROFILE="Macrophone Mac iCloud Developer ID"
+if (( DRY_RUN )); then
+  CLOUD_ARGS=()
+else
+  CLOUD_ARGS=(MACROPHONE_SIGN_STYLE=Manual MACROPHONE_APP_PROFILE="$CLOUD_PROFILE"
+              MACROPHONE_ENTITLEMENTS_FILE=Resources/Macrophone-iCloud.entitlements
+              MACROPHONE_CLOUD_ALERTS=YES MACROPHONE_SIGN_IDENTITY="Developer ID Application")
+fi
 xcodebuild archive -project Macrophone.xcodeproj -scheme Macrophone -configuration Release \
   -archivePath "$ARCHIVE" -derivedDataPath "$DERIVED" -destination 'generic/platform=macOS' \
   MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" DEVELOPMENT_TEAM="$TEAM_ID" \
-  CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates -quiet \
+  "${CLOUD_ARGS[@]}" -allowProvisioningUpdates -quiet \
   || die "Archive failed."
 
 APP="$OUT/Macrophone.app"
@@ -105,7 +116,9 @@ else
 <plist version="1.0"><dict>
   <key>method</key><string>developer-id</string>
   <key>teamID</key><string>$TEAM_ID</string>
-  <key>signingStyle</key><string>automatic</string>
+  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>Developer ID Application</string>
+  <key>provisioningProfiles</key><dict><key>com.sameer.macrophone.mac</key><string>$CLOUD_PROFILE</string></dict>
   <key>destination</key><string>export</string>
 </dict></plist>
 PLIST

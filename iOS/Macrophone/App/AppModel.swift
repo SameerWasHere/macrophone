@@ -136,6 +136,7 @@ final class AppModel: ObservableObject {
         watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }
         AgentAlerts.shared.install(self)
+        Task { await AgentAlerts.shared.subscribeInCloud() }
         // Notifications are asked for the first time a window is watched — the moment they make sense.
         watcher.$isOpen.filter { $0 }.first().sink { [weak self] _ in
             guard self?.settings.agentAlerts == true else { return }
@@ -162,7 +163,7 @@ final class AppModel: ObservableObject {
         // The phone's choice goes to the Mac after every welcome, so on reconnect the phone's wins.
         c.selectionProvider = { Settings.storedSelection() }
         // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts).
-        c.features = [Attention.feature]
+        c.features = [Attention.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         return c
     }
 
@@ -1165,6 +1166,13 @@ extension AppModel: LinkClientDelegate {
         if sceneActive, watcher.isOpen, watcher.target == attention.ref, !watcher.phase.isPaused { return }
         AgentAlerts.shared.post(attention)
         log.add("attention: \(attention.appName) is asking")
+    }
+
+    /// Alerts through iCloud are set up: say so in the next hello (the Mac then keeps looking
+    /// while this app is closed).
+    func alertsReadyInCloud() {
+        guard !client.features.contains(Attention.cloudFeature) else { return }
+        client.features.append(Attention.cloudFeature)
     }
 
     /// A tapped alert: watch that window (and send there), where its answers wait.

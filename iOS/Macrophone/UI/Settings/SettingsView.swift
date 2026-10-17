@@ -79,7 +79,9 @@ struct SettingsView: View {
                     Text("Tell me when an agent asks something").fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .onChange(of: settings.agentAlerts) { _, on in if on { Task { await AgentAlerts.shared.askIfNeeded() } } }
+            .onChange(of: settings.agentAlerts) { _, on in
+                Task { if on { await AgentAlerts.shared.askIfNeeded() } else { await AgentAlerts.shared.unsubscribeInCloud() } }
+            }
         } header: {
             Text("Send to")
         } footer: {

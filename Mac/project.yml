@@ -47,7 +47,20 @@ targets:
       base:
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_ENTITLEMENTS: Resources/Macrophone.entitlements
+        # Alerts through iCloud need a profile with the iCloud container ("Macrophone Mac iCloud
+        # Developer ID"): a build signed with it passes MACROPHONE_ENTITLEMENTS_FILE=
+        # Resources/Macrophone-iCloud.entitlements, MACROPHONE_CLOUD_ALERTS=YES and the profile
+        # (release.sh does). The app target only; the command-line tool signs as before.
+        MACROPHONE_ENTITLEMENTS_FILE: Resources/Macrophone.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(MACROPHONE_ENTITLEMENTS_FILE)
+        MACROPHONE_CLOUD_ALERTS: "NO"
+        MACROPHONE_CLOUD_ENVIRONMENT: Production
+        MACROPHONE_SIGN_STYLE: Automatic
+        CODE_SIGN_STYLE: $(MACROPHONE_SIGN_STYLE)
+        MACROPHONE_APP_PROFILE: ""
+        PROVISIONING_PROFILE_SPECIFIER: $(MACROPHONE_APP_PROFILE)
+        MACROPHONE_SIGN_IDENTITY: Apple Development
+        CODE_SIGN_IDENTITY: $(MACROPHONE_SIGN_IDENTITY)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"

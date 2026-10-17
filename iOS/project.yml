@@ -37,16 +37,27 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) MACROPHONE_APP"
+        # Alerts that reach a closed app go through iCloud: a build signed with a profile that has
+        # the container passes CODE_SIGN_ENTITLEMENTS=Macrophone/Macrophone-iCloud.entitlements and
+        # YES here (aps-environment: development for a development profile, production otherwise).
+        MACROPHONE_CLOUD_ALERTS: "NO"
+        MACROPHONE_APS_ENVIRONMENT: development
+        MACROPHONE_CLOUD_ENVIRONMENT: Production
+        # The app target only (the Control Center extension keeps its own signing):
+        MACROPHONE_ENTITLEMENTS_FILE: Macrophone/Macrophone.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(MACROPHONE_ENTITLEMENTS_FILE)
+        MACROPHONE_SIGN_STYLE: Automatic
+        CODE_SIGN_STYLE: $(MACROPHONE_SIGN_STYLE)
+        MACROPHONE_APP_PROFILE: ""
+        PROVISIONING_PROFILE_SPECIFIER: $(MACROPHONE_APP_PROFILE)
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
-    entitlements:
-      path: Macrophone/Macrophone.entitlements
-      properties:
-        # The app's own group stays first (the default for new items: the pairing key stays private);
-        # the shared one only holds the targets list for the Control Center control.
-        # (Not an App Group: the wildcard team profile can't carry one.)
-        keychain-access-groups: [$(AppIdentifierPrefix)com.sameer.macrophone, $(AppIdentifierPrefix)com.sameer.macrophone.shared]
+    # Entitlements: Macrophone/Macrophone.entitlements (keychain groups — the app's own first, the
+    # default for new items so the pairing key stays private; the shared one only holds the targets
+    # list for the Control Center control; not an App Group: the wildcard team profile can't carry
+    # one), or Macrophone-iCloud.entitlements for a build signed for iCloud — see
+    # MACROPHONE_ENTITLEMENTS_FILE below. Edited by hand, not generated.
     info:
       path: Macrophone/Info.plist
       properties:
@@ -54,6 +65,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         MacrophoneSharedKeychainGroup: $(AppIdentifierPrefix)com.sameer.macrophone.shared
+        # YES only in a build signed with Macrophone-iCloud.entitlements (alerts while closed).
+        MacrophoneCloudAlerts: $(MACROPHONE_CLOUD_ALERTS)
         LSRequiresIPhoneOS: true
         ITSAppUsesNonExemptEncryption: false
         UIUserInterfaceStyle: Dark

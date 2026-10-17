@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Macrophone.entitlements plus iCloud, for builds signed with a profile that carries it
+	     (alerts that reach a closed iPhone app; Mac/App/Watch/CloudAlerts.swift). -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.sameer.macrophone</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>$(MACROPHONE_CLOUD_ENVIRONMENT)</string>
+</dict>
+</plist>

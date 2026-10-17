@@ -249,6 +249,10 @@ enum DebugHooks {
                 }
             }
         }
+        if env["MACROPHONE_CLOUD_SCHEMA"] == "1" {
+            // Makes the iCloud record type alerts use (in the container's Development schema).
+            Task { await AgentAlerts.shared.debugCreateSchema() }
+        }
         if env["MACROPHONE_RESEND_LATEST"] == "1" {
             Task {
                 try? await Task.sleep(nanoseconds: 4_000_000_000)

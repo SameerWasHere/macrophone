@@ -264,4 +264,7 @@ public struct Attention: Codable, Sendable, Equatable {
 
     /// What the phone understands, sent in its hello.
     public static let feature = "attention"
+    /// The phone also gets alerts through the person's iCloud when it's closed: the Mac keeps
+    /// looking while no phone is connected.
+    public static let cloudFeature = "attention-cloud"
 }

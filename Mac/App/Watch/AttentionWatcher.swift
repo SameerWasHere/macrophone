@@ -24,9 +24,21 @@ final class AttentionWatcher {
 
     init(app: AppModel) { self.app = app }
 
-    /// Runs only while a phone that wants alerts is connected.
+    /// A phone set up for alerts through iCloud has connected once (it said so in its hello):
+    /// from then on the Mac keeps looking even when no phone is connected.
+    private var cloudWanted: Bool {
+        get { UserDefaults.standard.bool(forKey: "attention.cloud") }
+        set { UserDefaults.standard.set(newValue, forKey: "attention.cloud") }
+    }
+
+    /// Runs while a phone that wants alerts is connected — or always, once a phone has set up
+    /// alerts through iCloud (this build must be able to send them).
     func update() {
-        let wanted = !app.server.phones(with: Attention.feature).isEmpty
+        if !app.server.phones(with: Attention.cloudFeature).isEmpty, !cloudWanted {
+            cloudWanted = true
+            app.log.add("attention: a phone gets alerts through iCloud")
+        }
+        let wanted = !app.server.phones(with: Attention.feature).isEmpty || (cloudWanted && CloudAlerts.available)
         if wanted, task == nil {
             task = Task { [weak self] in
                 while !Task.isCancelled {
@@ -43,7 +55,7 @@ final class AttentionWatcher {
 
     private func look() async {
         let phones = app.server.phones(with: Attention.feature)
-        guard !phones.isEmpty else { return }
+        guard !phones.isEmpty || (cloudWanted && CloudAlerts.available) else { return }
         let candidates = windows()
         guard !candidates.isEmpty else { return }
         let trusted = Paster.isTrusted
@@ -71,8 +83,14 @@ final class AttentionWatcher {
             guard asked[key] != p.id else { continue }
             asked[key] = p.id
             let a = Attention(ref: t.ref, appName: t.appName, title: t.title, question: p.question, promptID: p.id)
-            for peer in phones { await app.server.send(.attention(a), to: peer) }
-            app.log.add("attention: \(t.appName) is asking — told the phone")
+            if phones.isEmpty {
+                // No phone connected (the app is closed): through iCloud.
+                let ok = await CloudAlerts.post(a)
+                app.log.add(ok ? "attention: \(t.appName) is asking — sent through iCloud" : "attention: \(t.appName) is asking — iCloud didn't take it")
+            } else {
+                for peer in phones { await app.server.send(.attention(a), to: peer) }
+                app.log.add("attention: \(t.appName) is asking — told the phone")
+            }
         }
     }
 

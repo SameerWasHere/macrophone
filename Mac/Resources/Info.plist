@@ -26,6 +26,8 @@
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>MacrophoneCloudAlerts</key>
+	<string>$(MACROPHONE_CLOUD_ALERTS)</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
