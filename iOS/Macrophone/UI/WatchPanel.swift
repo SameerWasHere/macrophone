@@ -8,8 +8,8 @@ import UIKit
 //   ┌──────────────────────────────────────────┐
 //   │  the window, pinned to its newest output │  tap = a click there on the Mac;
 //   │  (centred on the column you type in)     │  one finger looks around (Pan) or scrolls
-//   └──────────────────────────────────────────┘  the Mac's window (Scroll); pinch zooms
-//   [Newest]                       [Pan | Scroll]  under the thumb, off the picture
+//   └─────────────────────────────── [Newest] ┘  the Mac's window (Scroll); pinch zooms
+//   [Esc] [↑] [↓] [⏎]            [Pan | Scroll]  one row, under the thumb
 //   [ Esc ] [ ↑ ] [ ↓ ] [ Return ]                 the same keys in every app: move through a
 //                                                 menu, confirm, back out
 //
@@ -26,10 +26,6 @@ struct WatchPanel: View {
             header
             WatchWindow(watcher: watcher, interactive: true)
                 .frame(maxHeight: .infinity)
-            viewRow
-                .opacity(watcher.phase == .live ? 1 : 0)
-                .allowsHitTesting(watcher.phase == .live)
-                .accessibilityHidden(watcher.phase != .live)
             WatchActions(watcher: watcher)
                 .opacity(watcher.phase == .live ? 1 : 0)
                 .allowsHitTesting(watcher.phase == .live)
@@ -42,25 +38,6 @@ struct WatchPanel: View {
         // the whole panel always fits above the Thread — at accessibility sizes it overflowed both ends.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    /// Newest (once the picture has moved away) and Pan | Scroll, on the right where a thumb rests
-    /// holding the phone in one hand — off the picture, so they never cover a reply box.
-    private var viewRow: some View {
-        HStack(spacing: 10) {
-            if watcher.movedAway {
-                Button { watcher.showNewest() } label: {
-                    Label("Newest", systemImage: "arrow.down.to.line").font(.footnote.weight(.semibold))
-                }
-                .nativeGlassButton()
-                .transition(.opacity)
-                .accessibilityHint("Back to the newest output, at the bottom of the window.")
-                .accessibilityIdentifier("watch-newest")
-            }
-            Spacer(minLength: 0)
-            WatchDragSwitch(watcher: watcher)
-        }
-        .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
     }
 
     private var header: some View {
@@ -151,6 +128,18 @@ struct WatchWindow: View {
                         : "Tap to click there on your Mac. Swipe to scroll the window on your Mac; two fingers move the picture.") : "")
                     .accessibilityAddTraits(.isImage)
             }
+            if interactive && watcher.movedAway && watcher.phase == .live {
+                Button { watcher.showNewest() } label: {
+                    Label("Newest", systemImage: "arrow.down.to.line").font(.footnote.weight(.semibold))
+                }
+                .nativeGlassButton()
+                .controlSize(.small)
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .transition(.opacity)
+                .accessibilityHint("Back to the newest output, at the bottom of the window.")
+                .accessibilityIdentifier("watch-newest")
+            }
             if let dragNote, interactive && watcher.phase == .live {
                 Text(dragNote)
                     .font(.footnote.weight(.semibold))
@@ -193,6 +182,7 @@ struct WatchWindow: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: watcher.phase)
+        .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
     }
 
     @ViewBuilder private var overlay: some View {
@@ -278,8 +268,8 @@ struct WatchWindow: View {
 
 /// Pan | Scroll — what one finger does on the window. Pan (the default) moves around the picture;
 /// Scroll scrolls the window on the Mac, right where the finger is (and two fingers move the
-/// picture). It sits under the window on the right, where the thumb rests, so a watched window
-/// works with one hand.
+/// picture). It ends the key row on the right, where the thumb rests, so a watched window works
+/// with one hand.
 struct WatchDragSwitch: View {
     @ObservedObject var watcher: Watcher
     @Namespace private var pill
@@ -307,7 +297,7 @@ struct WatchDragSwitch: View {
                 .font(.footnote.weight(.semibold))
                 .lineLimit(1)
                 .foregroundStyle(on ? Ink.ground : Ink.secondary)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 10)
                 .frame(minHeight: 38)
                 .background {
                     if on { Capsule().fill(Light.cyan).matchedGeometryEffect(id: "pill", in: pill) }
@@ -335,16 +325,20 @@ struct WatchStrip: View {
 }
 
 /// Esc · ↑ · ↓ · Return — the same four keys in every app (Sameer, Oct 14 2026: "basic things
-/// that allow the user to navigate very quickly or confirm things very quickly").
+/// that allow the user to navigate very quickly or confirm things very quickly") — and Pan | Scroll,
+/// all on one row under the thumb (Oct 16 2026).
 struct WatchActions: View {
     @ObservedObject var watcher: Watcher
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             key(.escape, label: Text("Esc"), name: "Escape")
             key(.arrowUp, label: Image(systemName: "arrow.up"), name: "Up arrow")
             key(.arrowDown, label: Image(systemName: "arrow.down"), name: "Down arrow")
-            key(.returnKey, label: Text("Return"), name: "Return")
+            key(.returnKey, label: Image(systemName: "return"), name: "Return")
+            WatchDragSwitch(watcher: watcher)
+                .fixedSize()
+                .padding(.leading, 4)
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
@@ -352,12 +346,13 @@ struct WatchActions: View {
     private func key<L: View>(_ a: WatchAction, label: L, name: String) -> some View {
         Button { watcher.perform(a) } label: {
             label
-                .font(.body.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity, minHeight: 28)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, minHeight: 30)
         }
         .nativeGlassButton()
+        .controlSize(.small)
         .accessibilityLabel(name)
         .accessibilityHint("Presses \(name) in \(watcher.name) on your Mac.")
         .accessibilityIdentifier("watch-\(a.rawValue)")
