@@ -121,6 +121,9 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: scroll the watched window where the finger is (x, y) by (dx, dy) — all as
     /// fractions of the window; positive dy moves the content down, like a finger dragging it.
     case watchScroll(x: Double, y: Double, dx: Double, dy: Double)
+    /// Phone → Mac: answer the prompt the window showed (`WatchPrompt.id`) with its answer at
+    /// `index`. The Mac ignores it if the window has moved on to another question.
+    case watchChoose(promptID: String, index: Int)
     /// Mac → phone: how watching is going.
     case watchState(WatchState)
     /// Mac → phone: the window, when it changed.

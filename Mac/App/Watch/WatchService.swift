@@ -32,6 +32,11 @@ final class WatchService {
         var lastDigest: Data?
         var lastState: WatchState?
         var seq = 0
+        /// The question the window is asking, as last read (sent with each picture).
+        var prompt: WatchPrompt?
+        /// The picture changed since the prompt was last read.
+        var promptStale = true
+        var promptAt = Date.distantPast
         /// The wait between looks, so an action can cut it short.
         private var waiting: CheckedContinuation<Void, Never>?
         private var waitTimer: Task<Void, Never>?
@@ -173,11 +178,23 @@ final class WatchService {
         // thread, so the menu, the popup and a paste never wait on a picture.
         guard let (data, digest) = await Task.detached(priority: .utility) { Self.encode(image) }.value else { return nil }
         let live = WatchState.live(appName: w.appName)
-        guard digest != w.lastDigest else { return live }
+        let changed = digest != w.lastDigest
+        if changed { w.promptStale = true }
+        // The question the window is asking: read when the picture changed, about once a second at
+        // most (a change it skips is read on a later look, so answers never outlive the question).
+        // Not before the first picture, which goes out as fast as it can.
+        var promptChanged = false
+        if w.promptStale, w.seq > 0, Date().timeIntervalSince(w.promptAt) > 0.8 {
+            w.promptStale = false
+            w.promptAt = Date()
+            let p = await PromptVision.read(image)
+            if p != w.prompt { w.prompt = p; promptChanged = true }
+        }
+        guard changed || promptChanged else { return live }
         w.lastDigest = digest
         w.seq += 1
         let frame = WatchFrame(seq: w.seq, jpeg: data, width: image.width, height: image.height,
-                               appName: w.appName, bundleID: w.bundleID, focus: w.focus)
+                               appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
         // Waits until it's on the wire: a slow link gets fewer pictures, never a backlog.
         await app.server.send(.watchFrame(frame), to: w.peer)
         return live
@@ -327,6 +344,31 @@ final class WatchService {
     }
 
     /// A tap on the phone's picture: a click at that spot in the window.
+    /// An answer tapped on the phone: the keys that give it, if the window still asks that question.
+    func choose(_ promptID: String, index: Int, for peer: UUID) {
+        guard let w = watches[peer], let p = w.prompt, p.id == promptID, let keys = p.keys(for: index) else {
+            app.log.add("watch choose skipped: the window moved on")
+            return
+        }
+        w.promptStale = true
+        w.promptAt = .distantPast
+        act(on: peer, what: "choose") { _ in
+            for k in keys {
+                switch k {
+                case .up: Keys.press(CGKeyCode(kVK_UpArrow), flags: [.maskNumericPad, .maskSecondaryFn])
+                case .down: Keys.press(CGKeyCode(kVK_DownArrow), flags: [.maskNumericPad, .maskSecondaryFn])
+                case .returnKey: Keys.press(CGKeyCode(kVK_Return), flags: [])
+                case let .character(c):
+                    let fallback = c == "y" ? kVK_ANSI_Y : c == "n" ? kVK_ANSI_N : nil
+                    guard let code = Keys.code(for: c) ?? fallback.map({ CGKeyCode($0) }) else { return }
+                    Keys.press(code, flags: [])
+                }
+                // A beat between keys, so a menu redraws before the next arrow.
+                try? await Task.sleep(nanoseconds: 60_000_000)
+            }
+        }
+    }
+
     func click(_ p: CGPoint, for peer: UUID) {
         act(on: peer, what: "click") { wid in await Self.click(window: wid, at: p) }
     }

@@ -107,19 +107,40 @@ final class ServeDelegate: LinkServerDelegate {
         [LiveTarget(bundleID: "com.anthropic.claudefordesktop", appName: "Claude", icon: demoIcon("com.anthropic.claudefordesktop", 128), lastActive: Date()),
          LiveTarget(bundleID: "com.apple.MobileSMS", appName: "Messages", icon: demoIcon("com.apple.MobileSMS", 128)),
          LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "claude — ~/app", windowKey: "41", icon: demoIcon("com.apple.Terminal", 128)),
+         LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "codex — ~/api", windowKey: "42", icon: demoIcon("com.apple.Terminal", 128)),
          LiveTarget(bundleID: "com.apple.Notes", appName: "Notes", icon: demoIcon("com.apple.Notes", 128))]
     }
 
-    // Watching: the drawn demo window, a frame each time it changes.
+    // Watching: a drawn demo window per place, a frame each time it changes, with the question
+    // it's asking read off the picture by the same on-device reader the Mac app uses.
     var watches: [UUID: Task<Void, Never>] = [:]
-    let demo = DemoWindow()
+    var demos: [String: DemoWindow] = [:]
+    var watched: [UUID: DemoWindow] = [:]
+    var prompts: [UUID: WatchPrompt] = [:]
+    let lock = NSLock()
+
+    func demo(for target: TargetRef) -> DemoWindow {
+        lock.sync {
+            let key: String
+            if case let .app(bid, wk, _) = target { key = bid + "#" + (wk ?? "") } else { key = "front" }
+            if let d = demos[key] { return d }
+            let d = DemoWindow()
+            let name = target.displayName.components(separatedBy: " — ")
+            d.app = name.first ?? "Claude"
+            if name.count > 1 { d.title = name[1] } else { d.title = d.app }
+            if d.title.hasPrefix("codex") { d.app = "Codex" }
+            demos[key] = d
+            return d
+        }
+    }
 
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {
         watches[peerID]?.cancel()
         watches[peerID] = nil
         guard let target else { stdout("WATCH stopped"); return }
         stdout("WATCH \(target.displayName)")
-        let demo = self.demo
+        let demo = self.demo(for: target)
+        lock.sync { watched[peerID] = demo }
         // The app's own name, as the Mac sends it ("Terminal", not "Terminal — claude ~/app").
         let appName = target.displayName.components(separatedBy: " — ").first ?? target.displayName
         let forced = flag("--watch-state")
@@ -138,8 +159,12 @@ final class ServeDelegate: LinkServerDelegate {
                 if let jpeg = demo.jpeg(), jpeg != last {
                     last = jpeg
                     seq += 1
+                    var prompt: WatchPrompt?
+                    if let image = demo.image() { prompt = await PromptVision.read(image) }
+                    self.lock.sync { self.prompts[peerID] = prompt }
+                    if let prompt { stdout("WATCH PROMPT \(prompt.question ?? "-") → \(prompt.choices.map(\.label).joined(separator: " | ")) (on \(prompt.highlighted.map(String.init) ?? "-"))") }
                     let frame = WatchFrame(seq: seq, jpeg: jpeg, width: demo.width, height: demo.height,
-                                           appName: appName, bundleID: target.bundleID, focus: demo.focus)
+                                           appName: appName, bundleID: target.bundleID, focus: demo.focus, prompt: prompt)
                     await server.send(.watchFrame(frame), to: peerID)
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
@@ -149,7 +174,24 @@ final class ServeDelegate: LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {
         stdout("WATCH ACTION \(action.rawValue)")
-        demo.apply(action)
+        lock.sync { watched[peerID] }?.apply(action)
+    }
+
+    func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {
+        let (demo, prompt) = lock.sync { (watched[peerID], prompts[peerID]) }
+        guard let demo, let prompt, prompt.id == promptID, let keys = prompt.keys(for: index) else {
+            stdout("WATCH CHOOSE \(index) skipped: the window moved on")
+            return
+        }
+        stdout("WATCH CHOOSE \(index) → \(keys)")
+        for k in keys {
+            switch k {
+            case .up: demo.apply(.arrowUp)
+            case .down: demo.apply(.arrowDown)
+            case .returnKey: demo.apply(.returnKey)
+            case .character: break
+            }
+        }
     }
 
     func installedApps(_ server: LinkServer) async -> [MacApp] {
@@ -174,12 +216,12 @@ final class ServeDelegate: LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {
         stdout("WATCH SCROLL at \(String(format: "%.2f, %.2f", point.x, point.y)) by \(String(format: "%.3f", delta.dy))")
-        demo.scrollBy(delta.dy)
+        lock.sync { watched[peerID] }?.scrollBy(delta.dy)
     }
 
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {
         stdout("WATCH CLICK \(String(format: "%.3f, %.3f", point.x, point.y))")
-        demo.click(point)
+        lock.sync { watched[peerID] }?.click(point)
     }
 }
 

@@ -51,6 +51,20 @@ final class Watcher: ObservableObject {
     /// default"): move around the picture, or scroll the Mac's window. Each watch opens on pan.
     enum Drag: String { case pan, scroll }
     @Published private(set) var drag: Drag = .pan
+    /// The question the window is asking, read off the picture on the Mac (Oct 16 2026): its
+    /// answers replace Esc · ↑ · ↓ · Return while it's up. Nil from a Mac that doesn't read them.
+    @Published private(set) var prompt: WatchPrompt?
+    /// The person asked for the keys instead of this prompt's answers ("Keys").
+    @Published private(set) var keysInstead = false
+    /// Answered here: its buttons go at once, without waiting for the next picture.
+    private var answeredID: String?
+    /// The answers to show now, if any.
+    var answers: WatchPrompt? {
+        guard let prompt, prompt.id != answeredID, !keysInstead else { return nil }
+        return prompt
+    }
+    var sendChoose: (WatchPrompt, Int) -> Void = { _, _ in }
+
     /// The person zoomed or moved the picture away from the newest output (Newest shows).
     @Published private(set) var movedAway = false
     func setMovedAway(_ b: Bool) { if b != movedAway { movedAway = b } }
@@ -87,6 +101,8 @@ final class Watcher: ObservableObject {
             appName = ""
             bundleID = target.bundleID
             focus = nil
+            prompt = nil
+            keysInstead = false
         }
         isOpen = true
         start()
@@ -172,6 +188,25 @@ final class Watcher: ObservableObject {
         log?.add("watching: one finger \(d == .pan ? "moves the picture" : "scrolls the window")")
     }
 
+    /// An answer tapped: the Mac presses the keys that give it, if the question is still up.
+    func choose(_ index: Int) {
+        guard let p = answers, p.choices.indices.contains(index) else { return }
+        touch()
+        Haptics.success()
+        answeredID = p.id
+        objectWillChange.send()
+        sendChoose(p, index)
+        recenter &+= 1
+        log?.add("watching: answered a prompt")
+    }
+
+    /// Esc · ↑ · ↓ · Return for this prompt, instead of its answers.
+    func showKeys() {
+        touch()
+        Haptics.tick()
+        keysInstead = true
+    }
+
     func showNewest() {
         touch()
         recenter &+= 1
@@ -208,6 +243,12 @@ final class Watcher: ObservableObject {
             self.bundleID = frame.bundleID
             // Only a real move re-centres the view; the frame jitters as the window redraws.
             if WatchFrame.focusMoved(from: self.focus, to: frame.focus) { self.focus = frame.focus }
+            if frame.prompt?.id != self.prompt?.id {
+                // A new question (or none): its answers show, and "Keys" applies to one prompt only.
+                self.keysInstead = false
+                if frame.prompt != nil { self.answeredID = nil }
+            }
+            self.prompt = frame.prompt
             self.phase = .live
             if self.awaitingFirstPicture {
                 self.awaitingFirstPicture = false

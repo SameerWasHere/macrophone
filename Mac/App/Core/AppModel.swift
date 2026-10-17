@@ -541,6 +541,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         watch.click(point, for: peerID)
     }
 
+    func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {
+        watch.choose(promptID, index: index, for: peerID)
+    }
+
     func installedApps(_ server: LinkServer) async -> [MacApp] {
         let list = await AppCatalog.installed()
         log.add("sent the phone \(list.count) installed apps")

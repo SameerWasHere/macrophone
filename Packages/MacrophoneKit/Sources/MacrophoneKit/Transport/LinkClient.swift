@@ -409,7 +409,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .listApps, .openApp:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .watchChoose, .listApps, .openApp:
             break
         }
     }
@@ -503,6 +503,12 @@ public final class LinkClient: @unchecked Sendable {
     public func watchAction(_ action: WatchAction) {
         guard let s = lock.sync({ session }) else { return }
         Task { try? await s.send(.watchAction(action)) }
+    }
+
+    /// Answer the prompt the watched window showed with the answer at `index`.
+    public func watchChoose(_ prompt: WatchPrompt, index: Int) {
+        guard let s = lock.sync({ session }) else { return }
+        Task { try? await s.send(.watchChoose(promptID: prompt.id, index: index)) }
     }
 
     /// Ask the Mac for its installed apps (the answer comes to the delegate). False when not connected.

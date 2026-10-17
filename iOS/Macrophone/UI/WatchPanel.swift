@@ -326,11 +326,67 @@ struct WatchStrip: View {
 
 /// Esc · ↑ · ↓ · Return — the same four keys in every app (Sameer, Oct 14 2026: "basic things
 /// that allow the user to navigate very quickly or confirm things very quickly") — and Pan | Scroll,
-/// all on one row under the thumb (Oct 16 2026).
+/// all on one row under the thumb (Oct 16 2026). While the window asks a question, its answers take
+/// the keys' place ("the buttons should replace the default up, down, return, esc buttons"), with
+/// Esc and Keys kept small beside the switch.
 struct WatchActions: View {
     @ObservedObject var watcher: Watcher
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        Group {
+            if let p = watcher.answers {
+                answers(p)
+                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
+            } else {
+                keys.transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86), value: watcher.answers?.id)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+    }
+
+    private func answers(_ p: WatchPrompt) -> some View {
+        VStack(spacing: 6) {
+            ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                Button { watcher.choose(i) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        if let n = c.number {
+                            Text("\(n)").font(.mono(.footnote, weight: .semibold)).foregroundStyle(Ink.tertiary)
+                        }
+                        Text(c.label)
+                            .font(.subheadline.weight(.semibold))
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .nativeGlassButton()
+                .accessibilityLabel(c.label)
+                .accessibilityHint("Answers \(watcher.name) on your Mac.")
+                .accessibilityIdentifier("watch-answer-\(i)")
+            }
+            HStack(spacing: 6) {
+                key(.escape, label: Text("Esc"), name: "Escape").fixedSize()
+                Button { watcher.showKeys() } label: {
+                    Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold)).frame(minHeight: 30)
+                }
+                .nativeGlassButton()
+                .controlSize(.small)
+                .fixedSize()
+                .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
+                .accessibilityIdentifier("watch-keys")
+                Spacer(minLength: 0)
+                WatchDragSwitch(watcher: watcher).fixedSize()
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
+    }
+
+    private var keys: some View {
         HStack(spacing: 6) {
             key(.escape, label: Text("Esc"), name: "Escape")
             key(.arrowUp, label: Image(systemName: "arrow.up"), name: "Up arrow")
@@ -340,7 +396,6 @@ struct WatchActions: View {
                 .fixedSize()
                 .padding(.leading, 4)
         }
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
     private func key<L: View>(_ a: WatchAction, label: L, name: String) -> some View {
