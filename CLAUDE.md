@@ -38,6 +38,35 @@ devicectl copies the file in and launches with the variable; the result shows on
 never sent). Cleanup already gets the newest Foundation model the OS ships (iOS 27 picks the
 variant itself) and is prewarmed when the mic opens.
 
+## Watching, one-handed (Oct 16 2026)
+
+- **Pan | Scroll** ends the key row (under the thumb): one finger moves the picture (the default,
+  every time a window opens) or scrolls the Mac's window. Newest sits in the window's corner once
+  you've moved away.
+- **The window's question as buttons.** The Mac reads the bottom half of the watched picture with
+  Vision (`PromptVision`, *fast* level: accurate hangs on some Macs; the reader forgives fast's
+  slips — "l." for "1.", "7" for "?", "AuthView. swift") into a `WatchPrompt` (`PromptReader`:
+  the last numbered list near the bottom with a marked answer or a question above it, or a
+  "(y/n)"), sent on each `WatchFrame`. The phone shows the answers instead of Esc/↑/↓/Return
+  (Esc and Keys stay small); a tap sends `watchChoose(promptID, index)` and the Mac presses the
+  keys only if that question is still up (arrows from the highlighted answer, then Return).
+- **Flip between windows.** The name at the top is a menu of the Mac's windows, dots say where you
+  are, a swipe in from a side edge goes to the next/previous; Send to follows the window shown.
+- **Your agent needs you.** A phone puts `features: ["attention"]` in its hello (older peers never
+  get a message they can't decode — an unknown message ends a session). While one is connected,
+  `AttentionWatcher` looks at agent windows (`AppQuirks.terminals` + `agentApps` + the Send-to
+  place) every 5 s, reads a question off any nobody watches and sends `.attention` once per
+  question; the phone posts a notification, and a tap opens that window. Only while the phone
+  app is connected — **when it's closed, nothing arrives yet.** The next step is the person's own
+  iCloud (a CloudKit record the Mac writes, a query subscription on the phone that Apple pushes);
+  it needs one-time setup on developer.apple.com — an iCloud container
+  `iCloud.com.sameer.macrophone`, iCloud + Push on the App IDs, then the schema deployed to
+  Production in the CloudKit Console. Xcode here has no signed-in account and the API key can't
+  make containers.
+- Demo: `mpctl serve` draws a window per place, reads its prompt with the same reader, answers
+  `watchChoose`, and sends one alert for its codex window (`--attention-after <s>`,
+  `--no-attention`). Phone hooks: `MACROPHONE_WATCH_ACTIONS=pan,scroll,answer@N,keys,next,prev,attend@<bundle>@<window>`.
+
 ## Checks
 
 ```
