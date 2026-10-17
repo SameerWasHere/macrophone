@@ -187,7 +187,10 @@ final class WatchService {
             return
         }
         let w = Watch(peer: peer, target: target)
-        w.wantsVideo = app.server.phones(with: WatchVideo.feature).contains(peer)
+        // Video only when asked for (Oct 17 2026): a Mac whose video chip is busy elsewhere stalls
+        // for seconds on a frame, and scrolling was worse than with pictures, which take a few
+        // milliseconds on any Mac. Defaults write com.sameer.macrophone.mac watch.video -bool YES.
+        w.wantsVideo = app.server.phones(with: WatchVideo.feature).contains(peer) && UserDefaults.standard.bool(forKey: "watch.video")
         watches[peer] = w
         app.log.add("watching started (\(AppModel.kind(SendSelection(target: target))), \(w.wantsVideo ? "video" : "pictures"))")
         w.task = Task { [weak self] in await self?.run(w) }
@@ -265,7 +268,7 @@ final class WatchService {
                 w.windowID = nil
                 return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
             }
-            let s = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: w.wantsVideo ? WindowStream.videoRate : WindowStream.pictureRate)
+            let s = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: fast(w) ? WindowStream.videoRate : WindowStream.pictureRate)
             s.onFrame = { [weak self, weak w, weak s] pixels, changed in
                 Task { @MainActor in
                     guard let self, let w, let s, w.stream === s else { return }
@@ -312,11 +315,16 @@ final class WatchService {
         if w.sendTask == nil { w.sendTask = Task { [weak self] in await self?.drain(w) } }
     }
 
+    /// Frames at the quick pace (ten a second while the window changes a lot): video, or pictures
+    /// over the home network — a JPEG is a few milliseconds to make and ~200 KB, easy for Wi-Fi;
+    /// away from home, pictures keep the slower pace.
+    private func fast(_ w: Watch) -> Bool { w.wantsVideo || !app.isRemote(w.peer) }
+
     /// Sends pictures as they're due, newest first, until none is waiting.
     private func drain(_ w: Watch) async {
         while watches[w.peer] === w, !Task.isCancelled, let pixels = w.latest {
             let seq = w.latestSeq
-            let interval = Date() < w.forceUntil ? 0 : WatchPacing.minimumInterval(changed: w.changedSince, video: w.wantsVideo)
+            let interval = Date() < w.forceUntil ? 0 : WatchPacing.minimumInterval(changed: w.changedSince, video: fast(w))
             if interval == .infinity { w.latest = nil; continue }
             let due = w.lastSentAt.addingTimeInterval(interval)
             if Date() < due { await w.pause(due.timeIntervalSinceNow); continue }
