@@ -1,6 +1,5 @@
 import AppKit
 import Carbon.HIToolbox
-import CryptoKit
 import Foundation
 import ImageIO
 import MacrophoneKit
@@ -8,9 +7,15 @@ import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 /// Watching (Oct 14 2026): a connected phone asks to see the window of the place it sends to, and
-/// this sends it pictures of that one window — about two a second, and only when it changed —
-/// plus the phone's keys (Esc, ↑, ↓, Return) and clicks where it's tapped. Never the whole screen,
-/// never another window; it stops when the phone stops looking or goes away.
+/// this sends it pictures of that one window — plus the phone's keys (Esc, ↑, ↓, Return) and
+/// clicks where it's tapped. Never the whole screen, never another window; it stops when the
+/// phone stops looking or goes away.
+///
+/// The pictures come from a stream of the window (Oct 16 2026, `WindowStream`): the window server
+/// hands one over only when the window changed, so a still window costs nothing, and a change
+/// shows on the phone in a fraction of a second. How much changed decides how soon the next
+/// picture goes (`WatchPacing`): a caret or a spinner every few seconds, new output at once.
+/// A loop every 1.5 s only checks the window is still there and on screen.
 ///
 /// Needs Screen Recording for the pictures (the phone says so and can open the setting here) and
 /// Accessibility for the actions (which pasting already needs).
@@ -29,19 +34,30 @@ final class WatchService {
         var appName = ""
         var focus: CGRect?
         var focusAt = Date.distantPast
-        var lastDigest: Data?
         var lastState: WatchState?
         var seq = 0
+        /// The stream of the window's pictures, while it's on screen.
+        var stream: WindowStream?
+        /// The newest picture not sent yet, and how much of the window changed since the last one sent.
+        var latest: CVPixelBuffer?
+        var latestSeq = 0
+        var changedSince = 0.0
+        /// The biggest single change since the question was last read.
+        var changedSinceRead = 0.0
+        var lastSentAt = Date.distantPast
+        /// Until when the next picture goes at once, whatever changed (an action just happened).
+        var forceUntil = Date.distantPast
+        var sendTask: Task<Void, Never>?
         /// The question the window is asking, as last read (sent with each picture).
         var prompt: WatchPrompt?
         /// When it's asked with real controls (a question card), the controls to press.
         var axPrompt: AXPrompt?
-        /// The picture changed since the prompt was last read.
-        var promptStale = true
         var promptAt = Date.distantPast
         /// The wait between looks, so an action can cut it short.
         private var waiting: CheckedContinuation<Void, Never>?
         private var waitTimer: Task<Void, Never>?
+        /// The wait before the next picture is due (pacing), cut short by an action.
+        private var pacing: Task<Void, Never>?
         init(peer: UUID, target: TargetRef) { self.peer = peer; self.target = target }
 
         /// Sleeps `seconds`, or until `wake()` — one timer, no polling in between.
@@ -55,7 +71,7 @@ final class WatchService {
             }
         }
 
-        /// Capture again right away (an action just happened).
+        /// Look again right away (an action just happened).
         @MainActor func wake() {
             waitTimer?.cancel()
             waitTimer = nil
@@ -63,18 +79,49 @@ final class WatchService {
             waiting = nil
             c?.resume()
         }
+
+        @MainActor func pause(_ seconds: Double) async {
+            let t: Task<Void, Never> = Task { _ = try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1e9)) }
+            pacing = t
+            await t.value
+            pacing = nil
+        }
+
+        /// The next picture goes now, whatever changed (an action just happened).
+        @MainActor func hurry() {
+            forceUntil = Date().addingTimeInterval(2)
+            pacing?.cancel()
+            pacing = nil
+        }
+
+        @MainActor func dropStream() {
+            guard let s = stream else { return }
+            stream = nil
+            latest = nil
+            Task { await s.stop() }
+        }
     }
 
     private var watches: [UUID: Watch] = [:]
     private var content: SCShareableContent?
     private var contentAt = Date.distantPast
     private var askedForPermission = false
+    /// The widest picture sent, in pixels.
+    static let maxWidth: CGFloat = 1500
 
     /// Who's watching what, for the menu ("Your iPhone is watching Claude").
     private(set) var watching: [UUID: String] = [:]
     var onChange: () -> Void = {}
 
     init(app: AppModel) { self.app = app }
+
+    #if DEBUG
+    /// MACROPHONE_WATCH_TIMING=1: one line per picture with what each stage cost (numbers only).
+    private let timing = ProcessInfo.processInfo.environment["MACROPHONE_WATCH_TIMING"] == "1"
+    #else
+    private let timing = false
+    #endif
+    private static func ms(_ t: DispatchTime) -> Int { Int((DispatchTime.now().uptimeNanoseconds - t.uptimeNanoseconds) / 1_000_000) }
 
     static let screenRecordingSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
 
@@ -86,7 +133,7 @@ final class WatchService {
             if w.target != target {
                 w.target = target
                 w.windowID = nil
-                w.lastDigest = nil
+                w.dropStream()
                 w.focus = nil
                 w.focusAt = .distantPast
             }
@@ -102,6 +149,8 @@ final class WatchService {
     func stop(_ peer: UUID) {
         guard let w = watches.removeValue(forKey: peer) else { return }
         w.task?.cancel()
+        w.sendTask?.cancel()
+        w.dropStream()
         w.wake()
         watching[peer] = nil
         onChange()
@@ -113,46 +162,78 @@ final class WatchService {
     /// The windows phones are looking at now.
     var watchedWindows: Set<CGWindowID> { Set(watches.values.compactMap(\.windowID)) }
 
-    // MARK: The loop
+    // MARK: The loop — is the window there?
 
     private func run(_ w: Watch) async {
         while !Task.isCancelled, watches[w.peer] === w {
-            let state = await captureOnce(w)
-            if let state, state != w.lastState {
+            let state = await look(w)
+            if state != w.lastState {
                 w.lastState = state
                 if case .live(let name) = state { watching[w.peer] = name } else { watching[w.peer] = nil }
                 onChange()
                 await app.server.send(.watchState(state), to: w.peer)
             }
-            // About two a second; sooner after an action; slower while there's nothing to show.
-            let wait = (state.map { if case .live = $0 { return 0.5 } else { return 1.5 } } ?? 0.5)
-            if !Task.isCancelled { await w.wait(wait) }
+            if !Task.isCancelled { await w.wait(1.5) }
         }
     }
 
-    /// One look at the window: sends a picture if it changed, and returns how watching is going.
-    private func captureOnce(_ w: Watch) async -> WatchState? {
+    /// One check: the window is there and on screen, the stream is running, and where the place
+    /// to type is. Returns how watching is going.
+    private func look(_ w: Watch) async -> WatchState {
         // Where to look.
-        if let reason = await resolve(w) { return reason }
-        guard let wid = w.windowID else { return .unavailable("Nothing to show", canReveal: false) }
+        if let reason = await resolve(w) { w.dropStream(); return reason }
+        guard let wid = w.windowID, let place = WindowServer.info(wid) else {
+            w.windowID = nil
+            w.dropStream()
+            return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
+        }
 
         // Permission: ask once per launch, then only look. Touching ScreenCaptureKit while it's off
-        // raises the system prompt again — every second and a half, when the grant is stale.
+        // raises the system prompt again — every look, when the grant is stale.
         if !CGPreflightScreenCaptureAccess() {
             if !askedForPermission {
                 askedForPermission = true
                 app.log.add("watching: Screen Recording is off — asked once")
                 CGRequestScreenCaptureAccess()
             }
+            w.dropStream()
             return .needsPermission
         }
-
-        guard let scw = await scWindow(wid) else {
-            w.windowID = nil
-            return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
-        }
-        guard scw.isOnScreen else {
+        guard place.onScreen else {
             return .unavailable("\(w.appName)'s window is minimized or on another desktop", canReveal: true)
+        }
+
+        if let s = w.stream {
+            await s.resize(to: place.bounds.size, maxWidth: Self.maxWidth)
+        } else {
+            guard let scw = await scWindow(wid) else {
+                w.windowID = nil
+                return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
+            }
+            let s = WindowStream(window: scw, maxWidth: Self.maxWidth)
+            s.onFrame = { [weak self, weak w, weak s] pixels, changed in
+                Task { @MainActor in
+                    guard let self, let w, let s, w.stream === s else { return }
+                    self.arrived(pixels, changed: changed, w)
+                }
+            }
+            s.onStop = { [weak self, weak w, weak s] _ in
+                Task { @MainActor in
+                    guard let self, let w, w.stream === s else { return }
+                    w.dropStream()
+                    self.content = nil
+                    w.wake()
+                }
+            }
+            do { try await s.start() } catch {
+                if !CGPreflightScreenCaptureAccess() { return .needsPermission }
+                content = nil
+                app.log.add("watching: the window's stream didn't start")
+                return .unavailable("Couldn't see \(w.appName)'s window", canReveal: true)
+            }
+            w.stream = s
+            w.forceUntil = Date().addingTimeInterval(5)
+            app.log.add("watching: streaming the window")
         }
 
         // Where the place to type is (every few seconds; off the main thread — it walks the window).
@@ -161,54 +242,76 @@ final class WatchService {
             let pid = w.pid, bid = w.bundleID
             w.focus = await Task.detached(priority: .utility) { Self.focusRect(pid: pid, windowID: wid, bundleID: bid) }.value ?? w.focus
         }
+        return .live(appName: w.appName)
+    }
 
-        let filter = SCContentFilter(desktopIndependentWindow: scw)
-        let cfg = SCStreamConfiguration()
-        let scale = CGFloat(filter.pointPixelScale)
-        let pxW = max(1, scw.frame.width * scale), pxH = max(1, scw.frame.height * scale)
-        let k = min(1, 1500 / pxW)
-        cfg.width = Int(pxW * k)
-        cfg.height = Int(pxH * k)
-        cfg.showsCursor = false
-        cfg.ignoreShadowsSingleWindow = true
-        let image: CGImage
-        do {
-            image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
-        } catch {
-            if !CGPreflightScreenCaptureAccess() { return .needsPermission }
-            content = nil
-            return .unavailable("Couldn't see \(w.appName)'s window", canReveal: true)
+    // MARK: Pictures
+
+    /// A new picture from the stream: the newest wins; it goes when the pacing allows.
+    private func arrived(_ pixels: CVPixelBuffer, changed: Double, _ w: Watch) {
+        w.latest = pixels
+        w.latestSeq &+= 1
+        w.changedSince = min(1, w.changedSince + changed)
+        w.changedSinceRead = max(w.changedSinceRead, changed)
+        if w.sendTask == nil { w.sendTask = Task { [weak self] in await self?.drain(w) } }
+    }
+
+    /// Sends pictures as they're due, newest first, until none is waiting.
+    private func drain(_ w: Watch) async {
+        while watches[w.peer] === w, !Task.isCancelled, let pixels = w.latest {
+            let seq = w.latestSeq
+            let interval = Date() < w.forceUntil ? 0 : WatchPacing.minimumInterval(changed: w.changedSince)
+            if interval == .infinity { w.latest = nil; continue }
+            let due = w.lastSentAt.addingTimeInterval(interval)
+            if Date() < due { await w.pause(due.timeIntervalSinceNow); continue }
+            // Only a picture that goes is made into an image (a copy of the window's pixels).
+            guard let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value else { w.latest = nil; continue }
+            // The question it's asking: read with each picture (about once a second at most) — but
+            // not before the first one, which goes out as fast as it can; then once it's out.
+            if w.seq > 0 { _ = await readPrompt(w, image) }
+            await send(image, w)
+            if w.latestSeq == seq { w.latest = nil }
+            if w.seq == 1, w.latest == nil, await readPrompt(w, image) { await send(image, w) }
         }
-        // Encoding a window-sized JPEG and hashing it take tens of milliseconds: off the main
-        // thread, so the menu, the popup and a paste never wait on a picture.
-        guard let (data, digest) = await Task.detached(priority: .utility) { Self.encode(image) }.value else { return nil }
-        let live = WatchState.live(appName: w.appName)
-        let changed = digest != w.lastDigest
-        if changed { w.promptStale = true }
-        // The question the window is asking: read when the picture changed, about once a second at
-        // most (a change it skips is read on a later look, so answers never outlive the question).
-        // Not before the first picture, which goes out as fast as it can.
-        var promptChanged = false
-        if w.promptStale, w.seq > 0, Date().timeIntervalSince(w.promptAt) > 0.8 {
-            w.promptStale = false
-            w.promptAt = Date()
-            // Controls first (exact: Claude's question card), else the picture — only the
-            // conversation's column of it, so a sidebar of chats isn't read in.
-            let pid = w.pid
-            let ax = Paster.isTrusted ? await Task.detached(priority: .utility) { AXPrompt.read(pid: pid, windowID: wid) }.value : nil
-            w.axPrompt = ax
-            let column = w.focus.map { max(0, Double($0.minX) - 0.04)...min(1, Double($0.maxX) + 0.02) }
-            let p: WatchPrompt? = if let ax { ax.prompt } else { await PromptVision.read(image, column: column) }
-            if p != w.prompt { w.prompt = p; promptChanged = true }
-        }
-        guard changed || promptChanged else { return live }
-        w.lastDigest = digest
+        w.sendTask = nil
+    }
+
+    /// Reads the question off the window (controls first — exact, Claude's question card — else
+    /// the picture, only the conversation's column of it, so a sidebar of chats isn't read in).
+    /// Not for a caret or a spinner: only once something bigger than that changed since the last
+    /// read (text recognition takes a tenth of a second). Returns whether it changed.
+    private func readPrompt(_ w: Watch, _ image: CGImage) async -> Bool {
+        guard let wid = w.windowID, Date().timeIntervalSince(w.promptAt) > 0.8,
+              w.changedSinceRead >= WatchPacing.unreadable || w.promptAt == .distantPast else { return false }
+        w.promptAt = Date()
+        w.changedSinceRead = 0
+        let t = DispatchTime.now()
+        let pid = w.pid
+        let ax = Paster.isTrusted ? await Task.detached(priority: .utility) { AXPrompt.read(pid: pid, windowID: wid) }.value : nil
+        w.axPrompt = ax
+        let column = w.focus.map { max(0, Double($0.minX) - 0.04)...min(1, Double($0.maxX) + 0.02) }
+        let p: WatchPrompt? = if let ax { ax.prompt } else { await PromptVision.read(image, column: column) }
+        if timing { print("[watch] prompt(\(ax != nil ? "ax" : "vision")) \(Self.ms(t))"); fflush(stdout) }
+        guard p != w.prompt else { return false }
+        w.prompt = p
+        return true
+    }
+
+    private func send(_ image: CGImage, _ w: Watch) async {
+        let t = DispatchTime.now()
+        // Encoding a window-sized JPEG takes a few milliseconds: off the main thread, so the menu,
+        // the popup and a paste never wait on a picture.
+        guard let data = await Task.detached(priority: .utility) { Self.encode(image) }.value else { return }
+        let encoded = Self.ms(t)
         w.seq += 1
+        w.lastSentAt = Date()
+        w.changedSince = 0
+        w.forceUntil = .distantPast
         let frame = WatchFrame(seq: w.seq, jpeg: data, width: image.width, height: image.height,
                                appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
         // Waits until it's on the wire: a slow link gets fewer pictures, never a backlog.
         await app.server.send(.watchFrame(frame), to: w.peer)
-        return live
+        if timing { print("[watch] encode \(encoded) · send \(data.count / 1024) KB \(Self.ms(t) - encoded)"); fflush(stdout) }
     }
 
     /// Finds the window to show (once; again only when it's gone). Nil = found.
@@ -218,7 +321,6 @@ final class WatchService {
             return nil
         }
         w.windowID = nil
-        w.lastDigest = nil
         switch w.target {
         case .clipboard:
             return .unavailable("Clipboard has no window — pick an app to watch it", canReveal: false)
@@ -275,13 +377,12 @@ final class WatchService {
         return c.windows.first { $0.windowID == id }
     }
 
-    /// The picture for the wire and its digest (for "did it change?"). A very large one is
-    /// encoded again smaller, so a frame always fits the link.
-    nonisolated static func encode(_ image: CGImage) -> (Data, Data)? {
-        guard var data = jpeg(image, quality: 0.6) else { return nil }
-        let digest = Data(SHA256.hash(data: data))
-        if data.count > 900_000, let smaller = jpeg(image, quality: 0.35) { data = smaller }
-        return (data, digest)
+    /// The picture for the wire. A very large one is encoded again smaller, so a frame always
+    /// fits the link.
+    nonisolated static func encode(_ image: CGImage) -> Data? {
+        guard let data = jpeg(image, quality: 0.6) else { return nil }
+        if data.count > 900_000, let smaller = jpeg(image, quality: 0.35) { return smaller }
+        return data
     }
 
     nonisolated static func jpeg(_ image: CGImage, quality: Double) -> Data? {
@@ -359,7 +460,6 @@ final class WatchService {
     func choose(_ promptID: String, index: Int, for peer: UUID) {
         // A question card: press its controls where they are; the window stays where it is.
         if let w = watches[peer], let p = w.prompt, p.id == promptID, p.style == .pressed, let ax = w.axPrompt {
-            w.promptStale = true
             w.promptAt = .distantPast
             act(on: peer, what: "choose") { [weak self] _ in
                 guard let pt = ax.point(for: index) else { self?.app.log.add("watch choose: the card's controls are gone"); return }
@@ -373,7 +473,6 @@ final class WatchService {
             app.log.add("watch choose skipped: the window moved on")
             return
         }
-        w.promptStale = true
         w.promptAt = .distantPast
         act(on: peer, what: "choose") { _ in
             for k in keys {
@@ -397,7 +496,8 @@ final class WatchService {
     }
 
     /// Brings the watched window forward if it isn't already the front one, does `body`, and
-    /// shows the result: a picture right away, and another once the app has answered.
+    /// shows the result: the next picture the window gives goes at once (a swipe's scrolling
+    /// keeps its pace — ten pictures a second would swamp the link).
     private func act(on peer: UUID, what: String, quiet: Bool = false, _ body: @escaping @MainActor (CGWindowID) async -> Void) {
         guard let w = watches[peer], let wid = w.windowID,
               let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
@@ -415,10 +515,9 @@ final class WatchService {
                     return
                 }
             }
+            if !quiet { w.hurry() }
             await body(wid)
             if !quiet { self?.app.log.add("watch \(what)") }
-            w.wake()
-            try? await Task.sleep(nanoseconds: 400_000_000)
             w.wake()
         }
     }

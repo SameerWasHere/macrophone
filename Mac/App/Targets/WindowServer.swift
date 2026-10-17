@@ -47,8 +47,13 @@ enum WindowServer {
         return out
     }
 
-    static func exists(_ id: CGWindowID) -> Bool {
-        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]] else { return false }
-        return list.contains { ($0[kCGWindowNumber as String] as? CGWindowID) == id }
+    static func exists(_ id: CGWindowID) -> Bool { info(id) != nil }
+
+    /// One window's place: nil when it's gone; on screen = on this desktop and not minimized.
+    static func info(_ id: CGWindowID) -> (onScreen: Bool, bounds: CGRect)? {
+        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]],
+              let w = list.first(where: { ($0[kCGWindowNumber as String] as? CGWindowID) == id }) else { return nil }
+        let bounds = (w[kCGWindowBounds as String] as? [String: Any]).flatMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) } ?? .zero
+        return ((w[kCGWindowIsOnscreen as String] as? Bool) ?? false, bounds)
     }
 }
