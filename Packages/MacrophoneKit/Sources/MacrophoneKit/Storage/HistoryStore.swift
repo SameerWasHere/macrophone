@@ -77,13 +77,19 @@ public final class HistoryStore<Item: Codable & Identifiable & Sendable>: @unche
         try? FileManager.default.removeItem(at: url)
     }
 
+    /// Writes happen here, in order, never on the caller's thread (a dictation lands on the main thread).
+    private let writeQueue = DispatchQueue(label: "macrophone.history", qos: .utility)
+
     private func persist() {
         lock.lock()
         guard enabled else { lock.unlock(); return }
         let snapshot = items
         lock.unlock()
-        if let d = try? WireCoding.encoder.encode(snapshot) {
-            try? d.write(to: url, options: [.atomic])
+        let url = self.url
+        writeQueue.async {
+            if let d = try? WireCoding.encoder.encode(snapshot) {
+                try? d.write(to: url, options: [.atomic])
+            }
         }
     }
 }
