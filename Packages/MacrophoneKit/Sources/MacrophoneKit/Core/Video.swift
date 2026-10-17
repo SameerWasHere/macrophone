@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreMedia
 import CoreVideo
 import Foundation
+import QuartzCore
 import VideoToolbox
 
 // Video instead of still pictures (Oct 17 2026): the watched window goes as HEVC — the Mac's
@@ -127,11 +128,13 @@ public extension WatchVideoFrame {
 
 // MARK: Encoding (the Mac, mpctl)
 
-/// HEVC, hardware, real time, no B-frames: one frame in, its bytes out, on the caller's thread.
-/// Made per watch; a new one starts on a keyframe. When the hardware encoder runs slow (another
-/// app has it — screen sharing, a call — and a frame takes a third of a second or more) the rest
-/// of the watch is encoded in software, which keeps up at these sizes and rates.
-/// One caller at a time (the watch's own loop); hence Sendable by hand.
+/// HEVC, hardware, real time, no B-frames — and never waited on (Oct 17 2026, after Sill's
+/// HEVCEncoder). A frame is handed in (`submit`) and the call returns at once: one frame is inside
+/// VideoToolbox at a time, the next waits in a one-slot mailbox where a newer frame replaces it,
+/// so the loop that sends frames is never behind an encode and a slow encoder drops frames
+/// instead of queueing them. Each encoded frame comes back on `onEncoded`, in order, with how long
+/// it took. A watchdog gives up on a session that holds a frame for `hangAfter` seconds
+/// (`onHung`; the Mac then sends pictures). Made per watch; a new one starts on a keyframe.
 public final class VideoEncoder: @unchecked Sendable {
     public struct Encoded: Sendable {
         public var data: Data
@@ -139,46 +142,66 @@ public final class VideoEncoder: @unchecked Sendable {
         public var keyframe: Bool
     }
 
+    /// What became of a frame handed in.
+    public enum Admission: Equatable, Sendable {
+        /// Into VideoToolbox now.
+        case goesIn
+        /// The encoder is busy: it waits, and `replaced` says it pushed out an older waiting frame.
+        case waits(replaced: Bool)
+        /// The encoder is dead (the watchdog gave up on it): dropped.
+        case dropped
+    }
+
     public let width: Int
     public let height: Int
     private let rate: Int
-    private var session: VTCompressionSession
-    /// Encoding in software (asked for).
-    public private(set) var software: Bool
-    /// The hardware can't keep up (Oct 17 2026): most of the recent encodes were slow, or it stalled
-    /// twice. The watch then goes on as pictures — a JPEG takes a few milliseconds, while software
-    /// video takes fifty, too slow for a window scrolling at ten frames a second. The first few
-    /// encodes, while the encoder settles in, and a lone spike don't count: switching on those made
-    /// a whole session slow.
-    public private(set) var struggling = false
-    private var recent: [Double] = []
-    private var stalls = 0
+    private let session: VTCompressionSession
+    /// Encoding in software (asked for — a proof, a test).
+    public let software: Bool
+    /// Called on VideoToolbox's thread with each frame's bytes, in the order the frames went in,
+    /// and the seconds from hand-over to output.
+    public var onEncoded: (@Sendable (Encoded, TimeInterval) -> Void)?
+    /// Called once, on the watchdog's queue, when a frame has been inside VideoToolbox for
+    /// `hangAfter` seconds with no output. The encoder is dead afterwards: it drops every frame.
+    public var onHung: (@Sendable () -> Void)?
+
+    private let lock = NSLock()
+    /// The frame inside VideoToolbox: when it went in. Nil while the place is free.
+    private var insideSince: TimeInterval?
+    /// The newest frame that found the place taken.
+    private var waiting: CVPixelBuffer?
+    private var dead = false
+    private var keyframeWanted = true
     private var frames = 0
     private var lastParameterSets: [Data]?
-    /// The next frame is a keyframe (asked for, or the first).
-    private var keyframeWanted = true
-    /// A hardware encode this long (seconds — a free one takes a few milliseconds) is the encoder
-    /// busy elsewhere.
-    public static let slowEncode = 0.06
-    /// One this long is a stall.
-    public static let stalledEncode = 0.5
-    /// Encodes not judged while the encoder settles in.
-    public static let settling = 4
+    private var health = EncoderHealth()
+    private let encodeQueue = DispatchQueue(label: "macrophone.video-encode", qos: .userInteractive)
+    /// Its own queue: a hung VideoToolbox hangs inside the encode call on `encodeQueue`, and a timer
+    /// queued behind it would never fire.
+    private let watchdogQueue = DispatchQueue(label: "macrophone.video-watchdog", qos: .utility)
+    private var watchdog: DispatchSourceTimer?
+    /// A frame inside this long with no output: the session is given up on.
+    public static let hangAfter: TimeInterval = 1.5
 
     /// Bits a second for the picture's size: enough that text stays crisp — about 2 bits a pixel at
-    /// the rate the window's stream runs (ten a second at most; most of the time far fewer go, and
-    /// a frame that goes alone gets the whole budget).
+    /// the rate the window's stream runs (most of the time far fewer frames go, and a frame that
+    /// goes alone gets the whole budget).
     public static func bitrate(width: Int, height: Int, rate: Int) -> Int {
         max(2_000_000, min(40_000_000, width * height * 2 * rate / 10))
     }
 
-    public init(width: Int, height: Int, rate: Int = 10, software: Bool = false) throws {
+    public init(width: Int, height: Int, rate: Int = 30, software: Bool = false) throws {
         // HEVC wants even sizes.
         self.width = width & ~1
         self.height = height & ~1
         self.rate = rate
         self.software = software
         session = try Self.makeSession(width: self.width, height: self.height, rate: rate, software: software)
+        let t = DispatchSource.makeTimerSource(queue: watchdogQueue)
+        t.schedule(deadline: .now() + 0.5, repeating: 0.5, leeway: .milliseconds(100))
+        t.setEventHandler { [weak self] in self?.checkWatchdog() }
+        t.resume()
+        watchdog = t
     }
 
     private static func makeSession(width: Int, height: Int, rate: Int, software: Bool) throws -> VTCompressionSession {
@@ -197,6 +220,8 @@ public final class VideoEncoder: @unchecked Sendable {
         set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
         set(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel)
         set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
+        // Latency over polish: a frame out sooner beats a slightly smaller one.
+        set(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanTrue)
         // A keyframe every few seconds of frames, besides the ones asked for. Frames are stamped
         // by count, not the clock: a window that changes once a minute isn't paying a keyframe
         // each time, and a lost frame is never silent — the phone asks for a keyframe.
@@ -211,51 +236,128 @@ public final class VideoEncoder: @unchecked Sendable {
     }
 
     deinit {
-        VTCompressionSessionInvalidate(session)
+        watchdog?.cancel()
+        lock.lock()
+        let stalled = dead && insideSince != nil
+        lock.unlock()
+        // Never tear a live session down with a frame still inside the hardware encoder (Sill saw
+        // that wedge the chip for every later session until a reboot): a live one is drained
+        // first, which can take a frame's time; a dead one is never waited on, since a stuck
+        // encoder never lets go — so none of this runs on the caller's thread.
+        let session = self.session
+        DispatchQueue.global(qos: .utility).async {
+            if !stalled { VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid) }
+            VTCompressionSessionInvalidate(session)
+        }
     }
 
     /// The next frame stands on its own (a phone asked, or came back).
-    public func requestKeyframe() { keyframeWanted = true }
+    public func requestKeyframe() { lock.lock(); keyframeWanted = true; lock.unlock() }
 
-    /// Encodes one frame and waits for its bytes. Nil when the encoder gave nothing (it's then
-    /// best to make a new one).
-    public func encode(_ buffer: CVPixelBuffer) -> Encoded? {
-        let key = keyframeWanted
-        keyframeWanted = false
-        let props: CFDictionary? = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary : nil
-        let pts = CMTime(value: CMTimeValue(frames), timescale: CMTimeScale(rate))
-        let box = Box()
-        let started = Date()
-        let status = VTCompressionSessionEncodeFrame(session, imageBuffer: buffer, presentationTimeStamp: pts, duration: CMTime(value: 1, timescale: CMTimeScale(rate)),
-                                                     frameProperties: props, infoFlagsOut: nil) { status, _, sb in
-            guard status == noErr, let sb else { box.signal(); return }
-            box.set(sb)
+    /// The watchdog gave up on this session.
+    public var isDead: Bool { lock.lock(); defer { lock.unlock() }; return dead }
+
+    /// The chip can't keep up (`EncoderHealth`): most recent frames were slow, or it stalled
+    /// twice. The watch then goes on as pictures.
+    public var struggling: Bool { lock.lock(); defer { lock.unlock() }; return health.struggling }
+
+    /// Hands a frame in and returns at once; its bytes come back on `onEncoded`.
+    @discardableResult
+    public func submit(_ buffer: CVPixelBuffer) -> Admission {
+        lock.lock()
+        guard !dead else { lock.unlock(); return .dropped }
+        if insideSince != nil {
+            let replaced = waiting != nil
+            waiting = buffer
+            lock.unlock()
+            return .waits(replaced: replaced)
         }
-        guard status == noErr else { return nil }
-        box.wait()
-        guard let sb = box.take() else { return nil }
-        frames += 1
-        let took = Date().timeIntervalSince(started)
-        if !software, frames > Self.settling {
-            recent.append(took)
-            if recent.count > 8 { recent.removeFirst() }
-            if took >= Self.stalledEncode { stalls += 1 }
-            let slow = recent.filter { $0 >= Self.slowEncode }.count
-            if (recent.count >= 6 && slow * 2 > recent.count) || stalls >= 2 { struggling = true }
-        }
-        return Self.encoded(sb, repeatSets: lastParameterSets, remember: &lastParameterSets)
+        insideSince = CACurrentMediaTime()
+        lock.unlock()
+        encodeQueue.async { [weak self] in self?.encodeNow(buffer) }
+        return .goesIn
     }
 
-    /// The encoded frame, handed from VideoToolbox's thread to the caller's.
+    /// Encodes one frame and waits for its bytes — a proof or a test; the Mac submits. Nil when
+    /// the encoder gave nothing within a few seconds.
+    public func encode(_ buffer: CVPixelBuffer) -> Encoded? {
+        let box = Box()
+        let was = onEncoded
+        onEncoded = { e, _ in box.set(e) }
+        submit(buffer)
+        box.wait()
+        onEncoded = was
+        return box.take()
+    }
+
     private final class Box: @unchecked Sendable {
         private let lock = NSLock()
         private let done = DispatchSemaphore(value: 0)
-        private var sb: CMSampleBuffer?
-        func set(_ s: CMSampleBuffer) { lock.lock(); sb = s; lock.unlock(); done.signal() }
-        func signal() { done.signal() }
-        /// A frame that never comes back (a wedged encoder) is given up on after a while.
+        private var e: Encoded?
+        func set(_ v: Encoded) { lock.lock(); e = v; lock.unlock(); done.signal() }
         func wait() { _ = done.wait(timeout: .now() + 5) }
-        func take() -> CMSampleBuffer? { lock.lock(); defer { lock.unlock() }; return sb }
+        func take() -> Encoded? { lock.lock(); defer { lock.unlock() }; return e }
+    }
+
+    /// encodeQueue: the frame goes into VideoToolbox; its handler frees the place and lets the
+    /// waiting frame in.
+    private func encodeNow(_ buffer: CVPixelBuffer) {
+        lock.lock()
+        guard !dead else { lock.unlock(); return }
+        let key = keyframeWanted
+        keyframeWanted = false
+        let pts = CMTime(value: CMTimeValue(frames), timescale: CMTimeScale(rate))
+        frames += 1
+        insideSince = CACurrentMediaTime()
+        lock.unlock()
+        let props: CFDictionary? = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary : nil
+        let status = VTCompressionSessionEncodeFrame(session, imageBuffer: buffer, presentationTimeStamp: pts, duration: CMTime(value: 1, timescale: CMTimeScale(rate)),
+                                                     frameProperties: props, infoFlagsOut: nil) { [weak self] status, _, sb in
+            guard let self else { return }
+            let encoded: Encoded? = status == noErr && sb != nil ? self.encoded(sb!) : nil
+            // The forced keyframe was dropped (real time over the data-rate cap): ask again, or a
+            // phone waiting for one would wait for good on a still window.
+            self.returned(encoded, keyframeLost: key && encoded == nil)
+        }
+        if status != noErr { returned(nil, keyframeLost: key) }
+    }
+
+    /// VideoToolbox's thread (or `encodeNow`, on a refusal): the place is free, the frame's bytes
+    /// go out, and the waiting frame goes in.
+    private func returned(_ e: Encoded?, keyframeLost: Bool) {
+        lock.lock()
+        guard !dead, let since = insideSince else { lock.unlock(); return }
+        let took = CACurrentMediaTime() - since
+        insideSince = nil
+        if keyframeLost { keyframeWanted = true }
+        if !software, e != nil { health.record(took: took) }
+        let next = waiting
+        waiting = nil
+        if next != nil { insideSince = CACurrentMediaTime() }
+        lock.unlock()
+        if let e { onEncoded?(e, took) }
+        if let next { encodeQueue.async { [weak self] in self?.encodeNow(next) } }
+    }
+
+    /// watchdogQueue, every 0.5 s.
+    private func checkWatchdog() {
+        lock.lock()
+        let hung = !dead && insideSince.map { CACurrentMediaTime() - $0 > Self.hangAfter } ?? false
+        if hung { dead = true; waiting = nil }
+        lock.unlock()
+        guard hung else { return }
+        watchdog?.cancel()
+        onHung?()
+    }
+
+    private func encoded(_ sb: CMSampleBuffer) -> Encoded? {
+        lock.lock()
+        let repeatSets = lastParameterSets
+        lock.unlock()
+        var remember = repeatSets
+        let e = Self.encoded(sb, repeatSets: repeatSets, remember: &remember)
+        if e?.keyframe == true { lock.lock(); lastParameterSets = remember; lock.unlock() }
+        return e
     }
 
     /// The bytes of an encoded frame, with the parameter sets when it's a keyframe.
@@ -302,6 +404,40 @@ public final class VideoEncoder: @unchecked Sendable {
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else { return nil }
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         return pb
+    }
+}
+
+/// Whether the hardware encoder is keeping up, from how long its frames take (pure). The first
+/// few encodes, while the encoder settles in, and a lone spike don't count — switching on those
+/// made a whole session slow. Most of the last eight slow, or two stalls, and the chip is busy
+/// elsewhere (screen sharing, a call, a recording): the watch goes on as pictures, which take a
+/// few milliseconds on any Mac — never software video, which takes fifty, too slow to scroll.
+public struct EncoderHealth: Sendable, Equatable {
+    /// A hardware encode this long (seconds — a free one takes a few milliseconds) is the encoder
+    /// busy elsewhere; at thirty frames a second the budget is a thirtieth.
+    public static let slowEncode = 0.05
+    /// One this long is a stall.
+    public static let stalledEncode = 0.5
+    /// Encodes not judged while the encoder settles in.
+    public static let settling = 4
+    public static let window = 8
+
+    private var seen = 0
+    private var recent: [Double] = []
+    private var stalls = 0
+    public private(set) var struggling = false
+
+    public init() {}
+
+    /// One frame came back after `took` seconds.
+    public mutating func record(took: TimeInterval) {
+        seen += 1
+        guard seen > Self.settling else { return }
+        recent.append(took)
+        if recent.count > Self.window { recent.removeFirst() }
+        if took >= Self.stalledEncode { stalls += 1 }
+        let slow = recent.filter { $0 >= Self.slowEncode }.count
+        if (recent.count >= 6 && slow * 2 > recent.count) || stalls >= 2 { struggling = true }
     }
 }
 

@@ -241,8 +241,9 @@ struct WatchWindow: View {
         let shape = RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
         ZStack {
             Ink.raised
-            if let image = watcher.image {
-                WindowViewer(image: image, focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
+            if watcher.hasPicture {
+                WindowViewer(image: watcher.image, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
+                             focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
                              drag: watcher.drag, phased: watcher.macCanScroll,
                              onTouch: { watcher.touch() },
                              onTap: { watcher.click($0) }, onScroll: { watcher.scroll(at: $0, by: $1) },
@@ -316,7 +317,7 @@ struct WatchWindow: View {
         case .live:
             EmptyView()
         case .starting:
-            if watcher.image == nil {
+            if !watcher.hasPicture {
                 Note(symbol: nil, title: "Opening \(watcher.name)'s window", detail: nil) { ProgressView().tint(Ink.secondary) }
             }
         case .paused(let reason):
@@ -445,7 +446,7 @@ struct WatchStrip: View {
     var body: some View {
         WatchWindow(watcher: watcher, interactive: false)
             .frame(height: compact ? 72 : 104)
-            .opacity(watcher.image == nil ? 0 : 1)
+            .opacity(watcher.hasPicture ? 1 : 0)
             .accessibilityHidden(true)
     }
 }
@@ -563,8 +564,14 @@ private extension View {
 /// bracketed by where the finger is (landed, lifted), and a flick coasts — the phone steps the
 /// momentum on a display link and sends it, so the Mac's window keeps moving after the finger
 /// lifts, as under a trackpad. A Mac from before gets the deltas alone, and one flick delta.
+///
+/// The window is a picture (`image`) or video (`video`, the Watcher's one `VideoCanvas`, which
+/// this viewer hosts over the picture while video flows — taken over from whichever viewer had it,
+/// the strip or the window, which keeps a snapshot for its fade-out).
 struct WindowViewer: UIViewRepresentable {
-    var image: UIImage
+    var image: UIImage?
+    var video: VideoCanvas?
+    var videoSize: CGSize
     var focus: CGRect?
     var recenter: Int
     var interactive: Bool
@@ -585,7 +592,7 @@ struct WindowViewer: UIViewRepresentable {
 
     func updateUIView(_ v: ViewerScrollView, context: Context) {
         wire(v)
-        v.update(image: image, focus: focus, recenter: recenter, interactive: interactive, drag: drag, phased: phased)
+        v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, interactive: interactive, drag: drag, phased: phased)
     }
 
     private func wire(_ v: ViewerScrollView) {
@@ -598,6 +605,8 @@ struct WindowViewer: UIViewRepresentable {
 }
 
 final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
+    /// What zooms: the picture, with the video canvas over it while video flows.
+    private let canvas = UIView()
     private let imageView = UIImageView()
     private var imageSize: CGSize = .zero
     private var focus: CGRect?
@@ -634,7 +643,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         backgroundColor = .clear
         imageView.contentMode = .scaleToFill
         imageView.layer.minificationFilter = .trilinear
-        addSubview(imageView)
+        canvas.addSubview(imageView)
+        addSubview(canvas)
         tapper = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         addGestureRecognizer(tapper)
         swiper = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
@@ -652,7 +662,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         swiper.isEnabled = drag == .scroll && isScrollEnabled
     }
 
-    func update(image: UIImage, focus: CGRect?, recenter: Int, interactive: Bool, drag: Watcher.Drag, phased: Bool) {
+    func update(image: UIImage?, video: VideoCanvas?, videoSize: CGSize, focus: CGRect?, recenter: Int, interactive: Bool, drag: Watcher.Drag, phased: Bool) {
         isScrollEnabled = interactive
         pinchGestureRecognizer?.isEnabled = interactive
         tapper.isEnabled = interactive
@@ -661,12 +671,16 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         let focusChanged = focus != self.focus && !adjusted
         self.focus = focus
         imageView.image = image
-        let size = image.size
+        adopt(video)
+        let size = video != nil ? videoSize : image?.size ?? .zero
+        guard size != .zero else { return }
         if size != imageSize {
             // A new size (first picture, or the window was resized): start over.
             imageSize = size
             zoomScale = 1
-            imageView.frame = CGRect(origin: .zero, size: size)
+            canvas.frame = CGRect(origin: .zero, size: size)
+            imageView.frame = canvas.bounds
+            video?.frame = canvas.bounds
             contentSize = size
             configureZoom()
             reset(animated: false)
@@ -677,6 +691,25 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         }
         lastRecenter = recenter
     }
+
+    /// Hosts the video canvas over the picture, or lets it go. Taken from another viewer (the
+    /// window's, when the strip opens; the strip's, when it closes), that one keeps a snapshot
+    /// in its place for its fade-out. Nothing per frame: the canvas draws itself.
+    private func adopt(_ video: VideoCanvas?) {
+        canvas.subviews.filter { $0.tag == Self.snapshotTag }.forEach { $0.removeFromSuperview() }
+        guard let video else { return }
+        guard video.superview !== canvas else { return }
+        if let old = video.superview, let snap = video.snapshotView(afterScreenUpdates: false) {
+            snap.frame = video.frame
+            snap.tag = Self.snapshotTag
+            old.addSubview(snap)
+        }
+        video.removeFromSuperview()
+        video.frame = canvas.bounds
+        canvas.addSubview(video)
+    }
+
+    private static let snapshotTag = 7001
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -732,7 +765,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
         guard imageSize.width > 0 else { return }
-        let p = g.location(in: imageView)
+        let p = g.location(in: canvas)
         let n = CGPoint(x: p.x / imageSize.width, y: p.y / imageSize.height)
         guard (0...1).contains(n.x), (0...1).contains(n.y) else { return }
         ring(at: g.location(in: self))
@@ -748,7 +781,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
             // A new swipe while the last flick still coasts ends the coast first, so the Mac sees
             // its end before this gesture's beginning.
             endMomentum()
-            let p = g.location(in: imageView)
+            let p = g.location(in: canvas)
             scrollAnchor = CGPoint(x: min(max(p.x / imageSize.width, 0), 1), y: min(max(p.y / imageSize.height, 0), 1))
             pendingScroll = .zero
             g.setTranslation(.zero, in: self)
@@ -864,7 +897,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
 
     // MARK: UIScrollViewDelegate
 
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { canvas }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { adjusted = true; onTouch() }
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) { adjusted = true; onTouch() }

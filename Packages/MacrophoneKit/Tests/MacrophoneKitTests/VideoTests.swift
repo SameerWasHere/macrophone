@@ -53,12 +53,39 @@ final class VideoWireTests: XCTestCase {
     }
 
     func testVideoEarnsFramesSooner() {
-        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0, video: true), .infinity)
-        XCTAssertEqual(WatchPacing.minimumInterval(changed: 40.0 / 1_700_000, video: true), 3)
-        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.008, video: true), 0.5)
-        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.3, video: true), 0.1)
-        // The pictures' pacing is unchanged.
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0, quick: true, rate: 30), .infinity)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 40.0 / 1_700_000, quick: true, rate: 30), 3)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.008, quick: true, rate: 30), 0.5)
+        // A real change at the stream's own rate (the wait is half its period): thirty a second
+        // at home, twelve away.
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.3, quick: true, rate: 30), 0.5 / 30)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.3, quick: true, rate: 12), 0.5 / 12)
+        // Pictures over the home network: ten a second; the slow pace is unchanged.
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.3, quick: true), 0.05)
         XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.3), 0.3)
+    }
+
+    func testABusyChipIsJudgedOnSustainedTimings() {
+        var h = EncoderHealth()
+        // The first few encodes settle the encoder in: slow ones there don't count.
+        for _ in 0..<4 { h.record(took: 0.4) }
+        XCTAssertFalse(h.struggling)
+        // A lone spike doesn't either.
+        for _ in 0..<7 { h.record(took: 0.003) }
+        h.record(took: 0.3)
+        XCTAssertFalse(h.struggling)
+        // Most of the last eight slow: struggling.
+        for _ in 0..<5 { h.record(took: 0.08) }
+        XCTAssertTrue(h.struggling)
+        // Two stalls, whatever else happened.
+        var s = EncoderHealth()
+        for _ in 0..<4 { s.record(took: 0.003) }
+        for _ in 0..<20 { s.record(took: 0.003) }
+        s.record(took: 0.6)
+        XCTAssertFalse(s.struggling)
+        for _ in 0..<5 { s.record(took: 0.003) }
+        s.record(took: 0.6)
+        XCTAssertTrue(s.struggling)
     }
 }
 
@@ -153,6 +180,45 @@ final class VideoCodecTests: XCTestCase {
             XCTAssertEqual(CVPixelBufferGetWidth(out), w)
         }
         print("[video] hardware test ended in \(encoder.software ? "software" : "hardware")")
+    }
+
+    func testFramesHandedInComeBackInOrderAndNeverWaitedOn() throws {
+        // Six frames handed in at once: the call never waits, one frame is inside the encoder at a
+        // time and a newer one replaces an older waiting one — whatever comes back decodes in order.
+        let w = 640, h = 400
+        let encoder = try VideoEncoder(width: w, height: h, software: true)
+        let got = Got()
+        encoder.onEncoded = { e, took in got.add(e, took) }
+        var admissions: [VideoEncoder.Admission] = []
+        let t = Date()
+        for i in 0..<6 {
+            let pb = try XCTUnwrap(VideoEncoder.pixelBuffer(from: picture(w, h, words: String(repeating: "x", count: i + 2))))
+            admissions.append(encoder.submit(pb))
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(t), 0.05, "handing frames in never waits on an encode")
+        XCTAssertEqual(admissions.first, .goesIn)
+        let deadline = Date().addingTimeInterval(3)
+        while got.count < 6 - admissions.filter({ $0 == .waits(replaced: true) }).count, Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+        let frames = got.all
+        XCTAssertGreaterThanOrEqual(frames.count, 1)
+        XCTAssertLessThanOrEqual(frames.count, 6)
+        XCTAssertTrue(frames[0].0.keyframe)
+        let decoder = VideoDecoder()
+        for (i, f) in frames.enumerated() {
+            let out = try decoder.decode(WatchVideoFrame(seq: i + 1, data: f.0.data, parameterSets: f.0.parameterSets, keyframe: f.0.keyframe, width: w, height: h, appName: "", bundleID: nil, focus: nil))
+            XCTAssertEqual(CVPixelBufferGetWidth(out), w)
+            XCTAssertGreaterThan(f.1, 0)
+        }
+        XCTAssertFalse(encoder.isDead)
+        print("[video] \(frames.count) of 6 frames came back (\(admissions.filter { $0 == .waits(replaced: true) }.count) replaced in the mailbox)")
+    }
+
+    private final class Got: @unchecked Sendable {
+        private let lock = NSLock()
+        private var list: [(VideoEncoder.Encoded, TimeInterval)] = []
+        func add(_ e: VideoEncoder.Encoded, _ took: TimeInterval) { lock.lock(); list.append((e, took)); lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return list.count }
+        var all: [(VideoEncoder.Encoded, TimeInterval)] { lock.lock(); defer { lock.unlock() }; return list }
     }
 
     func testADecoderWithoutAKeyframeSaysSo() {

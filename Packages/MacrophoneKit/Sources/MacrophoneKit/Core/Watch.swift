@@ -100,14 +100,17 @@ public enum WatchPacing {
     public static let unreadable = 0.0002
 
     /// The least time since the last picture before this change (the share of the window that
-    /// changed since then) earns the next one. Video frames cost a fraction of a picture (a few KB
-    /// for a line of output, no decode of a whole JPEG), so a real change earns one faster — new
-    /// output and scrolling at the window stream's own rate.
-    public static func minimumInterval(changed: Double, video: Bool = false) -> TimeInterval {
+    /// changed since then) earns the next one. At the quick pace (video, or pictures over the home
+    /// network) a real change earns one at the window stream's own rate — new output and scrolling
+    /// as fast as the window moves (thirty a second for video; the stream itself gives no more,
+    /// and a wait as long as its period lost every other frame to the one arriving as it ended, so
+    /// the wait is half of it); a line or a highlight moving still waits, and a caret or a spinner
+    /// every few seconds.
+    public static func minimumInterval(changed: Double, quick: Bool = false, rate: Int = 10) -> TimeInterval {
         if changed <= 0 { return .infinity }
         if changed < sliver { return 3 }
-        if changed < small { return video ? 0.5 : 1 }
-        return video ? 0.1 : 0.3
+        if changed < small { return quick ? 0.5 : 1 }
+        return quick ? 0.5 / Double(max(1, rate)) : 0.3
     }
 }
 
@@ -122,11 +125,13 @@ public enum WatchChange {
         return sample(base: UnsafeRawPointer(base), width: image.width, height: image.height, bytesPerRow: bpr, bytesPerPixel: bpp, step: step)
     }
 
-    /// The same, straight from a pixel buffer's bytes (no copy): 8-bit channels, 3 or 4 a pixel.
-    /// Plain loops over raw pointers: this runs for every picture the window gives, ten a second.
+    /// The same, straight from a pixel buffer's bytes (no copy): 8-bit channels, 3 or 4 a pixel —
+    /// or 1, the brightness plane of a video stream's frame (the chip encodes from it as it is).
+    /// Plain loops over raw pointers: this runs for every picture the window gives, thirty a second.
     public static func sample(base: UnsafeRawPointer, width: Int, height: Int, bytesPerRow: Int, bytesPerPixel: Int, step: Int = 4) -> [UInt32] {
-        guard bytesPerPixel >= 3, width > 0, height > 0, step > 0 else { return [] }
+        guard bytesPerPixel == 1 || bytesPerPixel >= 3, width > 0, height > 0, step > 0 else { return [] }
         let columns = (width + step - 1) / step, rows = (height + step - 1) / step
+        let gray = bytesPerPixel == 1
         return [UInt32](unsafeUninitializedCapacity: columns * rows) { out, filled in
             var i = 0, y = 0
             while y < height {
@@ -134,7 +139,7 @@ public enum WatchChange {
                 var x = 0
                 while x < width {
                     let p = row + x * bytesPerPixel
-                    out[i] = UInt32(p[0]) | UInt32(p[1]) << 8 | UInt32(p[2]) << 16
+                    out[i] = gray ? UInt32(p[0]) : UInt32(p[0]) | UInt32(p[1]) << 8 | UInt32(p[2]) << 16
                     i += 1
                     x += step
                 }

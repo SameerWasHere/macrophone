@@ -25,24 +25,32 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     private(set) var windowSize: CGSize
     private let scale: CGFloat
     /// At most this many pictures a second, when the window keeps changing (the fastest a picture
-    /// is sent is three a second; more only costs the window server) — and frames of video, which
-    /// cost little each, so scrolling can be smooth.
+    /// is sent is three a second; more only costs the window server) — ten over the home network;
+    /// and frames of video, which cost little each, at the rate a window scrolls (thirty a second;
+    /// twelve away from home, where every frame crosses a slower path).
     static let pictureRate = 6
-    static let videoRate = 10
+    static let quickPictureRate = 10
+    static let videoRate = 30
+    static let remoteVideoRate = 12
     private let maxRate: Int
+    /// Frames for a video encoder come as the chip takes them (Y′CbCr planes, full range): no
+    /// conversion before the encode, and the change sample reads the brightness plane. Pictures
+    /// come as BGRA, which a JPEG is made from.
+    let video: Bool
 
-    init(window: SCWindow, maxWidth: CGFloat, maxRate: Int = pictureRate) {
+    init(window: SCWindow, maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false) {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         scale = CGFloat(filter.pointPixelScale)
         self.maxRate = maxRate
-        let (cfg, size) = Self.configuration(for: window.frame.size, scale: scale, maxWidth: maxWidth, maxRate: maxRate)
+        self.video = video
+        let (cfg, size) = Self.configuration(for: window.frame.size, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video)
         self.size = size
         windowSize = window.frame.size
         stream = SCStream(filter: filter, configuration: cfg, delegate: nil)
         super.init()
     }
 
-    private static func configuration(for window: CGSize, scale: CGFloat, maxWidth: CGFloat, maxRate: Int) -> (SCStreamConfiguration, (Int, Int)) {
+    private static func configuration(for window: CGSize, scale: CGFloat, maxWidth: CGFloat, maxRate: Int, video: Bool) -> (SCStreamConfiguration, (Int, Int)) {
         let cfg = SCStreamConfiguration()
         let pxW = max(1, window.width * scale), pxH = max(1, window.height * scale)
         let k = min(1, maxWidth / pxW)
@@ -51,7 +59,8 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
         cfg.height = max(2, Int(pxH * k) & ~1)
         cfg.showsCursor = false
         cfg.ignoreShadowsSingleWindow = true
-        cfg.pixelFormat = kCVPixelFormatType_32BGRA
+        cfg.pixelFormat = video ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_32BGRA
+        if video { cfg.colorSpaceName = CGColorSpace.sRGB }
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: Int32(maxRate))
         cfg.queueDepth = 5
         return (cfg, (cfg.width, cfg.height))
@@ -71,7 +80,7 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// The window was resized: pictures follow its new shape.
     func resize(to window: CGSize, maxWidth: CGFloat) async {
         guard window != windowSize else { return }
-        let (cfg, size) = Self.configuration(for: window, scale: scale, maxWidth: maxWidth, maxRate: maxRate)
+        let (cfg, size) = Self.configuration(for: window, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video)
         windowSize = window
         self.size = size
         try? await stream.updateConfiguration(cfg)
@@ -84,6 +93,16 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
               let raw = info[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
               let buffer = CMSampleBufferGetImageBuffer(sb) else { return }
         let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+        #if DEBUG
+        if Self.timing {
+            frameCount += 1
+            if let d = Self.dirtyShare(info, width: width, height: height) { dirtyCount += 1; dirtyMax = max(dirtyMax, d) }
+            if Date().timeIntervalSince(countedAt) >= 1 {
+                print("[stream] \(frameCount) frames this second, \(dirtyCount) with changed rectangles (largest \(String(format: "%.4f", dirtyMax))), \(video ? "planar" : "BGRA")"); fflush(stdout)
+                frameCount = 0; dirtyCount = 0; dirtyMax = 0; countedAt = Date()
+            }
+        }
+        #endif
         // How much changed: the frame's own list of changed rectangles when it says a sliver (a
         // caret), else measured from a sample of the pixels — an Electron app redraws its whole
         // window for a caret, and the list says so. Read in place: no copy for a frame that won't go.
@@ -92,9 +111,15 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
             share = bound
         } else {
             CVPixelBufferLockBaseAddress(buffer, .readOnly)
-            let sample = CVPixelBufferGetBaseAddress(buffer).map {
-                WatchChange.sample(base: UnsafeRawPointer($0), width: width, height: height,
-                                   bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), bytesPerPixel: 4)
+            // A video frame's first plane is its brightness, one byte a pixel.
+            let planar = CVPixelBufferIsPlanar(buffer)
+            let base = planar ? CVPixelBufferGetBaseAddressOfPlane(buffer, 0) : CVPixelBufferGetBaseAddress(buffer)
+            let bytesPerRow = planar ? CVPixelBufferGetBytesPerRowOfPlane(buffer, 0) : CVPixelBufferGetBytesPerRow(buffer)
+            // The window server says the whole window changed on every frame it gives, thirty a
+            // second for video (TextEdit, Electron apps, on macOS 27) — the sample is the real
+            // gate, and a coarser one on the brightness plane keeps a still window cheap.
+            let sample = base.map {
+                WatchChange.sample(base: UnsafeRawPointer($0), width: width, height: height, bytesPerRow: bytesPerRow, bytesPerPixel: planar ? 1 : 4, step: planar ? 8 : 4)
             } ?? []
             CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
             share = previous.map { WatchChange.changedShare($0, sample) } ?? 1
@@ -103,7 +128,8 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
         onFrame(buffer, share)
     }
 
-    /// The picture, for a frame that goes out.
+    /// The picture, for a frame that goes out as a JPEG, or one the question is read off (a video
+    /// frame's planes are converted here, which VideoToolbox does for any of its formats).
     nonisolated static func image(_ buffer: CVPixelBuffer) -> CGImage? {
         var image: CGImage?
         VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
@@ -121,6 +147,12 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         return min(1, max(0, Double(dirty) / Double(width * height)))
     }
+
+    #if DEBUG
+    /// MACROPHONE_WATCH_TIMING=1: how many frames the window server gives a second (numbers only).
+    private static let timing = ProcessInfo.processInfo.environment["MACROPHONE_WATCH_TIMING"] == "1"
+    private var frameCount = 0, dirtyCount = 0, dirtyMax = 0.0, countedAt = Date()
+    #endif
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         onStop?(error)

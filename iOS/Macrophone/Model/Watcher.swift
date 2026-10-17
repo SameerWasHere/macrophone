@@ -7,10 +7,11 @@ import UIKit
 /// (Settings › Show the app after sending) or from the Watch button by Send to; it pauses after
 /// two idle minutes or when the app leaves the screen, and Done closes it.
 ///
-/// The window comes as video from a Mac that can (Oct 17 2026): HEVC frames decoded here in
-/// order, on one queue, each into the same picture the viewer always showed — a frame that can't
-/// be decoded asks the Mac for one that stands on its own. A Mac from before sends pictures, as
-/// before. And "Aa": the Mac's window narrower, so its text reads larger here, remembered per app.
+/// The window comes as video from a Mac that can (Oct 17 2026): HEVC frames handed in order to
+/// `VideoCanvas`, a view the system decodes into and draws itself (nothing per frame goes through
+/// SwiftUI) — a frame that can't be shown asks the Mac for one that stands on its own. A Mac from
+/// before sends pictures, as before, and so does one whose video chip is busy. And "Aa": the Mac's
+/// window narrower, so its text reads larger here, remembered per app.
 @MainActor
 final class Watcher: ObservableObject {
     /// Why the pictures stopped (the note over the picture says which).
@@ -41,7 +42,15 @@ final class Watcher: ObservableObject {
 
     @Published private(set) var isOpen = false
     @Published private(set) var phase: Phase = .starting
+    /// The last picture (a JPEG): the first of a video watch, and every one from a Mac that sends
+    /// pictures.
     @Published private(set) var image: UIImage?
+    /// The video, drawn by the system; `videoSize` is set (and published) once it has a frame, so
+    /// the viewer shows the canvas over the picture — and changes only with the frame's size.
+    let video = VideoCanvas()
+    @Published private(set) var videoSize: CGSize?
+    /// Something to show: a picture, or video.
+    var hasPicture: Bool { image != nil || videoSize != nil }
     /// The window's own name for itself ("Claude"), from the Mac.
     @Published private(set) var appName = ""
     @Published private(set) var bundleID: String?
@@ -104,16 +113,13 @@ final class Watcher: ObservableObject {
     private var awaitingFirstPicture = true
     static let idleLimit: TimeInterval = 120
 
-    /// Video: decoded in order on one queue; a frame out of order or that fails waits for a
-    /// keyframe. `generation` ties a decode to the watch it belongs to (a restart begins again at 1).
-    private let decoder = VideoDecoder()
-    private let decodeQueue = DispatchQueue(label: "macrophone.watch-decode", qos: .userInitiated)
+    /// Video: frames in order; one out of order or that fails waits for a keyframe.
     private var waitingForKeyframe = true
-    private var generation = 0
     private var keyframeAskedAt = Date.distantPast
-    /// How the pictures come, for the log (numbers only).
+    /// How the pictures come, for the log (numbers only): frames, bytes, and when each came.
     private var videoFrames = 0
     private var videoBytes = 0
+    private var frameTimes: [Date] = []
 
     /// "Claude" — what the header calls it before the Mac has answered.
     var name: String {
@@ -132,6 +138,8 @@ final class Watcher: ObservableObject {
         if !isOpen { drag = .pan }
         if switching {
             image = nil
+            video.clear()
+            videoSize = nil
             appName = ""
             bundleID = target.bundleID
             focus = nil
@@ -149,6 +157,11 @@ final class Watcher: ObservableObject {
         isOpen = false
         idleTask?.cancel()
         _ = sendWatch(nil)
+        if videoFrames > 0 {
+            var peak = 0
+            for (i, t) in frameTimes.enumerated() { peak = max(peak, frameTimes[i...].prefix { $0.timeIntervalSince(t) < 1 }.count) }
+            log?.add("watching: \(videoFrames) video frames, \(videoBytes / 1024) KB, peak \(peak) a second")
+        }
         log?.add("watching closed")
     }
 
@@ -158,9 +171,9 @@ final class Watcher: ObservableObject {
         // The Mac starts a fresh watch (its pictures count from 1 again), so does the phone.
         newestSeq = 0
         waitingForKeyframe = true
-        generation &+= 1
         videoFrames = 0
         videoBytes = 0
+        frameTimes = []
         awaitingFirstPicture = true
         askedAt = Date()
         macCanFit = macFeatures().contains(WatchVideo.fitFeature)
@@ -327,11 +340,13 @@ final class Watcher: ObservableObject {
             let img = await Task.detached(priority: .userInitiated) { UIImage(data: data)?.preparingForDisplay() }.value
             // A newer picture may have been decoded first: never go back to an older one.
             guard let img, self.isOpen, !self.phase.isPaused, frame.seq == 1 || frame.seq >= self.newestSeq else { return }
+            // A picture after video (the Mac's chip got busy): the picture is what shows now.
+            if self.videoSize != nil { self.video.clear(); self.videoSize = nil }
             self.show(img, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: data.count, how: "picture")
         }
     }
 
-    /// A frame of video: decoded in order on the decode queue, then shown like a picture. Only
+    /// A frame of video, handed to the canvas in order (the system decodes and draws it). Only
     /// the words (the question, the place to type) when there's nothing to decode.
     func received(_ frame: WatchVideoFrame) {
         guard isOpen, !phase.isPaused else { return }
@@ -348,32 +363,23 @@ final class Watcher: ObservableObject {
             return
         }
         newestSeq = frame.seq
+        guard video.enqueue(frame) else {
+            log?.add("watching: a frame didn't decode — asking for a keyframe")
+            waitingForKeyframe = true
+            askKeyframe()
+            return
+        }
         waitingForKeyframe = false
-        let gen = generation
-        let decoder = self.decoder
-        decodeQueue.async { [weak self] in
-            let image: UIImage?
-            do {
-                let pixels = try decoder.decode(frame)
-                // Made ready to draw here, off the main thread: otherwise each frame was converted
-                // as it was drawn, a stutter under a dragging finger every time one arrived.
-                image = VideoDecoder.image(pixels).map { UIImage(cgImage: $0).preparingForDisplay() ?? UIImage(cgImage: $0) }
-            } catch {
-                image = nil
-            }
-            Task { @MainActor [weak self] in
-                guard let self, self.isOpen, !self.phase.isPaused, gen == self.generation else { return }
-                guard let image else {
-                    self.log?.add("watching: a frame didn't decode — asking for a keyframe")
-                    self.waitingForKeyframe = true
-                    self.askKeyframe()
-                    return
-                }
-                self.videoFrames += 1
-                self.videoBytes += frame.data.count
-                self.show(image, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: frame.data.count,
-                          how: frame.keyframe ? "keyframe" : "frame")
-            }
+        videoFrames += 1
+        videoBytes += frame.data.count
+        if frameTimes.count < 4000 { frameTimes.append(Date()) }
+        if videoSize != video.frameSize { videoSize = video.frameSize }
+        words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt)
+        if phase != .live { phase = .live }
+        if awaitingFirstPicture {
+            awaitingFirstPicture = false
+            cameAlive &+= 1
+            log?.add("watching: first \(frame.keyframe ? "keyframe" : "frame") \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(frame.data.count / 1024) KB")
         }
     }
 
