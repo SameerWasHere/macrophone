@@ -28,14 +28,16 @@ public enum PromptVision {
         request.recognitionLevel = .fast
         // Corrections turn "❯" and "(y/N)" into words; the reader wants what's there.
         request.usesLanguageCorrection = false
-        // Vision's origin is the bottom-left corner.
-        request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: band)
+        // Vision's origin is the bottom-left corner. Nothing left of the column is read at all
+        // (a sidebar): less work, and a line that starts in the column is read whole.
+        let left = min(max(column?.lowerBound ?? 0, 0), 0.9)
+        request.regionOfInterest = CGRect(x: left, y: 0, width: 1 - left, height: band)
         do { try VNImageRequestHandler(cgImage: image).perform([request]) } catch { return nil }
         let lines: [ReadLine] = (request.results ?? []).compactMap { o in
             guard let text = o.topCandidates(1).first?.string else { return nil }
             // Boxes are relative to the region read: back to the whole window, top-left origin.
             let b = o.boundingBox
-            return ReadLine(text: text, minX: Double(b.minX), midY: Double(1 - b.midY * band))
+            return ReadLine(text: text, minX: left + Double(b.minX) * (1 - left), midY: Double(1 - b.midY * band))
         }
         return PromptReader.read(column.map { c in lines.filter { c.contains($0.minX) } } ?? lines)
     }
