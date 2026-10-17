@@ -65,6 +65,26 @@ enum AppCatalog {
     }
 
     /// Opens the app (or brings it forward, asking it for a window if it has none).
+    /// Apps the phone never quits: this one, and the ones macOS needs.
+    static let neverQuit: Set<String> = ["com.apple.finder", "com.apple.loginwindow", "com.apple.dock", "com.apple.systemuiserver"]
+
+    /// Quits an app the way ⌘Q does: it can ask first (unsaved work, a running process), on the
+    /// Mac. Waits a few seconds to say how it went.
+    @MainActor static func quit(_ bundleID: String) async -> (Bool, String) {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).filter { !$0.isTerminated }
+        let name = running.first?.localizedName ?? Paster.installedName(bundleID) ?? "That app"
+        guard bundleID != Bundle.main.bundleIdentifier, !neverQuit.contains(bundleID) else {
+            return (false, "\(name) can't be quit from your iPhone")
+        }
+        guard !running.isEmpty else { return (true, "\(name) isn't open") }
+        running.forEach { _ = $0.terminate() }
+        for _ in 0..<16 where running.contains(where: { !$0.isTerminated }) {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        if running.allSatisfy(\.isTerminated) { return (true, "\(name) quit") }
+        return (false, "\(name) is asking something on your Mac before it quits")
+    }
+
     @MainActor static func open(_ bundleID: String) async -> (Bool, String) {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
             return (false, "That app isn't on your Mac any more")

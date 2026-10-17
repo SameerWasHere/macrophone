@@ -45,6 +45,8 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, installedApps: [MacApp])
     /// An app asked for with `openApp` opened (or didn't).
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String)
+    /// An app asked for with `quitApp` quit (or didn't).
+    func linkClient(_ client: LinkClient, appQuit bundleID: String, ok: Bool, detail: String)
     /// The Mac said where it can be reached from away (already kept with the pairing).
     func linkClient(_ client: LinkClient, remoteAddresses: [RemoteAddress], macID: UUID)
     /// The link moved between the local path (Bonjour) and a remote one while staying connected
@@ -63,6 +65,7 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, attention: Attention) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {}
+    func linkClient(_ client: LinkClient, appQuit bundleID: String, ok: Bool, detail: String) {}
     func linkClient(_ client: LinkClient, remoteAddresses: [RemoteAddress], macID: UUID) {}
     func linkClient(_ client: LinkClient, pathChanged remote: Bool) {}
 }
@@ -539,6 +542,11 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, installedApps: list)
             }
+        case let .appQuit(bundleID, ok, detail):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, appQuit: bundleID, ok: ok, detail: detail)
+            }
         case let .appOpened(bundleID, ok, detail):
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -584,7 +592,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp:
             break
         }
     }
@@ -706,6 +714,17 @@ public final class LinkClient: @unchecked Sendable {
     public func openApp(_ bundleID: String) -> Bool {
         guard let s = lock.sync({ session }) else { return false }
         Task { try? await s.send(.openApp(bundleID: bundleID)) }
+        return true
+    }
+
+    /// The connected Mac can quit apps.
+    public var canQuitApps: Bool { lock.sync { session != nil && macFeatures.contains(MacAppQuit.feature) } }
+
+    /// Quit an app on the Mac, politely (only a Mac that can). False when it can't.
+    @discardableResult
+    public func quitApp(_ bundleID: String) -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(MacAppQuit.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.quitApp(bundleID: bundleID)) }
         return true
     }
 

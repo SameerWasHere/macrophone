@@ -116,6 +116,11 @@ public enum Message: Codable, Sendable {
     case openApp(bundleID: String)
     /// Mac → phone: whether it opened, in a plain line ("Claude is open", "Couldn't open Claude").
     case appOpened(bundleID: String, ok: Bool, detail: String)
+    /// Phone → Mac: quit this app (only to a Mac whose welcome names MacAppQuit.feature).
+    case quitApp(bundleID: String)
+    /// Mac → phone: whether it quit, in a plain line ("Claude quit", "Terminal is asking
+    /// something on your Mac").
+    case appQuit(bundleID: String, ok: Bool, detail: String)
     /// Phone → Mac: show this place's window (nil = stop watching).
     case watch(TargetRef?)
     /// Phone → Mac: a one-tap action on the watched window.

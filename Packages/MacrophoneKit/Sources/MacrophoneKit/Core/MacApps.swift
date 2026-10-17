@@ -21,3 +21,10 @@ public struct MacApp: Codable, Sendable, Identifiable, Hashable {
         self.running = running
     }
 }
+
+/// Quit an app (Oct 17 2026, Sameer: "the iPhone app should have the ability to close apps on the
+/// Mac as well"): asked politely, the way ⌘Q does, so an app with unsaved work or a running
+/// process asks on the Mac first. Only to a Mac whose welcome names the feature.
+public enum MacAppQuit {
+    public static let feature = "quit"
+}

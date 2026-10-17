@@ -100,7 +100,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.log = log
         server.delegate = self
         // What this Mac can do beyond the first version, for phones that can too.
-        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature]
+        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature]
         // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
         let watchService = watch!
         server.watchInput = { peer, input in watchService.scrollInput(peer, input) }
@@ -631,6 +631,13 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         let list = await AppCatalog.installed()
         log.add("sent the phone \(list.count) installed apps")
         return list
+    }
+
+    func linkServer(_ server: LinkServer, quitApp bundleID: String, from peerID: UUID) async -> (Bool, String) {
+        let (ok, detail) = await AppCatalog.quit(bundleID)
+        log.add(ok ? "quit an app for the phone" : "an app didn't quit for the phone")
+        if ok { scanner.refresh() }
+        return (ok, detail)
     }
 
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) {

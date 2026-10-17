@@ -833,6 +833,24 @@ final class AppModel: ObservableObject {
         log.add("asked the Mac to open an app")
     }
 
+    /// The Mac can quit apps (a Mac from before Oct 17 2026 can't; the button doesn't show).
+    var canQuitApps: Bool { client.canQuitApps }
+    /// Asked to quit and not answered yet.
+    @Published private(set) var quitting: Set<String> = []
+
+    /// Quit an app on the Mac, the way ⌘Q does — it may ask on the Mac first.
+    func quitOnMac(_ app: MacApp) {
+        guard client.quitApp(app.bundleID) else {
+            explain("Your Mac isn't connected — quit \(app.name) when it is")
+            Haptics.warning()
+            return
+        }
+        Haptics.tick()
+        quitting.insert(app.bundleID)
+        explain("Quitting \(app.name) on your Mac", for: 6)
+        log.add("asked the Mac to quit an app")
+    }
+
     // MARK: Watching — flipping between windows (Oct 16 2026)
 
     /// Every window the Mac can show, in a steady order (the Mac's own list re-sorts by use, which
@@ -1174,6 +1192,16 @@ extension AppModel: LinkClientDelegate {
         guard client === self.client else { return }
         macApps = installedApps
         macAppsLoaded = true
+    }
+
+    func linkClient(_ client: LinkClient, appQuit bundleID: String, ok: Bool, detail: String) {
+        guard client === self.client else { return }
+        quitting.remove(bundleID)
+        if ok { Haptics.success() } else { Haptics.warning() }
+        explain(detail)
+        // The lists follow: its row says it's closed, and it leaves Send to.
+        _ = client.listApps()
+        client.refreshTargets()
     }
 
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {

@@ -46,6 +46,8 @@ public protocol LinkServerDelegate: AnyObject {
     func installedApps(_ server: LinkServer) async -> [MacApp]
     /// Open an app and bring it forward. Returns whether it opened and a plain line about it.
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String)
+    /// Quit an app, politely. Returns whether it quit and a plain line about it.
+    func linkServer(_ server: LinkServer, quitApp bundleID: String, from peerID: UUID) async -> (Bool, String)
     /// Where this Mac can be reached from away (remote access on), sent to a phone that asked
     /// for them right after its welcome. Empty with remote access off.
     func remoteAddresses(_ server: LinkServer) -> [RemoteAddress]
@@ -66,6 +68,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchScrollPhase phase: WatchScrollPhase, at point: CGPoint, from peerID: UUID) {}
     func installedApps(_ server: LinkServer) async -> [MacApp] { [] }
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't open apps") }
+    func linkServer(_ server: LinkServer, quitApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't quit apps") }
     func remoteAddresses(_ server: LinkServer) -> [RemoteAddress] { [] }
 }
 
@@ -531,6 +534,13 @@ public final class LinkServer: @unchecked Sendable {
                     let (ok, detail) = await d.linkServer(self, openApp: bundleID, from: phoneID)
                     try? await s.send(.appOpened(bundleID: bundleID, ok: ok, detail: detail))
                 }
+            case let .quitApp(bundleID):
+                let s = session
+                Task { @MainActor [weak self] in
+                    guard let self, let d = self.delegate else { return }
+                    let (ok, detail) = await d.linkServer(self, quitApp: bundleID, from: phoneID)
+                    try? await s.send(.appQuit(bundleID: bundleID, ok: ok, detail: detail))
+                }
             case let .watchScroll(x, y, dx, dy):
                 guard (0...1).contains(x), (0...1).contains(y), abs(dx) <= 2, abs(dy) <= 2 else { break }
                 if let direct = watchInput { direct(phoneID, .scroll(at: CGPoint(x: x, y: y), by: CGVector(dx: dx, dy: dy))); break }
@@ -541,7 +551,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .remoteAddresses:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses:
                 break
             }
         }
