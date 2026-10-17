@@ -26,17 +26,43 @@ Mac's X25519 key (phone proves it scanned it with an HMAC), or a six-digit code 
 (Keychain). Every connection: nonce handshake with HMAC proofs both ways → per-direction
 ChaCha20-Poly1305 keys with counter nonces. Dictations carry a UUID; the Mac de-duplicates.
 
-## Speech (Oct 14 2026)
+## Speech (Oct 14 2026; instant since Oct 17 2026)
 
 The iPhone uses Apple's newest on-device speech model — SpeechAnalyzer + SpeechTranscriber
 (`iOS/Macrophone/Recording/ModernSpeech.swift`, iOS 26+) — whenever the language's model is
 installed: one continuous analysis, words settle ~0.1 s after the mic stops (measured on the
 phone: 125 ms). Otherwise SFSpeechRecognizer (on-device) runs that recording and the model is
-fetched in the background (`Recorder.prepare`, at launch). The simulator has no SpeechTranscriber;
-test on a phone with `MACROPHONE_AUDIO_FILE=<file in the app's Documents>` (a Debug build;
-devicectl copies the file in and launches with the variable; the result shows on screen and is
-never sent). Cleanup already gets the newest Foundation model the OS ships (iOS 27 picks the
-variant itself) and is prewarmed when the mic opens.
+fetched in the background. The simulator has no SpeechTranscriber (and its SFSpeechRecognizer
+fails with error 300, even `MACROPHONE_SIM_SERVER_SPEECH=1`); test on a phone with
+`MACROPHONE_AUDIO_FILE=<file in the app's Documents>` (a Debug build; devicectl copies the file
+in and launches with the variable; the result shows on screen and is never sent). Cleanup already
+gets the newest Foundation model the OS ships (iOS 27 picks the variant itself) and is prewarmed
+when the mic opens.
+
+**The mic opens at the finger (Oct 17 2026).** The button starts on touch-down (a `DragGesture`
+with no minimum distance; tap vs hold is decided only at release, so a hold never misses its
+first word) and the haptic, the ember and "Listening…" show then. Everything slow is done ahead or
+beside the mic, never in series on the main thread: `Recorder.ready` (at launch, when the app
+comes back, after every recording) sets the session's category and makes the next analyzer with
+the model loaded, the format set and his dictionary as context (`WarmAnalyzer`, one at a time; a
+tap during the build waits for it rather than loading the model twice). At the tap `MicHardware`
+activates the session and starts the engine on its own queue while `ModernSpeech.start` takes the
+warm analyzer and starts its input stream beside it; `AudioFeed` holds what the mic hears until
+the recognizer is attached and hands it over in order (copies; ≤ 12 s), so the first syllable is
+never lost. Closing the mic (engine stop, session off) is off the main thread too, and the final
+words are awaited, not polled. Don't touch `engine.inputNode` before the session is active: it
+keeps a zero format and the mic can't open (seen on the simulator). The words are
+`LiveTranscript` (`recorder.words`, settled + pending): `LiveWords`, `DestinationLine` and
+`StatusLine` observe it, so a partial result redraws those and not the mic screen; pending words
+are drawn dimmer (`Ink.secondary`) and settle into ink. Numbers only in the log: "mic open N ms
+after the tap (session N ms, engine N ms)", "SpeechAnalyzer, made ahead | made now, listening N ms
+after the tap, N s held for it", "first words N ms after the tap, N updates, median gap N ms",
+"words settled in N ms", "speech engine ready ahead in N ms". Measured on the simulator (the Mac's
+mic, `MACROPHONE_MIC_ONLY=1 MACROPHONE_RECORD=4`): the mic open 137–140 ms after the tap → 78–101
+(session 17–29, engine 57–63), the main thread free throughout; the analyzer's cost (hundreds of
+ms in series before) is now beside the mic and mostly ahead of the tap. Needs a real-device
+check: the analyzer's "made ahead" line, the held seconds, the first-words time and the gap
+between volatile results.
 
 ## Watching, one-handed (Oct 16 2026)
 
