@@ -143,23 +143,27 @@ public final class VideoEncoder: @unchecked Sendable {
     public let height: Int
     private let rate: Int
     private var session: VTCompressionSession
-    /// Encoding in software (the hardware was slow, or asked for).
+    /// Encoding in software (asked for).
     public private(set) var software: Bool
+    /// The hardware can't keep up (Oct 17 2026): most of the recent encodes were slow, or it stalled
+    /// twice. The watch then goes on as pictures — a JPEG takes a few milliseconds, while software
+    /// video takes fifty, too slow for a window scrolling at ten frames a second. The first few
+    /// encodes, while the encoder settles in, and a lone spike don't count: switching on those made
+    /// a whole session slow.
+    public private(set) var struggling = false
+    private var recent: [Double] = []
+    private var stalls = 0
     private var frames = 0
     private var lastParameterSets: [Data]?
     /// The next frame is a keyframe (asked for, or the first).
     private var keyframeWanted = true
-    /// Hardware encodes that took too long, in a row.
-    private var slow = 0
-    /// A hardware encode this long (seconds — a free one takes about ten milliseconds) is the
-    /// encoder busy elsewhere; this many in a row and the watch goes on in software.
-    public static let slowEncode = 0.08
-    public static let slowEncodesBeforeSoftware = 2
-    /// One hardware encode this long is a stall the window can't afford: software from then on.
-    public static let stalledEncode = 0.8
-    /// The first encode, which sets the hardware up, takes about 50 ms when the encoder is free;
-    /// this long and it isn't.
-    public static let slowFirstEncode = 0.3
+    /// A hardware encode this long (seconds — a free one takes a few milliseconds) is the encoder
+    /// busy elsewhere.
+    public static let slowEncode = 0.06
+    /// One this long is a stall.
+    public static let stalledEncode = 0.5
+    /// Encodes not judged while the encoder settles in.
+    public static let settling = 4
 
     /// Bits a second for the picture's size: enough that text stays crisp — about 2 bits a pixel at
     /// the rate the window's stream runs (ten a second at most; most of the time far fewer go, and
@@ -232,17 +236,12 @@ public final class VideoEncoder: @unchecked Sendable {
         guard let sb = box.take() else { return nil }
         frames += 1
         let took = Date().timeIntervalSince(started)
-        if !software, took >= Self.slowEncode {
-            slow += 1
-            if slow >= Self.slowEncodesBeforeSoftware || took >= Self.stalledEncode || (frames == 1 && took >= Self.slowFirstEncode),
-               let s = try? Self.makeSession(width: width, height: height, rate: rate, software: true) {
-                VTCompressionSessionInvalidate(session)
-                session = s
-                software = true
-                keyframeWanted = true
-            }
-        } else {
-            slow = 0
+        if !software, frames > Self.settling {
+            recent.append(took)
+            if recent.count > 8 { recent.removeFirst() }
+            if took >= Self.stalledEncode { stalls += 1 }
+            let slow = recent.filter { $0 >= Self.slowEncode }.count
+            if (recent.count >= 6 && slow * 2 > recent.count) || stalls >= 2 { struggling = true }
         }
         return Self.encoded(sb, repeatSets: lastParameterSets, remember: &lastParameterSets)
     }

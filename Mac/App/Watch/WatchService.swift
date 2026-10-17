@@ -62,6 +62,10 @@ final class WatchService {
         var promptAt = Date.distantPast
         /// The phone decodes video (its hello named it); else it gets pictures.
         var wantsVideo = false
+        /// Milliseconds each frame took to encode (video) or make (pictures), for the line the log
+        /// gets when the watch ends — numbers only.
+        var frameMs: [Int] = []
+        var videoFrames = 0
         /// The window's video encoder, made with the stream (and again when the size changes).
         var video: VideoEncoder?
         /// The last frame sent, to send again as a keyframe when the phone asks and nothing changed.
@@ -189,6 +193,10 @@ final class WatchService {
         w.task?.cancel()
         w.sendTask?.cancel()
         if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
+        if !w.frameMs.isEmpty {
+            let ms = w.frameMs.sorted()
+            app.log.add("watching: \(ms.count) frames (\(w.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make")
+        }
         w.restoreFit()
         w.dropStream()
         w.wake()
@@ -318,12 +326,11 @@ final class WatchService {
             // Only a picture that goes is made into an image (a copy of the window's pixels).
             guard let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value else { w.latest = nil; continue }
             if w.wantsVideo { warm(pixels, w) }
-            // The question it's asking: read with each picture (about once a second at most) — but
-            // not before the first one, which goes out as fast as it can; then once it's out.
-            if w.seq > 0 { _ = await readPrompt(w, image) }
+            // The question it's asking: read after the picture is out (about once a second at most),
+            // and the picture sent again with it when it changed.
             await send(image, w)
             if w.latestSeq == seq { w.latest = nil }
-            if w.seq == 1, w.latest == nil, await readPrompt(w, image) { await send(image, w) }
+            if w.latest == nil, await readPrompt(w, image) { await send(image, w) }
         }
         w.sendTask = nil
     }
@@ -361,15 +368,15 @@ final class WatchService {
             w.video = v
         }
         guard let encoder = w.video else { return }
-        let read = w.seq > 0 && promptDue(w)
-        let (encoded, image) = await Task.detached(priority: .utility) { (encoder.encode(pixels), read ? WindowStream.image(pixels) : nil) }.value
+        let encoded = await Task.detached(priority: .userInitiated) { encoder.encode(pixels) }.value
         let encodeMs = Self.ms(t)
+        if w.frameMs.count < 2000 { w.frameMs.append(encodeMs) }
+        w.videoFrames += 1
         guard let encoded else {
             // The encoder gave nothing: a new one next time, starting on a keyframe.
             w.video = nil
             return
         }
-        if let image { _ = await readPrompt(w, image) }
         w.seq += 1
         w.lastSentAt = Date()
         w.changedSince = 0
@@ -379,9 +386,19 @@ final class WatchService {
                                     width: encoder.width, height: encoder.height, appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
         await app.server.send(.watchVideo(frame), to: w.peer)
         if timing { print("[watch] video encode \(encodeMs)\(encoder.software ? " (software)" : "") · send \(encoded.data.count / 1024) KB\(encoded.keyframe ? " key" : "") \(Self.ms(t) - encodeMs)"); fflush(stdout) }
-        if w.seq == 1, w.latest == nil, let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value,
+        // The question is read after the frame is out (a read takes 50–100 ms; a frame waiting on
+        // it was a hitch every second while scrolling); its answers follow in a frame of words.
+        // Not while newer frames wait (a swipe): it's read once the window settles.
+        let newer = w.latest.map { $0 !== pixels } ?? false
+        if !newer, promptDue(w), let image = await Task.detached(priority: .utility, operation: { WindowStream.image(pixels) }).value,
            await readPrompt(w, image) {
             await sendWords(w)
+        }
+        // A video chip busy elsewhere for good: pictures from here on (this watch only).
+        if encoder.struggling {
+            app.log.add("watching: the Mac's video encoder is busy — pictures instead")
+            w.wantsVideo = false
+            w.video = nil
         }
     }
 
@@ -441,6 +458,7 @@ final class WatchService {
         let remote = app.isRemote(w.peer)
         guard let data = await Task.detached(priority: .utility) { Self.encode(image, remote: remote) }.value else { return }
         let encoded = Self.ms(t)
+        if w.frameMs.count < 2000 { w.frameMs.append(encoded) }
         w.seq += 1
         w.lastSentAt = Date()
         w.changedSince = 0
