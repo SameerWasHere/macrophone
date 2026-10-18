@@ -408,7 +408,10 @@ extension Image {
     }
 }
 
-/// The paired Mac and its connection, top left. Taps through to pairing when unpaired.
+/// The paired Mac and its connection, top left: the light, the Mac's name and — when connected —
+/// a small sign of how (Oct 17 2026, Sameer: "a little Wi-Fi logo ... over Tailscale ... a little
+/// VPN logo"): Wi-Fi at home, the direct link nearby, a shielded network through Tailscale, a
+/// globe over the internet. Taps through to pairing when unpaired.
 struct MacPill: View {
     @EnvironmentObject var model: AppModel
 
@@ -424,6 +427,13 @@ struct MacPill: View {
                     .foregroundStyle(Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
+                if case .connected = model.linkState, let route = model.linkRoute {
+                    Image(systemName: Self.symbol(route))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(route.isAway ? Light.cyan : Ink.tertiary)
+                        .contentTransition(.symbolEffect(.replace))
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, 2)
         }
@@ -432,6 +442,15 @@ struct MacPill: View {
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityLabel(accessibility)
         .accessibilityHint(model.isPaired ? "Opens Settings." : "Pairs this iPhone with Macrophone on your Mac.")
+    }
+
+    static func symbol(_ route: LinkRoute) -> String {
+        switch route {
+        case .homeNetwork: return "wifi"
+        case .nearby: return "dot.radiowaves.left.and.right"
+        case .tailscale: return "network.badge.shield.half.filled"
+        case .internet: return "globe"
+        }
     }
 
     private var title: String {
