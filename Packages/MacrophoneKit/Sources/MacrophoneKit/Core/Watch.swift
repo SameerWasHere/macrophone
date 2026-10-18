@@ -179,3 +179,53 @@ public enum WatchChange {
 public enum WatchRightClick {
     public static let feature = "rightClick"
 }
+
+/// The Window menu (Oct 17 2026, Sameer: "a user needs to be able to resize a Mac window ... from
+/// their phone"): sizes picked from a list — a drag on a phone is fiddly — laid out against the
+/// edges of the screen the window is on, and the window's own minimize and close. Like Sill's
+/// window lights. Only to a Mac whose welcome names the feature.
+public enum WatchWindowCommand: String, Codable, Sendable, CaseIterable {
+    case fill, leftHalf, rightHalf, middle, restore, minimize, close
+
+    public static let feature = "windowCommands"
+
+    public var title: String {
+        switch self {
+        case .fill: return "Fill the Screen"
+        case .leftHalf: return "Left Half"
+        case .rightHalf: return "Right Half"
+        case .middle: return "Middle of the Screen"
+        case .restore: return "Back to How It Was"
+        case .minimize: return "Minimize"
+        case .close: return "Close Window"
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .fill: return "macwindow"
+        case .leftHalf: return "rectangle.lefthalf.inset.filled"
+        case .rightHalf: return "rectangle.righthalf.inset.filled"
+        case .middle: return "rectangle.center.inset.filled"
+        case .restore: return "arrow.uturn.backward"
+        case .minimize: return "minus.rectangle"
+        case .close: return "xmark.rectangle"
+        }
+    }
+
+    /// Where a size puts the window in the screen's visible area (under the menu bar, above the
+    /// Dock; top-left origin). Nil for the others.
+    public func frame(in area: CGRect) -> CGRect? {
+        switch self {
+        case .fill: return area
+        case .leftHalf: return CGRect(x: area.minX, y: area.minY, width: (area.width / 2).rounded(), height: area.height)
+        case .rightHalf:
+            let w = (area.width / 2).rounded()
+            return CGRect(x: area.maxX - w, y: area.minY, width: w, height: area.height)
+        case .middle:
+            let w = (area.width * 0.66).rounded(), h = (area.height * 0.8).rounded()
+            return CGRect(x: (area.midX - w / 2).rounded(), y: (area.midY - h / 2).rounded(), width: w, height: h)
+        case .restore, .minimize, .close: return nil
+        }
+    }
+}

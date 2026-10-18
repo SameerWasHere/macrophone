@@ -59,7 +59,7 @@ enum WindowFit {
 
     /// Position, then size, then position again: a window that grows toward an edge is kept on
     /// screen by the app, which moves it; the second write puts the corner where it was asked.
-    private static func set(_ win: AXUIElement, frame: CGRect) -> Bool {
+    static func set(_ win: AXUIElement, frame: CGRect) -> Bool {
         var origin = frame.origin, size = frame.size
         guard let p = AXValueCreate(.cgPoint, &origin), let s = AXValueCreate(.cgSize, &size) else { return false }
         let moved = AX.set(win, kAXPositionAttribute, p)

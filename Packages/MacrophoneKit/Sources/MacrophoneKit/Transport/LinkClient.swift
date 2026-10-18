@@ -639,7 +639,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp:
             break
         }
     }
@@ -788,6 +788,17 @@ public final class LinkClient: @unchecked Sendable {
     public func watchScrollPhase(_ phase: WatchScrollPhase, at p: CGPoint) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchScroll.feature) ? session : nil }) else { return false }
         Task { try? await s.send(.watchScrollPhase(phase, x: Double(p.x), y: Double(p.y))) }
+        return true
+    }
+
+    /// The connected Mac takes Window menu commands.
+    public var canWindowCommands: Bool { lock.sync { session != nil && macFeatures.contains(WatchWindowCommand.feature) } }
+
+    /// Size, minimize or close the watched window (only a Mac that can). False when it can't.
+    @discardableResult
+    public func watchWindow(_ command: WatchWindowCommand) -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(WatchWindowCommand.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchWindow(command)) }
         return true
     }
 

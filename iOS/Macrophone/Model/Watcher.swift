@@ -247,6 +247,19 @@ final class Watcher: ObservableObject {
         return true
     }
 
+    /// The Mac takes Window menu commands (sizes, minimize, close).
+    var canWindowCommands: Bool { macFeatures().contains(WatchWindowCommand.feature) }
+    var sendWindow: (WatchWindowCommand) -> Bool = { _ in false }
+
+    /// A Window menu command. A size picked there takes over from Aa's text size.
+    func window(_ c: WatchWindowCommand) {
+        touch()
+        guard sendWindow(c) else { return }
+        Haptics.tick()
+        if c.frame(in: .zero) != nil || c == .restore, fit != .normal { setFitLocally(.normal) }
+        log?.add("watching: window \(c.rawValue)")
+    }
+
     /// The zoom-out button: the whole window, or back to the column you type in.
     func toggleWholeWindow() {
         touch()
@@ -314,6 +327,12 @@ final class Watcher: ObservableObject {
             say("Your Mac can't resize windows yet — update Macrophone there")
         }
         log?.add("watching: text \(f.rawValue)")
+    }
+
+    /// The Mac dropped Aa's size for one picked from the Window menu: the phone follows, quietly.
+    private func setFitLocally(_ f: WatchFit) {
+        fit = f
+        if let target { Self.remember(f, for: target) }
     }
 
     /// The fit this app's window was last watched at.

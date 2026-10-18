@@ -129,6 +129,9 @@ public enum Message: Codable, Sendable {
     case watchClick(x: Double, y: Double)
     /// Phone → Mac: right-click the watched window here (only to a Mac naming WatchRightClick.feature).
     case watchRightClick(x: Double, y: Double)
+    /// Phone → Mac: size, minimize or close the watched window (only to a Mac naming
+    /// WatchWindowCommand.feature).
+    case watchWindow(WatchWindowCommand)
     /// Phone → Mac: scroll the watched window where the finger is (x, y) by (dx, dy) — all as
     /// fractions of the window; positive dy moves the content down, like a finger dragging it.
     case watchScroll(x: Double, y: Double, dx: Double, dy: Double)

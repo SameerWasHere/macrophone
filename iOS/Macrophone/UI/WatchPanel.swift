@@ -140,7 +140,7 @@ struct WatchPanel: View {
             Spacer(minLength: 8)
             if watcher.macCanFit, watcher.target != .clipboard {
                 WatchWholeButton(watcher: watcher)
-                WatchFitMenu(watcher: watcher)
+                WatchWindowMenu(watcher: watcher)
             }
             Button("Done") {
                 Haptics.tick()
@@ -176,30 +176,49 @@ struct WatchWholeButton: View {
     }
 }
 
-/// "Aa" — readable text (Oct 17 2026): a menu of Normal · Larger · Largest. Larger and Largest
-/// make the Mac's window narrower and taller, about the phone's shape, so its text reads larger
-/// here; the Mac puts the window back when watching stops. Remembered per app.
-struct WatchFitMenu: View {
+/// The Window menu (Oct 17 2026): Aa's text sizes, then sizes laid out on the Mac's screen, then
+/// minimize and close — picked from a list, since dragging a window's edge on a phone is fiddly
+/// (Sill's window controls, the same idea). Close asks first. Tinted while Aa narrows the window.
+struct WatchWindowMenu: View {
     @ObservedObject var watcher: Watcher
+    @State private var confirmClose = false
 
     var body: some View {
         Menu {
-            // One short line: a menu cuts a long one with "…".
-            Text("Narrows \(watcher.name)'s window so its text reads larger here")
-            Picker("Text size", selection: Binding(get: { watcher.fit }, set: { watcher.setFit($0) })) {
-                ForEach(WatchFit.allCases, id: \.self) { f in Text(f.title).tag(f) }
+            Section("Text size on this iPhone") {
+                Picker("Text size", selection: Binding(get: { watcher.fit }, set: { watcher.setFit($0) })) {
+                    ForEach(WatchFit.allCases, id: \.self) { f in Text(f.title).tag(f) }
+                }
+            }
+            if watcher.canWindowCommands {
+                Section("Size on your Mac") {
+                    ForEach([WatchWindowCommand.fill, .leftHalf, .rightHalf, .middle, .restore], id: \.self) { c in
+                        Button { watcher.window(c) } label: { Label(c.title, systemImage: c.symbol) }
+                    }
+                }
+                Section {
+                    Button { watcher.window(.minimize) } label: { Label(WatchWindowCommand.minimize.title, systemImage: WatchWindowCommand.minimize.symbol) }
+                    Button(role: .destructive) { confirmClose = true } label: {
+                        Label(WatchWindowCommand.close.title, systemImage: WatchWindowCommand.close.symbol)
+                    }
+                }
             }
         } label: {
-            Text("Aa")
+            Image(systemName: "macwindow")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(watcher.fit == .normal ? Ink.ink : Light.cyan)
                 .frame(minWidth: 24)
         }
         .nativeGlassButton()
         .disabled(watcher.phase != .live)
-        .accessibilityLabel("Text size on your Mac's window: \(watcher.fit.title)")
-        .accessibilityHint("Makes \(watcher.name)'s window narrower on your Mac so its text reads larger here.")
-        .accessibilityIdentifier("watch-fit")
+        .accessibilityLabel("Window")
+        .accessibilityHint("Text size on this iPhone, and the window's size, minimize and close on your Mac.")
+        .accessibilityIdentifier("watch-window")
+        .confirmationDialog("Close \(watcher.name)'s window on your Mac?", isPresented: $confirmClose, titleVisibility: .visible) {
+            Button("Close Window", role: .destructive) { watcher.window(.close) }
+        } message: {
+            Text("If it has unsaved work, your Mac asks first.")
+        }
     }
 }
 

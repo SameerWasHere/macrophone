@@ -144,6 +144,7 @@ final class AppModel: ObservableObject {
         watcher.sendAction = { [weak self] a in self?.client.watchAction(a) }
         watcher.sendClick = { [weak self] p in self?.client.watchClick(p) }
         watcher.sendRightClick = { [weak self] p in self?.client.watchRightClick(p) ?? false }
+        watcher.sendWindow = { [weak self] c in self?.client.watchWindow(c) ?? false }
         watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         watcher.sendScrollPhase = { [weak self] phase, p in self?.client.watchScrollPhase(phase, at: p) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }

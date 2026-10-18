@@ -81,6 +81,8 @@ final class WatchService {
         /// size the phone asked for, applied once the window is found.
         var fit: WindowFit.Record?
         var wantedFit: WatchFit = .normal
+        /// The window's frame before the first Window menu size (Back to How It Was).
+        var beforeWindowChanges: CGRect?
         /// The wait between looks, so an action can cut it short.
         private var waiting: CheckedContinuation<Void, Never>?
         private var waitTimer: Task<Void, Never>?
@@ -649,6 +651,37 @@ final class WatchService {
                 try? await Task.sleep(nanoseconds: 60_000_000)
             }
         }
+    }
+
+    /// The Window menu: a size laid out on the window's own screen (it stays when watching stops —
+    /// it was asked for), back to how it was, or the window's own minimize and close buttons.
+    func windowCommand(_ c: WatchWindowCommand, for peer: UUID) {
+        guard let w = watches[peer], let wid = w.windowID else { return }
+        guard Paster.isTrusted else { app.log.add("watch window skipped: Accessibility not granted"); return }
+        guard let win = AX.window(in: AX.app(w.pid), id: wid), AX.isAlive(win) else {
+            app.log.add("watch window \(c.rawValue): the window isn't answering")
+            return
+        }
+        switch c {
+        case .minimize:
+            _ = AX.set(win, kAXMinimizedAttribute, kCFBooleanTrue)
+        case .close:
+            if let b = AX.element(win, kAXCloseButtonAttribute) { _ = AXUIElementPerformAction(b, kAXPressAction as CFString) }
+        case .restore:
+            if let f = w.beforeWindowChanges, !AX.bool(win, "AXFullScreen") { _ = WindowFit.set(win, frame: f) }
+            w.beforeWindowChanges = nil
+        case .fill, .leftHalf, .rightHalf, .middle:
+            guard !AX.bool(win, "AXFullScreen") else { app.log.add("watch window: it's full screen"); return }
+            let now = AX.frame(win)
+            if w.beforeWindowChanges == nil { w.beforeWindowChanges = w.fit?.original ?? now }
+            // A size picked here takes over from Aa's, and isn't undone when watching stops.
+            w.fit = nil
+            w.wantedFit = .normal
+            guard let area = WindowFit.visibleArea(around: now), let target = c.frame(in: area) else { return }
+            _ = WindowFit.set(win, frame: target)
+        }
+        app.log.add("watch window \(c.rawValue)")
+        w.wake()
     }
 
     /// A press and hold (or a two-finger tap) on the phone's picture: a right-click there.
