@@ -523,8 +523,8 @@ struct WatchWindow: View {
         }
     }
 
-    /// What's going on, over the picture: a symbol on a disc, a line, a word or two more, and
-    /// what to do about it.
+    /// What's going on, over the picture, on a card of glass so it reads over any window: a
+    /// symbol on a disc, a line, a word or two more, and what to do about it.
     private struct Note<Action: View>: View {
         var symbol: String?
         var title: String
@@ -544,14 +544,18 @@ struct WatchWindow: View {
                 VStack(spacing: 6) {
                     Text(title).font(.headline).foregroundStyle(Ink.ink)
                     if let detail {
-                        Text(detail).font(.footnote).foregroundStyle(Ink.tertiary)
+                        Text(detail).font(.footnote).foregroundStyle(Ink.secondary)
                     }
                 }
                 action.padding(.top, 2)
             }
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 20)
+            .frame(maxWidth: 320)
+            .watchGlass(RoundedRectangle(cornerRadius: WatchLook.card, style: .continuous))
+            .padding(.horizontal, 20)
             .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         }
     }
