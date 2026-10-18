@@ -273,6 +273,8 @@ struct GeneralPane: View {
                 }
             }
 
+            AgentsSection(apiOn: settings.apiEnabled)
+
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Permissions")
                 Plate {
@@ -495,5 +497,63 @@ struct HotkeyRow: View {
         live = ""
         HotkeyCenter.shared.apply(settings.hotkey)
         problem = HotkeyCenter.shared.lastError
+    }
+}
+
+/// Claude Code and Codex, connected: they tell Macrophone themselves when they work, ask or
+/// finish, so your iPhone knows exactly which one waits on you (AgentSetup).
+struct AgentsSection: View {
+    var apiOn: Bool
+    @State private var claude = AgentSetup.claude
+    @State private var codex = AgentSetup.codex
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("Agents")
+            Plate {
+                row(name: "Claude Code", status: claude, icon: "sparkles") {
+                    problem = AgentSetup.setClaude(claude != .connected)
+                    claude = AgentSetup.claude
+                }
+                PlateDivider(inset: 50)
+                row(name: "Codex", status: codex, icon: "chevron.left.forwardslash.chevron.right") {
+                    problem = AgentSetup.setCodex(codex != .connected)
+                    codex = AgentSetup.codex
+                }
+            }
+            if let problem {
+                Text(problem).font(.system(size: 12)).foregroundStyle(Light.ochre).padding(.horizontal, 4)
+            } else if !apiOn, claude == .connected || codex == .connected {
+                Text("Turn on Local API in Developer — the agents tell Macrophone through it.")
+                    .font(.system(size: 12)).foregroundStyle(Light.ochre).padding(.horizontal, 4)
+            }
+        }
+        .onAppear { claude = AgentSetup.claude; codex = AgentSetup.codex }
+    }
+
+    @ViewBuilder
+    private func row(name: String, status: AgentSetup.Status, icon: String, toggle: @escaping () -> Void) -> some View {
+        PlateRow(title: name, subtitle: line(name, status),
+                 icon: status == .connected ? "checkmark.circle.fill" : icon,
+                 iconColor: status == .connected ? Light.mint : Ink.tertiary) {
+            switch status {
+            case .connected:
+                Button("Disconnect", action: toggle).buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+            case .notConnected:
+                Button("Connect", action: toggle).buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+            case .missing, .taken:
+                EmptyView()
+            }
+        }
+    }
+
+    private func line(_ name: String, _ s: AgentSetup.Status) -> String {
+        switch s {
+        case .connected: return "Your iPhone knows the moment \(name) asks you something or finishes. New sessions only."
+        case .notConnected: return "Tells your iPhone exactly when \(name) needs you, instead of reading its window."
+        case .missing: return "\(name) isn't set up on this Mac."
+        case .taken: return "Codex already runs another program when a turn ends, so Macrophone can't connect."
+        }
     }
 }

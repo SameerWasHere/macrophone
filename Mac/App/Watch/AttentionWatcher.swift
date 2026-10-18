@@ -72,11 +72,13 @@ final class AttentionWatcher {
         let trusted = Paster.isTrusted
         let pictures = CGPreflightScreenCaptureAccess()
         let watched = app.watch.watchedWindows
+        // A window whose agent tells the Mac itself (mp hook) needs no reading.
+        let claimed = app.agents.claimedWindows
         var changed = false
         for (t, wid, pid) in candidates {
             let key = t.id
             // A window someone is looking at answers on its own screen.
-            guard !watched.contains(wid) else { continue }
+            guard !watched.contains(wid), !claimed.contains(wid) else { continue }
             var found: WatchPrompt?
             var image: CGImage?
             // The picture, when it changed since the last look (a caret or a spinner doesn't count):
@@ -98,9 +100,13 @@ final class AttentionWatcher {
             } else {
                 continue
             }
-            guard let p = found else { asked[key] = nil; continue }
+            guard let p = found else {
+                if asked.removeValue(forKey: key) != nil { app.agents.screen(t, question: nil, promptID: nil) }
+                continue
+            }
             guard asked[key] != p.id else { continue }
             asked[key] = p.id
+            app.agents.screen(t, question: p.question, promptID: p.id)
             let a = Attention(ref: t.ref, appName: t.appName, title: t.title, question: p.question, promptID: p.id)
             if phones.isEmpty {
                 // No phone connected (the app is closed): through iCloud.

@@ -251,6 +251,19 @@ final class Watcher: ObservableObject {
     var canWindowCommands: Bool { macFeatures().contains(WatchWindowCommand.feature) }
     var sendWindow: (WatchWindowCommand) -> Bool = { _ in false }
 
+    /// The Mac presses keys beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…).
+    var canPressKeys: Bool { macFeatures().contains(WatchKey.feature) }
+    var sendKey: (WatchKey) -> Bool = { _ in false }
+
+    /// A key from the More Keys menu, pressed in the window; the view goes to where it answers.
+    func press(_ k: WatchKey) {
+        touch()
+        guard sendKey(k) else { return }
+        Haptics.tick()
+        recenter &+= 1
+        log?.add("watching: key")
+    }
+
     /// A Window menu command. A size picked there takes over from Aa's text size.
     func window(_ c: WatchWindowCommand) {
         touch()

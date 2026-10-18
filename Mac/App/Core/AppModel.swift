@@ -29,6 +29,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     /// A phone watching the window it sends to (WatchService).
     private(set) var watch: WatchService!
     private(set) var attention: AttentionWatcher!
+    private(set) var agents: AgentHub!
     /// Phone → the app it's watching, for the menu.
     @Published private(set) var watching: [UUID: String] = [:]
 
@@ -95,6 +96,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         delivery = DeliveryEngine(app: self)
         watch = WatchService(app: self)
         attention = AttentionWatcher(app: self)
+        agents = AgentHub(app: self)
         watch.onChange = { [weak self] in
             guard let self, self.watching != self.watch.watching else { return }
             self.watching = self.watch.watching
@@ -102,7 +104,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.log = log
         server.delegate = self
         // What this Mac can do beyond the first version, for phones that can too.
-        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature]
+        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature]
         // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
         let watchService = watch!
         server.watchInput = { peer, input in watchService.scrollInput(peer, input) }
@@ -117,6 +119,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
             store.isEnabled ? Array(store.all.prefix(n)).map(\.pulled) : (store.latest.map { [$0.pulled] } ?? [])
         }
         api.log = log
+        api.onAgentEvent = { [weak self] e in self?.agents.handle(e) }
         api.onStateChange = { [weak self] state in
             guard let self else { return }
             self.apiState = state
@@ -628,6 +631,12 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID) {
         watch.windowCommand(command, for: peerID)
     }
+
+    func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID) {
+        watch.press(key, for: peerID)
+    }
+
+    func liveAgents(_ server: LinkServer) -> [AgentSession] { agents.list }
 
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {
         watch.choose(promptID, index: index, for: peerID)

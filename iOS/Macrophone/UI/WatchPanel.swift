@@ -572,10 +572,33 @@ struct WatchActions: View {
             key(.arrowUp, label: Image(systemName: "arrow.up"), name: "Up arrow")
             key(.arrowDown, label: Image(systemName: "arrow.down"), name: "Down arrow")
             key(.returnKey, label: Image(systemName: "return"), name: "Return")
+            if watcher.canPressKeys { moreKeys }
             WatchDragSwitch(watcher: watcher)
                 .fixedSize()
                 .padding(.leading, 4)
         }
+    }
+
+    /// ⌃C, Tab, ⇧Tab, ⌘Return, ⌘Z, Space, Delete and the digits, from a menu (a Mac that can).
+    private var moreKeys: some View {
+        Menu {
+            ForEach(WatchKey.menu) { k in
+                Button { watcher.press(k) } label: {
+                    Text("\(k.glyph)   \(k.name)")
+                    if let hint = k.hint { Text(hint) }
+                }
+                .accessibilityLabel(k.name)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 30)
+        }
+        .nativeGlassButton()
+        .controlSize(.small)
+        .accessibilityLabel("More keys")
+        .accessibilityHint("Control-C, Tab, Command-Return and more, pressed in \(watcher.name) on your Mac.")
+        .accessibilityIdentifier("watch-more-keys")
     }
 
     private func key<L: View>(_ a: WatchAction, label: L, name: String) -> some View {

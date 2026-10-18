@@ -41,6 +41,8 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame)
     /// A window on the Mac is asking something (only when `features` names "attention").
     func linkClient(_ client: LinkClient, attention: Attention)
+    /// Every agent session the Mac knows of (a Mac that names none never sends it).
+    func linkClient(_ client: LinkClient, agents: [AgentSession])
     /// The apps installed on the Mac (answer to `listApps`).
     func linkClient(_ client: LinkClient, installedApps: [MacApp])
     /// An app asked for with `openApp` opened (or didn't).
@@ -63,6 +65,7 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {}
     func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame) {}
     func linkClient(_ client: LinkClient, attention: Attention) {}
+    func linkClient(_ client: LinkClient, agents: [AgentSession]) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {}
     func linkClient(_ client: LinkClient, appQuit bundleID: String, ok: Bool, detail: String) {}
@@ -614,6 +617,11 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, attention: a)
             }
+        case let .agents(list):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, agents: list)
+            }
         case let .remoteAddresses(list):
             // Kept with the pairing: what the Mac says replaces what it said before; a typed
             // address stays.
@@ -639,7 +647,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey:
             break
         }
     }
@@ -799,6 +807,17 @@ public final class LinkClient: @unchecked Sendable {
     public func watchWindow(_ command: WatchWindowCommand) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchWindowCommand.feature) ? session : nil }) else { return false }
         Task { try? await s.send(.watchWindow(command)) }
+        return true
+    }
+
+    /// The connected Mac presses keys beyond Esc, the arrows and Return.
+    public var canPressKeys: Bool { lock.sync { session != nil && macFeatures.contains(WatchKey.feature) } }
+
+    /// Press a key in the watched window (only a Mac that can). False when it can't.
+    @discardableResult
+    public func watchKey(_ k: WatchKey) -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(WatchKey.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchKey(k)) }
         return true
     }
 

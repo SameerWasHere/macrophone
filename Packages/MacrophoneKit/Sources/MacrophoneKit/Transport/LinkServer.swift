@@ -36,6 +36,10 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchRightClick point: CGPoint, from peerID: UUID)
     /// A Window menu command for the watched window.
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID)
+    /// A key with its modifiers, pressed in the watched window.
+    func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID)
+    /// The agent sessions, sent to a phone that named "agents" right after its welcome.
+    func liveAgents(_ server: LinkServer) -> [AgentSession]
     /// A swipe on the watched window: scroll it at `point` by `delta` (fractions of the window).
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID)
     /// Answer the prompt the watched window showed (`WatchPrompt.id`) with the answer at `index`.
@@ -67,6 +71,8 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchRightClick point: CGPoint, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID) {}
+    func liveAgents(_ server: LinkServer) -> [AgentSession] { [] }
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {}
@@ -538,6 +544,9 @@ public final class LinkServer: @unchecked Sendable {
                 if phoneFeatures?.contains(RemoteAccess.feature) == true {
                     try await session.send(.remoteAddresses(await remoteAddressesOnMain()))
                 }
+                if phoneFeatures?.contains(AgentSession.feature) == true {
+                    try await session.send(.agents(await agentsOnMain()))
+                }
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
                 if seen.contains(d.id) {
@@ -610,10 +619,13 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
             case let .watchWindow(command):
                 notify { $0.linkServer(self, watchWindow: command, from: phoneID) }
+            case let .watchKey(key):
+                guard key.key.count <= 12 else { break }
+                notify { $0.linkServer(self, watchKey: key, from: phoneID) }
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .agents:
                 break
             }
         }
@@ -627,6 +639,16 @@ public final class LinkServer: @unchecked Sendable {
     @MainActor private func targetsOnMain() -> [LiveTarget] {
         guard let delegate else { return [] }
         return delegate.liveTargets(self)
+    }
+
+    @MainActor private func agentsOnMain() -> [AgentSession] {
+        guard let delegate else { return [] }
+        return delegate.liveAgents(self)
+    }
+
+    /// The agent sessions changed: tell every phone that understands them.
+    public func broadcastAgents(_ list: [AgentSession]) {
+        for id in phones(with: AgentSession.feature) { Task { await self.send(.agents(list), to: id) } }
     }
 
     @MainActor private func remoteAddressesOnMain() -> [RemoteAddress] {

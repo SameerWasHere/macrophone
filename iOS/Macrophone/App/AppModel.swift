@@ -100,6 +100,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var localNetworkDenied = false
     /// The Mac's open apps/windows with somewhere to type, newest first (cached while it's away).
     @Published private(set) var liveTargets: [LiveTarget] = []
+    /// Every agent session the Mac knows of (a Mac that sends none: empty).
+    @Published private(set) var agentSessions: [AgentSession] = []
     /// The Mac sent its list since the link last connected (so "Not open on your Mac" is current).
     @Published private(set) var targetsCurrent = false
     @Published private(set) var pairedMac: PairedPeer?
@@ -145,6 +147,7 @@ final class AppModel: ObservableObject {
         watcher.sendClick = { [weak self] p in self?.client.watchClick(p) }
         watcher.sendRightClick = { [weak self] p in self?.client.watchRightClick(p) ?? false }
         watcher.sendWindow = { [weak self] c in self?.client.watchWindow(c) ?? false }
+        watcher.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
         watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         watcher.sendScrollPhase = { [weak self] phase, p in self?.client.watchScrollPhase(phase, at: p) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }
@@ -182,7 +185,7 @@ final class AppModel: ObservableObject {
         // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts);
         // one with remote access on tells it where it can be reached from away; one that can sends
         // the watched window as video (Watcher decodes it).
-        c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+        c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, AgentSession.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -1141,6 +1144,8 @@ extension AppModel: LinkClientDelegate {
         isRemote = client.isRemote
         linkRoute = client.route
         if case .connected = state { flushQueue() } else { targetsCurrent = false }
+        // Another Mac, or none: its agents aren't this one's.
+        if case .notPaired = state { agentSessions = [] }
         if case .connected = state { watcher.linkChanged(connected: true) } else { watcher.linkChanged(connected: false) }
     }
 
@@ -1251,6 +1256,11 @@ extension AppModel: LinkClientDelegate {
         if sceneActive, watcher.isOpen, watcher.target == attention.ref, !watcher.phase.isPaused { return }
         AgentAlerts.shared.post(attention)
         log.add("attention: \(attention.appName) is asking")
+    }
+
+    func linkClient(_ client: LinkClient, agents: [AgentSession]) {
+        guard client === self.client else { return }
+        if agentSessions != agents { agentSessions = agents }
     }
 
     /// Alerts through iCloud are set up: say so in the next hello (the Mac then keeps looking

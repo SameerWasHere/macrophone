@@ -16,6 +16,7 @@ Usage:
   mp list [-n 10] [--json]          recent dictations, newest first (1–50)
   mp status                         is Macrophone running, which iPhones are connected
   mp mcp                            run the MCP server on stdio (for Claude and other agents)
+  mp hook claude | codex            what Claude Code and Codex run on their events (Macrophone sets it up)
   mp --version | --help
 
 Exit codes: 0 ok · 1 nothing yet / timed out · 2 usage · 3 Macrophone not running or API off · 4 token rejected
@@ -82,11 +83,14 @@ func timeLabel(_ d: Date) -> String {
 }
 
 func run() async -> Int32 {
+    // What an agent runs on its events: its own arguments, never the options below.
+    if CommandLine.arguments.dropFirst().first == "hook" { return await Hook.run(Array(CommandLine.arguments.dropFirst(2))) }
     guard let o = parse(Array(CommandLine.arguments.dropFirst())) else { return 2 }
     switch o.command {
     case "help": out(usage); return 0
     case "version": out("macrophone \(version)"); return 0
     case "mcp": return await MCPServer().run()
+    case "hook": return 0
     case "latest", "list", "wait", "status": break
     default:
         err("Unknown command \(o.command). Try `mp --help`.")

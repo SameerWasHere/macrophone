@@ -140,6 +140,12 @@ public enum Message: Codable, Sendable {
     case watchChoose(promptID: String, index: Int)
     /// Mac → phone: a window is asking a question (only to phones whose hello named "attention").
     case attention(Attention)
+    /// Mac → phone: every agent session the Mac knows of, as it changes (only to phones whose
+    /// hello named "agents"). Sent after welcome too.
+    case agents([AgentSession])
+    /// Phone → Mac: press a key with its modifiers in the watched window (only to a Mac naming
+    /// WatchKey.feature).
+    case watchKey(WatchKey)
     /// Mac → phone: how watching is going.
     case watchState(WatchState)
     /// Mac → phone: the window, when it changed (a picture — to a phone that didn't name "video").

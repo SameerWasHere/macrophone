@@ -591,6 +591,40 @@ final class WatchService {
         }
     }
 
+    /// A key beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…), in the watched window. A key
+    /// it doesn't know is ignored.
+    func press(_ k: WatchKey, for peer: UUID) {
+        guard let code = Self.keyCode(k.key) else { return }
+        var flags: CGEventFlags = []
+        if k.command { flags.insert(.maskCommand) }
+        if k.shift { flags.insert(.maskShift) }
+        if k.control { flags.insert(.maskControl) }
+        if k.option { flags.insert(.maskAlternate) }
+        act(on: peer, what: "key") { _ in Keys.press(code, flags: flags) }
+    }
+
+    private static func keyCode(_ key: String) -> CGKeyCode? {
+        switch key {
+        case "tab": return CGKeyCode(kVK_Tab)
+        case "return": return CGKeyCode(kVK_Return)
+        case "space": return CGKeyCode(kVK_Space)
+        case "delete": return CGKeyCode(kVK_Delete)
+        case "escape": return CGKeyCode(kVK_Escape)
+        case "c": return CGKeyCode(kVK_ANSI_C)
+        case "z": return CGKeyCode(kVK_ANSI_Z)
+        case "1": return CGKeyCode(kVK_ANSI_1)
+        case "2": return CGKeyCode(kVK_ANSI_2)
+        case "3": return CGKeyCode(kVK_ANSI_3)
+        case "4": return CGKeyCode(kVK_ANSI_4)
+        case "5": return CGKeyCode(kVK_ANSI_5)
+        case "6": return CGKeyCode(kVK_ANSI_6)
+        case "7": return CGKeyCode(kVK_ANSI_7)
+        case "8": return CGKeyCode(kVK_ANSI_8)
+        case "9": return CGKeyCode(kVK_ANSI_9)
+        default: return nil
+        }
+    }
+
     /// Readable text (Aa): size the watched window for the phone, or put it back. The next picture
     /// follows the new shape, and the place to type is read again.
     func fit(_ f: WatchFit, for peer: UUID) {

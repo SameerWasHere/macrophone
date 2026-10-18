@@ -40,6 +40,9 @@ final class LocalAPIServer: @unchecked Sendable {
     var latest: () -> PulledDictation? = { nil }
     var history: (Int) -> [PulledDictation] = { _ in [] }
     var log: DiagnosticLog?
+    /// An agent told the Mac what it's doing (`POST /v1/agent`, from `mp hook`). Called on the main queue.
+    var onAgentEvent: (AgentEvent) -> Void = { _ in }
+    static let maxBodyBytes = 64 * 1024
     /// Called on the main queue.
     var onStateChange: (State) -> Void = { _ in }
 
@@ -147,6 +150,7 @@ final class LocalAPIServer: @unchecked Sendable {
         var path: String
         var query: [String: String]
         var headers: [String: String]
+        var body = Data()
     }
 
     private func accept(_ c: NWConnection) {
@@ -165,10 +169,14 @@ final class LocalAPIServer: @unchecked Sendable {
             if let end = buf.range(of: Data("\r\n\r\n".utf8)) {
                 deadline.cancel()
                 let head = buf[buf.startIndex..<end.lowerBound]
-                guard let req = Self.parse(head) else {
+                guard var req = Self.parse(head) else {
                     self.respond(c, 400, ["error": "Bad request."]); return
                 }
-                self.route(req, on: c)
+                let length = Int(req.headers["content-length"] ?? "") ?? 0
+                guard length > 0 else { self.route(req, on: c); return }
+                guard length <= Self.maxBodyBytes else { self.respond(c, 413, ["error": "Too large."]); return }
+                req.body = Data(buf[end.upperBound...])
+                self.readBody(c, req, length: length)
                 return
             }
             if buf.count > Self.maxHeaderBytes {
@@ -177,6 +185,22 @@ final class LocalAPIServer: @unchecked Sendable {
             }
             if error != nil || complete { deadline.cancel(); c.cancel(); return }
             self.readHeaders(c, buffer: buf, deadline: deadline)
+        }
+    }
+
+    /// The rest of a request's body, up to `length` bytes, within 5 seconds.
+    private func readBody(_ c: NWConnection, _ req: Request, length: Int) {
+        if req.body.count >= length { var r = req; r.body = r.body.prefix(length); route(r, on: c); return }
+        let deadline = DispatchWorkItem { [weak c] in c?.cancel() }
+        queue.asyncAfter(deadline: .now() + 5, execute: deadline)
+        c.receive(minimumIncompleteLength: 1, maximumLength: Self.maxBodyBytes) { [weak self] data, _, complete, error in
+            deadline.cancel()
+            guard let self else { return }
+            var r = req
+            if let data { r.body.append(data) }
+            if r.body.count >= length { r.body = r.body.prefix(length); self.route(r, on: c); return }
+            if error != nil || complete || r.body.count > Self.maxBodyBytes { c.cancel(); return }
+            self.readBody(c, r, length: length)
         }
     }
 
@@ -217,6 +241,14 @@ final class LocalAPIServer: @unchecked Sendable {
         lock.lock(); let expected = "Bearer " + token; lock.unlock()
         guard let auth = r.headers["authorization"], Self.constantTimeEqual(auth, expected) else {
             return respond(c, 401, ["error": "Missing or wrong token. Find it in Macrophone › Developer."])
+        }
+        if r.path == "/v1/agent" {
+            guard r.method == "POST" else { return respond(c, 405, ["error": "Use POST."], extra: ["Allow": "POST"]) }
+            guard let e = try? JSONDecoder().decode(AgentEvent.self, from: r.body) else {
+                return respond(c, 400, ["error": "Not an agent event."])
+            }
+            DispatchQueue.main.async { self.onAgentEvent(e) }
+            return respondEmpty(c)
         }
         let known = ["/v1/latest", "/v1/history", "/v1/next", "/v1/status"]
         guard known.contains(r.path) else { return respond(c, 404, ["error": "Not found."]) }
@@ -359,6 +391,7 @@ final class LocalAPIServer: @unchecked Sendable {
         case 403: return "Forbidden"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
+        case 413: return "Content Too Large"
         case 431: return "Request Header Fields Too Large"
         default: return "Error"
         }
