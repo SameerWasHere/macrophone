@@ -142,6 +142,8 @@ final class Watcher: ObservableObject {
         let switching = self.target != target
         self.target = target
         if !isOpen { drag = .pan; wholeWindow = false }
+        // A window fitted to the phone shows whole: one finger scrolls it (nothing to pan to).
+        if Self.isFitted(target), (switching || !isOpen) { drag = .scroll }
         if switching {
             image = nil
             video.clear()
@@ -268,8 +270,20 @@ final class Watcher: ObservableObject {
         if wholeWindow { toggleWholeWindow() }
         // Start from the whole window, not a zoom kept from its old shape.
         if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
-        say("\(name)'s window now has your iPhone's shape — all of it fits here")
+        // All of it shows, so there's nothing to pan to: one finger scrolls the Mac's window, now
+        // and whenever this app's window opens while it keeps this shape.
+        if let target { Self.setFitted(target, true) }
+        drag = .scroll
+        say("\(name)'s window now has your iPhone's shape — all of it fits here, and one finger scrolls it")
         log?.add("watching: fit to iPhone")
+    }
+
+    /// Apps whose window was fitted to the phone (and not sized since): they open in Scroll.
+    private static func fittedKey(_ t: TargetRef) -> String? { t.bundleID.map { "watch.fitted." + $0 } }
+    static func isFitted(_ t: TargetRef) -> Bool { fittedKey(t).map { UserDefaults.standard.bool(forKey: $0) } ?? false }
+    static func setFitted(_ t: TargetRef, _ on: Bool) {
+        guard let k = fittedKey(t) else { return }
+        if on { UserDefaults.standard.set(true, forKey: k) } else { UserDefaults.standard.removeObject(forKey: k) }
     }
 
     /// The Mac presses keys beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…).
@@ -291,6 +305,8 @@ final class Watcher: ObservableObject {
         guard sendWindow(c) else { return }
         Haptics.tick()
         if c.frame(in: .zero) != nil || c == .restore, fit != .normal { setFitLocally(.normal) }
+        // Another size: no longer the phone's shape.
+        if c.frame(in: .zero) != nil || c == .restore, let target { Self.setFitted(target, false) }
         log?.add("watching: window \(c.rawValue)")
     }
 
@@ -353,7 +369,7 @@ final class Watcher: ObservableObject {
         touch()
         Haptics.tick()
         fit = f
-        if let target { Self.remember(f, for: target) }
+        if let target { Self.remember(f, for: target); Self.setFitted(target, false) }
         // A new text size reshapes the window: start from its fit, not the old zoom.
         if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
         if sendFit(f) {
