@@ -78,3 +78,15 @@ public struct AttachmentChunk: Codable, Sendable {
 public enum DictationPrepare {
     public static let feature = "prepare"
 }
+
+/// The whole screen (Oct 18 2026, Sameer: "I just want them to be able to see their whole Mac
+/// screen … this may be needed to interact with certain pop ups"): watched like a window — the
+/// main display, live, with taps, right-clicks, scrolls and keys (keys go to whatever is in front).
+/// A reserved place no app has, so a Mac that doesn't know it simply says it isn't open; the phone
+/// offers it only to a Mac whose welcome names the feature.
+public enum DesktopWatch {
+    public static let feature = "desktop"
+    public static let bundleID = "com.sameer.macrophone.whole-screen"
+    public static var target: TargetRef { .app(bundleID: bundleID, windowKey: nil, name: "Whole Screen") }
+    public static func isDesktop(_ t: TargetRef?) -> Bool { t?.bundleID == bundleID }
+}

@@ -1362,6 +1362,13 @@ extension AppModel: LinkClientDelegate {
         log.add("attention: \(attention.appName) is asking")
     }
 
+    /// The Mac's whole screen, live — Send to stays as it is (dictations still go to the picked app).
+    func watchWholeScreen() {
+        guard isConnected, watcher.canWatchDesktop else { return }
+        Haptics.tick()
+        watcher.open(DesktopWatch.target)
+    }
+
     // MARK: The clipboard, photos and files (Oct 18 2026)
 
     var canShareClipboard: Bool { client.canShareClipboard }

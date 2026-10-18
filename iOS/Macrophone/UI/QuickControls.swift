@@ -252,6 +252,11 @@ struct PlacesRow: View {
         // ⋯: a photo, a file or the clipboard into the chat you send to, and a fresh look at the
         // open apps. Opening an app that isn't open is the + at the end of the row, and only there.
         Menu {
+            if model.isConnected, model.watcher.canWatchDesktop {
+                Section {
+                    Button { model.watchWholeScreen() } label: { Label("See the Whole Screen", systemImage: "display") }
+                }
+            }
             MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
             Section {
                 Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }

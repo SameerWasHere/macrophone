@@ -49,7 +49,12 @@ enum WindowServer {
 
     /// One window's frame on screen (top-left origin) — a lookup of that window alone, cheap enough
     /// for every step of a swipe (the whole list, with each window's desktops, isn't).
+    /// The whole screen, watched like a window (DesktopWatch): its place is the main display's.
+    static let desktopID: CGWindowID = 0x7FFF_FFF0
+    static var desktopBounds: CGRect { CGDisplayBounds(CGMainDisplayID()) }
+
     static func bounds(of id: CGWindowID) -> CGRect? {
+        if id == desktopID { return desktopBounds }
         guard let w = (CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]])?.first,
               let b = w[kCGWindowBounds as String] as? [String: Any] else { return nil }
         return CGRect(dictionaryRepresentation: b as CFDictionary)
@@ -59,6 +64,7 @@ enum WindowServer {
     /// it): no on-screen app window of any app is above it there. Only windows on this desktop
     /// count — one on another desktop is listed in front, but covers nothing.
     static func isOnTop(_ id: CGWindowID, at p: CGPoint) -> Bool {
+        if id == desktopID { return true }
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
         for w in list {
             guard (w[kCGWindowLayer as String] as? Int) == 0,
@@ -75,6 +81,7 @@ enum WindowServer {
 
     /// One window's place: nil when it's gone; on screen = on this desktop and not minimized.
     static func info(_ id: CGWindowID) -> (onScreen: Bool, bounds: CGRect)? {
+        if id == desktopID { return (true, desktopBounds) }
         guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]],
               let w = list.first(where: { ($0[kCGWindowNumber as String] as? CGWindowID) == id }) else { return nil }
         let bounds = (w[kCGWindowBounds as String] as? [String: Any]).flatMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) } ?? .zero

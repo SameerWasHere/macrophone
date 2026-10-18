@@ -94,10 +94,28 @@ final class AttachmentInbox {
             running = f
         }
         let name = running.localizedName ?? "the app"
+        let window: AXUIElement?
         do {
-            _ = try await Paster.bringToFront(running, windowID: windowID, required: false, name: name)
+            window = try await Paster.bringToFront(running, windowID: windowID, required: false, name: name)
         } catch {
             return (false, "\(name) didn't come forward — \(what.lowercased()) is in Macrophone's From iPhone folder")
+        }
+        // Into the message box, as a dictation goes (Oct 18 2026, Sameer: "it only works when I click
+        // into the text bar first … it should work the same as voice text"): found and focused
+        // first; nothing is sent, so words can go with it.
+        let bid = running.bundleIdentifier
+        if !AppQuirks.isTerminal(bid), !(bid.map(AppQuirks.hiddenComposer.contains) ?? false) {
+            let ax = AX.app(running.processIdentifier)
+            if let bid, AppQuirks.isChromium(bundleID: bid, url: running.bundleURL) { AX.wakeWebContent(ax) }
+            if let win = window ?? AX.element(ax, kAXFocusedWindowAttribute) {
+                let hints = await app.scanner.hints(for: running.processIdentifier)
+                let rem = (hints.rememberedWindow == windowID ? hints.rememberedElement : nil).flatMap { AX.isAlive($0) ? $0 : nil }
+                let focused = AX.focused(in: ax)
+                let scan = await Task.detached(priority: .userInitiated) {
+                    ComposerFinder.scan(window: win, bundleID: bid, focused: focused, remembered: rem, timeLimit: 0.5)
+                }.value
+                if let c = scan.composer { _ = await Composer.focus(c.element, in: ax) }
+            }
         }
         let saved = PasteboardSnapshot(pb)
         pb.clearContents()

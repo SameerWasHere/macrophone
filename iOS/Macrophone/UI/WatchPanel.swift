@@ -144,6 +144,15 @@ struct WatchPanel: View {
 
     private var sessionMenu: some View {
         Menu {
+            // The whole screen first: for a pop-up that isn't in any one window.
+            if watcher.canWatchDesktop {
+                Section {
+                    Button { model.watchWholeScreen() } label: {
+                        Label("Whole Screen", systemImage: watcher.isDesktop ? "checkmark" : "display")
+                        Text("Everything on your Mac, live")
+                    }
+                }
+            }
             ForEach(sessions) { t in
                 Button { show(t) } label: {
                     if watcher.target?.matches(t) ?? false { Label(t.title, systemImage: "checkmark") }
@@ -168,7 +177,7 @@ struct WatchPanel: View {
     private var header: some View {
         HStack(spacing: 10) {
             // The name keeps its room; the page dots step aside when the controls need it.
-            if sessions.count > 1 {
+            if sessions.count > 1 || watcher.canWatchDesktop {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 10) {
                         sessionMenu
@@ -184,8 +193,11 @@ struct WatchPanel: View {
             if watcher.macCanFit, watcher.target != .clipboard {
                 HStack(spacing: 0) {
                     WatchWholeButton(watcher: watcher)
-                    WatchCellDivider()
-                    WatchWindowMenu(watcher: watcher)
+                    // The whole screen has no window to size, minimize or close.
+                    if !watcher.isDesktop {
+                        WatchCellDivider()
+                        WatchWindowMenu(watcher: watcher)
+                    }
                 }
                 .watchGlass(Capsule())
             }

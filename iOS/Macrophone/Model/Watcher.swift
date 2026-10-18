@@ -159,6 +159,8 @@ final class Watcher: ObservableObject {
         if !isOpen { drag = .pan; wholeWindow = false }
         // A window fitted to the phone shows whole: one finger scrolls it (nothing to pan to).
         if Self.isFitted(target), (switching || !isOpen) { drag = .scroll }
+        // The whole screen opens fitted: all of it at once (pinch in for detail).
+        if DesktopWatch.isDesktop(target), switching || !isOpen { wholeWindow = true }
         if switching {
             // The last window's picture stays on screen, dimmed, until the new one's first frame:
             // the viewer never tears down to an empty plate between two windows.
@@ -308,6 +310,10 @@ final class Watcher: ObservableObject {
         guard let k = fittedKey(t) else { return }
         if on { UserDefaults.standard.set(true, forKey: k) } else { UserDefaults.standard.removeObject(forKey: k) }
     }
+
+    /// The whole screen (DesktopWatch): a Mac that can show it, and whether it's what's shown.
+    var canWatchDesktop: Bool { macFeatures().contains(DesktopWatch.feature) }
+    var isDesktop: Bool { DesktopWatch.isDesktop(target) }
 
     /// The Mac presses keys beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…).
     var canPressKeys: Bool { macFeatures().contains(WatchKey.feature) }

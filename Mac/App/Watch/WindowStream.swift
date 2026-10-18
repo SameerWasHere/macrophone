@@ -77,6 +77,20 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
         try? await stream.stopCapture()
     }
 
+    /// The whole main display (DesktopWatch), leaving out `excluding` (Macrophone's own popup).
+    init(display: SCDisplay, excluding: [SCWindow], maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false) {
+        let filter = SCContentFilter(display: display, excludingWindows: excluding)
+        scale = CGFloat(filter.pointPixelScale)
+        self.maxRate = maxRate
+        self.video = video
+        let points = CGSize(width: display.width, height: display.height)
+        let (cfg, size) = Self.configuration(for: points, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video)
+        self.size = size
+        windowSize = points
+        stream = SCStream(filter: filter, configuration: cfg, delegate: nil)
+        super.init()
+    }
+
     /// The window was resized: pictures follow its new shape.
     func resize(to window: CGSize, maxWidth: CGFloat) async {
         guard window != windowSize else { return }

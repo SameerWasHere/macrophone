@@ -293,11 +293,18 @@ final class WatchService {
         if let s = w.stream {
             await s.resize(to: place.bounds.size, maxWidth: maxWidth(for: w))
         } else {
-            guard let scw = await scWindow(wid) else {
+            let made: WindowStream?
+            if wid == WindowServer.desktopID {
+                made = await desktopStream(w)
+            } else if let scw = await scWindow(wid) {
+                made = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
+            } else {
+                made = nil
+            }
+            guard let s = made else {
                 w.windowID = nil
                 return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
             }
-            let s = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
             if w.wantsVideo {
                 let pipe = VideoPipe(peer: w.peer, server: app.server, rate: rate(w), timing: timing)
                 pipe.onFallback = { [weak self, weak w] why in
@@ -438,7 +445,8 @@ final class WatchService {
     /// Not for a caret or a spinner: only once something bigger than that changed since the last
     /// read (text recognition takes a tenth of a second). Returns whether it changed.
     private func readPrompt(_ w: Watch, _ image: CGImage) async -> Bool {
-        guard let wid = w.windowID, promptDue(w) else { return false }
+        // The whole screen asks no one question: no answers to read.
+        guard let wid = w.windowID, wid != WindowServer.desktopID, promptDue(w) else { return false }
         w.promptAt = Date()
         w.changedSinceRead = 0
         let t = DispatchTime.now()
@@ -476,6 +484,14 @@ final class WatchService {
 
     /// Finds the window to show (once; again only when it's gone). Nil = found.
     private func resolve(_ w: Watch) async -> WatchState? {
+        // The whole screen: no app, no window to find.
+        if DesktopWatch.isDesktop(w.target) {
+            w.windowID = WindowServer.desktopID
+            w.pid = 0
+            w.bundleID = nil
+            w.appName = "Whole Screen"
+            return nil
+        }
         if let id = w.windowID, WindowServer.exists(id),
            NSRunningApplication(processIdentifier: w.pid).map({ !$0.isTerminated }) ?? false {
             return nil
@@ -544,6 +560,14 @@ final class WatchService {
         content = c
         contentAt = Date()
         return c
+    }
+
+    /// The main display, without Macrophone's own windows (its popup would show in the picture).
+    private func desktopStream(_ w: Watch) async -> WindowStream? {
+        guard let c = try? await refreshContent(),
+              let display = c.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? c.displays.first else { return nil }
+        let mine = c.windows.filter { $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier }
+        return WindowStream(display: display, excluding: mine, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
     }
 
     private func scWindow(_ id: CGWindowID) async -> SCWindow? {
@@ -662,7 +686,7 @@ final class WatchService {
     }
 
     private func applyFit(_ w: Watch) {
-        guard let wid = w.windowID else { return }
+        guard let wid = w.windowID, wid != WindowServer.desktopID else { return }
         let f = w.wantedFit
         guard Paster.isTrusted else {
             app.log.add("watch fit skipped: Accessibility not granted")
@@ -732,7 +756,7 @@ final class WatchService {
     /// The Window menu: a size laid out on the window's own screen (it stays when watching stops —
     /// it was asked for), back to how it was, or the window's own minimize and close buttons.
     func windowCommand(_ c: WatchWindowCommand, for peer: UUID) {
-        guard let w = watches[peer], let wid = w.windowID else { return }
+        guard let w = watches[peer], let wid = w.windowID, wid != WindowServer.desktopID else { return }
         guard Paster.isTrusted else { app.log.add("watch window skipped: Accessibility not granted"); return }
         guard let win = AX.window(in: AX.app(w.pid), id: wid), AX.isAlive(win) else {
             app.log.add("watch window \(c.rawValue): the window isn't answering")
@@ -763,7 +787,7 @@ final class WatchService {
     /// Fit to iPhone: the window takes the phone's view's shape, as tall as the screen allows. Like
     /// the Window menu's sizes, it takes over from Aa and Back to How It Was undoes it.
     func fitToPhone(aspect: CGFloat, for peer: UUID) {
-        guard let w = watches[peer], let wid = w.windowID else { return }
+        guard let w = watches[peer], let wid = w.windowID, wid != WindowServer.desktopID else { return }
         guard Paster.isTrusted else { app.log.add("watch fit to iPhone skipped: Accessibility not granted"); return }
         guard let win = AX.window(in: AX.app(w.pid), id: wid), AX.isAlive(win), !AX.bool(win, "AXFullScreen") else {
             app.log.add("watch fit to iPhone: the window isn't answering")
@@ -798,8 +822,7 @@ final class WatchService {
     /// shows the result: the next picture the window gives goes at once (a swipe's scrolling
     /// keeps its pace — ten pictures a second would swamp the link).
     private func act(on peer: UUID, what: String, quiet: Bool = false, _ body: @escaping @MainActor (CGWindowID) async -> Void) {
-        guard let w = watches[peer], let wid = w.windowID,
-              let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
+        guard let w = watches[peer], let wid = w.windowID else { return }
         guard Paster.isTrusted else {
             app.log.add("watch \(what) skipped: Accessibility not granted")
             return
@@ -809,6 +832,18 @@ final class WatchService {
             app.log.add("watch \(what) skipped: the Mac is locked")
             return
         }
+        // The whole screen: nothing to bring forward — the click lands where it lands, a key goes to
+        // whatever is in front.
+        if wid == WindowServer.desktopID {
+            Task { [weak self] in
+                if !quiet { w.hurry() }
+                await body(wid)
+                if !quiet { self?.app.log.add("watch \(what) (whole screen)") }
+                w.wake()
+            }
+            return
+        }
+        guard let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
         let name = w.appName
         Task { [weak self] in
             let recently = quiet && Date().timeIntervalSince(w.inFrontAt) < 1
@@ -832,7 +867,7 @@ final class WatchService {
 
     /// A left click at a fraction of the window. The pointer goes there for the click and is put back.
     private static func click(window id: CGWindowID, at p: CGPoint) async {
-        guard let b = WindowServer.appWindows().first(where: { $0.id == id })?.bounds else { return }
+        guard let b = WindowServer.bounds(of: id) else { return }
         await click(at: CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height))
     }
 

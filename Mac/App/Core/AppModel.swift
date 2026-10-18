@@ -113,7 +113,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.delegate = self
         // What this Mac can do beyond the first version, for phones that can too.
         server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature,
-                              ClipboardItem.feature, AttachmentChunk.feature, DictationPrepare.feature]
+                              ClipboardItem.feature, AttachmentChunk.feature, DictationPrepare.feature, DesktopWatch.feature]
         // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
         let watchService = watch!
         server.watchInput = { peer, input in watchService.scrollInput(peer, input) }
