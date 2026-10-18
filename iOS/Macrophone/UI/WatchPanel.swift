@@ -36,7 +36,7 @@ struct WatchPanel: View {
                 .allowsHitTesting(watcher.phase == .live)
                 .accessibilityHidden(watcher.phase != .live)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.margin)
         .padding(.top, 6)
         .padding(.bottom, compact ? 8 : 14)
         // Swipe in from a side edge (in the margin beside the window, under a thumb) for the
@@ -468,7 +468,11 @@ struct WatchWindow: View {
 /// picture). It ends the key row on the right, where the thumb rests, so a watched window works
 /// with one hand.
 struct WatchDragSwitch: View {
+    /// How much of each option shows: its glyph and word, the word, or the glyph — the key row
+    /// picks the widest that fits (a 402pt phone takes the words; the glyphs stay for narrower).
+    enum Style { case full, words, glyphs }
     @ObservedObject var watcher: Watcher
+    var style: Style = .full
     @Namespace private var pill
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -490,11 +494,17 @@ struct WatchDragSwitch: View {
         return Button {
             withAnimation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.82)) { watcher.setDrag(d) }
         } label: {
-            Label(title, systemImage: symbol)
+            Group {
+                switch style {
+                case .full: Label(title, systemImage: symbol)
+                case .words: Text(title)
+                case .glyphs: Image(systemName: symbol).accessibilityLabel(title)
+                }
+            }
                 .font(.footnote.weight(.semibold))
                 .lineLimit(1)
                 .foregroundStyle(on ? Ink.ground : Ink.secondary)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, style == .glyphs ? 12 : 10)
                 .frame(minHeight: 38)
                 .background {
                     if on { Capsule().fill(Light.cyan).matchedGeometryEffect(id: "pill", in: pill) }
@@ -583,7 +593,18 @@ struct WatchActions: View {
         .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
     }
 
+    /// The row at the widest it fits: Pan | Scroll with glyphs and words, then the words alone,
+    /// then the glyphs (Oct 18 2026 — the full row is 381pt, so on every phone it overflowed the
+    /// margins by a few points each side and widened the whole panel with it).
     private var keys: some View {
+        ViewThatFits(in: .horizontal) {
+            keyRow(.full)
+            keyRow(.words)
+            keyRow(.glyphs)
+        }
+    }
+
+    private func keyRow(_ style: WatchDragSwitch.Style) -> some View {
         HStack(spacing: 6) {
             // Esc keeps its word whole; the arrows and ··· give way first.
             key(.escape, label: Text("Esc"), name: "Escape").fixedSize(horizontal: true, vertical: false)
@@ -591,7 +612,7 @@ struct WatchActions: View {
             key(.arrowDown, label: Image(systemName: "arrow.down"), name: "Down arrow")
             key(.returnKey, label: Image(systemName: "return"), name: "Return")
             if watcher.canPressKeys { moreKeys }
-            WatchDragSwitch(watcher: watcher)
+            WatchDragSwitch(watcher: watcher, style: style)
                 .fixedSize()
                 .padding(.leading, 4)
         }

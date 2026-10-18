@@ -65,24 +65,14 @@ struct SettingsView: View {
                 }
             }
             Toggle(isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
-                HStack(spacing: 10) {
-                    Image(systemName: settings.selection.send ? "paperplane.fill" : "paperplane").foregroundStyle(Light.cyan)
-                        .accessibilityHidden(true)
-                    Text("Send after pasting").fixedSize(horizontal: false, vertical: true)
-                }
+                iconLabel("Send after pasting", systemImage: settings.selection.send ? "paperplane.fill" : "paperplane")
             }
             .disabled(!settings.selection.target.canSend)
             Toggle(isOn: $settings.watchAfterSending) {
-                HStack(spacing: 10) {
-                    Image(systemName: "eye").foregroundStyle(Light.cyan).accessibilityHidden(true)
-                    Text("Show the app after sending").fixedSize(horizontal: false, vertical: true)
-                }
+                iconLabel("Show the app after sending", systemImage: "eye")
             }
             Toggle(isOn: $settings.agentAlerts) {
-                HStack(spacing: 10) {
-                    Image(systemName: "bell.badge").foregroundStyle(Light.cyan).accessibilityHidden(true)
-                    Text("Tell me when an agent asks something").fixedSize(horizontal: false, vertical: true)
-                }
+                iconLabel("Tell me when an agent asks something", systemImage: "bell.badge")
             }
             .onChange(of: settings.agentAlerts) { _, on in
                 Task { if on { await AgentAlerts.shared.askIfNeeded() } else { await AgentAlerts.shared.unsubscribeInCloud() } }
@@ -97,6 +87,15 @@ struct SettingsView: View {
                  + " When an agent on your Mac stops to ask something while Macrophone is open here, you get a notification; tap it to answer.")
         }
         .listRowBackground(Ink.raised)
+    }
+
+    /// A row's symbol in the same 28pt column as the Send to icon above it, so the labels of the
+    /// section line up (they started at four different places, Oct 18 2026).
+    private func iconLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage).foregroundStyle(Light.cyan).frame(width: 28).accessibilityHidden(true)
+            Text(title).fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: Cleanup
