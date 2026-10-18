@@ -203,7 +203,7 @@ public enum WatchWindowCommand: String, Codable, Sendable, CaseIterable {
 
     public var symbol: String {
         switch self {
-        case .fill: return "macwindow"
+        case .fill: return "rectangle.inset.filled"
         case .leftHalf: return "rectangle.lefthalf.inset.filled"
         case .rightHalf: return "rectangle.righthalf.inset.filled"
         case .middle: return "rectangle.center.inset.filled"

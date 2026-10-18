@@ -40,7 +40,7 @@ struct SettingsView: View {
                 case .language: LanguageView(settings: settings)
                 case .diagnostics: DiagnosticsView()
                 case .pairing: PairingView(embedded: true)
-                case .sendTo: SendToList(settings: settings).navigationTitle("Send To").navigationBarTitleDisplayMode(.inline)
+                case .sendTo: SendToList(settings: settings).navigationTitle("Send to").navigationBarTitleDisplayMode(.inline)
                 case .customCleanup: CustomCleanupView(settings: settings)
                 }
             }

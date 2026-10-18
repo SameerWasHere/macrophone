@@ -5,11 +5,12 @@ import UIKit
 // Where dictations go: the glyphs and icons for places, and Settings' full list of them (every
 // window). The controls by the mic are in QuickControls.swift.
 
+/// The glyphs for places, the same as the Mac's `TargetIcons` (an app's own icon when the Mac sent one).
 enum TargetGlyph {
     static func symbol(for t: TargetRef) -> String {
         switch t {
         case .clipboard: return "doc.on.clipboard"
-        case .frontApp: return "cursorarrow.rays"
+        case .frontApp: return "text.cursor"
         case let .app(bid, _, name): return appSymbol(bundleID: bid, name: name)
         }
     }
@@ -20,7 +21,7 @@ enum TargetGlyph {
         if n.contains("message") || n.contains("slack") || n.contains("mail") { return "bubble.left" }
         if n.contains("note") { return "note.text" }
         if n.contains("cursor") || n.contains("code") || n.contains("xcode") { return "chevron.left.forwardslash.chevron.right" }
-        return "macwindow"
+        return "app"
     }
 }
 

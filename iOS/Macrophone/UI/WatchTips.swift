@@ -5,11 +5,13 @@ import SwiftUI
 // app (right click, swipe to switch apps). Can we make it so users can discover these features on
 // first use?"). One card at a time over the top of the window — never over its newest lines, where
 // you type — each shown until you tap Got it, and only once the thing it names works here (a
-// right-click with a Mac that takes them, the side swipe with two windows or more). The Window
-// menu's Show Tips Again brings them back.
+// right-click with a Mac that takes them, the side swipe with two windows or more, Text with a
+// Mac that reads). Six at most (Oct 18 2026): the things with no words of their own on screen —
+// a gesture, a bare glyph, a ··· — in the order they're met. The Window menu's Show Tips Again
+// brings them back.
 //
 //   ┌──────────────────────────────────────────────┐
-//   │ (hand.tap)  TIP 1 OF 4                   [×] │   a mono kicker, the symbol on a lit disc
+//   │ (hand.tap)  TIP 1 OF 6                   [×] │   a mono kicker, the symbol on a lit disc
 //   │ Tap to click, hold to right-click            │   the words in the serif — the app's voice
 //   │ A tap is a click there on your Mac. Hold —   │
 //   │ or tap with two fingers — for a right-click. │
@@ -28,12 +30,19 @@ struct WatchTip: Identifiable, Equatable {
     static let zoom = WatchTip(id: "zoom", symbol: "arrow.up.left.and.arrow.down.right",
                                title: "Pinch to zoom",
                                detail: "Pinch in or out; the window opens where you left it next time. The button by Done shows the whole window.")
+    /// With a Mac that reshapes windows: the same tip names the Window menu's Fit to iPhone.
+    static let zoomAndFit = WatchTip(id: "zoom", symbol: "arrow.up.left.and.arrow.down.right",
+                                     title: "Pinch to zoom, or Fit to iPhone",
+                                     detail: "Pinch in or out; the button by Done shows it whole. Fit to iPhone, in the Window menu, reshapes the window to fit here.")
     static let swipe = WatchTip(id: "swipe", symbol: "arrow.left.and.right",
                                 title: "Swipe in from the side for your other windows",
                                 detail: "Start at the very edge of the screen. Or tap the window's name at the top to pick one.")
     static let scroll = WatchTip(id: "scroll", symbol: "scroll",
                                  title: "Pan or Scroll",
-                                 detail: "Pan moves your view. Scroll moves the window on your Mac with one finger — two fingers still pan.")
+                                 detail: "Pan moves your view. Scroll moves the window on your Mac with one finger — two fingers still pan. Zoomed all the way out, Scroll picks itself.")
+    static let text = WatchTip(id: "text", symbol: "text.alignleft",
+                               title: "Read it as text",
+                               detail: "The text button by Done shows the window's words at your size — select, copy, read back. Tap again for the picture.")
     static let keys = WatchTip(id: "keys", symbol: "ellipsis",
                                title: "More keys",
                                detail: "Interrupt, Undo, Send, the arrows and more are behind ··· beside Return.")
@@ -57,16 +66,21 @@ struct WatchTipCard: View {
     @ObservedObject var watcher: Watcher
     /// How many windows there are to flip between.
     var sessions: Int
+    /// The Mac reads the window's words (the Text switch is there).
+    var canRead = false
     /// Bumped by Show Tips Again.
     @AppStorage(WatchTips.key) private var seenRaw = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// In the order they're met: the first tap, the picture, the other windows, the switch under
+    /// the thumb, the Text switch, the ··· — each only when it works with this Mac.
     private var tips: [WatchTip] {
         var out: [WatchTip] = [watcher.canRightClick ? .click : WatchTip(id: "click", symbol: "hand.tap", title: "Tap to click",
                                                                        detail: "A tap is a click there on your Mac.")]
-        out.append(.zoom)
+        out.append(watcher.canFitToPhone ? .zoomAndFit : .zoom)
         if sessions > 1 { out.append(.swipe) }
         if watcher.macCanScroll { out.append(.scroll) }
+        if canRead { out.append(.text) }
         if watcher.canPressKeys { out.append(.keys) }
         return out
     }

@@ -248,11 +248,13 @@ struct PlacesRow: View {
             .accessibilityIdentifier("watch")
             .transition(.opacity)
         }
-        // ⋯: open any app on the Mac, even one that isn't open.
+        // ⋯: a photo, a file or the clipboard into the chat you send to, and a fresh look at the
+        // open apps. Opening an app that isn't open is the + at the end of the row, and only there.
         Menu {
-            Button { model.sheet = .openApp } label: { Label("Open an App on Your Mac…", systemImage: "plus.app") }
-            Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
             MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
+            Section {
+                Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+            }
         } label: {
             Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
         }
@@ -260,7 +262,7 @@ struct PlacesRow: View {
         .buttonBorderShape(.circle)
         .controlSize(.small)
         .accessibilityLabel("More")
-        .accessibilityHint("Open any app on your Mac, send it a photo or file, or move the clipboard.")
+        .accessibilityHint("Send a photo or file into \(Places.appName(current, in: model)), move the clipboard, or look again at the open apps.")
         .accessibilityIdentifier("send-to-more")
         .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
     }

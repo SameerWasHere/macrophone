@@ -55,7 +55,7 @@ struct WatchPanel: View {
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: watcher.reading)
                 .frame(maxHeight: .infinity)
                 // The first times: what a tap, a hold, a pinch and the side swipe do.
-                .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count) }
+                .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count, canRead: model.canRead) }
                 .offset(x: slide)
                 .opacity(slide == 0 ? 1 : 0.6)
             WatchActions(watcher: watcher)
@@ -72,7 +72,7 @@ struct WatchPanel: View {
         .overlay(alignment: .trailing) { edge(step: 1) }
         .overlay(alignment: .top) {
             if let switchedTo {
-                WatchNote(symbol: "macwindow", words: switchedTo)
+                WatchNote(symbol: "arrow.left.and.right", words: switchedTo)
                     .padding(.top, 66)
                     .padding(.horizontal, 32)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -246,9 +246,11 @@ struct WatchWholeButton: View {
     }
 }
 
-/// The Window menu (Oct 17 2026): Aa's text sizes, then sizes laid out on the Mac's screen, then
-/// minimize and close — picked from a list, since dragging a window's edge on a phone is fiddly
-/// (Sill's window controls, the same idea). Close asks first. Tinted while Aa narrows the window.
+/// The Window menu (Oct 17 2026): everything about the window itself, by how often it's wanted —
+/// Fit to iPhone and the text size (how it fits here), sizes laid out on the Mac's screen, minimize
+/// and close (asked first), a photo, a file or the clipboard into its chat, and the tips. Picked
+/// from a list, since dragging a window's edge on a phone is fiddly (Sill's window controls, the
+/// same idea). Tinted while a text size narrows the window.
 struct WatchWindowMenu: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
@@ -258,11 +260,6 @@ struct WatchWindowMenu: View {
 
     var body: some View {
         Menu {
-            Section("Text size on this iPhone") {
-                Picker("Text size", selection: Binding(get: { watcher.fit }, set: { watcher.setFit($0) })) {
-                    ForEach(WatchFit.allCases, id: \.self) { f in Text(f.title).tag(f) }
-                }
-            }
             if watcher.canFitToPhone {
                 Section {
                     Button { watcher.fitToPhone() } label: {
@@ -271,6 +268,12 @@ struct WatchWindowMenu: View {
                     }
                 }
             }
+            // A header over a picker doesn't draw in a menu (iOS 26), so each row says what it is:
+            // "Normal text", "Larger text", "Largest text".
+            Picker("Text size on this iPhone", selection: Binding(get: { watcher.fit }, set: { watcher.setFit($0) })) {
+                ForEach(WatchFit.allCases, id: \.self) { f in Text("\(f.title) text").tag(f) }
+            }
+            .pickerStyle(.inline)
             if watcher.canWindowCommands {
                 Section("Size on your Mac") {
                     ForEach([WatchWindowCommand.fill, .leftHalf, .rightHalf, .middle, .restore], id: \.self) { c in
@@ -284,7 +287,8 @@ struct WatchWindowMenu: View {
                     }
                 }
             }
-            // Photos, files and the clipboard, into this window's chat.
+            // A photo, a file or the clipboard into this window's chat — the same items as the ⋯ by
+            // Send to, here because the controls panel is away while a window shows.
             MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
             Section {
                 Button { WatchTips.reset() } label: { Label("Show Tips Again", systemImage: "lightbulb") }
@@ -296,7 +300,7 @@ struct WatchWindowMenu: View {
         .buttonStyle(WatchCellStyle(width: 44, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
         .disabled(watcher.phase != .live)
         .accessibilityLabel("Window")
-        .accessibilityHint("Text size on this iPhone, and the window's size, minimize and close on your Mac.")
+        .accessibilityHint("Fit to iPhone and the text size here; the window's size, minimize and close on your Mac; a photo, a file or the clipboard into its chat; the tips again.")
         .accessibilityIdentifier("watch-window")
         .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
         .confirmationDialog("Close \(watcher.name)'s window on your Mac?", isPresented: $confirmClose, titleVisibility: .visible) {

@@ -23,15 +23,11 @@ enum MenuWords {
         var symbol: String
     }
 
-    /// How a connected phone reaches this Mac, in a few words.
+    /// How a connected phone reaches this Mac, in the words the status line and the phone use
+    /// ("Tailscale · away from home", "Nearby", "Home network").
     static func via(_ route: LinkRoute?) -> String? {
         guard let route else { return nil }
-        switch route {
-        case .homeNetwork: return "Home network"
-        case .nearby: return "Nearby, over direct Wi‑Fi"
-        case .tailscale: return "Tailscale, away from home"
-        case .internet: return "Internet, away from home"
-        }
+        return route.isAway ? "\(route.short) · away from home" : route.short
     }
 
     /// The first row: who's connected and how, or what's missing and what to do.
