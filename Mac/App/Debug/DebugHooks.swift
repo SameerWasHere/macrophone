@@ -46,6 +46,16 @@ enum DebugHooks {
     static func run(_ app: AppDelegate) -> Bool {
         let model = app.model
         listenForSimulatedDictations(model)
+        // Make an app's front window a chat waiting for its answer, as a dictation sent there does —
+        // without typing anything (ReplyWatcher's live test). The notification's object: a bundle id.
+        bag.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.engage"),
+                                                                       object: nil, queue: .main) { n in
+            guard let bid = n.object as? String,
+                  let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first?.processIdentifier,
+                  let w = WindowServer.appWindows().filter({ $0.pid == pid }).min(by: { $0.z < $1.z }) else { return }
+            MainActor.assumeIsolated { model.replies.engaged(windowID: w.id, bundleID: bid) }
+            model.log.add("debug: engaged \(bid)#\(w.id)")
+        })
         // Open the menu bar menu, as a click on the icon does (screenshots; keyboard drives it).
         bag.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.openMenu"),
                                                                        object: nil, queue: .main) { _ in

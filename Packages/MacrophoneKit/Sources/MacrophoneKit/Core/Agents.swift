@@ -262,3 +262,51 @@ public struct NeedsYou: Codable, Sendable, Equatable, Hashable {
     /// The phone understands `.needsYou`, sent in its hello.
     public static let feature = "needsYou"
 }
+
+/// Did the chat answer you? The rule ReplyWatcher applies to each chat, look by look (pure, so
+/// the tests can walk it). By the window's picture: real content (more than a spinner, a timer
+/// or a caret) after your own message has landed, then stillness for `settle` looks — but never
+/// while the window says it's still working (a Stop button, "esc to interrupt": an agent running
+/// a tool is still for long stretches). More content takes it back. By the agent itself
+/// (hooks): done or asking, after you wrote.
+public struct ReplyDetector: Equatable, Sendable {
+    /// Your own message landing, the first seconds after you wrote: not the answer.
+    public static let ownMessage: TimeInterval = 4
+    /// A share of the window this big changed between two looks: words arrived.
+    public static let content = 0.006
+    /// Looks in a row without new content before it counts as done talking.
+    public static let settle = 3
+
+    public var engagedAt: Date
+    public private(set) var contentSeen = false
+    public private(set) var still = 0
+    public private(set) var answeredAt: Date?
+    public private(set) var asking = false
+
+    public init(engagedAt: Date) { self.engagedAt = engagedAt }
+
+    /// One look at the picture: `share` of it changed since the last look; `working`, the window
+    /// shows it's still at it.
+    public mutating func look(changed share: Double, working: Bool = false, at now: Date) {
+        let after = now.timeIntervalSince(engagedAt) > Self.ownMessage
+        if working || (after && share >= Self.content) {
+            // Working counts as an answer coming, whenever it shows (a fast agent's Stop button is
+            // up before your own message has finished landing).
+            contentSeen = true
+            still = 0
+            answeredAt = nil
+        } else {
+            still += 1
+        }
+        if contentSeen, still >= Self.settle, answeredAt == nil { answeredAt = now }
+        asking = false
+    }
+
+    /// What the agent in the window says it's doing (a reply as quick as the send's own
+    /// confirmation counts: two seconds' grace).
+    public mutating func agent(_ state: AgentSession.State, since: Date) {
+        let answered = state != .working && since > engagedAt.addingTimeInterval(-2)
+        answeredAt = answered ? (answeredAt ?? since) : nil
+        asking = answered && state == .waiting
+    }
+}

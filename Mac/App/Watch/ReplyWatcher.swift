@@ -14,7 +14,8 @@ import ScreenCaptureKit
 ///     turn or it's asking, after you wrote;
 ///   - any other window — by its picture: real new content arrived (more than a spinner or a
 ///     timer, after the first seconds, which are your own message landing), then the window kept
-///     still for nine seconds. New content again takes the mark back (it was still working).
+///     still for nine seconds — never while it shows a Stop button or "esc to interrupt"
+///     (StillWorking). New content again takes the mark back (it was still working).
 /// The mark goes to the phone (`.needsYou`) until you look at that window on the phone or send
 /// it more. Looks only while some chat awaits its answer, and never past twelve hours.
 ///
@@ -29,30 +30,26 @@ final class ReplyWatcher {
     private var sent: [NeedsYou] = []
 
     static let interval: UInt64 = 3_000_000_000
-    /// Your own message landing, the first seconds after you wrote: not the answer.
-    static let ownMessage: TimeInterval = 4
-    /// More than a spinner, a timer or a caret: words arrived.
-    static let content = 0.006
-    /// Looks in a row without new content before it counts as done talking.
-    static let settle = 3
     static let expiry: TimeInterval = 12 * 3600
     static let maxChats = 8
 
     private struct Chat {
         var bundleID: String
-        var engagedAt: Date
+        var detector: ReplyDetector
         var last: [UInt32]?
-        var contentSeen = false
-        var still = 0
-        var answeredAt: Date?
-        var asking = false
+        var engagedAt: Date { detector.engagedAt }
+
+        init(bundleID: String, engagedAt: Date) {
+            self.bundleID = bundleID
+            self.detector = ReplyDetector(engagedAt: engagedAt)
+        }
     }
 
     init(app: AppModel) { self.app = app }
 
     var needs: [NeedsYou] {
         chats.compactMap { id, c in
-            c.answeredAt.map { NeedsYou(bundleID: c.bundleID, windowKey: String(id), since: $0, asking: c.asking) }
+            c.detector.answeredAt.map { NeedsYou(bundleID: c.bundleID, windowKey: String(id), since: $0, asking: c.detector.asking) }
         }
         .sorted { $0.since > $1.since }
     }
@@ -99,23 +96,18 @@ final class ReplyWatcher {
                 // he stops looking is an answer again.
                 c = Chat(bundleID: c.bundleID, engagedAt: now)
             } else if let agent = app.agents.state(of: wid) {
-                // It tells the Mac itself (a reply as fast as the send's own confirmation counts).
-                let answered = agent.since > c.engagedAt.addingTimeInterval(-2) && agent.state != .working
-                c.answeredAt = answered ? (c.answeredAt ?? agent.since) : nil
-                c.asking = agent.state == .waiting
+                // It tells the Mac itself.
+                c.detector.agent(agent.state, since: agent.since)
             } else if pictures, let scw = await scWindow(wid), let img = await AttentionWatcher.capture(scw) {
                 let sample = await Task.detached(priority: .utility) { WatchChange.sample(img) }.value
                 let share = c.last.map { WatchChange.changedShare($0, sample) } ?? 0
                 c.last = sample
-                if now.timeIntervalSince(c.engagedAt) > Self.ownMessage, share >= Self.content {
-                    c.contentSeen = true
-                    c.still = 0
-                    c.answeredAt = nil
-                } else {
-                    c.still += 1
+                // A Stop button or "esc to interrupt": still at it, however still the picture.
+                var working = false
+                if Paster.isTrusted, let pid = NSRunningApplication.runningApplications(withBundleIdentifier: c.bundleID).first?.processIdentifier {
+                    working = await Task.detached(priority: .utility) { StillWorking.check(pid: pid, windowID: wid) }.value
                 }
-                if c.contentSeen, c.still >= Self.settle, c.answeredAt == nil { c.answeredAt = now }
-                c.asking = false
+                c.detector.look(changed: share, working: working, at: now)
             }
             chats[wid] = c
         }

@@ -360,6 +360,9 @@ func demoIcon(_ bundleID: String, _ px: Int) -> Data? {
 
 @MainActor
 final class PhoneDelegate: LinkClientDelegate {
+    func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {
+        stdout("NEEDS YOU \(needsYou.count)" + needsYou.map { " \($0.bundleID)#\($0.windowKey)\($0.asking ? " asking" : "")" }.joined())
+    }
     func linkClient(_ client: LinkClient, stateChanged state: LinkClient.State) { stdout("STATE \(state)") }
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac]) {
         for m in macs { stdout("FOUND \(m.name) id=\(m.macID?.uuidString ?? "?")\(m.isPeerToPeer ? " (peer-to-peer)" : "")") }
@@ -634,6 +637,16 @@ func run() async -> Int32 {
         do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
         if command == "targets" { client.refreshTargets() }
         try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "1.5") ?? 1.5) * 1e9))
+        client.stop()
+        return 0
+
+    case "listen":
+        // mpctl listen [--seconds 60] --features needsYou,attention: stay connected, print what comes.
+        let (client, _) = makeClient()
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        stdout("LISTENING")
+        try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "60") ?? 60) * 1e9))
         client.stop()
         return 0
 
