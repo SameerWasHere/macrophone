@@ -506,10 +506,25 @@ final class WatchService {
             w.windowID = composer.id
         } else if let first = mine.first {
             w.windowID = first.id
+        } else if let id = Self.minimizedWindow(of: r, preferring: hints.lastWindow) {
+            // Only minimized windows (the phone's Window › Minimize, or the yellow button): keep
+            // that one, so the phone says so and "Show it on my Mac" brings it back up.
+            w.windowID = id
         } else {
             return .unavailable("\(name) has no window open", canReveal: true)
         }
         return nil
+    }
+
+    /// The app's minimized window (the one last typed in, when it's among them), which the
+    /// window list leaves out.
+    private static func minimizedWindow(of r: NSRunningApplication, preferring last: CGWindowID?) -> CGWindowID? {
+        guard Paster.isTrusted else { return nil }
+        let ids = AX.windows(AX.app(r.processIdentifier))
+            .filter { AX.bool($0, kAXMinimizedAttribute) }
+            .compactMap { AX.windowID($0) }
+        if let last, ids.contains(last) { return last }
+        return ids.first
     }
 
     private func refreshContent() async throws -> SCShareableContent {

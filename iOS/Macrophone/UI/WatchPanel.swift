@@ -296,6 +296,7 @@ struct WatchWindow: View {
                 WindowViewer(image: watcher.image, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
                              focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
                              drag: watcher.drag, phased: watcher.macCanScroll,
+                             viewKey: interactive ? watcher.viewKey : nil,
                              onTouch: { watcher.touch() },
                              onTap: { watcher.click($0) }, onRightClick: { watcher.rightClick($0) }, whole: watcher.wholeWindow,
                              onScroll: { watcher.scroll(at: $0, by: $1) },
@@ -630,6 +631,8 @@ struct WindowViewer: UIViewRepresentable {
     var drag: Watcher.Drag
     /// The Mac takes a swipe's phases (it named "scroll").
     var phased: Bool
+    /// Where this viewer remembers the zoom you left it at (the window's, per app); nil: the strip.
+    var viewKey: String? = nil
     var onTouch: () -> Void
     var onTap: (CGPoint) -> Void
     /// A press and hold or a two-finger tap; returns whether the Mac takes right-clicks.
@@ -648,6 +651,7 @@ struct WindowViewer: UIViewRepresentable {
 
     func updateUIView(_ v: ViewerScrollView, context: Context) {
         wire(v)
+        v.viewKey = viewKey
         v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, interactive: interactive, drag: drag, phased: phased)
         v.showWhole(whole)
     }
@@ -684,6 +688,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     var onScroll: (CGPoint, CGVector) -> Void = { _, _ in }
     var onScrollPhase: (WatchScrollPhase, CGPoint) -> Void = { _, _ in }
     var onAdjusted: (Bool) -> Void = { _ in }
+    /// Where the zoom you leave it at is kept, so the window opens there next time.
+    var viewKey: String?
     private var tapper: UITapGestureRecognizer!
     private var swiper: UIPanGestureRecognizer!
     /// The swipe so far, not yet sent (sent once a display frame), and where it started.
@@ -760,7 +766,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
             configureZoom()
             reset(animated: false)
         } else if lastRecenter != nil, recenter != lastRecenter {
-            reset(animated: true)
+            // A key, an answer or a dictation: its result shows at the bottom. Your zoom stays.
+            reset(animated: true, toBottom: true)
         } else if focusChanged {
             reset(animated: false)
         }
@@ -800,6 +807,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         guard imageSize.width > 0, bounds.width > 0 else { return 1 }
         let fitWidth = bounds.width / imageSize.width
         let fillHeight = bounds.height / imageSize.height
+        // A window taller than it's wide (Aa's Larger and Largest make it about the phone's shape)
+        // already fits the phone across: its whole width, never zoomed onto a bar inside it.
+        if imageSize.height > imageSize.width * 1.1 { return fitWidth }
         if let f = focus, f.width > 0.12 {
             return min(max(fitWidth, bounds.width / (f.width * imageSize.width * 1.08)), maximumZoomScale)
         }
@@ -813,22 +823,51 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         maximumZoomScale = max(1.6, fitAll * 6)
     }
 
-    /// Back to the start: the column, at the bottom.
-    private func reset(animated: Bool) {
+    /// Back to the start: where you last left this app's window (your zoom, your spot across it,
+    /// and the bottom if you were there), else the column, at the bottom. `toBottom` keeps your
+    /// zoom and goes to the newest (after a key, an answer or a dictation).
+    private func reset(animated: Bool, toBottom: Bool = false) {
         guard imageSize != .zero, bounds.width > 0 else { return }
-        adjusted = false
-        let s = startScale
+        let saved = savedView
+        adjusted = saved != nil && !(saved!.bottom || toBottom)
+        let s = saved.map { min(max($0.zoom * fitWidth, minimumZoomScale), maximumZoomScale) } ?? startScale
         let apply = {
             self.setZoomScale(s, animated: false)
             self.centerIfSmall()
             let w = self.imageSize.width * s, h = self.imageSize.height * s
-            let cx = (self.focus.map { $0.midX } ?? 0.5) * w
+            let cx = (saved?.x ?? self.focus.map { $0.midX } ?? 0.5) * w
             let x = min(max(cx - self.bounds.width / 2, 0), max(0, w - self.bounds.width))
-            let y = max(0, h - self.bounds.height)
+            let bottom = max(0, h - self.bounds.height)
+            let y = saved.flatMap { $0.bottom || toBottom ? nil : min(max($0.y * h - self.bounds.height / 2, 0), bottom) } ?? bottom
             self.contentOffset = CGPoint(x: x - self.contentInset.left, y: y - self.contentInset.top)
         }
         if animated { UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply) }
         else { apply() }
+    }
+
+    private var fitWidth: CGFloat { imageSize.width > 0 ? bounds.width / imageSize.width : 1 }
+
+    /// The view you left: zoom as a multiple of fitting the width, the middle of what showed as
+    /// fractions of the window, whether you were at the bottom, and the window's shape then (a
+    /// window reshaped since, by Aa or a size, starts fresh).
+    private struct SavedView: Codable { var zoom, x, y, aspect: CGFloat; var bottom: Bool }
+
+    private var savedView: SavedView? {
+        guard let viewKey, let data = UserDefaults.standard.data(forKey: viewKey),
+              let v = try? JSONDecoder().decode(SavedView.self, from: data), imageSize.width > 0 else { return nil }
+        let aspect = imageSize.height / imageSize.width
+        return abs(v.aspect - aspect) / aspect < 0.08 ? v : nil
+    }
+
+    private func keepView() {
+        guard let viewKey, !wholeShown, imageSize.width > 0, zoomScale > 0, bounds.width > 0 else { return }
+        let w = imageSize.width * zoomScale, h = imageSize.height * zoomScale
+        let mid = CGPoint(x: contentOffset.x + contentInset.left + bounds.width / 2,
+                          y: contentOffset.y + contentInset.top + bounds.height / 2)
+        let bottom = contentOffset.y + contentInset.top >= max(0, h - bounds.height) - 24
+        let v = SavedView(zoom: zoomScale / fitWidth, x: min(max(mid.x / w, 0), 1), y: min(max(mid.y / h, 0), 1),
+                          aspect: imageSize.height / imageSize.width, bottom: bottom)
+        if let data = try? JSONEncoder().encode(v) { UserDefaults.standard.set(data, forKey: viewKey) }
     }
 
     /// A picture smaller than the view sits in the middle of it.
@@ -1011,6 +1050,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { adjusted = true; onTouch() }
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) { adjusted = true; onTouch() }
     func scrollViewDidZoom(_ scrollView: UIScrollView) { centerIfSmall() }
+    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { keepView() }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { keepView() } }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { keepView() }
 }
 
 /// The kicker's dot: a breath of light driven by Core Animation while the window is live. The

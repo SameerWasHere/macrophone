@@ -320,6 +320,8 @@ final class Watcher: ObservableObject {
         Haptics.tick()
         fit = f
         if let target { Self.remember(f, for: target) }
+        // A new text size reshapes the window: start from its fit, not the old zoom.
+        if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
         if sendFit(f) {
             say(f.explanation(appName: name))
             recenter &+= 1
@@ -345,6 +347,9 @@ final class Watcher: ObservableObject {
         guard let key = fitKey(target) else { return }
         if f == .normal { UserDefaults.standard.removeObject(forKey: key) } else { UserDefaults.standard.set(f.rawValue, forKey: key) }
     }
+
+    /// Where the window's view keeps the zoom you left it at, per app.
+    var viewKey: String? { (bundleID ?? target?.bundleID).map { "watch.view." + $0 } }
 
     private static func fitKey(_ target: TargetRef) -> String? { target.bundleID.map { "watch.fit." + $0 } }
 
