@@ -100,6 +100,10 @@ public final class LinkClient: @unchecked Sendable {
     /// Away from home: when Bonjour hasn't shown the Mac this long after looking began, the
     /// phone dials the addresses the Mac gave it (all at once; the first to answer wins).
     public var awayAfter: TimeInterval = 3
+    /// On Wi-Fi, how long a fresh look gets to find the Mac at home before the away addresses are
+    /// dialled too (Oct 17 2026: waiting the full `awayAfter` and then a stale nearby result's
+    /// timeout made a switch to Tailscale take ~19 s). Off Wi-Fi there's no wait at all.
+    public var homeFirst: TimeInterval = 0.8
     /// Whether to look for the Mac with Bonjour at all. Off only in the protocol proof (mpctl),
     /// to stand in for a network where Bonjour finds nothing.
     public var browsesBonjour = true
@@ -121,6 +125,10 @@ public final class LinkClient: @unchecked Sendable {
     private var _remote = false
     private var browserStartedAt: Date?
     private var movingHome = false
+    /// Watches the phone's network: a change (Wi-Fi ↔ cellular, a VPN up) redials at once.
+    private var pathMonitor: NWPathMonitor?
+    /// The phone has a Wi-Fi or wired network now (Bonjour and the direct link can work).
+    private var onLocalNetwork = true
 
     /// The phone's current Send-to choice. Sent to the Mac right after every welcome, so the
     /// phone's choice wins when the two reconnect.
@@ -187,7 +195,33 @@ public final class LinkClient: @unchecked Sendable {
             lock.sync { browser = b; browserStartedAt = Date() }
             b.start(queue: queue)
         }
+        startPathMonitor()
         if activeMac == nil { setState(.notPaired) } else { ensureConnected() }
+    }
+
+    /// A network change redials at once, with the wait between tries back to a second: leaving
+    /// Wi-Fi for 5G (or Tailscale coming up) shouldn't wait out a backoff. Leaving Wi-Fi also
+    /// forgets the Macs Bonjour saw — dialling a stale nearby result only times out.
+    private func startPathMonitor() {
+        guard lock.sync({ pathMonitor }) == nil else { return }
+        let m = NWPathMonitor()
+        m.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            let local = path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet)
+            let changed = self.lock.sync { () -> Bool in
+                let was = self.onLocalNetwork
+                self.onLocalNetwork = local
+                if !local { self.macs = [] }
+                self.retryDelay = 1
+                return was != local
+            }
+            guard changed, path.status == .satisfied, self.lock.sync({ self.wantsConnection }) else { return }
+            self.log?.add("network changed (\(local ? "Wi-Fi" : "no Wi-Fi")): reconnecting")
+            self.lock.sync { self.retryTask?.cancel() }
+            if self.lock.sync({ self.session == nil }) { self.ensureConnected() }
+        }
+        lock.sync { pathMonitor = m }
+        m.start(queue: queue)
     }
 
     /// The protocol proof's switch: stop or start looking with Bonjour while connected, to stand
@@ -278,11 +312,13 @@ public final class LinkClient: @unchecked Sendable {
 
     private func route(for mac: PairedPeer) async -> Route {
         func local() -> NWEndpoint? { discoveredMacs.first(where: { $0.macID == mac.id })?.endpoint }
-        if let e = local() { return .bonjour(e, verified: true) }
+        let onLocal = lock.sync { onLocalNetwork }
+        if onLocal, let e = local() { return .bonjour(e, verified: true) }
         let remotes = RemoteAddressRule.ordered(mac.remoteAddresses)
-        if !remotes.isEmpty, browsesBonjour {
-            // Give Bonjour its few seconds before dialling away.
-            while let started = lock.sync({ browserStartedAt }), Date().timeIntervalSince(started) < awayAfter {
+        if !remotes.isEmpty, browsesBonjour, onLocal {
+            // On Wi-Fi, a moment for Bonjour to find the Mac at home; off it, dial away at once.
+            // (Found later, the link moves home by itself.)
+            while let started = lock.sync({ browserStartedAt }), Date().timeIntervalSince(started) < homeFirst {
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 if let e = local() { return .bonjour(e, verified: true) }
             }
@@ -375,11 +411,12 @@ public final class LinkClient: @unchecked Sendable {
             switch route {
             case let .bonjour(endpoint, v):
                 conn = FramedConnection(NWConnection(to: endpoint, using: LinkServer.parameters()), queue: queue)
-                try await conn.start(timeout: timeout)
+                // A Mac nearby answers in well under a second; a stale result shouldn't hold a try up.
+                try await conn.start(timeout: min(timeout, 4))
                 verified = v
                 remote = false
             case let .remote(list):
-                conn = try await raceConnect(list, timeout: min(timeout, 6))
+                conn = try await raceConnect(list, timeout: min(timeout, 5))
                 verified = false
                 remote = true
             }

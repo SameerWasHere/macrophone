@@ -359,7 +359,9 @@ public final class LinkServer: @unchecked Sendable {
 
     private func handle(_ conn: FramedConnection, fromAway: Bool) async {
         do {
-            let first = try await conn.receiveHandshake(timeout: 15)
+            // A phone opens several connections at once (one per route iOS finds) and keeps the
+            // first; the rest say nothing — let them go soon.
+            let first = try await conn.receiveHandshake(timeout: 8)
             switch first {
             case let .clientHello(phoneID, nonce, version):
                 try await runSession(conn, phoneID: phoneID, phoneNonce: nonce, version: version, fromAway: fromAway)
