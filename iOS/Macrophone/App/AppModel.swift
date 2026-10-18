@@ -1170,6 +1170,7 @@ final class AppModel: ObservableObject {
         needsYou = liveTargets.filter { ["Claude", "Terminal"].contains($0.appName) }.map {
             NeedsYou(bundleID: $0.bundleID, windowKey: $0.windowKey ?? "1", since: Date(), asking: $0.appName == "Terminal")
         }
+        publishWidget()
     }
 
     func debugFakePairing(mac: String) {

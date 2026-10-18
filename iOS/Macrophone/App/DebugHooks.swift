@@ -179,6 +179,9 @@ enum DebugHooks {
         default: break
         }
         if env["MACROPHONE_FAKE_NEEDS"] == "1" { model.debugFakeNeeds() }
+        if let dir = env["MACROPHONE_WIDGET_SHOT"] {
+            Task { try? await Task.sleep(nanoseconds: 1_500_000_000); DebugWidgetShot.run(to: dir) }
+        }
         if let to = env["MACROPHONE_SEND_TO"], let t = target(named: to, in: model) { model.pick(t) }
         if let send = env["MACROPHONE_SEND"] { model.setSend(send == "1") }
         if let level = env["MACROPHONE_CLEANUP"].flatMap(CleanupLevel.init(rawValue:)) { model.setCleanupLevel(level) }
