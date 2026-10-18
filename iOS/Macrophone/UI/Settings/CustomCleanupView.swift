@@ -98,11 +98,10 @@ struct CustomCleanupView: View {
         .animation(.easeInOut(duration: 0.2), value: focused)
     }
 
+    /// The editor's state in the app's kicker voice, beside the mono count.
     private var status: some View {
-        Text(isDefault ? "Default · same as Medium" : "Your own · saved as you type")
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(isDefault ? Ink.tertiary : Light.mint)
-            .fixedSize(horizontal: false, vertical: true)
+        Kicker(isDefault ? "Default · same as Medium" : "Your own · saved as you type",
+               color: isDefault ? Ink.tertiary : Light.mint)
     }
 
     private var count: some View {
