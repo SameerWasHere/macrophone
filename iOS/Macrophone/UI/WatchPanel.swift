@@ -26,7 +26,11 @@ enum WatchLook {
     static let bezelWidth: CGFloat = 3
     static var screen: CGFloat { bezel - bezelWidth }
     /// Every cell, key, switch and header control.
-    static let control: CGFloat = 44
+    /// Trimmed from 44 (Oct 18 2026, Sameer: "make some of the buttons around the window a bit
+    /// smaller so we can further increase the square window") — still a comfortable press.
+    static let control: CGFloat = 38
+    /// The window runs nearer the screen's edges than the page's margin.
+    static let sideMargin: CGFloat = 10
     /// The tip card and the notes over the window.
     static let card: CGFloat = 16
     /// A cell's pressed wash, and the hairline between cells.
@@ -47,7 +51,7 @@ struct WatchPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: compact ? 8 : 12) {
+        VStack(spacing: compact ? 6 : 8) {
             header
             WatchWindow(watcher: watcher, interactive: true)
                 .frame(maxHeight: .infinity)
@@ -60,9 +64,9 @@ struct WatchPanel: View {
                 .allowsHitTesting(watcher.phase == .live)
                 .accessibilityHidden(watcher.phase != .live)
         }
-        .padding(.horizontal, Space.margin)
-        .padding(.top, 6)
-        .padding(.bottom, compact ? 8 : 14)
+        .padding(.horizontal, WatchLook.sideMargin)
+        .padding(.top, 4)
+        .padding(.bottom, compact ? 6 : 8)
         // Swipe in from a side edge (in the margin beside the window, under a thumb) for the
         // previous or next window; the menu on the name is the visible way to the same thing.
         .overlay(alignment: .leading) { edge(step: -1) }
