@@ -131,7 +131,22 @@ final class DeliveryEngine {
         return req.send ? "Sending to \(name)" : "Pasting into \(name)"
     }
 
+    /// Someone used this Mac's keyboard, mouse or trackpad in the last ten seconds: a paste waits a
+    /// moment they can cancel. Nobody there (the usual case — he's on the phone, away from the
+    /// desk): it goes at once (Oct 18 2026, the speed pass: the countdown was a quarter of the time).
+    static var someoneAtMac: Bool {
+        let kinds: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel,
+                                    .leftMouseDragged]
+        let idle = kinds.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
+        return idle < 10
+    }
+
     func startCountdown(_ c: PopupCard, _ req: Paster.Request, name: String, itemID: UUID) {
+        guard Self.someoneAtMac else {
+            log.add("paste: nobody at the Mac — no countdown")
+            fire(c, req, name: name, itemID: itemID)
+            return
+        }
         c.phase = .countdown
         c.remaining = 1
         c.headline = nil

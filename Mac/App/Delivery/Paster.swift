@@ -255,15 +255,22 @@ enum Paster {
         let pb = NSPasteboard.general
         let saved = PasteboardSnapshot(pb)
         let ours = writeTransient(req.text, to: pb)
-        try await Task.sleep(nanoseconds: 40_000_000)
+        try await Task.sleep(nanoseconds: 25_000_000)
         Keys.press(Keys.code(for: "v") ?? CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
-        try await Task.sleep(nanoseconds: AppQuirks.pasteSettle(bid) * 1_000_000)
-
+        // Watched for, not waited out: the words usually show in the box within a few hundredths
+        // of a second; rich editors get the old allowance and a beat more. A box that can't be read
+        // back (a terminal) keeps a fixed settle, so the send key never beats the paste.
         var didLand = landed()
-        if didLand == false {
-            // Rich editors can take a beat longer.
-            try await Task.sleep(nanoseconds: 350_000_000)
-            didLand = landed()
+        if didLand == nil {
+            try await Task.sleep(nanoseconds: AppQuirks.pasteSettle(bid) * 1_000_000)
+        } else {
+            let deadline = Date().addingTimeInterval(Double(AppQuirks.pasteSettle(bid) + 350) / 1000)
+            repeat {
+                try await Task.sleep(nanoseconds: 30_000_000)
+                didLand = landed()
+            } while didLand == false && Date() < deadline
+            // Landed: a breath so the app has taken all of it before the send key.
+            if didLand == true { try await Task.sleep(nanoseconds: 60_000_000) }
         }
         if didLand == false {
             // The words aren't in the box: leave them on the clipboard and send nothing.
@@ -308,9 +315,13 @@ enum Paster {
         }
 
         // 6. Put the clipboard back once the paste has landed — unless the person (or the
-        //    app) put something new there in the meantime.
-        try await Task.sleep(nanoseconds: result.pressedSend ? 500_000_000 : 700_000_000)
-        if pb.changeCount == ours { saved.restore(to: pb) }
+        //    app) put something new there in the meantime. After the result goes back: the
+        //    phone hears "sent" without waiting for it.
+        let wait: UInt64 = result.pressedSend ? 500_000_000 : 700_000_000
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: wait)
+            if pb.changeCount == ours { saved.restore(to: pb) }
+        }
         return result
     }
 
@@ -348,9 +359,15 @@ enum Paster {
         let bid = running.bundleIdentifier
         // Raise the window first, so activating the app brings this one.
         if let windowID, let w = AX.window(in: ax, id: windowID) { AX.raise(w, app: ax) }
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier != running.processIdentifier {
+        // Already in front (the usual case when you dictate to it again): no activation, so no
+        // settling to wait for (Oct 18 2026, the speed pass — every fixed wait here cost all
+        // dictations).
+        let wasFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == running.processIdentifier
+        if !wasFront {
             AX.bringToFront(running)
-            try await Task.sleep(nanoseconds: 120_000_000)
+            for _ in 0..<15 where NSWorkspace.shared.frontmostApplication?.processIdentifier != running.processIdentifier {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
         }
         if NSWorkspace.shared.frontmostApplication?.processIdentifier != running.processIdentifier, let url = running.bundleURL {
             let config = NSWorkspace.OpenConfiguration()
@@ -362,8 +379,8 @@ enum Paster {
             if Date() > deadline { throw PasteFailure.appDidNotActivate(name: name) }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        // Let its window become key before the keystrokes arrive.
-        try await Task.sleep(nanoseconds: AppQuirks.activationSettle(bid) * 1_000_000)
+        // Let its window become key before the keystrokes arrive (only after an activation).
+        if !wasFront { try await Task.sleep(nanoseconds: AppQuirks.activationSettle(bid) * 1_000_000) }
         guard let windowID else {
             // Running with every window closed (Messages after ⌘W): ask it to reopen one, the
             // way clicking its Dock icon does.
