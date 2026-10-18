@@ -137,6 +137,8 @@ public final class LinkClient: @unchecked Sendable {
     public var state: State { lock.lock(); defer { lock.unlock() }; return _state }
     /// Connected over a remote address (away from home) rather than Bonjour.
     public var isRemote: Bool { lock.sync { session != nil && _remote } }
+    /// How it's connected to the Mac now (nil when it isn't).
+    public var route: LinkRoute? { lock.sync { session?.route } }
     /// Where the active Mac can be reached from away, in the order they'd be dialled.
     public var remoteAddresses: [RemoteAddress] { RemoteAddressRule.ordered(activeMac?.remoteAddresses ?? []) }
     public var discoveredMacs: [DiscoveredMac] { lock.lock(); defer { lock.unlock() }; return macs }
@@ -303,6 +305,14 @@ public final class LinkClient: @unchecked Sendable {
                 switch r {
                 case .success(let c): winner = c
                 case .failure(let e): lastError = e
+                }
+            }
+            // Why each one failed, by kind (never the address): "Tailscale address: …".
+            if winner == nil {
+                for (a, c) in zip(addresses, conns) {
+                    let kind = RemoteAddressRule.isTailscale(a.host) ? "Tailscale address" : RemoteAddressRule.isTailscaleName(a.host) ? "Tailscale name"
+                        : RemoteAddressRule.isLocal(a.host) ? "home-network address" : "internet address"
+                    log?.add("away: \(kind) didn't answer (\(c.lastFailure ?? "no reply"))")
                 }
             }
             g.cancelAll()

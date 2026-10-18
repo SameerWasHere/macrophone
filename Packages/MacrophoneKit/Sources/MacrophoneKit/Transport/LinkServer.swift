@@ -148,6 +148,8 @@ public final class LinkServer: @unchecked Sendable {
 
     /// Whether that phone's session came from beyond the local network.
     public func isRemote(_ peerID: UUID) -> Bool { lock.sync { sessions[peerID]?.isRemote ?? false } }
+    /// How that phone is connected (nil when it isn't).
+    public func route(_ peerID: UUID) -> LinkRoute? { lock.sync { sessions[peerID]?.route } }
 
     public func start() {
         let old = lock.sync { () -> NWListener? in let l = listener; listener = nil; return l }

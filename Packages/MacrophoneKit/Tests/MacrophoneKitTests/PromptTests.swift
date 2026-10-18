@@ -150,3 +150,16 @@ final class PromptTests: XCTestCase {
         XCTAssertNil(old.prompt)
     }
 }
+
+final class LinkRouteTests: XCTestCase {
+    func testRoutes() {
+        XCTAssertEqual(LinkRoute.classify(host: "192.168.1.20", interface: "en0"), .homeNetwork)
+        XCTAssertEqual(LinkRoute.classify(host: "fe80::1c2a%awdl0", interface: "awdl0"), .nearby)
+        XCTAssertEqual(LinkRoute.classify(host: "fe80::1", interface: "llw0"), .nearby)
+        XCTAssertEqual(LinkRoute.classify(host: "100.101.2.3", interface: "utun4"), .tailscale)
+        XCTAssertEqual(LinkRoute.classify(host: "mac.tail1234.ts.net", interface: "utun4"), .tailscale)
+        XCTAssertEqual(LinkRoute.classify(host: "203.0.113.9", interface: "pdp_ip0"), .internet)
+        XCTAssertFalse(LinkRoute.homeNetwork.isAway)
+        XCTAssertTrue(LinkRoute.tailscale.isAway)
+    }
+}

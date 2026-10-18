@@ -90,6 +90,8 @@ final class AppModel: ObservableObject {
     /// Connected over an address the Mac gave for away (or one typed here), not Bonjour: the
     /// status line says "away from home" (Oct 17 2026).
     @Published private(set) var isRemote = false
+    /// How it's connected to the Mac: home network, nearby (direct Wi-Fi), Tailscale, internet.
+    @Published private(set) var linkRoute: LinkRoute?
     /// Where the paired Mac can be reached from away, in the order they'd be dialled — what it
     /// told this iPhone at home (with Remote access on), plus the one address typed in Settings.
     @Published private(set) var remoteAddresses: [RemoteAddress] = []
@@ -780,6 +782,7 @@ final class AppModel: ObservableObject {
         pairedMac = client.activeMac
         remoteAddresses = []
         isRemote = false
+        linkRoute = nil
         liveTargets = []
         targetsCurrent = false
         saveTargets([])
@@ -1134,6 +1137,7 @@ extension AppModel: LinkClientDelegate {
         linkState = state
         pairedMac = client.activeMac
         isRemote = client.isRemote
+        linkRoute = client.route
         if case .connected = state { flushQueue() } else { targetsCurrent = false }
         if case .connected = state { watcher.linkChanged(connected: true) } else { watcher.linkChanged(connected: false) }
     }
@@ -1274,7 +1278,8 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, pathChanged remote: Bool) {
         guard client === self.client else { return }
         isRemote = remote
-        log.add(remote ? "link is away from home" : "link is back on the home network")
+        linkRoute = client.route
+        log.add("link now \(client.route?.rawValue ?? "unknown")")
     }
 
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) {

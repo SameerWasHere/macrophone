@@ -230,7 +230,7 @@ struct SettingsView: View {
 
     private var connectionWord: String {
         switch model.linkState {
-        case .connected: return model.isRemote ? "Connected · away from home" : "Connected"
+        case .connected: return model.linkRoute.map { "Connected · \($0.short)" } ?? "Connected"
         case .connecting: return "Connecting"
         case .unreachable: return "Not found right now"
         case .searching: return "Looking for it"
@@ -253,6 +253,14 @@ struct SettingsView: View {
 
     private var awaySection: some View {
         Section {
+            if let route = model.linkRoute {
+                LabeledContent("Connected now") { Text(route.short).foregroundStyle(Ink.ink) }
+                    .accessibilityLabel("Connected now: \(route.words)")
+            }
+            // Whether this iPhone is on a Tailscale network right now: it has a Tailscale address.
+            LabeledContent("Tailscale on this iPhone") {
+                Text(TailscaleHere.isOn ? "On" : "Not on").foregroundStyle(TailscaleHere.isOn ? Ink.ink : Light.ochre)
+            }
             if let ts = model.macToldAddresses.first(where: \.isTailscale) {
                 LabeledContent("Over Tailscale") {
                     Text(ts.display).font(.system(.body, design: .monospaced)).foregroundStyle(Ink.ink)
@@ -297,7 +305,15 @@ struct SettingsView: View {
         } header: {
             Text("Away from home")
         } footer: {
-            Text("When your Mac isn't nearby, this iPhone dials these addresses instead — the same paired, encrypted link, through no server. The easy way is Tailscale (free): install it on your Mac and on this iPhone, sign in to both with the same account, and turn on Remote access in Macrophone on your Mac; the address arrives here by itself. Without Tailscale, forward the port on your router and type your home's address above.")
+            Text("""
+            When your Mac isn't nearby, this iPhone reaches it through Tailscale — free, and still no server of ours.
+            1. Install Tailscale on your Mac and on this iPhone.
+            2. Sign in to both with the same account (the same Google or Apple sign-in). In the iPhone's Tailscale app, your Mac should be in its list of devices.
+            3. Turn Tailscale on here, and allow the VPN when iOS asks. "Tailscale on this iPhone" above says On.
+            4. In Macrophone on your Mac: Devices › Away from home › turn on Remote access.
+            5. Open Macrophone here once at home: your Mac's address arrives by itself.
+            To try it, turn off Wi-Fi and Bluetooth here — otherwise a nearby iPhone talks to the Mac directly. No Tailscale? Forward the port on your router and type your home's address above.
+            """)
         }
         .listRowBackground(Ink.raised)
         .onChange(of: addressFocused) { _, focused in if !focused { commitAddress() } }

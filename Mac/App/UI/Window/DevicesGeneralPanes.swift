@@ -130,7 +130,14 @@ struct DevicesPane: View {
                     }
                 }
             }
-            Text("The easy way is Tailscale (free): install it on this Mac and on your iPhone and sign in to both with the same account — then your iPhone learns this Mac's address the next time it connects here at home, and reaches it from anywhere. Without Tailscale, forward the port to this Mac on your router and type your home's address into Macrophone on the iPhone (Settings › Mac). Nothing goes through a server either way.")
+            Text("""
+            Set up once, with Tailscale (free, and still no server of ours):
+            1. Install Tailscale on this Mac and on your iPhone.
+            2. Sign in to both with the same account. On the iPhone, the Tailscale app should list this Mac.
+            3. Turn on Remote access here.
+            4. Open Macrophone on your iPhone once at home — it learns this Mac's address and reaches it from anywhere after that. Its Settings say "Tailscale on this iPhone: On" when it's ready.
+            No Tailscale? Forward the port to this Mac on your router and type your home's address into Macrophone on the iPhone (Settings › Away from home).
+            """)
                 .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary).padding(.leading, 4)
                 .fixedSize(horizontal: false, vertical: true)
         }

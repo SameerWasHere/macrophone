@@ -451,7 +451,7 @@ struct MacPill: View {
     private var accessibility: String {
         switch model.linkState {
         case .notPaired: return "Not paired. Pair your Mac."
-        case .connected(let n): return model.isRemote ? "Connected to \(n), away from home" : "Connected to \(n)"
+        case .connected(let n): return model.linkRoute.map { "Connected to \(n), \($0.words)" } ?? "Connected to \(n)"
         case .connecting(let n): return "Connecting to \(n)"
         case .unreachable(let n): return "\(n) not found"
         case .searching: return "Looking for \(model.macName)"

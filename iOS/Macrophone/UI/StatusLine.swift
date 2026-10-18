@@ -99,7 +99,9 @@ struct StatusLine: View {
                 if model.isNotOpen(model.selection.target) {
                     return ("\(model.selection.target.displayName) isn't open on your Mac — it'll be copied instead", Light.ochre)
                 }
-                return (model.isRemote ? "Ready · \(name) · away from home" : "Ready · \(name)", Light.cyan)
+                // How it's connected, when it isn't the everyday home network.
+                let via = model.linkRoute.flatMap { $0 == .homeNetwork ? nil : " · \($0.short)" } ?? ""
+                return ("Ready · \(name)\(via)", Light.cyan)
             case .connecting(let name): return ("Connecting to \(name)", Ink.tertiary)
             case .unreachable(let name):
                 if model.localNetworkDenied { return ("Local Network is off for Macrophone — turn it on in Settings to reach \(name)", Light.ochre) }

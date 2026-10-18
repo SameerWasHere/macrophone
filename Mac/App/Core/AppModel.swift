@@ -45,6 +45,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     /// Phones connected from beyond this network (remote access): the status line says so, and
     /// watching sends them smaller pictures.
     @Published private(set) var remotePeers: Set<UUID> = []
+    /// How each connected phone is connected: home network, nearby (direct Wi-Fi), Tailscale, internet.
+    @Published private(set) var peerRoutes: [UUID: LinkRoute] = [:]
     /// Where this Mac can be reached from away right now (remote access on): its Tailscale
     /// address and name when Tailscale is running, then its local addresses — all with the port.
     @Published private(set) var remoteAddresses: [RemoteAddress] = []
@@ -509,10 +511,12 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     /// "Connected to Sameer's iPhone" / "Waiting for your iPhone" / "Pair your iPhone to start".
     var statusLine: String {
         let on = peers.filter { connected.contains($0.id) }
+        // How: said when it isn't the everyday home network ("· Tailscale", "· Nearby").
+        func via(_ p: PairedPeer) -> String { peerRoutes[p.id].flatMap { $0 == .homeNetwork ? nil : " · \($0.short)" } ?? "" }
         let away = on.contains { remotePeers.contains($0.id) } ? " · away from home" : ""
         if on.count == 2 { return "Connected to \(displayName(on[0])) and \(displayName(on[1]))\(away)" }
         if on.count > 2 { return "Connected to \(on.count) iPhones\(away)" }
-        if let p = on.first { return "Connected to \(displayName(p))\(away)" }
+        if let p = on.first { return "Connected to \(displayName(p))\(via(p))" }
         if peers.isEmpty { return "No iPhone paired yet" }
         return "Waiting for your iPhone"
     }
@@ -551,13 +555,14 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     func linkServer(_ server: LinkServer, peerConnected peer: PairedPeer, appVersion: String, os: String) {
         connected.insert(peer.id)
         if server.isRemote(peer.id) { remotePeers.insert(peer.id) } else { remotePeers.remove(peer.id) }
+        peerRoutes[peer.id] = server.route(peer.id)
         phoneVersions[peer.id] = "\(appVersion) · \(os)"
         // A phone renamed on the iPhone brings its new name in its hello; the store has it and
         // so does `peer`. (A name given on this Mac still wins — displayName.)
         var list = server.store.peers()
         if let i = list.firstIndex(where: { $0.id == peer.id }) { list[i].name = peer.name }
         peers = list
-        log.add("phone connected (app \(appVersion))\(remotePeers.contains(peer.id) ? " from away" : "")")
+        log.add("phone connected (app \(appVersion)), \(peerRoutes[peer.id]?.rawValue ?? "route unknown")")
         pushStatus()
         attention.update()
     }
@@ -565,6 +570,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) {
         connected.remove(peerID)
         remotePeers.remove(peerID)
+        peerRoutes[peerID] = nil
         peers = server.store.peers()
         log.add("phone disconnected")
         pushStatus()

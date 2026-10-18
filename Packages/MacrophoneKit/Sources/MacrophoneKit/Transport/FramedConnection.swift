@@ -65,11 +65,21 @@ public final class FramedConnection: @unchecked Sendable {
         connection.start(queue: queue)
     }
 
+    /// Why the dial failed, in a few words (for the log: never an address).
+    public private(set) var lastFailure: String?
+
     private func resumeReady(_ error: Error?) {
         lock.lock()
         let c = readyContinuation
         readyContinuation = nil
         if error == nil { isReady = true }
+        if let error, c != nil {
+            switch error as? LinkError {
+            case .timedOut?: lastFailure = "timed out"
+            case let .connectionFailed(why)?: lastFailure = why
+            default: lastFailure = "\(error)"
+            }
+        }
         lock.unlock()
         guard let c else { return }
         if let error { c.resume(throwing: error) } else { c.resume() }
@@ -143,6 +153,25 @@ public final class FramedConnection: @unchecked Sendable {
     }
 }
 
+extension FramedConnection {
+    /// The route this connection takes, from its path (the interface in use and the other end).
+    public var route: LinkRoute {
+        let path = connection.currentPath
+        var host: String?
+        switch path?.remoteEndpoint ?? connection.endpoint {
+        case let .hostPort(h, _):
+            switch h {
+            case let .ipv4(a): host = "\(a)"
+            case let .ipv6(a): host = "\(a)"
+            case let .name(n, _): host = n
+            @unknown default: host = nil
+            }
+        default: host = nil
+        }
+        return LinkRoute.classify(host: host, interface: path?.availableInterfaces.first?.name)
+    }
+}
+
 /// A connection after the handshake: every frame sealed.
 public final class SecureSession: @unchecked Sendable {
     public let connection: FramedConnection
@@ -150,6 +179,8 @@ public final class SecureSession: @unchecked Sendable {
     /// The link runs beyond the local network (a Tailscale or forwarded-port address, not
     /// Bonjour): a slower path, so watching favours smaller pictures.
     public let isRemote: Bool
+    /// How it's connected (home network, nearby, Tailscale, internet), read when it opened.
+    public let route: LinkRoute
     private var sealer: FrameSealer
     private var opener: FrameOpener
     private let sendLock = AsyncLock()
@@ -158,6 +189,7 @@ public final class SecureSession: @unchecked Sendable {
         self.connection = connection
         self.peerID = peerID
         self.isRemote = isRemote
+        self.route = connection.route
         self.sealer = FrameSealer(key: sendKey)
         self.opener = FrameOpener(key: receiveKey)
     }

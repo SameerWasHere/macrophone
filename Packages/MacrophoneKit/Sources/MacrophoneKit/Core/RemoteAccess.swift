@@ -321,3 +321,52 @@ public enum RemoteAccess {
     /// A phone that understands `.remoteAddresses` says so in its hello.
     public static let feature = "remote"
 }
+
+/// How a phone and the Mac are connected (Oct 17 2026, Sameer: "it would be great if on the Mac and
+/// the iPhone it was also clear how the connection was made"). Read off the connection's own path
+/// on each end: the interface it runs on and the other end's address.
+public enum LinkRoute: String, Codable, Sendable {
+    /// The same Wi-Fi or wired network at home.
+    case homeNetwork
+    /// Apple's direct Wi-Fi link (what AirDrop uses): near the Mac, no shared network needed.
+    case nearby
+    /// Away from home, through the person's own Tailscale.
+    case tailscale
+    /// Away from home, through a port forwarded on the router.
+    case internet
+
+    /// "on home Wi-Fi" — the words after "Connected", plain.
+    public var words: String {
+        switch self {
+        case .homeNetwork: return "on your home network"
+        case .nearby: return "nearby, over direct Wi-Fi"
+        case .tailscale: return "away, through Tailscale"
+        case .internet: return "away, over the internet"
+        }
+    }
+
+    /// One or two words for a tight line: "Home network", "Nearby", "Tailscale", "Internet".
+    public var short: String {
+        switch self {
+        case .homeNetwork: return "Home network"
+        case .nearby: return "Nearby"
+        case .tailscale: return "Tailscale"
+        case .internet: return "Internet"
+        }
+    }
+
+    public var isAway: Bool { self == .tailscale || self == .internet }
+
+    /// From the interface the connection runs on (awdl/llw = Apple's direct link, utun = a VPN)
+    /// and the other end's address.
+    public static func classify(host: String?, interface: String?) -> LinkRoute {
+        let i = interface?.lowercased() ?? ""
+        if i.hasPrefix("awdl") || i.hasPrefix("llw") { return .nearby }
+        if let h = host {
+            if RemoteAddressRule.isTailscale(h) || RemoteAddressRule.isTailscaleName(h) { return .tailscale }
+            if RemoteAddressRule.isLocal(h) { return .homeNetwork }
+            return i.hasPrefix("utun") ? .tailscale : .internet
+        }
+        return i.hasPrefix("utun") ? .tailscale : .homeNetwork
+    }
+}
