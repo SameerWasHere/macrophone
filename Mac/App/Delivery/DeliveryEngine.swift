@@ -198,6 +198,8 @@ final class DeliveryEngine {
                 }
                 self.popup.refresh(c)
                 self.app.updateOutcome(itemID, .pasted, outcome)
+                // Sent: a chat now, waiting for its answer.
+                if r.pressedSend, let wid = r.windowID { self.app.replies.engaged(windowID: wid, bundleID: r.bundleID) }
                 let how = r.pressedSend ? (r.confirmedSent ? "sent, confirmed" : (r.stillInBox ? "send key pressed, box not cleared" : "sent")) : "pasted"
                 self.log.add("delivered: \(how)\(r.landed == true ? ", landed" : (r.landed == nil ? ", not readable" : ""))")
             } catch let f as PasteFailure {

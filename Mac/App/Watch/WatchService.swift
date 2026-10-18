@@ -600,7 +600,7 @@ final class WatchService {
         if k.shift { flags.insert(.maskShift) }
         if k.control { flags.insert(.maskControl) }
         if k.option { flags.insert(.maskAlternate) }
-        act(on: peer, what: "key") { _ in Keys.press(code, flags: flags) }
+        act(on: peer, what: k.key == "return" ? "key-return" : "key") { _ in Keys.press(code, flags: flags) }
     }
 
     private static func keyCode(_ key: String) -> CGKeyCode? {
@@ -791,6 +791,8 @@ final class WatchService {
             }
             if !quiet { w.hurry() }
             await body(wid)
+            // An answer or a Return from the phone: this window is a chat waiting for its answer.
+            if ["returnKey", "choose", "key-return"].contains(what) { self?.app.replies.engaged(windowID: wid, bundleID: w.bundleID) }
             if !quiet { self?.app.log.add("watch \(what)") }
             w.wake()
         }

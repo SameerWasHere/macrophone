@@ -42,6 +42,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID)
     /// The agent sessions, sent to a phone that named "agents" right after its welcome.
     func liveAgents(_ server: LinkServer) -> [AgentSession]
+    /// The chats that answered, sent to a phone naming NeedsYou.feature right after its welcome.
+    func liveNeeds(_ server: LinkServer) -> [NeedsYou]
     /// A swipe on the watched window: scroll it at `point` by `delta` (fractions of the window).
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID)
     /// Answer the prompt the watched window showed (`WatchPrompt.id`) with the answer at `index`.
@@ -76,6 +78,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {}
     func liveAgents(_ server: LinkServer) -> [AgentSession] { [] }
+    func liveNeeds(_ server: LinkServer) -> [NeedsYou] { [] }
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {}
@@ -550,6 +553,9 @@ public final class LinkServer: @unchecked Sendable {
                 if phoneFeatures?.contains(AgentSession.feature) == true {
                     try await session.send(.agents(await agentsOnMain()))
                 }
+                if phoneFeatures?.contains(NeedsYou.feature) == true {
+                    try await session.send(.needsYou(await needsOnMain()))
+                }
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
                 if seen.contains(d.id) {
@@ -631,7 +637,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .agents:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .agents, .needsYou:
                 break
             }
         }
@@ -645,6 +651,16 @@ public final class LinkServer: @unchecked Sendable {
     @MainActor private func targetsOnMain() -> [LiveTarget] {
         guard let delegate else { return [] }
         return delegate.liveTargets(self)
+    }
+
+    @MainActor private func needsOnMain() -> [NeedsYou] {
+        guard let delegate else { return [] }
+        return delegate.liveNeeds(self)
+    }
+
+    /// The chats that answered changed: tell every phone that understands them.
+    public func broadcastNeeds(_ list: [NeedsYou]) {
+        for id in phones(with: NeedsYou.feature) { Task { await self.send(.needsYou(list), to: id) } }
     }
 
     @MainActor private func agentsOnMain() -> [AgentSession] {

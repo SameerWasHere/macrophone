@@ -42,6 +42,12 @@ final class AgentHub {
         }
     }
 
+    /// Where the agent in this window is, when one told the Mac (the newest, if several).
+    func state(of window: CGWindowID) -> (state: AgentSession.State, since: Date)? {
+        sessions.values.filter { $0.windowID == window }.max { $0.heardAt < $1.heardAt }
+            .map { ($0.session.state, $0.session.since) }
+    }
+
     /// Windows an agent told about: the attention watcher leaves them to the agent.
     var claimedWindows: Set<CGWindowID> { Set(sessions.values.compactMap(\.windowID)) }
 

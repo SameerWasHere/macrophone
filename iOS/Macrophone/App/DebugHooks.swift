@@ -147,7 +147,6 @@ enum DebugHooks {
     }
 
     @MainActor static func apply(_ model: AppModel) {
-        if env["MACROPHONE_FAKE_AGENTS"] == "1" { model.debugFakeAgents() }
         if let mac = env["MACROPHONE_FAKE_PAIRED"] {
             model.debugFakePairing(mac: mac)
             if env["MACROPHONE_FAKE_TARGETS"] == nil { model.debugFakeTargets(sampleApps()) }
@@ -169,6 +168,7 @@ enum DebugHooks {
             })
         default: break
         }
+        if env["MACROPHONE_FAKE_NEEDS"] == "1" { model.debugFakeNeeds() }
         if let to = env["MACROPHONE_SEND_TO"], let t = target(named: to, in: model) { model.pick(t) }
         if let send = env["MACROPHONE_SEND"] { model.setSend(send == "1") }
         if let level = env["MACROPHONE_CLEANUP"].flatMap(CleanupLevel.init(rawValue:)) { model.setCleanupLevel(level) }

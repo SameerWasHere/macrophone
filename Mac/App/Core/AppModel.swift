@@ -30,6 +30,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var watch: WatchService!
     private(set) var attention: AttentionWatcher!
     private(set) var agents: AgentHub!
+    private(set) var replies: ReplyWatcher!
     /// Phone → the app it's watching, for the menu.
     @Published private(set) var watching: [UUID: String] = [:]
 
@@ -97,6 +98,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         watch = WatchService(app: self)
         attention = AttentionWatcher(app: self)
         agents = AgentHub(app: self)
+        replies = ReplyWatcher(app: self)
         watch.onChange = { [weak self] in
             guard let self, self.watching != self.watch.watching else { return }
             self.watching = self.watch.watching
@@ -104,7 +106,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.log = log
         server.delegate = self
         // What this Mac can do beyond the first version, for phones that can too.
-        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature, AgentSession.feature]
+        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature]
         // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
         let watchService = watch!
         server.watchInput = { peer, input in watchService.scrollInput(peer, input) }
@@ -637,6 +639,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     }
 
     func liveAgents(_ server: LinkServer) -> [AgentSession] { agents.list }
+
+    func liveNeeds(_ server: LinkServer) -> [NeedsYou] { replies.needs }
 
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {
         watch.fitToPhone(aspect: aspect, for: peerID)

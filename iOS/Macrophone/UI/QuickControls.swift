@@ -147,6 +147,7 @@ struct PlacesRow: View {
         let places = model.placeOptions(current: current)
         let selected = places.first { $0.holds(current) }?.id
         let notOpen = model.isNotOpen(current)
+        let answered = model.liveTarget(for: current).flatMap { model.needs($0) }
         VStack(alignment: .leading, spacing: compact ? 8 : 10) {
             HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -154,7 +155,8 @@ struct PlacesRow: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Ink.tertiary)
                     (Text(current.displayName).foregroundColor(Ink.ink)
-                     + (notOpen ? Text("  Not open on your Mac").font(.subheadline).foregroundColor(Light.ochre) : Text("")))
+                     + (notOpen ? Text("  Not open on your Mac").font(.subheadline).foregroundColor(Light.ochre) : Text(""))
+                     + (answered.map { Text($0.asking ? "  Asking you" : "  Answered you").font(.subheadline).foregroundColor(Light.ember) } ?? Text("")))
                         .font(.headline)
                         // A window name can run to 70 characters plus "Not open": three lines, never "…".
                         .lineLimit(3)
@@ -163,7 +165,8 @@ struct PlacesRow: View {
                         .animation(Motion.snap, value: current)
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Send to: \(current.displayName)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : ""))
+                .accessibilityLabel("Send to: \(current.displayName)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : "")
+                                    + (answered.map { $0.asking ? ", asking you something" : ", answered you" } ?? ""))
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("send-to")
                 Spacer(minLength: 0)
@@ -201,7 +204,9 @@ struct PlacesRow: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         ForEach(places) { p in
-                            PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact) { pick($0) }
+                            PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact,
+                                        needs: model.isConnected ? model.needs(p) : nil,
+                                        windowNeeds: { model.needs($0) != nil }) { pick($0) }
                                 .id(p.id)
                         }
                         // Any app on the Mac, open or not (Open an app).
@@ -242,16 +247,32 @@ private struct PlaceButton: View {
     var selected: Bool
     var current: TargetRef
     var compact = false
+    /// One of its windows answered you: the mark on its icon.
+    var needs: NeedsYou?
+    var windowNeeds: (LiveTarget) -> Bool = { _ in false }
     var onPick: (TargetRef) -> Void
 
     var body: some View {
         Button {
-            // An app already picked keeps its window; otherwise its newest.
-            if !place.holds(current) { onPick(place.target) }
+            // An app already picked keeps its window; otherwise the one that answered you, else its newest.
+            if let n = needs, let w = place.windows.first(where: n.concerns) { onPick(w.ref) }
+            else if !place.holds(current) { onPick(place.target) }
         } label: {
             VStack(spacing: 4) {
                 TargetIcon(target: place.target, icon: place.icon, size: compact ? 28 : 32, onTint: selected)
                     .saturation(place.kind == .closed ? 0 : 1)
+                    .overlay(alignment: .topTrailing) {
+                        if needs != nil {
+                            // Answered you: a mark like an app's badge, in the colour of your move.
+                            Circle()
+                                .fill(Light.ember)
+                                .frame(width: 11, height: 11)
+                                .overlay(Circle().stroke(Ink.ground, lineWidth: 2))
+                                .offset(x: 4, y: -4)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .animation(Motion.snap, value: needs != nil)
                 Text(place.kind == .closed ? "Not open" : place.kind == .opening ? "Opening…" : place.shortName)
                     .font(.caption2.weight(selected ? .semibold : .medium))
                     .foregroundStyle(selected ? Ink.ground : (place.kind == .closed ? Light.ochre : Ink.secondary))
@@ -269,7 +290,9 @@ private struct PlaceButton: View {
                     ForEach(place.windows) { w in
                         Button { onPick(w.ref) } label: {
                             if current.matches(w) { Label(w.windowTitle ?? w.appName, systemImage: "checkmark") }
+                            else if windowNeeds(w) { Label(w.windowTitle ?? w.appName, systemImage: "circlebadge.fill") }
                             else { Text(w.windowTitle ?? w.appName) }
+                            if windowNeeds(w) { Text("Answered you") }
                         }
                     }
                 }
@@ -285,6 +308,7 @@ private struct PlaceButton: View {
         if place.windows.count > 1 { s += ", \(place.windows.count) windows" }
         if place.kind == .closed { s += ", not open on your Mac" }
         if place.kind == .opening { s += ", opening on your Mac" }
+        if let needs { s += needs.asking ? ", asking you something" : ", answered you" }
         return s
     }
 }

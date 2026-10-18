@@ -143,6 +143,9 @@ public enum Message: Codable, Sendable {
     /// Mac → phone: every agent session the Mac knows of, as it changes (only to phones whose
     /// hello named "agents"). Sent after welcome too.
     case agents([AgentSession])
+    /// Mac → phone: the chats you're in that have answered you (only to phones naming
+    /// NeedsYou.feature). Sent after welcome and whenever it changes.
+    case needsYou([NeedsYou])
     /// Phone → Mac: press a key with its modifiers in the watched window (only to a Mac naming
     /// WatchKey.feature).
     case watchKey(WatchKey)

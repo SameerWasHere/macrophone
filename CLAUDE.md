@@ -251,15 +251,29 @@ one on a new prompt), sends `.attention` the moment one waits (iCloud when no ph
 connected) and `.agents` to phones naming "agents". The attention watcher skips windows an
 agent claims and reports the ones it reads asking (`fromScreen`). Mac › General › Agents
 connects/disconnects (`Core/AgentSetup.swift`; backs the file up once; never replaces his own
-Codex `notify`). Phone: `UI/AgentsPanel.swift` above Send to; a tap = `openAttention`.
+Codex `notify`). The phone's Agents panel (Oct 17) was removed Oct 18 — "takes up too much
+space ... not actually a useful section".
 Same day: More keys (`WatchKey`, feature "keys": ⌃C, Tab, ⇧Tab, ⌘↩, ⌘Z, Space, ⌫, digits —
 by name, so a newer key never breaks an older Mac), Fit to iPhone (`watchShape`, feature
 "fitPhone": the window takes the phone's view shape at full screen height), first-use tips
 (`UI/WatchTips.swift`, one card at a time over the window's top; Window › Show Tips Again),
 the zoom kept per app (`watch.view.<bundleID>`, dropped when the window's shape changes), and a
 minimized window stays the watched one so "Show it on my Mac" brings it back.
-Debug: `MACROPHONE_FAKE_AGENTS=1` (with `MACROPHONE_FAKE_PAIRED`); `mpctl serve` names every
-new feature.
+`mpctl serve` names every new feature.
+
+## Chats that answered you (Oct 18 2026)
+
+Sameer: a mark in Send to when "a chat where the user is currently engaging" — the agent replied
+and needs a response. Not Dock badges, not every chat. `Watch/ReplyWatcher.swift`: a window
+becomes a chat when a dictation is sent there (`Paster.Result.windowID`, `pressedSend`) or the
+phone answers / presses Return in it (`WatchService.act`: returnKey, choose, key-return). Every
+3 s (10 s after ten minutes), per chat: a hook agent's state (AgentHub `state(of:)`: done or
+asking after you wrote, 2 s grace) — else its picture: content (share ≥ 0.006, after the first
+4 s) then 3 still looks = answered; new content takes it back. Watching it on the phone resets
+it. `.needsYou([NeedsYou])` to phones naming "needsYou". Phone: an ember dot on the app's Send to
+button (a tap picks the window that answered), "Answered you" / "Asking you" by the Send to
+name, `circlebadge.fill` in the window menus; looking clears it at once (`clearNeeds`).
+Debug: `MACROPHONE_FAKE_NEEDS=1` (with `MACROPHONE_FAKE_PAIRED`).
 
 ## Checks
 

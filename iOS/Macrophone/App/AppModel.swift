@@ -100,8 +100,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var localNetworkDenied = false
     /// The Mac's open apps/windows with somewhere to type, newest first (cached while it's away).
     @Published private(set) var liveTargets: [LiveTarget] = []
-    /// Every agent session the Mac knows of (a Mac that sends none: empty).
-    @Published private(set) var agentSessions: [AgentSession] = []
+    /// The chats you're in that answered you: their apps wear a mark in Send to.
+    @Published private(set) var needsYou: [NeedsYou] = []
     /// The Mac sent its list since the link last connected (so "Not open on your Mac" is current).
     @Published private(set) var targetsCurrent = false
     @Published private(set) var pairedMac: PairedPeer?
@@ -156,6 +156,8 @@ final class AppModel: ObservableObject {
         watcher.sendFit = { [weak self] f in self?.client.watchFit(f) ?? false }
         watcher.macFeatures = { [weak self] in self?.client.macFeatures ?? [] }
         AgentAlerts.shared.install(self)
+        // Looking at a chat that answered settles its mark.
+        watcher.$target.compactMap { $0 }.sink { [weak self] t in self?.clearNeeds(for: t) }.store(in: &bag)
         Task { await AgentAlerts.shared.subscribeInCloud() }
         // Notifications are asked for the first time a window is watched — the moment they make sense.
         watcher.$isOpen.filter { $0 }.first().sink { [weak self] _ in
@@ -186,7 +188,7 @@ final class AppModel: ObservableObject {
         // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts);
         // one with remote access on tells it where it can be reached from away; one that can sends
         // the watched window as video (Watcher decodes it).
-        c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, AgentSession.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+        c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, NeedsYou.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -1126,16 +1128,11 @@ final class AppModel: ObservableObject {
 
     var debugPairingLocked = false
 
-    func debugFakeAgents() {
-        let t = Date()
-        agentSessions = [
-            AgentSession(id: "a", agent: "Claude Code", project: "Macrophone", ref: .app(bundleID: "com.apple.Terminal", windowKey: "1", name: "Terminal"),
-                         appName: "Terminal", state: .waiting, detail: "Run git push origin main?", since: t - 40),
-            AgentSession(id: "b", agent: "Codex", project: "api", ref: .app(bundleID: "com.apple.Terminal", windowKey: "2", name: "Terminal"),
-                         appName: "Terminal", state: .yourTurn, detail: "Tests pass, three files changed in the auth module", since: t - 300),
-            AgentSession(id: "c", agent: "Claude Code", project: "site", ref: .app(bundleID: "com.anthropic.claudefordesktop", windowKey: nil, name: "Claude"),
-                         appName: "Claude", state: .working, detail: nil, since: t - 260),
-        ]
+    /// Claude and Terminal answered (MACROPHONE_FAKE_NEEDS=1, after the fake targets).
+    func debugFakeNeeds() {
+        needsYou = liveTargets.filter { ["Claude", "Terminal"].contains($0.appName) }.map {
+            NeedsYou(bundleID: $0.bundleID, windowKey: $0.windowKey ?? "1", since: Date(), asking: $0.appName == "Terminal")
+        }
     }
 
     func debugFakePairing(mac: String) {
@@ -1158,7 +1155,7 @@ extension AppModel: LinkClientDelegate {
         linkRoute = client.route
         if case .connected = state { flushQueue() } else { targetsCurrent = false }
         // Another Mac, or none: its agents aren't this one's.
-        if case .notPaired = state { agentSessions = [] }
+        if case .notPaired = state { needsYou = [] }
         if case .connected = state { watcher.linkChanged(connected: true) } else { watcher.linkChanged(connected: false) }
     }
 
@@ -1271,17 +1268,23 @@ extension AppModel: LinkClientDelegate {
         log.add("attention: \(attention.appName) is asking")
     }
 
-    func linkClient(_ client: LinkClient, agents: [AgentSession]) {
+    func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {
         guard client === self.client else { return }
-        if agentSessions != agents { agentSessions = agents }
-        if !agents.isEmpty, !UserDefaults.standard.bool(forKey: "agents.seen") {
-            UserDefaults.standard.set(true, forKey: "agents.seen")
-        }
+        if self.needsYou != needsYou { self.needsYou = needsYou }
     }
 
-    /// The Agents panel says how to get agents into it, on a Mac that can, until the first one shows.
-    var showAgentsHint: Bool {
-        client.macFeatures.contains(AgentSession.feature) && !UserDefaults.standard.bool(forKey: "agents.seen")
+    /// The mark for one window or app, if it answered you.
+    func needs(_ t: LiveTarget) -> NeedsYou? { needsYou.first { $0.concerns(t) } }
+
+    /// The mark for an app's button: any of its windows that answered you.
+    func needs(_ place: PlaceOption) -> NeedsYou? {
+        needsYou.first { n in place.windows.contains { n.concerns($0) } }
+    }
+
+    /// Looking at it settles it (the Mac agrees within seconds).
+    func clearNeeds(for ref: TargetRef) {
+        guard case let .app(bid, key, _) = ref else { return }
+        needsYou.removeAll { $0.bundleID == bid && (key == nil || $0.windowKey == key) }
     }
 
     /// Alerts through iCloud are set up: say so in the next hello (the Mac then keeps looking

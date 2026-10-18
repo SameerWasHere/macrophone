@@ -114,7 +114,10 @@ struct WatchPanel: View {
                 Menu {
                     ForEach(sessions) { t in
                         Button { show(t) } label: {
-                            if watcher.target?.matches(t) ?? false { Label(t.title, systemImage: "checkmark") } else { Text(t.title) }
+                            if watcher.target?.matches(t) ?? false { Label(t.title, systemImage: "checkmark") }
+                            else if model.needs(t) != nil { Label(t.title, systemImage: "circlebadge.fill") }
+                            else { Text(t.title) }
+                            if model.needs(t) != nil, !(watcher.target?.matches(t) ?? false) { Text("Answered you") }
                         }
                     }
                 } label: {

@@ -233,3 +233,32 @@ public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
         }
     }
 }
+
+/// A chat you're in the middle of has answered you (Oct 18 2026, Sameer: "a chat where the user is
+/// currently engaging. If the agent has sent them a message and requires a response, that's when
+/// you would want to see some type of indication ... in the app selector"). Only windows you sent
+/// something to from the phone; gone once you look at that window on the phone or send it more.
+public struct NeedsYou: Codable, Sendable, Equatable, Hashable {
+    public var bundleID: String
+    /// The window (a CGWindowID as text).
+    public var windowKey: String
+    /// When it answered.
+    public var since: Date
+    /// It's asking you something (a permission, a question), not only done talking.
+    public var asking: Bool
+
+    public init(bundleID: String, windowKey: String, since: Date, asking: Bool) {
+        self.bundleID = bundleID
+        self.windowKey = windowKey
+        self.since = since
+        self.asking = asking
+    }
+
+    /// Whether this is about that place: its window, or the app when the place is the app.
+    public func concerns(_ t: LiveTarget) -> Bool {
+        t.bundleID == bundleID && (t.windowKey == nil || t.windowKey == windowKey)
+    }
+
+    /// The phone understands `.needsYou`, sent in its hello.
+    public static let feature = "needsYou"
+}

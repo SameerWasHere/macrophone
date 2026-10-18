@@ -43,6 +43,8 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, attention: Attention)
     /// Every agent session the Mac knows of (a Mac that names none never sends it).
     func linkClient(_ client: LinkClient, agents: [AgentSession])
+    /// The chats you're in that answered you (a Mac that names none never sends it).
+    func linkClient(_ client: LinkClient, needsYou: [NeedsYou])
     /// The apps installed on the Mac (answer to `listApps`).
     func linkClient(_ client: LinkClient, installedApps: [MacApp])
     /// An app asked for with `openApp` opened (or didn't).
@@ -66,6 +68,7 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame) {}
     func linkClient(_ client: LinkClient, attention: Attention) {}
     func linkClient(_ client: LinkClient, agents: [AgentSession]) {}
+    func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {}
     func linkClient(_ client: LinkClient, appQuit bundleID: String, ok: Bool, detail: String) {}
@@ -616,6 +619,11 @@ public final class LinkClient: @unchecked Sendable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.delegate?.linkClient(self, attention: a)
+            }
+        case let .needsYou(list):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, needsYou: list)
             }
         case let .agents(list):
             Task { @MainActor [weak self] in

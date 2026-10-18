@@ -149,7 +149,7 @@ final class AttentionWatcher {
         return out
     }
 
-    private static func capture(_ w: SCWindow) async -> CGImage? {
+    static func capture(_ w: SCWindow) async -> CGImage? {
         let filter = SCContentFilter(desktopIndependentWindow: w)
         let cfg = SCStreamConfiguration()
         let scale = CGFloat(filter.pointPixelScale)
