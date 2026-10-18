@@ -31,6 +31,9 @@ enum WatchLook {
     static let control: CGFloat = 38
     /// The window runs nearer the screen's edges than the page's margin.
     static let sideMargin: CGFloat = 10
+    /// The header's controls (name, zoom out, Window, Done): a step under the keys, so the window
+    /// gets the room (Sameer, Oct 18 2026).
+    static let header: CGFloat = 32
     /// The tip card and the notes over the window.
     static let card: CGFloat = 16
     /// A cell's pressed wash, and the hairline between cells.
@@ -154,7 +157,7 @@ struct WatchPanel: View {
                 WatchKicker(watcher: watcher)
                 Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
             }
-            .frame(minHeight: WatchLook.control)
+            .frame(minHeight: WatchLook.header)
             .contentShape(Rectangle())
         }
         .accessibilityLabel("Window: \(watcher.name)")
@@ -191,13 +194,13 @@ struct WatchPanel: View {
                 watcher.close()
             }
             .font(.subheadline.weight(.semibold))
-            .buttonStyle(WatchCellStyle(inset: 16))
+            .buttonStyle(WatchCellStyle(inset: 14, height: WatchLook.header))
             .fixedSize()
             .watchGlass(Capsule())
             .accessibilityHint("Stops showing the window and brings back Send to and Cleanup.")
             .accessibilityIdentifier("watch-done")
         }
-        .frame(minHeight: WatchLook.control)
+        .frame(minHeight: WatchLook.header)
     }
 }
 
@@ -233,7 +236,7 @@ struct WatchWholeButton: View {
                 .font(.subheadline.weight(.semibold))
                 .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(WatchCellStyle(width: 44, tint: watcher.wholeWindow ? Light.cyan : Ink.ink))
+        .buttonStyle(WatchCellStyle(width: 42, height: WatchLook.header, tint: watcher.wholeWindow ? Light.cyan : Ink.ink))
         .disabled(watcher.phase != .live)
         .accessibilityLabel(watcher.wholeWindow ? "Zoom back in" : "Show the whole window")
         .accessibilityHint(watcher.wholeWindow ? "Back to the part of the window you type in." : "Fits all of \(watcher.name)'s window on screen.")
@@ -292,7 +295,7 @@ struct WatchWindowMenu: View {
             Image(systemName: "macwindow")
                 .font(.subheadline.weight(.semibold))
         }
-        .buttonStyle(WatchCellStyle(width: 44, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
+        .buttonStyle(WatchCellStyle(width: 42, height: WatchLook.header, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
         .disabled(watcher.phase != .live)
         .accessibilityLabel("Window")
         .accessibilityHint("Fit to iPhone and the text size here; the window's size, minimize and close on your Mac; a photo, a file or the clipboard into its chat; the tips again.")
