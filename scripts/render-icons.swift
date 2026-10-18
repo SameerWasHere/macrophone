@@ -1,318 +1,471 @@
-// Renders Macrophone's icons — the Thread (the luminous ribbon from SameerOS's Hey Claude)
-// meeting a glass microphone, on a dusk sky — for the iPhone app, the Mac app and the website.
-// No external tools: SwiftUI's ImageRenderer on macOS.
+// Macrophone's app icon, from code — the Liquid Glass (iOS 26 / macOS 26) icon and its fallbacks.
 //
-//   xcrun swiftc -parse-as-library -target arm64-apple-macos15.0 scripts/render-icons.swift -o /tmp/render-icons
-//   /tmp/render-icons preview <dir>     # every design variant side by side, for choosing
-//   /tmp/render-icons install           # writes the iOS, Mac and website icons in place (run from the repo root)
+//   xcrun swiftc -O -parse-as-library -target arm64-apple-macos14.0 scripts/render-icons.swift -o /tmp/render-icons
+//   /tmp/render-icons preview <dir>       # every direction: layers, .icon bundles, flattened renders, one comparison sheet
+//   /tmp/render-icons install [design]    # writes the shipped icon in place (run from the repo root)
 //
-// iOS icons are opaque (App Store Connect rejects alpha). The Mac icon is the macOS squircle
-// on a transparent canvas with the standard margin and shadow.
+// What ships (design `capsule` unless told otherwise):
+//   iOS/Macrophone/AppIcon.icon, Mac/Resources/AppIcon.icon   the Icon Composer bundle (icon.json + Assets/*.png)
+//       — square, unmasked 1024 layers with hard edges and no baked light: the system draws the
+//       specular edge, the refraction, the translucency and the shadow (HIG › App icons).
+//       Xcode 26+ takes this over the asset catalog's set of the same name and flattens it itself
+//       for iOS 17–18 and macOS 14–15 (checked in the built Assets.car: the IconImageStack plus
+//       actool's own flat images).
+//   iOS/…/Assets.xcassets/AppIcon.appiconset                  flattened light / dark / tinted 1024 PNGs — the fallback
+//   Mac/Resources/Assets.xcassets/AppIcon.appiconset          the macOS squircle at every size — for a build with an
+//                                                             older Xcode, which can't read a .icon
+//   docs/icon/                                                the comparison sheet and the final renders
+//
+// scripts/icon-render-check.sh draws each candidate .icon the way macOS 26+ does (actool → a stub
+// app → the system's icon), which is how the glass settings below were chosen.
+//
+// The mark: a glass microphone capsule — one filled pill, no stand, no outline — with the Thread
+// (the app's luminous braided waveform, Filament.swift) passing through it: the bold strand in
+// front, the two finer strands behind the glass. The ground is the app's ink, lifted to indigo.
+// No text, no photo, no thin line (nothing under 14 px at 1024 — about 1 px at 29 pt @3x).
 
 import AppKit
-import SwiftUI
+import CoreImage
+import CoreImage.CIFilterBuiltins
+import Foundation
 import UniformTypeIdentifiers
 
-// MARK: - Palette (Macrophone's lights — the same values as docs/DESIGN.md)
+// MARK: - Palette (Theme.swift's Light — the Filament's spectrum — and Ink)
 
+struct RGB { var r, g, b: Double }
 enum Palette {
-    static func rgb(_ hex: UInt32) -> Color {
-        Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    static func hex(_ v: UInt32) -> RGB {
+        RGB(r: Double((v >> 16) & 0xFF) / 255, g: Double((v >> 8) & 0xFF) / 255, b: Double(v & 0xFF) / 255)
     }
-    static let violet = rgb(0x9A86E6), cyan = rgb(0x58B9DE), mint = rgb(0x5ED6A2), gold = rgb(0xE8C06C), coral = rgb(0xE9806A)
-    /// The Thread, cool to warm.
-    static let thread: [Color] = [violet, cyan, mint, gold, coral]
+    static let cyan = hex(0x58B9DE), teal = hex(0x5CD3C3), mint = hex(0x5ED6A2)
+    static let gold = hex(0xE8C06C), ember = hex(0xE9714F), violet = hex(0x9A86E6)
+    /// The Thread, cool to warm, as the app draws it.
+    static let spectrum: [(RGB, Double)] = [(cyan, 0), (teal, 0.22), (mint, 0.40), (gold, 0.60), (ember, 0.80), (violet, 1)]
+    /// The ground: ink lifted to indigo at the top, the app's ground at the foot.
+    static let groundTop = hex(0x1A1A42), groundBottom = hex(0x07070F)
+    static let groundTopDark = hex(0x111130), groundBottomDark = hex(0x040409)
 }
 
-enum Design: String, CaseIterable {
-    case through   // the ribbon flows through a glass mic
-    case inside    // the ribbon lives inside the mic's capsule
+func cg(_ c: RGB, _ a: Double = 1) -> CGColor { CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: a) }
+func gray(_ w: Double, _ a: Double = 1) -> CGColor { CGColor(srgbRed: w, green: w, blue: w, alpha: a) }
+let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+
+func gradient(_ stops: [(RGB, Double)], alpha: Double = 1) -> CGGradient {
+    CGGradient(colorsSpace: srgb, colors: stops.map { cg($0.0, alpha) } as CFArray, locations: stops.map { CGFloat($0.1) })!
+}
+func grayGradient(_ stops: [(Double, Double, Double)]) -> CGGradient {  // (white, alpha, location)
+    CGGradient(colorsSpace: srgb, colors: stops.map { gray($0.0, $0.1) } as CFArray, locations: stops.map { CGFloat($0.2) })!
 }
 
-enum Appearance: CaseIterable { case light, dark, tinted }
+// MARK: - Geometry: the Thread as a tapered ribbon
 
-struct IconArt: View {
-    static let side: CGFloat = 1024
-    var design: Design
-    var appearance: Appearance = .light
-    /// The macOS squircle (inset, rounded, shadowed) instead of the full-bleed iOS square.
-    var mac = false
+/// The canvas is 1024 × 1024, y down (flipped into CoreGraphics when drawn).
+let side = 1024.0
 
-    var body: some View {
-        Canvas { ctx, size in
-            if mac {
-                // macOS icon grid: 824 pt body in a 1024 canvas, corner ~185, soft drop shadow.
-                let body = CGRect(x: 100, y: 92, width: 824, height: 824)
-                let shape = Path(roundedRect: body, cornerRadius: 185, style: .continuous)
-                var shadow = ctx
-                shadow.addFilter(.shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12))
-                shadow.fill(shape, with: .color(.black))
-                var inner = ctx
-                inner.clip(to: shape)
-                inner.translateBy(x: body.minX, y: body.minY)
-                inner.scaleBy(x: body.width / size.width, y: body.height / size.height)
-                draw(inner, size)
-                // A hairline of light on the rim.
-                ctx.stroke(shape, with: .linearGradient(Gradient(colors: [.white.opacity(0.22), .white.opacity(0.04)]),
-                                                        startPoint: CGPoint(x: 0, y: body.minY), endPoint: CGPoint(x: 0, y: body.maxY)),
-                           lineWidth: 2)
-            } else {
-                draw(ctx, size)
-            }
+struct Strand {
+    /// Half-width at the peak, in px of 1024.
+    var weight: Double
+    /// Lateral offset from the S's centreline: a braid, `spread` px, `turns` crossings, phase.
+    var spread: Double, turns: Double, phase: Double
+    /// Reach across the canvas (0…1 of the width) and the S's height (fraction of the reach).
+    var reach: Double, amp: Double
+    var centreY: Double
+
+    func path() -> CGPath {
+        let n = 480
+        let width = reach * side, x0 = (side - width) / 2
+        var centre: [CGPoint] = [], tangent: [CGPoint] = []
+        for i in 0...n {
+            let u = Double(i) / Double(n)
+            let env = pow(sin(.pi * u), 1.15)
+            let y = centreY - amp * width * sin(2 * .pi * (u - 0.5)) * env
+            centre.append(CGPoint(x: x0 + u * width, y: y))
         }
-        .frame(width: Self.side, height: Self.side)
-    }
-
-    private func draw(_ ctx: GraphicsContext, _ size: CGSize) {
-        drawSky(ctx, size)
-        drawGrain(ctx, size)
-        drawStars(ctx, size)
-        switch design {
-        case .through: drawThrough(ctx, size)
-        case .inside: drawInside(ctx, size)
+        for i in 0...n {
+            let a = centre[max(i - 1, 0)], b = centre[min(i + 1, n)]
+            let dx = b.x - a.x, dy = b.y - a.y, len = max(hypot(dx, dy), 1e-6)
+            tangent.append(CGPoint(x: dx / len, y: dy / len))
         }
-    }
-
-    // MARK: Sky — deep ink at the top, a dusk plum, an ember of light low down
-
-    private func drawSky(_ ctx: GraphicsContext, _ size: CGSize) {
-        let full = Path(CGRect(origin: .zero, size: size))
-        let stops: [Gradient.Stop]
-        switch appearance {
-        case .light:
-            stops = [.init(color: Palette.rgb(0x15132B), location: 0), .init(color: Palette.rgb(0x2B1F4A), location: 0.48),
-                     .init(color: Palette.rgb(0x4A2A52), location: 0.78), .init(color: Palette.rgb(0x7A3F48), location: 1)]
-        case .dark:
-            stops = [.init(color: Palette.rgb(0x07070F), location: 0), .init(color: Palette.rgb(0x14112A), location: 0.6),
-                     .init(color: Palette.rgb(0x2A1830), location: 1)]
-        case .tinted:
-            stops = [.init(color: Color(white: 0.02), location: 0), .init(color: Color(white: 0.08), location: 1)]
-        }
-        ctx.fill(full, with: .linearGradient(Gradient(stops: stops), startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
-        let haze: Color = appearance == .tinted ? .white : Palette.cyan
-        ctx.fill(full, with: .radialGradient(Gradient(colors: [haze.opacity(appearance == .dark ? 0.10 : 0.14), haze.opacity(0)]),
-                                             center: CGPoint(x: size.width * 0.5, y: size.height * 0.44),
-                                             startRadius: 0, endRadius: size.width * 0.5))
-    }
-
-    private func drawGrain(_ ctx: GraphicsContext, _ size: CGSize) {
-        guard let grain = Self.grain else { return }
-        var g = ctx
-        g.blendMode = .softLight
-        g.opacity = 0.05
-        g.draw(Image(decorative: grain, scale: 1), in: CGRect(origin: .zero, size: size))
-    }
-
-    private static let grain: CGImage? = {
-        let side = Int(IconArt.side)
-        var bytes = [UInt8](repeating: 0, count: side * side)
-        var gen = Seeded(seed: 0x5EED)
-        for i in bytes.indices { bytes[i] = UInt8.random(in: 0...255, using: &gen) }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
-        return CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: side,
-                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: 0),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-    }()
-
-    private func drawStars(_ ctx: GraphicsContext, _ size: CGSize) {
-        guard appearance != .tinted else { return }
-        var gen = Seeded(seed: 0xC0FFEE)
-        for _ in 0..<34 {
-            let x = Double.random(in: 0.04...0.96, using: &gen), y = Double.random(in: 0.03...0.30, using: &gen)
-            // Keep the mic's head clear.
-            if abs(x - 0.5) < 0.2, y > 0.12 { continue }
-            let r = Double.random(in: 1.0...2.6, using: &gen)
-            let a = (0.25 + 0.5 * (1 - y / 0.3)) * (appearance == .dark ? 0.45 : 0.6)
-            let p = CGPoint(x: x * size.width, y: y * size.height)
-            ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)), with: .color(.white.opacity(a)))
-        }
-    }
-
-    // MARK: The Thread
-
-    private var threadGradient: Gradient {
-        if appearance == .tinted {
-            return Gradient(colors: [Color(white: 0.7), Color(white: 0.92), .white, Color(white: 0.92), Color(white: 0.75)])
-        }
-        return Gradient(colors: Palette.thread)
-    }
-
-    /// One soft S, still at the tips — the Thread's resting curve, a voice's swell in the middle.
-    private func centerline(_ size: CGSize, cy: CGFloat, width: CGFloat, amp: Double) -> [CGPoint] {
-        let x0 = (size.width - width) / 2
-        return (0...400).map { i in
-            let u = Double(i) / 400
-            let env = pow(sin(.pi * u), 1.25)
-            let y = -Double(width) * amp * sin(2 * .pi * (u - 0.5)) * env
-            return CGPoint(x: x0 + CGFloat(u) * width, y: cy + CGFloat(y))
-        }
-    }
-
-    private func ribbon(_ pts: [CGPoint], half: CGFloat) -> Path {
         var top: [CGPoint] = [], bottom: [CGPoint] = []
-        for i in pts.indices {
-            let a = pts[max(i - 1, 0)], b = pts[min(i + 1, pts.count - 1)]
-            let dx = b.x - a.x, dy = b.y - a.y, len = max(hypot(dx, dy), 0.0001)
-            let nx = -dy / len, ny = dx / len
-            let u = Double(i) / Double(pts.count - 1)
-            let h = half * CGFloat(pow(sin(.pi * u), 0.7))
-            top.append(CGPoint(x: pts[i].x + nx * h, y: pts[i].y + ny * h))
-            bottom.append(CGPoint(x: pts[i].x - nx * h, y: pts[i].y - ny * h))
+        for i in 0...n {
+            let u = Double(i) / Double(n)
+            let nx = -tangent[i].y, ny = tangent[i].x
+            // The braid: the strand wanders off the S and back, fading to the centreline at the tips.
+            let wander = spread * sin(2 * .pi * turns * u + phase) * pow(sin(.pi * u), 0.8)
+            let c = CGPoint(x: centre[i].x + nx * wander, y: centre[i].y + ny * wander)
+            // A voice's swell: full weight in the middle, a fine tip either end (never a hairline: the floor is 7 px).
+            let h = max(7, weight * pow(sin(.pi * u), 0.75))
+            top.append(CGPoint(x: c.x + nx * h, y: c.y + ny * h))
+            bottom.append(CGPoint(x: c.x - nx * h, y: c.y - ny * h))
         }
-        var p = Path()
-        p.addLines(top)
-        p.addLines(bottom.reversed())
+        // Round caps at the tips (a flat end reads as a nub at 1024): a half-circle bulging along the
+        // strand's own direction, as one cubic.
+        func cap(from a: CGPoint, to b: CGPoint, along d: CGPoint, into p: CGMutablePath) {
+            let k = hypot(a.x - b.x, a.y - b.y) / 2 * 4 / 3
+            p.addCurve(to: b, control1: CGPoint(x: a.x + d.x * k, y: a.y + d.y * k), control2: CGPoint(x: b.x + d.x * k, y: b.y + d.y * k))
+        }
+        let p = CGMutablePath()
+        p.move(to: top[0])
+        for q in top.dropFirst() { p.addLine(to: q) }
+        cap(from: top[n], to: bottom[n], along: tangent[n], into: p)
+        for q in bottom.dropLast().reversed() { p.addLine(to: q) }
+        cap(from: bottom[0], to: top[0], along: CGPoint(x: -tangent[0].x, y: -tangent[0].y), into: p)
         p.closeSubpath()
         return p
     }
+}
 
-    private func drawThread(_ ctx: GraphicsContext, pts: [CGPoint], half: CGFloat, haloWidth: CGFloat, glowScale: CGFloat = 1) {
-        let shading = GraphicsContext.Shading.linearGradient(threadGradient, startPoint: CGPoint(x: pts.first!.x, y: 0),
-                                                             endPoint: CGPoint(x: pts.last!.x, y: 0))
-        var spine = Path()
-        spine.addLines(Array(pts[60...340]))
-        var halo = ctx
-        halo.opacity = appearance == .tinted ? 0.14 : 0.5
-        halo.addFilter(.blur(radius: 60 * glowScale))
-        halo.stroke(spine, with: shading, style: StrokeStyle(lineWidth: haloWidth, lineCap: .round, lineJoin: .round))
-        var glow = ctx
-        glow.opacity = appearance == .tinted ? 0.45 : 0.9
-        glow.addFilter(.blur(radius: 22 * glowScale))
-        glow.fill(ribbon(pts, half: half * 2.3), with: shading)
-        ctx.fill(ribbon(pts, half: half), with: shading)
-        var core = ctx
-        core.blendMode = .plusLighter
-        core.opacity = 0.5
-        core.addFilter(.blur(radius: 7))
-        core.fill(ribbon(pts, half: half * 0.36), with: .color(.white))
+func pill(cx: Double, cy: Double, w: Double, h: Double) -> CGPath {
+    CGPath(roundedRect: CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h), cornerWidth: w / 2, cornerHeight: w / 2, transform: nil)
+}
+func rounded(cx: Double, cy: Double, w: Double, h: Double, r: Double) -> CGPath {
+    CGPath(roundedRect: CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h), cornerWidth: r, cornerHeight: r, transform: nil)
+}
+
+// MARK: - The designs, as layers
+
+enum Kind { case thread, glass }
+
+struct Layer {
+    var name: String
+    var path: CGPath
+    var kind: Kind
+    /// A finer strand sits behind the glass; the bold one in front.
+    var group: String
+}
+
+struct Group {
+    var name: String
+    var kind: Kind
+}
+
+enum Design: String, CaseIterable {
+    case strand    // the Thread alone: one bold strand with its two finer strands braided round it
+    case capsule   // a glass microphone capsule with the Thread passing through it
+    case window    // a Mac window with the Thread rising through it
+
+    var title: String {
+        switch self {
+        case .strand: "The Strand — the Thread distilled"
+        case .capsule: "Capsule — a glass mic with the Thread through it"
+        case .window: "Window — a Mac window and the wave"
+        }
     }
 
-    // MARK: The microphone
-
-    struct Mic {
-        var capsule: CGRect
-        var cradleTop: CGFloat, cradleBottom: CGFloat, cradleWidth: CGFloat
-        var stemBottom: CGFloat, baseWidth: CGFloat
-        var line: CGFloat
+    /// Groups back to front, and the layers in them.
+    var groups: [Group] {
+        switch self {
+        case .strand: [Group(name: "Thread", kind: .thread)]
+        case .capsule: [Group(name: "Behind", kind: .thread), Group(name: "Capsule", kind: .glass), Group(name: "Thread", kind: .thread)]
+        case .window: [Group(name: "Window", kind: .glass), Group(name: "Thread", kind: .thread)]
+        }
     }
 
-    private func mic(_ size: CGSize, capsuleWidth: CGFloat, capsuleHeight: CGFloat, top: CGFloat) -> Mic {
-        let cx = size.width / 2
-        let capsule = CGRect(x: cx - capsuleWidth / 2, y: top, width: capsuleWidth, height: capsuleHeight)
-        let gap = capsuleWidth * 0.2
-        return Mic(capsule: capsule,
-                   cradleTop: capsule.midY + capsuleHeight * 0.06,
-                   cradleBottom: capsule.maxY + gap * 1.2,
-                   cradleWidth: capsuleWidth + gap * 2,
-                   stemBottom: capsule.maxY + gap * 1.2 + capsuleWidth * 0.36,
-                   baseWidth: capsuleWidth * 0.78,
-                   line: capsuleWidth * 0.095)
-    }
-
-    private func capsulePath(_ m: Mic) -> Path {
-        Path(roundedRect: m.capsule, cornerRadius: m.capsule.width / 2, style: .continuous)
-    }
-
-    /// The U cradle under the head, the stem and the base — in light.
-    private func drawStand(_ ctx: GraphicsContext, _ m: Mic, color: Color) {
-        let cx = m.capsule.midX
-        var p = Path()
-        let l = cx - m.cradleWidth / 2, r = cx + m.cradleWidth / 2
-        p.move(to: CGPoint(x: l, y: m.cradleTop))
-        p.addLine(to: CGPoint(x: l, y: m.cradleBottom - m.cradleWidth / 2))
-        p.addArc(center: CGPoint(x: cx, y: m.cradleBottom - m.cradleWidth / 2), radius: m.cradleWidth / 2,
-                 startAngle: .degrees(180), endAngle: .degrees(0), clockwise: true)
-        p.addLine(to: CGPoint(x: r, y: m.cradleTop))
-        p.move(to: CGPoint(x: cx, y: m.cradleBottom))
-        p.addLine(to: CGPoint(x: cx, y: m.stemBottom))
-        p.move(to: CGPoint(x: cx - m.baseWidth / 2, y: m.stemBottom))
-        p.addLine(to: CGPoint(x: cx + m.baseWidth / 2, y: m.stemBottom))
-        var glow = ctx
-        glow.addFilter(.blur(radius: 10))
-        glow.stroke(p, with: .color(color.opacity(0.45)), style: StrokeStyle(lineWidth: m.line * 1.6, lineCap: .round, lineJoin: .round))
-        ctx.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: m.line, lineCap: .round, lineJoin: .round))
-    }
-
-    private var standColor: Color { appearance == .tinted ? Color(white: 0.85) : Color(white: 0.93).opacity(0.85) }
-
-    // MARK: Designs
-
-    /// The ribbon sweeps across the icon and through a glass capsule: your voice, picked up.
-    private func drawThrough(_ ctx: GraphicsContext, _ size: CGSize) {
-        let m = mic(size, capsuleWidth: size.width * 0.30, capsuleHeight: size.width * 0.46, top: size.height * 0.15)
-        let pts = centerline(size, cy: m.capsule.midY, width: size.width * 0.84, amp: 0.11)
-        drawThread(ctx, pts: pts, half: 36, haloWidth: 140)
-        // The glass head over it: frosted, so the ribbon reads as inside the mic.
-        let cap = capsulePath(m)
-        ctx.fill(cap, with: .linearGradient(Gradient(colors: [.white.opacity(0.16), .white.opacity(0.05)]),
-                                            startPoint: CGPoint(x: 0, y: m.capsule.minY), endPoint: CGPoint(x: 0, y: m.capsule.maxY)))
-        var inside = ctx
-        inside.clip(to: cap)
-        inside.blendMode = .plusLighter
-        inside.opacity = 0.35
-        inside.addFilter(.blur(radius: 16))
-        inside.fill(ribbon(pts, half: 52), with: .linearGradient(threadGradient, startPoint: CGPoint(x: pts.first!.x, y: 0),
-                                                                endPoint: CGPoint(x: pts.last!.x, y: 0)))
-        ctx.stroke(cap, with: .linearGradient(Gradient(colors: [.white.opacity(0.75), .white.opacity(0.25)]),
-                                              startPoint: CGPoint(x: 0, y: m.capsule.minY), endPoint: CGPoint(x: 0, y: m.capsule.maxY)),
-                   lineWidth: m.line * 0.8)
-        drawStand(ctx, m, color: standColor)
-    }
-
-    /// The ribbon lives inside the capsule — the head of the mic is the Thread, glowing.
-    private func drawInside(_ ctx: GraphicsContext, _ size: CGSize) {
-        let m = mic(size, capsuleWidth: size.width * 0.36, capsuleHeight: size.width * 0.52, top: size.height * 0.11)
-        let cap = capsulePath(m)
-        // Light spilling out of the head.
-        var spill = ctx
-        spill.addFilter(.blur(radius: 70))
-        spill.opacity = appearance == .tinted ? 0.25 : 0.45
-        spill.fill(cap, with: .linearGradient(threadGradient, startPoint: CGPoint(x: m.capsule.minX, y: m.capsule.maxY),
-                                              endPoint: CGPoint(x: m.capsule.maxX, y: m.capsule.minY)))
-        ctx.fill(cap, with: .color(.black.opacity(0.35)))
-        var inner = ctx
-        inner.clip(to: cap)
-        // A vertical-ish S inside the head, turned so it fills the capsule.
-        let pts = centerline(size, cy: m.capsule.midY, width: m.capsule.height * 1.05, amp: 0.15)
-            .map { p -> CGPoint in
-                let dx = p.x - size.width / 2, dy = p.y - m.capsule.midY
-                // Rotate −90° about the capsule's centre.
-                return CGPoint(x: size.width / 2 + dy, y: m.capsule.midY - dx)
-            }
-        drawThread(inner, pts: pts, half: 34, haloWidth: 110, glowScale: 0.8)
-        ctx.stroke(cap, with: .linearGradient(Gradient(colors: [.white.opacity(0.8), .white.opacity(0.3)]),
-                                              startPoint: CGPoint(x: 0, y: m.capsule.minY), endPoint: CGPoint(x: 0, y: m.capsule.maxY)),
-                   lineWidth: m.line * 0.8)
-        drawStand(ctx, m, color: standColor)
+    var layers: [Layer] {
+        switch self {
+        case .strand:
+            let cy = 512.0
+            return [
+                Layer(name: "strand-fine-2", path: Strand(weight: 26, spread: 110, turns: 1.0, phase: .pi, reach: 0.80, amp: 0.17, centreY: cy).path(), kind: .thread, group: "Thread"),
+                Layer(name: "strand-fine-1", path: Strand(weight: 32, spread: 92, turns: 1.0, phase: 0, reach: 0.82, amp: 0.17, centreY: cy).path(), kind: .thread, group: "Thread"),
+                Layer(name: "strand-bold", path: Strand(weight: 80, spread: 0, turns: 1, phase: 0, reach: 0.84, amp: 0.17, centreY: cy).path(), kind: .thread, group: "Thread"),
+            ]
+        case .capsule:
+            // The capsule sits a touch above centre (the visual mass of the S is below its midline).
+            let cy = 500.0
+            return [
+                Layer(name: "strand-fine", path: Strand(weight: 30, spread: 104, turns: 1.0, phase: 0, reach: 0.78, amp: 0.15, centreY: cy).path(), kind: .thread, group: "Behind"),
+                Layer(name: "capsule", path: pill(cx: 512, cy: cy, w: 384, h: 700), kind: .glass, group: "Capsule"),
+                Layer(name: "strand-bold", path: Strand(weight: 64, spread: 0, turns: 1, phase: 0, reach: 0.82, amp: 0.15, centreY: cy).path(), kind: .thread, group: "Thread"),
+            ]
+        case .window:
+            let cy = 520.0
+            return [
+                Layer(name: "window", path: rounded(cx: 512, cy: cy, w: 690, h: 500, r: 72), kind: .glass, group: "Window"),
+                Layer(name: "strand-fine-1", path: Strand(weight: 28, spread: 90, turns: 1.0, phase: 0, reach: 0.82, amp: 0.15, centreY: cy).path(), kind: .thread, group: "Thread"),
+                Layer(name: "strand-bold", path: Strand(weight: 66, spread: 0, turns: 1, phase: 0, reach: 0.84, amp: 0.15, centreY: cy).path(), kind: .thread, group: "Thread"),
+            ]
+        }
     }
 }
 
-struct Seeded: RandomNumberGenerator {
-    var state: UInt64
-    init(seed: UInt64) { state = seed }
-    mutating func next() -> UInt64 {
-        state &+= 0x9E3779B97F4A7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
-        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
-        return z ^ (z >> 31)
+// MARK: - Drawing helpers
+
+func context(_ px: Int, opaque: Bool) -> CGContext {
+    let info = opaque ? CGImageAlphaInfo.noneSkipLast.rawValue : CGImageAlphaInfo.premultipliedLast.rawValue
+    let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: info)!
+    // Draw in a y-down 1024 canvas whatever the pixel size.
+    ctx.translateBy(x: 0, y: CGFloat(px))
+    ctx.scaleBy(x: CGFloat(px) / side, y: -CGFloat(px) / side)
+    ctx.setAllowsAntialiasing(true)
+    ctx.interpolationQuality = .high
+    return ctx
+}
+
+/// Fills a path with the spectrum, left to right across the path's own box.
+func fillSpectrum(_ ctx: CGContext, _ path: CGPath, alpha: Double = 1, mono: Bool = false) {
+    ctx.saveGState()
+    ctx.addPath(path)
+    ctx.clip()
+    let box = path.boundingBox
+    let g = mono ? grayGradient([(0.86, alpha, 0), (1, alpha, 0.5), (0.86, alpha, 1)]) : gradient(Palette.spectrum, alpha: alpha)
+    ctx.drawLinearGradient(g, start: CGPoint(x: box.minX, y: 0), end: CGPoint(x: box.maxX, y: 0), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+    ctx.restoreGState()
+}
+
+func blurred(_ image: CGImage, radius: Double) -> CGImage {
+    let f = CIFilter.gaussianBlur()
+    f.inputImage = CIImage(cgImage: image).clampedToExtent()
+    f.radius = Float(radius)
+    let out = f.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    return CIContext(options: [.workingColorSpace: srgb, .outputColorSpace: srgb]).createCGImage(out, from: out.extent)!
+}
+
+// MARK: - Layer images (what the .icon carries: hard edges, flat light, square and unmasked)
+
+func layerImage(_ layer: Layer, mono: Bool = false) -> CGImage {
+    let ctx = context(Int(side), opaque: false)
+    switch layer.kind {
+    case .thread:
+        fillSpectrum(ctx, layer.path, mono: mono)
+    case .glass:
+        // Imported white: Icon Composer's fill and the group's translucency make it glass.
+        ctx.addPath(layer.path)
+        ctx.setFillColor(gray(1))
+        ctx.fillPath()
     }
+    return ctx.makeImage()!
+}
+
+// MARK: - The flattened icon (iOS 17–18, macOS 14–15, the website, the comparison sheet)
+
+enum Appearance: String, CaseIterable { case light, dark, tinted }
+
+struct Flat {
+    var design: Design
+    var appearance: Appearance = .light
+
+    /// The icon on its ground, square, 1024, y down. (`mac` draws it inside the macOS squircle.)
+    func draw(_ ctx: CGContext) {
+        drawGround(ctx)
+        let groups = design.groups
+        let layers = design.layers
+        for g in groups {
+            for l in layers where l.group == g.name {
+                switch l.kind {
+                case .thread: drawThread(ctx, l.path, behindGlass: g.name == "Behind")
+                case .glass: drawGlass(ctx, l.path)
+                }
+            }
+        }
+    }
+
+    private func drawGround(_ ctx: CGContext) {
+        let full = CGRect(x: 0, y: 0, width: side, height: side)
+        let top: RGB, bottom: RGB
+        switch appearance {
+        case .light: (top, bottom) = (Palette.groundTop, Palette.groundBottom)
+        case .dark: (top, bottom) = (Palette.groundTopDark, Palette.groundBottomDark)
+        case .tinted: (top, bottom) = (Palette.hex(0x151515), Palette.hex(0x050505))
+        }
+        ctx.setFillColor(cg(bottom))
+        ctx.fill(full)
+        ctx.drawLinearGradient(gradient([(top, 0), (bottom, 1)]), start: CGPoint(x: 160, y: 0), end: CGPoint(x: 860, y: side), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        // The light the Thread throws on the ground.
+        guard appearance != .tinted else { return }
+        let lift = grayGradient([(1, appearance == .dark ? 0.05 : 0.08, 0), (1, 0, 1)])
+        ctx.drawRadialGradient(lift, startCenter: CGPoint(x: 512, y: 500), startRadius: 0, endCenter: CGPoint(x: 512, y: 500), endRadius: 520, options: [])
+    }
+
+    private func drawThread(_ ctx: CGContext, _ path: CGPath, behindGlass: Bool) {
+        let mono = appearance == .tinted
+        // A chromatic glow under the strand — the Thread's halo, what the system's chromatic shadow does on 26.
+        if !behindGlass && !mono {
+            let g = context(512, opaque: false)
+            fillSpectrum(g, path, alpha: mono ? 0.5 : 0.9, mono: mono)
+            let glow = blurred(g.makeImage()!, radius: 9)
+            ctx.saveGState()
+            ctx.setAlpha(appearance == .dark ? 0.5 : 0.6)
+            ctx.draw(glow, in: CGRect(x: 0, y: 8, width: side, height: side))
+            ctx.restoreGState()
+        }
+        // The body — behind the glass it is light on the ink, not paint (screen, so orange never goes brown).
+        if behindGlass {
+            ctx.saveGState()
+            ctx.setBlendMode(.screen)
+            fillSpectrum(ctx, path, alpha: 0.5, mono: mono)
+            ctx.restoreGState()
+        } else {
+            fillSpectrum(ctx, path, mono: mono)
+        }
+        // A specular edge along the lit (upper) side: the strand minus its own shape shifted down.
+        ctx.saveGState()
+        ctx.addPath(path)
+        ctx.clip()
+        var shift = CGAffineTransform(translationX: 0, y: behindGlass ? 7 : 11)
+        ctx.addRect(CGRect(x: -10, y: -10, width: side + 20, height: side + 20))
+        ctx.addPath(path.copy(using: &shift)!)
+        ctx.clip(using: .evenOdd)
+        let box = path.boundingBox
+        ctx.drawLinearGradient(grayGradient([(1, behindGlass ? 0.35 : 0.8, 0), (1, 0.15, 1)]), start: CGPoint(x: 0, y: box.minY), end: CGPoint(x: 0, y: box.maxY), options: [])
+        ctx.restoreGState()
+        // A white-hot core, the Thread's — faint, so the spectrum keeps its colour.
+        if !behindGlass && !mono {
+            let g = context(512, opaque: false)
+            g.addPath(path)
+            g.setFillColor(gray(1, 0.5))
+            g.fillPath()
+            let core = blurred(g.makeImage()!, radius: 6)
+            ctx.saveGState()
+            ctx.addPath(path)
+            ctx.clip()
+            ctx.setBlendMode(.plusLighter)
+            ctx.setAlpha(0.28)
+            ctx.draw(core, in: CGRect(x: 0, y: 0, width: side, height: side))
+            ctx.restoreGState()
+        }
+    }
+
+    private func drawGlass(_ ctx: CGContext, _ path: CGPath) {
+        let box = path.boundingBox
+        // A soft shadow on the ground.
+        let s = context(512, opaque: false)
+        s.addPath(path)
+        s.setFillColor(gray(0, 0.6))
+        s.fillPath()
+        let shadow = blurred(s.makeImage()!, radius: 12)
+        ctx.saveGState()
+        ctx.setAlpha(0.5)
+        ctx.draw(shadow, in: CGRect(x: 0, y: 14, width: side, height: side))
+        ctx.restoreGState()
+        // The frosted plate: a cool white, lighter at the top.
+        ctx.saveGState()
+        ctx.addPath(path)
+        ctx.clip()
+        // As present as the system draws it on 26 (a light, nearly solid glass), so the two generations read as one icon.
+        let plate = appearance == .tinted ? 0.34 : 0.42
+        ctx.drawLinearGradient(grayGradient([(1, plate + 0.2, 0), (1, plate - 0.1, 1)]), start: CGPoint(x: 0, y: box.minY), end: CGPoint(x: 0, y: box.maxY), options: [])
+        // A sheen across the upper third.
+        ctx.drawLinearGradient(grayGradient([(1, 0.22, 0), (1, 0, 1)]), start: CGPoint(x: box.minX, y: box.minY), end: CGPoint(x: box.maxX, y: box.minY + box.height * 0.6), options: [])
+        // The rim: a bright edge at the top, fading down the sides, a glint at the foot.
+        ctx.addPath(path)
+        ctx.setLineWidth(10)
+        ctx.replacePathWithStrokedPath()
+        ctx.clip()
+        ctx.drawLinearGradient(grayGradient([(1, 0.95, 0), (1, 0.3, 0.45), (1, 0.55, 1)]), start: CGPoint(x: 0, y: box.minY), end: CGPoint(x: 0, y: box.maxY), options: [])
+        ctx.restoreGState()
+    }
+}
+
+/// The flattened icon: full-bleed square (iOS) or the macOS squircle on a clear canvas.
+func flat(_ design: Design, _ appearance: Appearance, mac: Bool, px: Int = 1024) -> CGImage {
+    if !mac {
+        let ctx = context(px, opaque: true)
+        Flat(design: design, appearance: appearance).draw(ctx)
+        return ctx.makeImage()!
+    }
+    // macOS grid: an 824 body centred on the 1024 canvas, the continuous corner, a soft shadow.
+    let body = CGRect(x: 100, y: 100, width: 824, height: 824)
+    let shape = CGPath(roundedRect: body, cornerWidth: 185, cornerHeight: 185, transform: nil)
+    let art = context(1024, opaque: true)
+    Flat(design: design, appearance: appearance).draw(art)
+    let artImage = art.makeImage()!
+    let ctx = context(px, opaque: false)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: gray(0, 0.4))
+    ctx.addPath(shape)
+    ctx.setFillColor(gray(0))
+    ctx.fillPath()
+    ctx.restoreGState()
+    ctx.saveGState()
+    ctx.addPath(shape)
+    ctx.clip()
+    ctx.draw(artImage, in: body)
+    ctx.restoreGState()
+    ctx.saveGState()
+    ctx.addPath(shape)
+    ctx.setLineWidth(3)
+    ctx.replacePathWithStrokedPath()
+    ctx.clip()
+    ctx.drawLinearGradient(grayGradient([(1, 0.28, 0), (1, 0.05, 1)]), start: CGPoint(x: 0, y: body.minY), end: CGPoint(x: 0, y: body.maxY), options: [])
+    ctx.restoreGState()
+    return ctx.makeImage()!
+}
+
+// MARK: - The .icon bundle (Icon Composer's format: icon.json + Assets/)
+
+func color(_ c: RGB) -> String { String(format: "srgb:%.5f,%.5f,%.5f,1.00000", c.r, c.g, c.b) }
+
+func iconJSON(_ design: Design) -> [String: Any] {
+    func spec(_ base: Any?, dark: Any? = nil, tinted: Any? = nil) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        if let base { out.append(["value": base]) }
+        if let dark { out.append(["appearance": "dark", "value": dark]) }
+        if let tinted { out.append(["appearance": "tinted", "value": tinted]) }
+        return out
+    }
+    // icon.json lists groups as Icon Composer's sidebar does: the FIRST is the frontmost (checked on
+    // macOS 27 by scripts/icon-render-check.sh); `Design.groups` is back to front, so reverse it.
+    var groups: [[String: Any]] = []
+    for g in design.groups.reversed() {
+        var layers: [[String: Any]] = []
+        for l in design.layers where l.group == g.name {
+            var layer: [String: Any] = [
+                "name": l.name, "image-name": "\(l.name).png", "glass": true, "hidden": false,
+                "position": ["scale": 1, "translation-in-points": [0, 0]],
+            ]
+            switch l.kind {
+            case .thread:
+                // The image's own spectrum; white in the mono rendition so the tint reads clean.
+                layer["fill-specializations"] = spec(nil, tinted: ["solid": "extended-gray:1.00000,1.00000"])
+            case .glass:
+                layer["fill"] = ["solid": "extended-gray:1.00000,1.00000"]
+            }
+            layers.append(layer)
+        }
+        var group: [String: Any] = ["name": g.name, "layers": layers, "lighting": "individual", "hidden": false]
+        switch g.kind {
+        case .thread:
+            // The Thread's halo is a chromatic shadow; the strand itself is solid light.
+            group["specular"] = true
+            group["shadow"] = ["kind": "layer-color", "opacity": 0.6]
+            group["translucency"] = ["enabled": g.name == "Behind", "value": 0.45]
+            if g.name == "Behind" { group["opacity"] = 0.85 }
+        case .glass:
+            // Glass: translucent (a higher value is MORE see-through — 0.3 rendered an opaque white
+            // pill, 1.0 showed the ink through it), lightly frosted so the strand behind softens,
+            // a neutral shadow on the ground.
+            group["specular"] = true
+            group["blur-material"] = 0.12
+            group["translucency"] = ["enabled": true, "value": 1]
+            group["shadow"] = ["kind": "neutral", "opacity": 0.5]
+        }
+        groups.append(group)
+    }
+    return [
+        "fill-specializations": spec(
+            ["linear-gradient": [color(Palette.groundTop), color(Palette.groundBottom)]],
+            dark: ["linear-gradient": [color(Palette.groundTopDark), color(Palette.groundBottomDark)]]),
+        "groups": groups,
+        "supported-platforms": ["squares": "shared", "circles": ["watchOS"]],
+    ]
+}
+
+func writeIconBundle(_ design: Design, at dir: String) {
+    let fm = FileManager.default
+    try? fm.removeItem(atPath: dir)
+    try! fm.createDirectory(atPath: "\(dir)/Assets", withIntermediateDirectories: true)
+    for l in design.layers { writePNG(layerImage(l), "\(dir)/Assets/\(l.name).png") }
+    let data = try! JSONSerialization.data(withJSONObject: iconJSON(design), options: [.prettyPrinted, .sortedKeys])
+    try! data.write(to: URL(fileURLWithPath: "\(dir)/icon.json"))
+    print("wrote \(dir)")
 }
 
 // MARK: - Output
 
-@MainActor
-func render(_ art: IconArt) -> CGImage {
-    let r = ImageRenderer(content: art)
-    r.proposedSize = ProposedViewSize(width: IconArt.side, height: IconArt.side)
-    r.scale = 1
-    return r.cgImage!
-}
-
 func resized(_ image: CGImage, to px: Int, opaque: Bool) -> CGImage {
-    let space = CGColorSpace(name: CGColorSpace.sRGB)!
     let info = opaque ? CGImageAlphaInfo.noneSkipLast.rawValue : CGImageAlphaInfo.premultipliedLast.rawValue
-    let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: info)!
+    let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: info)!
     ctx.interpolationQuality = .high
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: px, height: px))
     return ctx.makeImage()!
@@ -324,41 +477,124 @@ func writePNG(_ image: CGImage, _ path: String) {
     let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)!
     CGImageDestinationAddImage(dest, image, nil)
     CGImageDestinationFinalize(dest)
-    print("wrote \(path)")
 }
+
+// MARK: - The comparison sheet: each direction in light / dark / tinted, the Mac squircle, and the small sizes
+
+/// The iOS mask at a size: the continuous corner, ~22.37% of the side.
+func iosMasked(_ image: CGImage, px: Int) -> CGImage {
+    let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.interpolationQuality = .high
+    let r = Double(px) * 0.2237
+    ctx.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: px, height: px), cornerWidth: r, cornerHeight: r, transform: nil))
+    ctx.clip()
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: px, height: px))
+    return ctx.makeImage()!
+}
+
+func sheet(_ dir: String, rendered: [Design: CGImage?] = [:]) {
+    let W = 2900, rowH = 560, pad = 40
+    let H = pad + Design.allCases.count * rowH + pad
+    let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    ctx.setFillColor(gray(0.12))
+    ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+    ctx.interpolationQuality = .high
+    let ns = NSGraphicsContext(cgContext: ctx, flipped: false)
+    NSGraphicsContext.current = ns
+    func label(_ s: String, _ x: Int, _ y: Int, size: CGFloat = 20, bold: Bool = false) {
+        let attrs: [NSAttributedString.Key: Any] = [.font: bold ? NSFont.boldSystemFont(ofSize: size) : NSFont.systemFont(ofSize: size), .foregroundColor: NSColor(white: 0.85, alpha: 1)]
+        NSString(string: s).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+    }
+    for (row, d) in Design.allCases.enumerated() {
+        let top = H - pad - row * rowH   // y up
+        label(d.title, pad, top - 34, size: 26, bold: true)
+        var x = pad
+        let big = 420
+        for a in Appearance.allCases {
+            let img = iosMasked(flat(d, a, mac: false, px: big), px: big)
+            ctx.draw(img, in: CGRect(x: x, y: top - 60 - big, width: big, height: big))
+            label(a.rawValue, x, top - 60 - big - 28)
+            x += big + 24
+        }
+        let mac = flat(d, .light, mac: true, px: big)
+        ctx.draw(mac, in: CGRect(x: x, y: top - 60 - big, width: big, height: big))
+        label("macOS 14 fallback", x, top - 60 - big - 28)
+        x += big + 24
+        if let r = rendered[d], let r {
+            ctx.draw(r, in: CGRect(x: x, y: top - 60 - big, width: big, height: big))
+            label("macOS 27 renders the .icon", x, top - 60 - big - 28)
+        }
+        x += big + 40
+        // The small sizes, light and dark: 60 / 40 / 29 pt at @3x and 29 pt @2x — what Home, Settings and Spotlight show.
+        var y = top - 60
+        for a in [Appearance.light, .dark] {
+            let full = flat(d, a, mac: false)
+            var sx = x
+            for px in [180, 120, 87, 58] {
+                ctx.draw(iosMasked(resized(full, to: px, opaque: true), px: px), in: CGRect(x: sx, y: y - px, width: px, height: px))
+                sx += px + 16
+            }
+            label(a == .light ? "60 · 40 · 29 pt @3x · 29 pt @2x" : "the same, dark", x, y - 180 - 26)
+            y -= 180 + 50
+        }
+    }
+    writePNG(ctx.makeImage()!, "\(dir)/comparison.png")
+    print("wrote \(dir)/comparison.png")
+}
+
+// MARK: - Main
 
 @main
 struct Main {
-    @MainActor static func main() {
+    static func main() {
         let args = CommandLine.arguments
-        guard args.count >= 2 else { print("usage: render-icons preview <dir> | install [design]"); exit(2) }
-        if args[1] == "preview", args.count == 3 {
+        guard args.count >= 2 else { print("usage: render-icons preview <dir> | install [design] | sheet <dir>"); exit(2) }
+        switch args[1] {
+        case "preview":
+            let dir = args[2]
             for d in Design.allCases {
-                writePNG(resized(render(IconArt(design: d)), to: 1024, opaque: true), "\(args[2])/\(d.rawValue)-ios.png")
-                writePNG(render(IconArt(design: d, mac: true)), "\(args[2])/\(d.rawValue)-mac.png")
-                writePNG(resized(render(IconArt(design: d, appearance: .dark)), to: 1024, opaque: true), "\(args[2])/\(d.rawValue)-dark.png")
+                writeIconBundle(d, at: "\(dir)/\(d.rawValue)/AppIcon.icon")
+                for a in Appearance.allCases { writePNG(flat(d, a, mac: false), "\(dir)/\(d.rawValue)/flat-\(a.rawValue).png") }
+                writePNG(flat(d, .light, mac: true), "\(dir)/\(d.rawValue)/flat-mac.png")
             }
-            return
+            sheet(dir)
+        case "sheet":
+            // The sheet again, with the system's own renders of each .icon beside the fallbacks (see scripts/icon-render-check.sh).
+            let dir = args[2]
+            var rendered: [Design: CGImage?] = [:]
+            for d in Design.allCases {
+                let path = "\(dir)/\(d.rawValue)/system-1024.png"
+                if let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) {
+                    rendered[d] = CGImageSourceCreateImageAtIndex(src, 0, nil)
+                }
+            }
+            sheet(dir, rendered: rendered)
+        case "install":
+            let design = args.count > 2 ? Design(rawValue: args[2]) ?? .capsule : .capsule
+            // The Liquid Glass icon, one bundle per app (the same bytes; Xcode wants it beside each target).
+            writeIconBundle(design, at: "iOS/Macrophone/AppIcon.icon")
+            writeIconBundle(design, at: "Mac/Resources/AppIcon.icon")
+            // iOS 17–18: light, dark and tinted, 1024, opaque.
+            let ios = "iOS/Macrophone/Resources/Assets.xcassets/AppIcon.appiconset"
+            writePNG(flat(design, .light, mac: false), "\(ios)/AppIcon-1024.png")
+            writePNG(flat(design, .dark, mac: false), "\(ios)/AppIcon-1024-dark.png")
+            writePNG(flat(design, .tinted, mac: false), "\(ios)/AppIcon-1024-tinted.png")
+            // macOS 14–15: the squircle at every size.
+            let mac = flat(design, .light, mac: true)
+            let macDir = "Mac/Resources/Assets.xcassets/AppIcon.appiconset"
+            for (pt, scale) in [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)] {
+                let name = scale == 1 ? "icon_\(pt)x\(pt).png" : "icon_\(pt)x\(pt)@2x.png"
+                writePNG(resized(mac, to: pt * scale, opaque: false), "\(macDir)/\(name)")
+            }
+            // The record: the final renders at 1024 and the small sizes.
+            let docs = "docs/icon"
+            for a in Appearance.allCases { writePNG(flat(design, a, mac: false), "\(docs)/final-\(a.rawValue)-1024.png") }
+            writePNG(mac, "\(docs)/final-mac-1024.png")
+            let full = flat(design, .light, mac: false)
+            for (pt, px) in [(60, 180), (40, 120), (29, 87)] { writePNG(iosMasked(resized(full, to: px, opaque: true), px: px), "\(docs)/final-\(pt)pt@3x.png") }
+            print("installed \(design.rawValue)")
+        default:
+            exit(2)
         }
-        guard args[1] == "install" else { exit(2) }
-        let design = args.count > 2 ? Design(rawValue: args[2]) ?? .through : .through
-        // iPhone: light (any), dark and tinted, 1024 opaque.
-        let ios = "iOS/Macrophone/Resources/Assets.xcassets/AppIcon.appiconset"
-        writePNG(resized(render(IconArt(design: design)), to: 1024, opaque: true), "\(ios)/AppIcon-1024.png")
-        writePNG(resized(render(IconArt(design: design, appearance: .dark)), to: 1024, opaque: true), "\(ios)/AppIcon-1024-dark.png")
-        writePNG(resized(render(IconArt(design: design, appearance: .tinted)), to: 1024, opaque: true), "\(ios)/AppIcon-1024-tinted.png")
-        // Mac: every size of the squircle.
-        let mac = render(IconArt(design: design, mac: true))
-        let macDir = "Mac/Resources/Assets.xcassets/AppIcon.appiconset"
-        for (pt, scale) in [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)] {
-            let name = scale == 1 ? "icon_\(pt)x\(pt).png" : "icon_\(pt)x\(pt)@2x.png"
-            writePNG(resized(mac, to: pt * scale, opaque: false), "\(macDir)/\(name)")
-        }
-        // Website (the sameer.us repo): favicon/touch/512 from the iOS art (rounded by the browser/OS).
-        let web = NSString(string: "~/claude-projects/_web/sameer-gpt/public/macrophone/assets").expandingTildeInPath
-        let flat = render(IconArt(design: design))
-        writePNG(resized(flat, to: 512, opaque: true), "\(web)/icon-512.png")
-        writePNG(resized(flat, to: 180, opaque: true), "\(web)/icon-180.png")
-        writePNG(resized(mac, to: 64, opaque: false), "\(web)/icon-32.png")
     }
 }

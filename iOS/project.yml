@@ -35,6 +35,10 @@ targets:
         # iPhone only. Set per target: XcodeGen gives every iOS target "1,2" (iPad too), which
         # beats the project-level value and would ship a universal app needing iPad screenshots.
         TARGETED_DEVICE_FAMILY: "1"
+        # The icon is Macrophone/AppIcon.icon (Icon Composer, Liquid Glass on iOS 26+; picked up from
+        # the folder above as wrapper.icon) and Assets.xcassets/AppIcon.appiconset (the flattened
+        # light / dark / tinted PNGs for iOS 17–18) — the same name, so Xcode takes the .icon and
+        # keeps the set for older releases. Both come from scripts/render-icons.swift.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) MACROPHONE_APP"
         # Alerts that reach a closed app go through iCloud: a build signed with a profile that has
