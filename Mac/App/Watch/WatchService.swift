@@ -846,19 +846,29 @@ final class WatchService {
         }
     }
 
-    /// The topmost app window at a point on screen, brought forward with its app.
+    /// What's on top at a point on screen, brought forward when it's an app's window (with its app);
+    /// the menu bar, the Dock, the desktop's icons, a menu or any other part of the system is left
+    /// as it is — the click goes straight to it (Sameer: "interact with any part of the Mac. The
+    /// tool bar, icons, things on desktop. Everything").
     private static func raiseWindow(at p: CGPoint) async {
-        guard let top = WindowServer.appWindows()
-                .filter({ $0.bounds.contains(p) && WindowServer.info($0.id)?.onScreen == true })
-                .min(by: { $0.z < $1.z }),
-              top.pid != ProcessInfo.processInfo.processIdentifier,
-              let app = NSRunningApplication(processIdentifier: top.pid) else { return }
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier == top.pid,
-           WindowServer.appWindows().first(where: { $0.z == 0 })?.id == top.id { return }
-        let ax = AX.app(top.pid)
-        if let win = AX.window(in: ax, id: top.id) { AX.raise(win, app: ax) }
-        AX.bringToFront(app)
-        try? await Task.sleep(nanoseconds: 120_000_000)
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return }
+        let me = ProcessInfo.processInfo.processIdentifier
+        for w in list {
+            guard let b = w[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: b as CFDictionary), rect.contains(p),
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) >= 0.05,
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me else { continue }
+            // The topmost thing there: only an ordinary app window is brought forward.
+            guard (w[kCGWindowLayer as String] as? Int) == 0, let id = w[kCGWindowNumber as String] as? CGWindowID,
+                  let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular else { return }
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+               WindowServer.appWindows().first(where: { $0.z == 0 })?.id == id { return }
+            let ax = AX.app(pid)
+            if let win = AX.window(in: ax, id: id) { AX.raise(win, app: ax) }
+            AX.bringToFront(app)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            return
+        }
     }
 
     /// Brings the watched window forward if it isn't already the front one, does `body`, and
