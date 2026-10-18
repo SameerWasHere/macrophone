@@ -68,7 +68,7 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   sit on the ground); a tinted pick's label is dark ink; Increase Contrast adds a firm 1pt edge.
   The mic is a disc inside the spectrum ring, ember while it listens (same size, never moves).
 
-- **Watching (phone, Oct 14 2026):** the picked app's window, live, in the area above the Thread
+- **Watching (phone, Oct 14 2026; what it is now — the header cluster, the Window menu, Text, the tips — is the map at the top of `CLAUDE.md`, Oct 18 2026):** the picked app's window, live, in the area above the Thread
   (the mic, the Thread and the status line don't move). It opens by itself after a dictation is
   *sent* into an app (Settings › Show the app after sending, on by default) or from **Watch** beside
   the Send to name; Done closes it. Top to bottom: a mono kicker ("● LIVE · CLAUDE", cyan dot) with
@@ -89,7 +89,7 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   text is sharper; nothing on the screen changes, and the first picture is still a still, so the
   window appears as fast as before. **Scroll feels like a trackpad:** one finger in Scroll moves
   the Mac's window as it moves, and a flick keeps it going after the finger lifts, slowing down as
-  a Mac's own does; the Mac's apps see one gesture, so they rubber-band at an edge. **Aa** sits by Done
+  a Mac's own does; the Mac's apps see one gesture, so they rubber-band at an edge. **Aa** (superseded Oct 18 2026: now "Text size on this iPhone" in the Window menu) sat by Done
   in the watch header (cyan while it's on): a menu of Normal · Larger · Largest with one line
   saying what it does ("Narrows Claude's window so its text reads larger here" — short, a menu
   cuts a long line with "…"); a pick shows a sentence over the window for a moment ("Claude's window

@@ -7,13 +7,44 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+## The product, as it stands (Oct 18 2026)
+
+Two days of features from several hands, read as one product: every feature has one name, one
+glyph and one obvious way in on each app. This map wins over any older section below (the ones it
+replaces are marked **superseded**); the sections below keep the mechanics and the numbers.
+
+| Feature | iPhone | Mac |
+| --- | --- | --- |
+| **Send to** (the shared choice, "Send to" everywhere — never "Send To") | The controls panel by the mic: `SEND TO` kicker, the pick's name, a row of app icons only (a long press lists an app's windows), **+** at the end = Open an App (the only way to open one that isn't open), **⋯** = Send a Photo… · Send a File… · Copy Mac's Clipboard · Send Clipboard to Mac · Refresh Open Apps. Settings › Send to is the full list. `UI/QuickControls.swift`, `UI/SendTo.swift`, `UI/SendToMac.swift` | The menu bar menu's Send to section (a check on the current, the first six apps, More Apps, Send after pasting as its own toggle); the `SendToCard` above every window pane; the first-run step. `UI/StatusItemController.swift`, `UI/Components/SendTo.swift` |
+| **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons. `UI/WatchPanel.swift`, `Model/Watcher.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, keys and trackpad-style scrolls; the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
+| **The header cluster** by Done: **Text** (`text.alignleft`, the window's words — Reader in the code), **zoom out** (`arrow.down.right.and.arrow.up.left`, the whole window and back), **Window** (`macwindow`) | One piece of glass; each only when the connected Mac names its feature. `UI/WatchReader.swift` is Text: your text size, selectable, Copy All, follows the newest line, asked every 2.5 s | Reader: a terminal's own text, else recognition over the column you type in (`WindowReader.swift`); `mpctl reader` |
+| **The Window menu** (in order of use) | Fit to iPhone · Text size on this iPhone (Normal · Larger · Largest, per app) · Size on your Mac (Fill the Screen `rectangle.inset.filled` · Left Half · Right Half · Middle · Back to How It Was) · Minimize · Close Window (asked first) · the photo / file / clipboard items (the same as Send to's ⋯, here because the panel is away) · Show Tips Again | `WindowFit.swift` resizes through Accessibility and restores on Done / Quit |
+| **First-use tips** (`UI/WatchTips.swift`) | Six at most, one card at a time over the window's top, each only when it works with this Mac: Tap to click / hold to right-click · Pinch to zoom, or Fit to iPhone · Swipe in from the side (two windows or more) · Pan or Scroll (auto-Scroll named) · Read it as text · More keys. `watch.tips.seen`; Window › Show Tips Again | — |
+| **Photos, files, the clipboard** (`Core/Share.swift`: features `attachments`, `clipboard`) | Send to's ⋯ and the Window menu — the same `MacShareItems`; a photo or file goes into the chat you send to (the watched window while one shows), the clipboard only when asked; the status line says where it landed | `Delivery/Attachments.swift` (kept a week in From iPhone; the image into a chat app, its path into a terminal), `ClipboardShare.swift` (a concealed copy never leaves) |
+| **Chats that answered you** (feature `needsYou`) | The ember dot on the app's icon in Send to, "Answered you" / "Asking you" by the pick's name, `circlebadge.fill` in the window menus, the mark on the widget; looking clears it | `Watch/ReplyWatcher.swift`: a window you sent to from the phone, answered by its hook agent or by its picture settling |
+| **Agents** (Claude Code, Codex, by their hooks) | Nothing to see: the notification the moment one asks ("Claude Code is asking you something" + the question; a tap watches that window) — Settings › Tell me when an agent asks something. The phone's Agents panel was removed Oct 18 ("not actually a useful section") and the `agents` wire with it | The **Agents** page (its own sidebar section, `AgentsPane`; Connect / Disconnect), the menu bar's **Connect Claude Code…** until it is; `Watch/AgentHub.swift` keeps the sessions for the alert, the Answered you mark and the lookout; `POST /v1/agent`, `mp hook` |
+| **Alerts when nobody's looking** (feature `attention`, `attention-cloud`) | The notification; through iCloud when the app is closed (`Model/AgentAlerts.swift`, builds signed for it) | `AttentionWatcher` reads agent windows nobody watches (controls through Accessibility, else Vision); `CloudAlerts` writes the record |
+| **The Watch widget** (`iOS/MacrophoneControls/WatchWidget.swift`) | Up to four of the Mac's open apps with their icons and the ember mark; small 2 × 2, medium a row with names; a tap = `macrophone://watch?target=…` (watches, and picks it in Send to); fed through `Shared/WatchWidgetData.swift` | — |
+| **How it's connected** (`LinkRoute`) | The Mac pill's glyph (Wi-Fi, direct link, Tailscale shield, globe); the status line "Ready · ‹Mac› · Tailscale"; Settings › Connected now | The menu header "Connected · Tailscale · away from home" (`MenuWords.via` — the route's `short`, the same words as the status line and the phone); Devices › Away from home |
+| **Open / quit an app** | **+** at the end of the Send to row → Open an App (search, Quit beside an open one) | `AppCatalog` opens / quits; the menu's More Apps lists only open ones |
+| **The Mac window** | — | Sidebar: History · Agents · Devices · Developer · General (⌘1–5); the Send to card above every pane; the menu bar menu is `StatusItemController` + `MenuBar/` (header · Stop Showing · Open Macrophone · Send to · Recent · the rare ones · Quit) |
+
+Glyphs that mean one thing: `eye` = Watch (the button, Settings, the widget's kicker; `eye.slash` =
+Stop Showing), `text.alignleft` = Text, `macwindow` = the Window menu (Fill the Screen is
+`rectangle.inset.filled`; a flipped-to window's note and the swipe tip wear `arrow.left.and.right`),
+`text.cursor` = Where I'm typing and `app` = a nameless app on both apps (`TargetGlyph` /
+`TargetIcons`), `paperplane` = Send after pasting, `sparkles` = Claude Code / the Agents page.
+Feature flags: a message goes only to a peer that named its feature in hello / welcome
+(`LinkClient.features`, `LinkServer.macFeatures`; `mpctl serve` names them all) — App Store
+iPhone 1.0 and an older Mac keep working.
+
 ## Layout
 
 | Path | What |
 | --- | --- |
 | `Packages/MacrophoneKit` | Shared Swift package: wire format, pairing + encryption, Bonjour/peer-to-peer transport (`LinkServer` Mac side, `LinkClient` phone side), history store, diagnostics log, on-device cleanup (`Cleaner`, `CleanupPrompts`, `CleanupGuard`), pull-API item shape. `mpctl` is the command-line protocol proof. |
-| `iOS/` | iPhone app (XcodeGen `iOS/project.yml`) + Control Center / Lock Screen control extension |
-| `Mac/` | Menu bar app (XcodeGen `Mac/project.yml`): Send to (live targets, paste and send), History, Devices, Developer, General; the `macrophone`/`mp` CLI + MCP server; Sparkle updates, `scripts/release.sh` |
+| `iOS/` | iPhone app (XcodeGen `iOS/project.yml`) + `MacrophoneControls`: the Control Center / Lock Screen control and the Watch widget |
+| `Mac/` | Menu bar app (XcodeGen `Mac/project.yml`): Send to (live targets, paste and send), History, Agents, Devices, Developer, General; the `macrophone`/`mp` CLI + MCP server (+ `mp hook`); Sparkle updates, `scripts/release.sh` |
 | `docs/` | `TARGETS.md` (Send to and delivery), `API.md` (the local API / CLI / MCP contract), `DESIGN.md`, `CLEANUP.md`, `RELEASING.md`, `APP_STORE.md`, `NAME_CHECK.md` |
 
 The website lives in the sameer.us repo (`sameer-gpt`), static pages under `public/macrophone/`.
@@ -68,7 +99,8 @@ between volatile results.
 
 - **Pan | Scroll** ends the key row (under the thumb): one finger moves the picture (the default,
   every time a window opens) or scrolls the Mac's window. Newest sits in the window's corner once
-  you've moved away.
+  you've moved away. **[Oct 18 2026: Scroll picks itself when the whole window is on screen, and
+  a window fitted to the phone opens in Scroll — see the map above.]**
 - **The window's question as buttons.** The Mac reads the bottom half of the watched picture with
   Vision (`PromptVision`, *fast* level: accurate hangs on some Macs; the reader forgives fast's
   slips — "l." for "1.", "7" for "?", "AuthView. swift") into a `WatchPrompt` (`PromptReader`:
@@ -82,13 +114,10 @@ between volatile results.
   get a message they can't decode — an unknown message ends a session). While one is connected,
   `AttentionWatcher` looks at agent windows (`AppQuirks.terminals` + `agentApps` + the Send-to
   place) every 5 s, reads a question off any nobody watches and sends `.attention` once per
-  question; the phone posts a notification, and a tap opens that window. Only while the phone
-  app is connected — **when it's closed, nothing arrives yet.** The next step is the person's own
-  iCloud (a CloudKit record the Mac writes, a query subscription on the phone that Apple pushes);
-  it needs one-time setup on developer.apple.com — an iCloud container
-  `iCloud.com.sameer.macrophone`, iCloud + Push on the App IDs, then the schema deployed to
-  Production in the CloudKit Console. Xcode here has no signed-in account and the API key can't
-  make containers.
+  question; the phone posts a notification, and a tap opens that window. **[superseded Oct 17
+  2026: with the app closed, the alert goes through the person's own iCloud — `CloudAlerts` on the
+  Mac, `AgentAlerts` on the phone, builds signed with the iCloud profiles
+  (`MacrophoneCloudAlerts=YES`); the phone's hello says `attention-cloud` once subscribed.]**
 - **The pictures are a stream, paced by what changed (the performance pass, Oct 16 2026).**
   `WindowStream` (an `SCStream` of the one window, at most 6 a second) replaces a screenshot per
   look — a screenshot cost ~150 ms each and ran all the time; a still window now costs nothing.
@@ -189,8 +218,9 @@ between volatile results.
   [--flick 1500]` swipes as the phone does; `mpctl serve` draws a page to scroll back through and
   answers at 30 Hz. Proven on the simulator with a real touch (began · 12 steps · ended · 83 momentum
   steps · momentumEnded on the demo).
-- **Aa — readable text (Oct 17 2026).** A menu in the watch header (Normal · Larger · Largest,
-  `WatchFitMenu`, remembered per app in `watch.fit.<bundle id>`): the Mac resizes the watched
+- **Aa — readable text (Oct 17 2026). [superseded: there is no Aa — it is "Text size on this
+  iPhone" inside the Window menu, under Fit to iPhone; `WatchFitMenu` is gone.]** Normal · Larger ·
+  Largest, remembered per app in `watch.fit.<bundle id>`: the Mac resizes the watched
   window through Accessibility (`WindowFit`, `WatchFit.frame`: the display's full height, 560 or
   420 points wide, never wider than it was) so its text reads larger on the phone, applied once
   the window is found (`Watch.wantedFit`) and sent again on resume; the window goes back to its
@@ -248,18 +278,19 @@ Codex (`notify`) run `…/Contents/Helpers/macrophone hook claude|codex`, which 
 `AgentSession` per session (working · waiting · yourTurn), finds its app from the hook's
 ancestor pids and its window (kept; the app's only one; a title naming the project; the front
 one on a new prompt), sends `.attention` the moment one waits (iCloud when no phone is
-connected) and `.agents` to phones naming "agents". The attention watcher skips windows an
-agent claims and reports the ones it reads asking (`fromScreen`). Mac › General › Agents
-connects/disconnects (`Core/AgentSetup.swift`; backs the file up once; never replaces his own
-Codex `notify`). The phone's Agents panel (Oct 17) was removed Oct 18 — "takes up too much
-space ... not actually a useful section".
+connected). The attention watcher skips windows an agent claims. Mac › **Agents** (its own
+sidebar page since Oct 18; `AgentsPane`) connects/disconnects (`Core/AgentSetup.swift`; backs the
+file up once; never replaces his own Codex `notify`). The phone's Agents panel (Oct 17) was
+removed Oct 18 — "takes up too much space ... not actually a useful section" — **and with it the
+`agents` message, `AgentSession.feature`, `liveAgents` / `broadcastAgents` and the screen-read
+sessions (Oct 18, the integration pass): `AgentSession` is now the Mac's own record.**
 Same day: More keys (`WatchKey`, feature "keys": ⌃C, Tab, ⇧Tab, ⌘↩, ⌘Z, Space, ⌫, digits —
 by name, so a newer key never breaks an older Mac), Fit to iPhone (`watchShape`, feature
 "fitPhone": the window takes the phone's view shape at full screen height), first-use tips
 (`UI/WatchTips.swift`, one card at a time over the window's top; Window › Show Tips Again),
 the zoom kept per app (`watch.view.<bundleID>`, dropped when the window's shape changes), and a
 minimized window stays the watched one so "Show it on my Mac" brings it back.
-`mpctl serve` names every new feature.
+`mpctl serve` names every new feature. **[The tips set is the map's, six at most.]**
 
 ## Chats that answered you (Oct 18 2026)
 
