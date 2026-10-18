@@ -64,7 +64,7 @@ targets:
         # The icon is Resources/AppIcon.icon (Icon Composer, Liquid Glass on macOS 26+; picked up
         # from the Resources folder as wrapper.icon) and Assets.xcassets/AppIcon.appiconset (the
         # squircle PNGs for macOS 14–15) — the same name, so Xcode takes the .icon and keeps the
-        # set for older releases. Both come from scripts/render-icons.swift.
+        # set for older releases. Both come from scripts/render-sky-icon.swift (scripts/sky-icon.sh).
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"

@@ -115,7 +115,7 @@ the haptics in `AppModel` — are untouched):
 
 The website lives in the sameer.us repo (`sameer-gpt`), static pages under `public/macrophone/`.
 
-The app icon is the Thread itself, light and dark (Oct 18 2026): `sh scripts/thread-icon.sh <work> install bold` renders it from `scripts/render-thread-icon.swift` (a port of `ThreadView` at rest) into both `.icon` bundles and the fallback PNG sets; the sheet is `docs/icon/thread/sheet.png`.
+The app icon is SameerOS's icon in Macrophone's colours (Oct 18 2026, Sameer: "model it after that with the colors we use in the app"): one glowing thread on a night sky with stars — `sh scripts/sky-icon.sh <work> install` renders it from `scripts/render-sky-icon.swift` (a port of SameerOS's `scripts/render-app-icon.swift`; the thread is the Filament at rest, violet · cyan · mint, the sky Theme.swift's Ink lifted toward violet, cyan and teal) into both `.icon` bundles and the fallback PNG sets; the side-by-side sheet is `docs/icon/sky/sheet.png`. The earlier Thread-braid icon (`scripts/thread-icon.sh`, `docs/icon/thread/`) is kept as a record.
 
 ## The protocol in one breath
 

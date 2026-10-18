@@ -114,12 +114,19 @@ Delivered: "Delivered to Sameer's MacBook Pro · Copied". No internal names on s
 
 ## App icon
 
-The Thread itself (Oct 18 2026, Sameer: "I want the wave form we have in the app to be the main
-visual") — `ThreadView` at rest, ported number for number into `scripts/render-thread-icon.swift`
-(run `scripts/thread-icon.sh`), a closer crop with the braid running off both edges so it reads
-at 29 pt. Light and dark: dark is the app's ground with the luminous Thread as the app draws it;
-light is the app's ink falling to a pale mist with the strands deepened. Both live in the Icon
-Composer bundles (`iOS/Macrophone/AppIcon.icon`, `Mac/Resources/AppIcon.icon`) with the classic
-PNG sets as the fallback; the sheet and the in-app comparison are in `docs/icon/thread/`. The
-menu bar icon is a monochrome template version (a short filament with a peak), with a dot state
-when connected.
+SameerOS's icon in Macrophone's colours (Oct 18 2026, Sameer: "look at the SameerOS app icon and
+model it after that with the colors we use in the app — I think it looks better"): one luminous
+thread — an S with tapered tips, a white-hot core, a wide soft glow — on a night sky with a
+scatter of stars. `scripts/render-sky-icon.swift` (run `scripts/sky-icon.sh`) is a port of
+SameerOS's `scripts/render-app-icon.swift`: the same composition, strand, glow, core, grain,
+stars (the same seeded field) and sky-gradient technique. What is ours: the thread's spectrum is
+the Filament at rest (violet · cyan · mint — cool where SameerOS runs to gold and coral), and the
+sky is Theme.swift's Ink and Light — Ink.ground lifted toward Light.violet at the top, a fuller
+violet in the middle, Light.cyan at the horizon and Light.teal at the foot, never SameerOS's
+terracotta. Light is the lighter sky, dark the deeper one, tinted the white thread on near black.
+Both live in the Icon Composer bundles (`iOS/Macrophone/AppIcon.icon`, `Mac/Resources/AppIcon.icon`
+— three groups: the thread as glass, the light and stars, the sky; light and dark images faded by
+appearance) with the classic PNG sets as the fallback; the sheet against SameerOS's icon is
+`docs/icon/sky/sheet.png`. The earlier Thread-braid icon stays as a record in
+`scripts/render-thread-icon.swift` and `docs/icon/thread/`. The menu bar icon is a monochrome
+template version (a short filament with a peak), with a dot state when connected.

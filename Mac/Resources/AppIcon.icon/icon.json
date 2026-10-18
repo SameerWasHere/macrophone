@@ -3,8 +3,8 @@
     {
       "value" : {
         "linear-gradient" : [
-          "srgb:0.95700,0.94900,0.98000,1.00000",
-          "srgb:0.89020,0.90196,0.94510,1.00000"
+          "srgb:0.19520,0.17430,0.30630,1.00000",
+          "srgb:0.30632,0.69248,0.65280,1.00000"
         ]
       }
     },
@@ -12,8 +12,8 @@
       "appearance" : "dark",
       "value" : {
         "linear-gradient" : [
-          "srgb:0.05025,0.05590,0.09170,1.00000",
-          "srgb:0.02000,0.02400,0.05100,1.00000"
+          "srgb:0.08482,0.07700,0.13714,1.00000",
+          "srgb:0.16416,0.34030,0.41458,1.00000"
         ]
       }
     }
@@ -25,8 +25,8 @@
         {
           "glass" : true,
           "hidden" : false,
-          "image-name" : "strands-dark.png",
-          "name" : "strands-dark",
+          "image-name" : "thread-dark.png",
+          "name" : "thread-dark",
           "opacity-specializations" : [
             {
               "appearance" : "light",
@@ -60,8 +60,8 @@
           ],
           "glass" : true,
           "hidden" : false,
-          "image-name" : "strands-light.png",
-          "name" : "strands-light",
+          "image-name" : "thread-light.png",
+          "name" : "thread-light",
           "opacity-specializations" : [
             {
               "appearance" : "dark",
@@ -157,6 +157,72 @@
       ],
       "lighting" : "individual",
       "name" : "Light",
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.45000000000000001
+      }
+    },
+    {
+      "hidden" : false,
+      "layers" : [
+        {
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "sky-dark.png",
+          "name" : "sky-dark",
+          "opacity-specializations" : [
+            {
+              "appearance" : "light",
+              "value" : 0
+            },
+            {
+              "appearance" : "tinted",
+              "value" : 0
+            },
+            {
+              "appearance" : "dark",
+              "value" : 1
+            }
+          ],
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "sky-light.png",
+          "name" : "sky-light",
+          "opacity-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : 0
+            },
+            {
+              "appearance" : "tinted",
+              "value" : 0
+            }
+          ],
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Sky",
       "shadow" : {
         "kind" : "none",
         "opacity" : 0
