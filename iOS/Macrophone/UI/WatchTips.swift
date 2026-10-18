@@ -9,10 +9,11 @@ import SwiftUI
 // menu's Show Tips Again brings them back.
 //
 //   ┌──────────────────────────────────────────────┐
-//   │ [hand.tap]  Hold to right-click          [×] │
-//   │ Tap is a click on your Mac. Hold — or tap    │
-//   │ with two fingers — for a right-click.        │
-//   │                                 [Got it] 1/4 │
+//   │ (hand.tap)  TIP 1 OF 4                   [×] │   a mono kicker, the symbol on a lit disc
+//   │ Tap to click, hold to right-click            │   the words in the serif — the app's voice
+//   │ A tap is a click there on your Mac. Hold —   │
+//   │ or tap with two fingers — for a right-click. │
+//   │ ▬ · · ·                              [Next]  │   where you are in them
 //   └──────────────────────────────────────────────┘
 
 struct WatchTip: Identifiable, Equatable {
@@ -73,9 +74,10 @@ struct WatchTipCard: View {
     var body: some View {
         let seen = Set(seenRaw.split(separator: ",").map(String.init))
         let open = tips.filter { !seen.contains($0.id) }
+        let all = tips
         Group {
-            if watcher.phase == .live, let tip = open.first {
-                card(tip, left: open.count)
+            if watcher.phase == .live, let tip = open.first, let at = all.firstIndex(of: tip) {
+                card(tip, at: at, of: all.count, left: open.count)
                     .id(tip.id)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -83,56 +85,65 @@ struct WatchTipCard: View {
         .animation(reduceMotion ? nil : Motion.settle, value: open.first?.id)
     }
 
-    private func card(_ tip: WatchTip, left: Int) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+    private func card(_ tip: WatchTip, at: Int, of count: Int, left: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
                 Image(systemName: tip.symbol)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Light.cyan)
-                    .frame(width: 22)
-                Text(tip.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Ink.ink)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(Light.cyan.opacity(0.14)))
+                    .overlay(Circle().strokeBorder(Light.cyan.opacity(0.3), lineWidth: 1))
+                    .accessibilityHidden(true)
+                Kicker("Tip \(at + 1) of \(count)")
                 Spacer(minLength: 4)
                 Button { dismissAll() } label: {
                     Image(systemName: "xmark").font(.caption.weight(.bold)).foregroundStyle(Ink.tertiary)
-                        .frame(width: 28, height: 28).contentShape(Rectangle())
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(Ink.ink.opacity(0.06)))
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
                 .accessibilityLabel("Hide tips")
             }
+            Text(tip.title)
+                .font(.serif(.title3))
+                .foregroundStyle(Ink.ink)
+                .fixedSize(horizontal: false, vertical: true)
             Text(tip.detail)
                 .font(.footnote)
                 .foregroundStyle(Ink.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 32)
-            HStack {
-                if left > 1 {
-                    Text("\(left - 1) more").font(.caption).foregroundStyle(Ink.tertiary)
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    ForEach(0..<count, id: \.self) { k in
+                        Capsule().fill(k == at ? Light.cyan : Ink.lineStrong).frame(width: k == at ? 14 : 4, height: 4)
+                    }
                 }
-                Spacer()
+                .accessibilityHidden(true)
+                Spacer(minLength: 0)
                 Button(left > 1 ? "Next" : "Got it") {
-                    Haptics.tick()
                     WatchTips.markSeen(tip.id)
                     seenRaw = UserDefaults.standard.string(forKey: WatchTips.key) ?? ""
                 }
                 .font(.footnote.weight(.semibold))
-                .nativeGlassButton()
-                .controlSize(.small)
+                .buttonStyle(WatchCellStyle(inset: 16, height: 36))
+                .watchGlass(Capsule())
                 .accessibilityIdentifier("watch-tip-next")
             }
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Ink.line, lineWidth: 0.5))
-        .padding(10)
+        .padding(.top, 10)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 12)
+        .watchGlass(RoundedRectangle(cornerRadius: WatchLook.card, style: .continuous))
+        .padding(WatchLook.bezelWidth + 8)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tip: \(tip.title)")
+        .accessibilityLabel("Tip \(at + 1) of \(count): \(tip.title)")
     }
 
     private func dismissAll() {
-        Haptics.tick()
         let all = Set(seenRaw.split(separator: ",").map(String.init)).union(tips.map(\.id))
         seenRaw = all.sorted().joined(separator: ",")
     }

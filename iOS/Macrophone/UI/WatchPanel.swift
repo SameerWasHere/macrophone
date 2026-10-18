@@ -4,17 +4,34 @@ import UIKit
 
 // Watching (Oct 14 2026) — the picked app's window on the Mac, in the area above the Thread:
 //
-//   ● LIVE · CLAUDE                   [Aa] [Done]   Aa: the Mac's window narrower, so its text
-//   ┌──────────────────────────────────────────┐   reads larger here (Normal · Larger · Largest)
-//   │  the window, pinned to its newest output │  tap = a click there on the Mac;
-//   │  (centred on the column you type in)     │  one finger looks around (Pan) or scrolls
-//   └─────────────────────────────── [Newest] ┘  the Mac's window (Scroll); pinch zooms
-//   [Esc] [↑] [↓] [⏎]            [Pan | Scroll]  one row, under the thumb
-//   [ Esc ] [ ↑ ] [ ↓ ] [ Return ]                 the same keys in every app: move through a
-//                                                 menu, confirm, back out
+//   ● CLAUDE ⌄ ▬····            [⤡ | ▭] [Done]   the name is a menu of the Mac's windows; the
+//   ╔══════════════════════════════════════════╗   dots say where you are; zoom out and the
+//   ║  the window, pinned to its newest output ║   Window menu share one piece of glass
+//   ║  (centred on the column you type in)     ║   tap = a click there on the Mac; one finger
+//   ╚═══════════════════════════════ [Newest] ═╝   looks around (Pan) or scrolls (Scroll)
+//   [ Esc | ↑ | ↓ | ⏎ | ··· ]     (Pan | Scroll)   one cluster of keys under the thumb
+//
+// The look (Oct 18 2026, Sameer: "less generic … quality design and refinement, still Liquid
+// Glass"): the window is a screen set in a bezel — a recessed edge, a specular rim, and a glow in
+// the state's colour (cyan while it's live) — and every control is a cell in a cluster of one
+// piece of glass, 44pt tall, so the row reads as an instrument, not a row of buttons.
 //
 // The mic, the Thread and the status line don't move. Holding the mic shrinks the window to a
 // strip at the top, so the question stays in view while the words take the rest.
+
+/// The watch's own measures, kept here (Theme.swift holds the app's).
+enum WatchLook {
+    /// The bezel's corner, and the screen's inside it (concentric: the bezel's less its width).
+    static let bezel: CGFloat = 20
+    static let bezelWidth: CGFloat = 3
+    static var screen: CGFloat { bezel - bezelWidth }
+    /// Every cell, key, switch and header control.
+    static let control: CGFloat = 44
+    /// The tip card and the notes over the window.
+    static let card: CGFloat = 16
+    /// A cell's pressed wash, and the hairline between cells.
+    static let press = Ink.ink.opacity(0.14)
+}
 
 struct WatchPanel: View {
     @EnvironmentObject var model: AppModel
@@ -23,14 +40,19 @@ struct WatchPanel: View {
     /// The window just switched to, named for a moment ("Terminal — codex ~/api").
     @State private var switchedTo: String?
     @State private var switchedTask: Task<Void, Never>?
+    /// The window slides in from the side it came from (a swipe's direction, or the menu's).
+    @State private var slide: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: compact ? 8 : 10) {
+        VStack(spacing: compact ? 8 : 12) {
             header
             WatchWindow(watcher: watcher, interactive: true)
                 .frame(maxHeight: .infinity)
                 // The first times: what a tap, a hold, a pinch and the side swipe do.
                 .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count) }
+                .offset(x: slide)
+                .opacity(slide == 0 ? 1 : 0.6)
             WatchActions(watcher: watcher)
                 .opacity(watcher.phase == .live ? 1 : 0)
                 .allowsHitTesting(watcher.phase == .live)
@@ -45,17 +67,10 @@ struct WatchPanel: View {
         .overlay(alignment: .trailing) { edge(step: 1) }
         .overlay(alignment: .top) {
             if let switchedTo {
-                Text(switchedTo)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Ink.ink)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 62)
+                WatchNote(symbol: "macwindow", words: switchedTo)
+                    .padding(.top, 66)
                     .padding(.horizontal, 32)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
         .accessibilityAction(named: "Next window") { go(1) }
@@ -76,15 +91,25 @@ struct WatchPanel: View {
     }
 
     private func go(_ step: Int) {
-        if let t = model.watchStep(step) { announce(t) }
+        if let t = model.watchStep(step) { announce(t, from: step) }
     }
 
     private func show(_ t: LiveTarget) {
-        if model.watchSession(t) { announce(t) }
+        let was = current
+        if model.watchSession(t) {
+            let now = sessions.firstIndex { $0.id == t.id }
+            announce(t, from: (was.map { w in (now ?? w) >= w } ?? true) ? 1 : -1)
+        }
     }
 
-    private func announce(_ t: LiveTarget) {
+    /// Names the window for a moment, and slides it in from the side it came from.
+    private func announce(_ t: LiveTarget, from step: Int) {
         switchedTask?.cancel()
+        if !reduceMotion {
+            var tx = Transaction(); tx.disablesAnimations = true
+            withTransaction(tx) { slide = CGFloat(step) * 36 }
+            withAnimation(Motion.settle) { slide = 0 }
+        }
         withAnimation(.easeOut(duration: 0.15)) { switchedTo = t.title }
         UIAccessibility.post(notification: .announcement, argument: t.title)
         switchedTask = Task {
@@ -123,45 +148,66 @@ struct WatchPanel: View {
                 } label: {
                     HStack(spacing: 6) {
                         WatchKicker(watcher: watcher)
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Ink.tertiary)
+                        Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
                     }
-                    .frame(minHeight: 44)
+                    .frame(minHeight: WatchLook.control)
                     .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Window: \(watcher.name)")
                 .accessibilityHint("Shows another window from your Mac — and sends there. You can also swipe in from the side.")
                 .accessibilityIdentifier("watch-sessions")
                 if sessions.count <= 8, let i = current {
-                    HStack(spacing: 5) {
-                        ForEach(0..<sessions.count, id: \.self) { k in
-                            Circle().fill(k == i ? Ink.secondary : Ink.line).frame(width: 5, height: 5)
-                        }
-                    }
-                    .accessibilityHidden(true)
+                    WatchPageDots(count: sessions.count, current: i)
                 }
             } else {
                 WatchKicker(watcher: watcher)
             }
             Spacer(minLength: 8)
             if watcher.macCanFit, watcher.target != .clipboard {
-                WatchWholeButton(watcher: watcher)
-                WatchWindowMenu(watcher: watcher)
+                HStack(spacing: 0) {
+                    WatchWholeButton(watcher: watcher)
+                    WatchCellDivider()
+                    WatchWindowMenu(watcher: watcher)
+                }
+                .watchGlass(Capsule())
             }
             Button("Done") {
                 Haptics.tick()
                 watcher.close()
             }
             .font(.subheadline.weight(.semibold))
-            .nativeGlassButton()
+            .buttonStyle(WatchCellStyle(inset: 18))
+            .watchGlass(Capsule())
             .accessibilityHint("Stops showing the window and brings back Send to and Cleanup.")
             .accessibilityIdentifier("watch-done")
         }
-        .frame(minHeight: 44)
+        .frame(minHeight: WatchLook.control)
+    }
+}
+
+/// Where you are among the Mac's windows: the one shown is a short bar in the window's light,
+/// the others points — and the bar glides when you flip.
+struct WatchPageDots: View {
+    var count: Int
+    var current: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<count, id: \.self) { k in
+                Capsule()
+                    .fill(k == current ? Light.cyan : Ink.lineStrong)
+                    .frame(width: k == current ? 14 : 4, height: 4)
+            }
+        }
+        .animation(reduceMotion ? nil : Motion.settle, value: current)
+        .accessibilityHidden(true)
     }
 }
 
 /// Zoom out (Oct 17 2026, Sameer: "a quick tap ... so that we can see the whole window"): the whole
-/// window on screen, and the same button goes back to the column you type in. Same height as Done.
+/// window on screen, and the same button goes back to the column you type in. A cell beside the
+/// Window menu, in one piece of glass.
 struct WatchWholeButton: View {
     @ObservedObject var watcher: Watcher
 
@@ -169,11 +215,9 @@ struct WatchWholeButton: View {
         Button { watcher.toggleWholeWindow() } label: {
             Image(systemName: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(watcher.wholeWindow ? Light.cyan : Ink.ink)
-                .frame(minWidth: 24)
                 .contentTransition(.symbolEffect(.replace))
         }
-        .nativeGlassButton()
+        .buttonStyle(WatchCellStyle(width: 48, tint: watcher.wholeWindow ? Light.cyan : Ink.ink))
         .disabled(watcher.phase != .live)
         .accessibilityLabel(watcher.wholeWindow ? "Zoom back in" : "Show the whole window")
         .accessibilityHint(watcher.wholeWindow ? "Back to the part of the window you type in." : "Fits all of \(watcher.name)'s window on screen.")
@@ -222,10 +266,8 @@ struct WatchWindowMenu: View {
         } label: {
             Image(systemName: "macwindow")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(watcher.fit == .normal ? Ink.ink : Light.cyan)
-                .frame(minWidth: 24)
         }
-        .nativeGlassButton()
+        .buttonStyle(WatchCellStyle(width: 48, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
         .disabled(watcher.phase != .live)
         .accessibilityLabel("Window")
         .accessibilityHint("Text size on this iPhone, and the window's size, minimize and close on your Mac.")
@@ -238,7 +280,7 @@ struct WatchWindowMenu: View {
     }
 }
 
-/// "● LIVE · CLAUDE", "PAUSED · CLAUDE", "MAC NOT CONNECTED".
+/// "● CLAUDE" (the dot breathing cyan says live), "PAUSED · CLAUDE", "MAC NOT CONNECTED".
 struct WatchKicker: View {
     @ObservedObject var watcher: Watcher
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -251,15 +293,15 @@ struct WatchKicker: View {
                 .frame(width: 8, height: 8)
                 .shadow(color: color.opacity(0.8), radius: 4)
                 .accessibilityHidden(true)
-            // Whole words or fewer of them, never cut: "LIVE · CLAUDE", then "CLAUDE".
+            // Whole words or fewer of them, never cut: "PAUSED · CLAUDE", then "CLAUDE".
             ViewThatFits(in: .horizontal) {
                 label(words)
-                label(watcher.phase == .live ? watcher.name : words)
-                label(watcher.phase == .live ? watcher.name : words, fits: false).minimumScaleFactor(0.6)
+                label(watcher.name)
+                label(watcher.name, fits: false).minimumScaleFactor(0.6)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(words)
+        .accessibilityLabel(spoken)
         .accessibilityIdentifier("watch-kicker")
     }
 
@@ -268,22 +310,25 @@ struct WatchKicker: View {
         Text(text.uppercased())
             .font(.mono(.caption, weight: .semibold))
             .tracking(1.1)
-            .foregroundStyle(watcher.phase == .live ? Ink.secondary : Ink.tertiary)
+            .foregroundStyle(watcher.phase == .live ? Ink.ink : Ink.tertiary)
             .lineLimit(1)
             .fixedSize(horizontal: fits, vertical: false)
     }
 
+    /// Live: the name alone — the lit dot is the word. Anything else says what's up.
     private var words: String {
         let n = watcher.name
         switch watcher.phase {
         case .starting: return "Opening \(n)"
-        case .live: return "Live · \(n)"
+        case .live: return n
         case .paused(.mac): return "Stopped · \(n)"
         case .paused: return "Paused · \(n)"
         case .needsPermission, .unavailable: return n
         case .offline: return "Mac not connected"
         }
     }
+
+    private var spoken: String { watcher.phase == .live ? "Live · \(watcher.name)" : words }
 
     private var color: Color {
         switch watcher.phase {
@@ -295,19 +340,25 @@ struct WatchKicker: View {
     }
 }
 
-/// The window itself, on its plate, with what's going on laid over it when it isn't live.
+/// The window itself — a screen set in a bezel, with what's going on laid over it when it isn't live.
 struct WatchWindow: View {
     @ObservedObject var watcher: Watcher
     var interactive: Bool
     /// A moment of words after the Pan | Scroll switch flips or Aa changes: what happens now.
     @State private var dragNote: String?
     @State private var dragNoteTask: Task<Void, Never>?
+    /// "Opening …" shows only once a switch has taken a moment: a quick one never flashes it.
+    @State private var opening = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+        let screen = RoundedRectangle(cornerRadius: WatchLook.screen, style: .continuous)
+        let bezel = RoundedRectangle(cornerRadius: WatchLook.bezel, style: .continuous)
+        let high = contrast == .increased
         ZStack {
-            Ink.raised
+            Ink.sunk
             if watcher.hasPicture {
                 WindowViewer(image: watcher.image, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
                              focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
@@ -329,34 +380,42 @@ struct WatchWindow: View {
                 Button { watcher.showNewest() } label: {
                     Label("Newest", systemImage: "arrow.down.to.line").font(.footnote.weight(.semibold))
                 }
-                .nativeGlassButton()
-                .controlSize(.small)
+                .buttonStyle(WatchCellStyle(inset: 14, height: 36))
+                .watchGlass(Capsule())
                 .padding(10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .transition(.opacity)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 .accessibilityHint("Back to the newest output, at the bottom of the window.")
                 .accessibilityIdentifier("watch-newest")
             }
             if let dragNote, interactive && watcher.phase == .live {
-                Text(dragNote)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Ink.ink)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(.ultraThinMaterial, in: Capsule())
+                WatchNote(symbol: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down", words: dragNote)
                     .padding(.top, 10)
+                    .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
             if interactive { overlay }
         }
-        .clipShape(shape)
-        .overlay(shape.strokeBorder(Ink.line, lineWidth: 1))
-        // The window comes alive: one pass of light round its edge as the first picture lands.
+        .clipShape(screen)
+        // The screen sits a hair below the bezel: a dark line at its edge is the recess.
+        .overlay(screen.strokeBorder(Color.black.opacity(high ? 0 : 0.55), lineWidth: 1))
+        .padding(WatchLook.bezelWidth)
+        .background {
+            // The bezel, and the light under it in the state's colour (a still layer of its own, so
+            // the pictures changing above it cost the shadow nothing).
+            bezel.fill(Ink.raised)
+                .shadow(color: glow.opacity(reduceTransparency ? 0 : glowStrength), radius: 28, y: 6)
+                .shadow(color: .black.opacity(reduceTransparency ? 0 : 0.5), radius: 16, y: 10)
+        }
+        // A specular rim: lit from the top left, as glass is.
+        .overlay(bezel.strokeBorder(high ? AnyShapeStyle(Ink.ink.opacity(0.5)) : AnyShapeStyle(LinearGradient(
+            colors: [Ink.ink.opacity(0.28), Ink.ink.opacity(0.08), Ink.ink.opacity(0.05), Ink.ink.opacity(0.16)],
+            startPoint: .topLeading, endPoint: .bottomTrailing)), lineWidth: 1))
+        // The window comes alive: one pass of light round its rim as the first picture lands.
         .overlay {
             if interactive && !reduceMotion {
-                shape.strokeBorder(Light.cyan, lineWidth: 1.5)
+                bezel.strokeBorder(Light.cyan, lineWidth: 1.5)
                     .keyframeAnimator(initialValue: 0.0, trigger: watcher.cameAlive) { ring, a in ring.opacity(a) } keyframes: { _ in
                         CubicKeyframe(0.9, duration: 0.18)
                         CubicKeyframe(0, duration: 0.9)
@@ -378,8 +437,32 @@ struct WatchWindow: View {
                 withAnimation(.easeIn(duration: 0.3)) { dragNote = nil }
             }
         }
+        .task(id: watcher.phase == .starting && !watcher.hasPicture) {
+            opening = false
+            guard watcher.phase == .starting, !watcher.hasPicture else { return }
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) { opening = true }
+        }
         .animation(.easeInOut(duration: 0.25), value: watcher.phase)
         .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
+    }
+
+    /// The light under the bezel: the window's state, in the kicker's colour.
+    private var glow: Color {
+        switch watcher.phase {
+        case .live: return Light.cyan
+        case .needsPermission, .unavailable, .offline: return Light.ochre
+        case .starting, .paused: return Light.cyan
+        }
+    }
+
+    private var glowStrength: Double {
+        switch watcher.phase {
+        case .live: return interactive ? 0.22 : 0.14
+        case .needsPermission, .unavailable, .offline: return 0.16
+        case .starting, .paused: return 0.06
+        }
     }
 
     @ViewBuilder private var overlay: some View {
@@ -387,8 +470,9 @@ struct WatchWindow: View {
         case .live:
             EmptyView()
         case .starting:
-            if !watcher.hasPicture {
+            if !watcher.hasPicture, opening {
                 Note(symbol: nil, title: "Opening \(watcher.name)'s window", detail: nil) { ProgressView().tint(Ink.secondary) }
+                    .transition(.opacity)
             }
         case .paused(let reason):
             Dimmed {
@@ -433,33 +517,126 @@ struct WatchWindow: View {
         @ViewBuilder var content: Content
         var body: some View {
             ZStack {
-                Ink.ground.opacity(0.72)
+                Ink.ground.opacity(0.78)
                 content
             }
         }
     }
 
+    /// What's going on, over the picture: a symbol on a disc, a line, a word or two more, and
+    /// what to do about it.
     private struct Note<Action: View>: View {
         var symbol: String?
         var title: String
         var detail: String?
         @ViewBuilder var action: Action
         var body: some View {
-            VStack(spacing: 10) {
+            VStack(spacing: 12) {
                 if let symbol {
-                    Image(systemName: symbol).font(.title2).foregroundStyle(Ink.secondary).accessibilityHidden(true)
+                    Image(systemName: symbol)
+                        .font(.title3.weight(.medium))
+                        .foregroundStyle(Ink.secondary)
+                        .frame(width: 48, height: 48)
+                        .background(Circle().fill(Ink.ink.opacity(0.06)))
+                        .overlay(Circle().strokeBorder(Ink.line, lineWidth: 1))
+                        .accessibilityHidden(true)
                 }
-                Text(title).font(.headline).foregroundStyle(Ink.ink)
-                if let detail {
-                    Text(detail).font(.footnote).foregroundStyle(Ink.tertiary)
+                VStack(spacing: 6) {
+                    Text(title).font(.headline).foregroundStyle(Ink.ink)
+                    if let detail {
+                        Text(detail).font(.footnote).foregroundStyle(Ink.tertiary)
+                    }
                 }
-                action.padding(.top, 4)
+                action.padding(.top, 2)
             }
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 24)
             .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         }
+    }
+}
+
+/// A sentence over the window for a moment — what just changed, or the window just switched to.
+struct WatchNote: View {
+    var symbol: String
+    var words: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).font(.caption.weight(.semibold)).foregroundStyle(Light.cyan)
+            Text(words)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Ink.ink)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, 12).padding(.trailing, 14).padding(.vertical, 8)
+        .watchGlass(Capsule())
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: The cluster — one piece of glass, cells inside it
+
+/// A control's glass: Liquid Glass on iOS 26+, else thin material over the raised ink with a
+/// hairline. Reduce Transparency: a solid plate; Increase Contrast: a firm edge.
+private struct WatchGlassPlate<S: InsettableShape>: ViewModifier {
+    var shape: S
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        let high = contrast == .increased
+        if #available(iOS 26.0, *), !reduceTransparency {
+            content
+                .glassEffect(.regular, in: shape)
+                .overlay { if high { shape.strokeBorder(Ink.ink.opacity(0.45), lineWidth: 1) } }
+        } else {
+            content
+                .background {
+                    shape.fill(.ultraThinMaterial)
+                        .overlay(shape.fill(Ink.raised.opacity(reduceTransparency ? 0.95 : 0.55)))
+                }
+                .overlay(shape.strokeBorder(high ? Ink.ink.opacity(0.45) : Ink.lineStrong, lineWidth: 1))
+        }
+    }
+}
+
+extension View {
+    /// The watch's glass, in a shape (a capsule for a cluster, a rounded rect for a card).
+    func watchGlass<S: InsettableShape>(_ shape: S) -> some View { modifier(WatchGlassPlate(shape: shape)) }
+}
+
+/// A cell in a cluster: 44pt tall, its label in the tint, a wash while pressed. `width` fixes it;
+/// `inset` pads a word; neither, and it shares the cluster's width with its neighbours.
+struct WatchCellStyle: ButtonStyle {
+    var width: CGFloat? = nil
+    var inset: CGFloat = 0
+    var height: CGFloat = WatchLook.control
+    var tint: Color = Ink.ink
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(tint)
+            .padding(.horizontal, inset)
+            .frame(width: width)
+            .frame(maxWidth: width == nil && inset == 0 ? .infinity : nil, minHeight: height)
+            .background(Capsule().fill(WatchLook.press).opacity(configuration.isPressed ? 1 : 0).padding(3))
+            .contentShape(Rectangle())
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.95 : 1)
+            .opacity(enabled ? 1 : 0.4)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// The hairline between two cells.
+struct WatchCellDivider: View {
+    var body: some View {
+        Rectangle().fill(Ink.lineStrong).frame(width: 1, height: 16).accessibilityHidden(true)
     }
 }
 
@@ -483,8 +660,7 @@ struct WatchDragSwitch: View {
             option(.scroll, "Scroll", symbol: "arrow.up.and.down")
         }
         .padding(3)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Ink.line, lineWidth: 1))
+        .watchGlass(Capsule())
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("What one finger does")
@@ -505,10 +681,15 @@ struct WatchDragSwitch: View {
                 .font(.footnote.weight(.semibold))
                 .lineLimit(1)
                 .foregroundStyle(on ? Ink.ground : Ink.secondary)
-                .padding(.horizontal, style == .glyphs ? 12 : 10)
-                .frame(minHeight: 38)
+                .padding(.horizontal, style == .glyphs ? 13 : 12)
+                .frame(minHeight: WatchLook.control - 6)
                 .background {
-                    if on { Capsule().fill(Light.cyan).matchedGeometryEffect(id: "pill", in: pill) }
+                    if on {
+                        Capsule().fill(Light.cyan)
+                            // Lit along its top, as the keys' glass is.
+                            .overlay(Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                            .matchedGeometryEffect(id: "pill", in: pill)
+                    }
                 }
                 .contentShape(Capsule())
         }
@@ -519,7 +700,8 @@ struct WatchDragSwitch: View {
     }
 }
 
-/// While the mic is open: the bottom of the window, small, so the question stays in view.
+/// While the mic is open: the bottom of the window, small, so the question stays in view; its
+/// top dissolves — the window goes on above it.
 struct WatchStrip: View {
     @ObservedObject var watcher: Watcher
     var compact = false
@@ -527,6 +709,7 @@ struct WatchStrip: View {
     var body: some View {
         WatchWindow(watcher: watcher, interactive: false)
             .frame(height: compact ? 72 : 104)
+            .edgeFade(top: compact ? 20 : 28, bottom: 0)
             .opacity(watcher.hasPicture ? 1 : 0)
             .accessibilityHidden(true)
     }
@@ -534,9 +717,9 @@ struct WatchStrip: View {
 
 /// Esc · ↑ · ↓ · Return — the same four keys in every app (Sameer, Oct 14 2026: "basic things
 /// that allow the user to navigate very quickly or confirm things very quickly") — and Pan | Scroll,
-/// all on one row under the thumb (Oct 16 2026). While the window asks a question, its answers take
-/// the keys' place ("the buttons should replace the default up, down, return, esc buttons"), with
-/// Esc and Keys kept small beside the switch.
+/// all on one row under the thumb (Oct 16 2026). The keys are cells of one cluster. While the
+/// window asks a question, its answers take the keys' place ("the buttons should replace the
+/// default up, down, return, esc buttons"), with Esc and Keys kept small beside the switch.
 struct WatchActions: View {
     @ObservedObject var watcher: Watcher
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -554,38 +737,62 @@ struct WatchActions: View {
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
+    /// The question's answers: the one the arrows are on — what Return would pick — stands out
+    /// in the window's light; a tap on any of them answers.
     private func answers(_ p: WatchPrompt) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                let lit = p.highlighted == i
                 Button { watcher.choose(i) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    HStack(spacing: 10) {
                         if let n = c.number {
-                            Text("\(n)").font(.mono(.footnote, weight: .semibold)).foregroundStyle(Ink.tertiary)
+                            Text("\(n)")
+                                .font(.mono(.caption, weight: .semibold))
+                                .foregroundStyle(lit ? Ink.ground.opacity(0.8) : Ink.secondary)
+                                .frame(width: 22, height: 22)
+                                .background(Circle().fill(lit ? Ink.ground.opacity(0.14) : Ink.ink.opacity(0.08)))
+                        } else if let k = c.key {
+                            Text(k)
+                                .font(.mono(.caption, weight: .semibold))
+                                .foregroundStyle(lit ? Ink.ground.opacity(0.8) : Ink.secondary)
+                                .frame(width: 22, height: 22)
+                                .background(Circle().fill(lit ? Ink.ground.opacity(0.14) : Ink.ink.opacity(0.08)))
                         }
                         Text(c.label)
                             .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(lit ? Ink.ground : Ink.ink)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
+                        if lit {
+                            Image(systemName: "return")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Ink.ground.opacity(0.55))
+                        }
                     }
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, minHeight: WatchLook.control, alignment: .leading)
+                    .contentShape(WatchAnswerStyle.shape)
                 }
-                .nativeGlassButton()
+                .buttonStyle(WatchAnswerStyle(lit: lit))
                 .accessibilityLabel(c.label)
-                .accessibilityHint("Answers \(watcher.name) on your Mac.")
+                .accessibilityHint(lit ? "What Return picks now. Answers \(watcher.name) on your Mac." : "Answers \(watcher.name) on your Mac.")
                 .accessibilityIdentifier("watch-answer-\(i)")
             }
-            HStack(spacing: 6) {
-                key(.escape, label: Text("Esc"), name: "Escape").fixedSize()
-                Button { watcher.showKeys() } label: {
-                    Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold)).frame(minHeight: Self.keyHeight)
+            HStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
+                    WatchCellDivider()
+                    Button { watcher.showKeys() } label: {
+                        Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(WatchCellStyle(inset: 16))
+                    .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
+                    .accessibilityIdentifier("watch-keys")
                 }
-                .nativeGlassButton()
-                .controlSize(.small)
+                .watchGlass(Capsule())
                 .fixedSize()
-                .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
-                .accessibilityIdentifier("watch-keys")
                 Spacer(minLength: 0)
                 ViewThatFits(in: .horizontal) {
                     WatchDragSwitch(watcher: watcher, style: .words).fixedSize()
@@ -608,16 +815,25 @@ struct WatchActions: View {
     }
 
     private func keyRow(_ style: WatchDragSwitch.Style) -> some View {
-        HStack(spacing: 6) {
-            // Esc keeps its word whole; the arrows and ··· give way first.
-            key(.escape, label: Text("Esc"), name: "Escape").fixedSize(horizontal: true, vertical: false)
-            key(.arrowUp, label: Image(systemName: "arrow.up"), name: "Up arrow")
-            key(.arrowDown, label: Image(systemName: "arrow.down"), name: "Down arrow")
-            key(.returnKey, label: Image(systemName: "return"), name: "Return")
-            if watcher.canPressKeys { moreKeys }
+        HStack(spacing: 8) {
+            HStack(spacing: 0) {
+                key(.escape, label: Text("Esc"), name: "Escape")
+                WatchCellDivider()
+                key(.arrowUp, label: Image(systemName: "arrow.up"), name: "Up arrow")
+                WatchCellDivider()
+                key(.arrowDown, label: Image(systemName: "arrow.down"), name: "Down arrow")
+                WatchCellDivider()
+                key(.returnKey, label: Image(systemName: "return"), name: "Return")
+                if watcher.canPressKeys {
+                    WatchCellDivider()
+                    moreKeys
+                }
+            }
+            .watchGlass(Capsule())
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Keys")
             WatchDragSwitch(watcher: watcher, style: style)
                 .fixedSize()
-                .padding(.leading, 4)
         }
     }
 
@@ -647,32 +863,54 @@ struct WatchActions: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: Self.keyHeight)
         }
-        .nativeGlassButton()
-        .controlSize(.small)
+        .buttonStyle(WatchCellStyle(tint: Ink.secondary))
         .accessibilityLabel("More keys")
         .accessibilityHint("Interrupt, Tab, Send, Undo, the arrows and more, pressed in \(watcher.name) on your Mac.")
         .accessibilityIdentifier("watch-more-keys")
     }
 
-    /// A key's label height: with the small glass button's own padding it comes out 44pt, the
-    /// same as the Pan | Scroll switch beside it (they were 35 next to its 44).
-    static let keyHeight: CGFloat = 38
-
-    private func key<L: View>(_ a: WatchAction, label: L, name: String) -> some View {
+    private func key<L: View>(_ a: WatchAction, label: L, name: String, inset: CGFloat = 0) -> some View {
         Button { watcher.perform(a) } label: {
             label
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, minHeight: Self.keyHeight)
+                .fixedSize(horizontal: true, vertical: false)
         }
-        .nativeGlassButton()
-        .controlSize(.small)
+        .buttonStyle(WatchCellStyle(inset: inset))
         .accessibilityLabel(name)
         .accessibilityHint("Presses \(name) in \(watcher.name) on your Mac.")
         .accessibilityIdentifier("watch-\(a.rawValue)")
+    }
+}
+
+/// An answer: glass, or — for the one Return would pick — filled with the window's light.
+private struct WatchAnswerStyle: ButtonStyle {
+    var lit: Bool
+    /// A capsule at one line; a two-line answer keeps the same corner instead of a bulging end.
+    static let shape = RoundedRectangle(cornerRadius: WatchLook.control / 2, style: .continuous)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = Self.shape
+        Group {
+            if lit {
+                configuration.label
+                    .background {
+                        shape.fill(Light.cyan)
+                            .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                            .shadow(color: Light.cyan.opacity(reduceTransparency ? 0 : 0.3), radius: 12, y: 4)
+                    }
+            } else {
+                configuration.label
+                    .background(shape.fill(WatchLook.press).opacity(configuration.isPressed ? 1 : 0))
+                    .watchGlass(shape)
+            }
+        }
+        .opacity(configuration.isPressed ? 0.85 : 1)
+        .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+        .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
