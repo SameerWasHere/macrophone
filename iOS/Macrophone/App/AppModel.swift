@@ -3,6 +3,7 @@ import Combine
 import Foundation
 import MacrophoneKit
 import SwiftUI
+import WidgetKit
 import UIKit
 
 /// What the status line under the mic says. Four states matter most (listening, sending,
@@ -204,6 +205,19 @@ final class AppModel: ObservableObject {
     private func saveTargets(_ list: [LiveTarget]) {
         if let d = try? JSONEncoder().encode(list) { try? d.write(to: AppFiles.targets, options: .atomic) }
         CachedTarget.save(list.map { CachedTarget(id: "app:\($0.bundleID)#\($0.windowKey ?? "")", name: $0.title) })
+        publishWidget()
+    }
+
+    /// The Watch widget's four apps: the newest window of each of the four apps used most
+    /// recently, with its icon and the ember mark when a chat there answered you. The widget
+    /// reloads only when that changes.
+    func publishWidget() {
+        var seen = Set<String>()
+        let apps = liveTargets.filter { seen.insert($0.bundleID).inserted }.prefix(WidgetApp.limit).map { t in
+            WidgetApp(id: "app:\(t.bundleID)#\(t.windowKey ?? "")", name: t.appName, icon: t.icon,
+                      needsYou: needsYou.contains { $0.bundleID == t.bundleID })
+        }
+        if WidgetApp.save(Array(apps)) { WidgetCenter.shared.reloadTimelines(ofKind: WidgetApp.kind) }
     }
 
     // MARK: Derived
@@ -692,6 +706,17 @@ final class AppModel: ObservableObject {
     // MARK: Pairing
 
     func handleURL(_ url: URL) {
+        // The Watch widget: macrophone://watch?target=app:<bundleID>#<window> watches that app's
+        // window (and sends there); macrophone://open just opens the app.
+        if url.scheme == "macrophone", url.host == "open" { return }
+        if url.scheme == "macrophone", url.host == "watch" {
+            let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "target" }?.value
+            guard let id, let sel = intentSelection(id, name: nil) else { return }
+            sheet = nil
+            log.add("widget: watching an app")
+            openAttention(sel.target)
+            return
+        }
         guard let invite = PairingInvite(url: url) else {
             log.add("ignored a link that isn't a pairing link")
             return
@@ -1270,7 +1295,7 @@ extension AppModel: LinkClientDelegate {
 
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {
         guard client === self.client else { return }
-        if self.needsYou != needsYou { self.needsYou = needsYou }
+        if self.needsYou != needsYou { self.needsYou = needsYou; publishWidget() }
     }
 
     /// The mark for one window or app, if it answered you.
@@ -1285,6 +1310,7 @@ extension AppModel: LinkClientDelegate {
     func clearNeeds(for ref: TargetRef) {
         guard case let .app(bid, key, _) = ref else { return }
         needsYou.removeAll { $0.bundleID == bid && (key == nil || $0.windowKey == key) }
+        publishWidget()
     }
 
     /// Alerts through iCloud are set up: say so in the next hello (the Mac then keeps looking

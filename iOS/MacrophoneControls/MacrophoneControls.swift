@@ -32,5 +32,6 @@ struct StartDictationControl: ControlWidget {
 struct MacrophoneControlsBundle: WidgetBundle {
     var body: some Widget {
         StartDictationControl()
+        WatchAppsWidget()
     }
 }
