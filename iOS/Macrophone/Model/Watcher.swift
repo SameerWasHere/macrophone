@@ -266,6 +266,8 @@ final class Watcher: ObservableObject {
         Haptics.tick()
         if fit != .normal { setFitLocally(.normal) }
         if wholeWindow { toggleWholeWindow() }
+        // Start from the whole window, not a zoom kept from its old shape.
+        if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
         say("\(name)'s window now has your iPhone's shape — all of it fits here")
         log?.add("watching: fit to iPhone")
     }

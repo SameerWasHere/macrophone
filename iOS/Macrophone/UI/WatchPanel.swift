@@ -876,6 +876,10 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         guard imageSize.width > 0, bounds.width > 0 else { return 1 }
         let fitWidth = bounds.width / imageSize.width
         let fillHeight = bounds.height / imageSize.height
+        // A window shaped like this view (Fit to iPhone gives it the view's own shape, square or
+        // not): all of it, never zoomed onto a part.
+        let shapeRatio = (imageSize.width / imageSize.height) / (bounds.width / max(1, bounds.height))
+        if abs(shapeRatio - 1) < 0.15 { return min(fitWidth, fillHeight) }
         // A window taller than it's wide (Aa's Larger and Largest make it about the phone's shape)
         // already fits the phone across: its whole width, never zoomed onto a bar inside it.
         if imageSize.height > imageSize.width * 1.1 { return fitWidth }
