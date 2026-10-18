@@ -1369,6 +1369,17 @@ extension AppModel: LinkClientDelegate {
         watcher.open(DesktopWatch.target)
     }
 
+    /// From the whole screen to the app in front's own window (and Send to with it).
+    func watchApp(_ front: FrontApp) {
+        Haptics.tick()
+        if let t = liveTargets.first(where: { $0.bundleID == front.bundleID }) {
+            pick(t.ref)
+            watcher.open(t.ref)
+        } else {
+            watcher.open(.app(bundleID: front.bundleID, windowKey: nil, name: front.name))
+        }
+    }
+
     // MARK: The clipboard, photos and files (Oct 18 2026)
 
     var canShareClipboard: Bool { client.canShareClipboard }

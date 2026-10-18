@@ -42,9 +42,13 @@ public struct WatchVideoFrame: Codable, Sendable {
     public var focus: CGRect?
     /// The question the window is asking, read off the window on the Mac (`WatchFrame.prompt`).
     public var prompt: WatchPrompt?
+    /// Watching the whole screen (DesktopWatch): the app in front, so the phone can go to its
+    /// window. Nil otherwise (an older Mac never sends it).
+    public var front: FrontApp?
 
     public init(seq: Int, data: Data, parameterSets: [Data]?, keyframe: Bool, width: Int, height: Int,
-                appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil) {
+                appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil, front: FrontApp? = nil) {
+        self.front = front
         self.seq = seq
         self.data = data
         self.parameterSets = parameterSets

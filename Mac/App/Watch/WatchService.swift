@@ -73,6 +73,8 @@ final class WatchService {
         var reading: Task<Void, Never>?
         /// Swipes, off the main thread.
         let poster: ScrollPoster
+        /// The whole screen: the app in front, as last told.
+        var lastFront: FrontApp?
         /// When the window was last seen in front: a swipe's steps skip the check for a moment
         /// (each one listed every window on the Mac, thirty times a second, on the thread that
         /// sends the pictures).
@@ -247,6 +249,11 @@ final class WatchService {
     private func run(_ w: Watch) async {
         while !Task.isCancelled, watches[w.peer] === w {
             let state = await look(w)
+            // The whole screen: the app in front goes with the frames (and on its own when it changed).
+            if w.windowID == WindowServer.desktopID {
+                let front = Self.frontApp()
+                if front != w.lastFront { w.lastFront = front; tellPipe(w); w.pipe?.sendWords() }
+            }
             if state != w.lastState {
                 w.lastState = state
                 if case .live(let name) = state { watching[w.peer] = name } else { watching[w.peer] = nil }
@@ -369,7 +376,17 @@ final class WatchService {
     }
 
     /// What each video frame carries, as of now.
-    private func words(_ w: Watch) -> VideoPipe.Words { .init(appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt) }
+    private func words(_ w: Watch) -> VideoPipe.Words {
+        .init(appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt,
+              front: w.windowID == WindowServer.desktopID ? Self.frontApp() : nil)
+    }
+
+    /// The app in front, not Macrophone.
+    static func frontApp() -> FrontApp? {
+        guard let f = NSWorkspace.shared.frontmostApplication, let bid = f.bundleIdentifier,
+              bid != Bundle.main.bundleIdentifier, f.activationPolicy == .regular else { return nil }
+        return FrontApp(bundleID: bid, name: f.localizedName ?? bid)
+    }
     private func tellPipe(_ w: Watch) { w.pipe?.set(words(w)) }
 
     // MARK: Pictures
@@ -815,7 +832,33 @@ final class WatchService {
     }
 
     func click(_ p: CGPoint, for peer: UUID) {
-        act(on: peer, what: "click") { wid in await Self.click(window: wid, at: p) }
+        act(on: peer, what: "click") { [weak self] wid in
+            if wid == WindowServer.desktopID, let b = WindowServer.bounds(of: wid) {
+                // The whole screen: the window under the finger comes forward first (some apps take
+                // a first click only to activate), then the click.
+                let pt = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
+                await Self.raiseWindow(at: pt)
+                await Self.click(at: pt)
+                if let self, let w = self.watches[peer] { self.tellPipe(w); w.pipe?.sendWords() }
+                return
+            }
+            await Self.click(window: wid, at: p)
+        }
+    }
+
+    /// The topmost app window at a point on screen, brought forward with its app.
+    private static func raiseWindow(at p: CGPoint) async {
+        guard let top = WindowServer.appWindows()
+                .filter({ $0.bounds.contains(p) && WindowServer.info($0.id)?.onScreen == true })
+                .min(by: { $0.z < $1.z }),
+              top.pid != ProcessInfo.processInfo.processIdentifier,
+              let app = NSRunningApplication(processIdentifier: top.pid) else { return }
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == top.pid,
+           WindowServer.appWindows().first(where: { $0.z == 0 })?.id == top.id { return }
+        let ax = AX.app(top.pid)
+        if let win = AX.window(in: ax, id: top.id) { AX.raise(win, app: ax) }
+        AX.bringToFront(app)
+        try? await Task.sleep(nanoseconds: 120_000_000)
     }
 
     /// Brings the watched window forward if it isn't already the front one, does `body`, and

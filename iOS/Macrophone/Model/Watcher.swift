@@ -161,6 +161,7 @@ final class Watcher: ObservableObject {
         if Self.isFitted(target), (switching || !isOpen) { drag = .scroll }
         // The whole screen opens fitted: all of it at once (pinch in for detail).
         if DesktopWatch.isDesktop(target), switching || !isOpen { wholeWindow = true }
+        if switching { front = nil }
         if switching {
             // The last window's picture stays on screen, dimmed, until the new one's first frame:
             // the viewer never tears down to an empty plate between two windows.
@@ -314,6 +315,8 @@ final class Watcher: ObservableObject {
     /// The whole screen (DesktopWatch): a Mac that can show it, and whether it's what's shown.
     var canWatchDesktop: Bool { macFeatures().contains(DesktopWatch.feature) }
     var isDesktop: Bool { DesktopWatch.isDesktop(target) }
+    /// On the whole screen: the app in front, from the Mac's frames.
+    @Published private(set) var front: FrontApp?
 
     /// The Mac presses keys beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…).
     var canPressKeys: Bool { macFeatures().contains(WatchKey.feature) }
@@ -507,6 +510,7 @@ final class Watcher: ObservableObject {
     func received(_ frame: WatchVideoFrame) {
         guard isOpen, !phase.isPaused else { return }
         // One count for pictures, frames and words: the first picture of a video watch is a JPEG.
+        if isDesktop, front != frame.front { front = frame.front }
         if frame.isWordsOnly {
             newestSeq = frame.seq
             words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt)

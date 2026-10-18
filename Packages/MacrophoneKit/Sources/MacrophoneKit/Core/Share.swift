@@ -90,3 +90,10 @@ public enum DesktopWatch {
     public static var target: TargetRef { .app(bundleID: bundleID, windowKey: nil, name: "Whole Screen") }
     public static func isDesktop(_ t: TargetRef?) -> Bool { t?.bundleID == bundleID }
 }
+
+/// The app in front on the Mac, named in each frame of the whole screen.
+public struct FrontApp: Codable, Sendable, Equatable {
+    public var bundleID: String
+    public var name: String
+    public init(bundleID: String, name: String) { self.bundleID = bundleID; self.name = name }
+}

@@ -435,6 +435,15 @@ struct WatchWindow: View {
                 .accessibilityHint("Back to the newest output, at the bottom of the window.")
                 .accessibilityIdentifier("watch-newest")
             }
+            // The whole screen: the app in front, a tap from its own window (tap a window on the
+            // screen to bring it forward, then here).
+            if interactive, watcher.isDesktop, watcher.phase == .live, let front = watcher.front {
+                WatchFrontChip(front: front)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .transition(.opacity)
+                    .id(front.bundleID)
+            }
             if let dragNote, interactive && watcher.phase == .live {
                 WatchNote(symbol: watcher.noteSymbol, words: dragNote)
                     .padding(.top, 10)
@@ -1588,5 +1597,31 @@ private struct LiveDot: UIViewRepresentable {
         } else if !breathing && running {
             v.layer.removeAnimation(forKey: "breathe")
         }
+    }
+}
+
+/// On the whole screen: "Watch Claude" — the app in front's own window, the usual watch view.
+private struct WatchFrontChip: View {
+    @EnvironmentObject var model: AppModel
+    let front: FrontApp
+
+    var body: some View {
+        Button { model.watchApp(front) } label: {
+            HStack(spacing: 7) {
+                if let icon = model.liveTargets.first(where: { $0.bundleID == front.bundleID })?.icon,
+                   let img = UIImage(data: icon) {
+                    Image(uiImage: img).resizable().frame(width: 20, height: 20)
+                } else {
+                    Image(systemName: "macwindow").font(.footnote.weight(.semibold))
+                }
+                Text("Watch \(front.name)").font(.footnote.weight(.semibold)).lineLimit(1)
+                Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
+            }
+        }
+        .buttonStyle(WatchCellStyle(inset: 12, height: 36))
+        .watchGlass(Capsule())
+        .accessibilityLabel("Watch \(front.name)'s window")
+        .accessibilityHint("Leaves the whole screen for \(front.name)'s window, and sends there.")
+        .accessibilityIdentifier("watch-front")
     }
 }
