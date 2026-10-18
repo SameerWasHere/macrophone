@@ -164,7 +164,10 @@ final class ServeDelegate: LinkServerDelegate {
          LiveTarget(bundleID: "com.apple.MobileSMS", appName: "Messages", icon: demoIcon("com.apple.MobileSMS", 128)),
          LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "claude — ~/app", windowKey: "41", icon: demoIcon("com.apple.Terminal", 128)),
          LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "codex — ~/api", windowKey: "42", icon: demoIcon("com.apple.Terminal", 128)),
-         LiveTarget(bundleID: "com.apple.Notes", appName: "Notes", icon: demoIcon("com.apple.Notes", 128))]
+         LiveTarget(bundleID: "com.apple.Notes", appName: "Notes", icon: demoIcon("com.apple.Notes", 128)),
+         // Open, with nowhere to type found: after the line (a phone naming "everyApp" only).
+         LiveTarget(bundleID: "com.apple.finder", appName: "Finder", icon: demoIcon("com.apple.finder", 128), canType: false),
+         LiveTarget(bundleID: "com.apple.Safari", appName: "Safari", icon: demoIcon("com.apple.Safari", 128), canType: false)]
     }
 
     // Watching: a drawn demo window per place, a frame each time it changes, with the question

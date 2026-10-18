@@ -19,9 +19,13 @@ public struct LiveTarget: Codable, Sendable, Identifiable, Hashable {
     public var icon: Data?
     /// When the person last used it on the Mac — the list is newest first.
     public var lastActive: Date?
+    /// False for an open app with no place to type found in it (Oct 18 2026, Sameer: "show every
+    /// open app, but put the apps where something can be entered first"). The words still go in
+    /// wherever he tapped into a text box there. Nil (an older Mac) means it has one.
+    public var canType: Bool?
 
     public init(bundleID: String, appName: String, windowTitle: String? = nil, windowKey: String? = nil,
-                icon: Data? = nil, lastActive: Date? = nil) {
+                icon: Data? = nil, lastActive: Date? = nil, canType: Bool? = nil) {
         self.id = windowKey.map { "\(bundleID)#\($0)" } ?? bundleID
         self.bundleID = bundleID
         self.appName = appName
@@ -29,7 +33,11 @@ public struct LiveTarget: Codable, Sendable, Identifiable, Hashable {
         self.windowKey = windowKey
         self.icon = icon
         self.lastActive = lastActive
+        self.canType = canType
     }
+
+    /// Has a place to type the Mac found (a message box, a terminal, a note).
+    public var typeable: Bool { canType != false }
 
     /// "Terminal — claude ~/app" for a window, "Claude" for an app.
     public var title: String {
@@ -38,6 +46,18 @@ public struct LiveTarget: Codable, Sendable, Identifiable, Hashable {
     }
 
     public var ref: TargetRef { .app(bundleID: bundleID, windowKey: windowKey, name: title) }
+}
+
+/// Every open app (Oct 18 2026): the Mac lists the apps with nowhere to type it could find too,
+/// after the ones with somewhere, to a phone naming this in its hello. An older phone gets only
+/// the ones with somewhere to type, as before.
+public enum EveryApp {
+    public static let feature = "everyApp"
+
+    /// The list as one phone should see it.
+    public static func list(_ targets: [LiveTarget], for features: Set<String>) -> [LiveTarget] {
+        features.contains(feature) ? targets : targets.filter(\.typeable)
+    }
 }
 
 /// Where the text goes.

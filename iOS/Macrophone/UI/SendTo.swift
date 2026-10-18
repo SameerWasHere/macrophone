@@ -85,7 +85,7 @@ struct SendToList: View {
                 if let missing = missingPick {
                     row(missing, icon: nil, subtitle: "Not open on your Mac — it'll be copied instead", dim: true)
                 }
-                if model.liveTargets.isEmpty {
+                if !model.liveTargets.contains(where: \.typeable) {
                     Text(model.isConnected
                          ? "Nothing with a place to type is open on \(model.macName) right now."
                          : "Open apps show here when \(model.macName) is connected.")
@@ -94,7 +94,7 @@ struct SendToList: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, 6)
                 }
-                ForEach(model.liveTargets) { t in
+                ForEach(model.liveTargets.filter(\.typeable)) { t in
                     row(t.ref, icon: t.icon, subtitle: t.windowTitle == nil ? sendNote(t.ref) : "A window of \(t.appName)" + (sendNote(t.ref).map { " · \($0)" } ?? ""))
                 }
             } header: {
@@ -103,6 +103,20 @@ struct SendToList: View {
                 Text(openFooter).padding(.top, 4)
             }
             .listRowBackground(Ink.raised)
+
+            // Every other open app (Oct 18 2026): no message box found, so the words go into
+            // whatever text box you tap there.
+            let others = model.liveTargets.filter { !$0.typeable }
+            if !others.isEmpty {
+                Section {
+                    ForEach(others) { t in row(t.ref, icon: t.icon, subtitle: "Pastes into the text box you tap") }
+                } header: {
+                    Kicker("Other open apps")
+                } footer: {
+                    Text("Tap into a text box in the app — on your Mac or while watching it here — then talk.").padding(.top, 4)
+                }
+                .listRowBackground(Ink.raised)
+            }
 
             if settings.selection.target.canSend {
                 Section {

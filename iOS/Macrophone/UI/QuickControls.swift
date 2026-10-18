@@ -37,6 +37,8 @@ struct PlaceOption: Identifiable, Equatable {
     var icon: Data?
     /// An app's windows with somewhere to type, newest first (two or more get a menu).
     var windows: [LiveTarget] = []
+    /// No place to type found in it: after the line, where the words go into the box you tap.
+    var canType = true
 
     func holds(_ t: TargetRef) -> Bool { target == t || windows.contains { t.matches($0) } }
 }
@@ -59,7 +61,7 @@ extension AppModel {
             if let i = index[t.bundleID] { out[i].windows.append(t); continue }
             index[t.bundleID] = out.count
             out.append(PlaceOption(id: "app:\(t.bundleID)", kind: .app, target: t.ref, name: t.appName,
-                                   shortName: t.appName, icon: t.icon, windows: [t]))
+                                   shortName: t.appName, icon: t.icon, windows: [t], canType: t.typeable))
         }
         return out
     }
@@ -75,6 +77,9 @@ enum Places {
         case .app: return send ? "Pastes into \(t.displayName), then sends" : "Pastes into \(t.displayName) — you press send"
         }
     }
+
+    /// For an app with no place to type found: where the words go.
+    static func tapFirst(_ name: String) -> String { "Pastes into the text box you tap in \(name)" }
 
     /// The app's own name for a target ("Terminal" for "Terminal — claude").
     @MainActor static func appName(_ t: TargetRef, in model: AppModel) -> String {
@@ -180,7 +185,11 @@ struct PlacesRow: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
-                        ForEach(places) { p in
+                        ForEach(Array(places.enumerated()), id: \.element.id) { i, p in
+                            // The apps with somewhere to type, then a line, then every other open app.
+                            if p.kind == .app, !p.canType, i > 0, places[i - 1].canType {
+                                OtherAppsRule(compact: compact)
+                            }
                             PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact,
                                         needs: model.isConnected ? model.needs(p) : nil,
                                         windowNeeds: { model.needs($0) != nil },
@@ -284,7 +293,11 @@ struct PlacesRow: View {
         guard t != model.selection.target else { return }
         Haptics.tick()
         withAnimation(Motion.pick(Motion.snap, reduce: reduceMotion)) { model.pick(t) }
-        model.explain(Places.sentence(for: t, send: model.selection.send))
+        if let live = model.liveTarget(for: t), !live.typeable {
+            model.explain(Places.tapFirst(live.appName))
+        } else {
+            model.explain(Places.sentence(for: t, send: model.selection.send))
+        }
     }
 }
 
@@ -361,6 +374,23 @@ private struct PlaceButton: View {
         if place.kind == .opening { s += ", opening on your Mac" }
         if let needs { s += needs.asking ? ", asking you something" : ", answered you" }
         return s
+    }
+}
+
+/// The line in the Send to row between the apps with somewhere to type and every other open app
+/// (Oct 18 2026). Those take the words in whatever text box you tap in them.
+private struct OtherAppsRule: View {
+    var compact = false
+
+    var body: some View {
+        Capsule()
+            .fill(Ink.line)
+            .frame(width: 1, height: compact ? 26 : 30)
+            .padding(.horizontal, 4)
+            .frame(height: compact ? 40 : 44)
+            .accessibilityElement()
+            .accessibilityLabel("Other open apps")
+            .accessibilityHint("These take your words in the text box you tap in them.")
     }
 }
 

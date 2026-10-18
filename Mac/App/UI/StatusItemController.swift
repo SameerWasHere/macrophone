@@ -350,7 +350,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if case .app = current, model.liveTarget(for: current) == nil { unlisted = current }
         let (inline, more) = arrangedTargets()
         if !inline.isEmpty || unlisted != nil {
-            for t in inline { rows.append(targetRow(t.ref, bundleID: t.bundleID)) }
+            for (i, t) in inline.enumerated() {
+                // The apps with nowhere to type found come after a line.
+                if i > 0, !t.typeable, inline[i - 1].typeable { rows.append(.separator()) }
+                rows.append(targetRow(t.ref, bundleID: t.bundleID))
+            }
             if let unlisted { rows.append(targetRow(unlisted, bundleID: unlisted.bundleID)) }
         } else {
             // Before the first scan finishes nothing can be said of the open apps.
@@ -383,7 +387,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func fillMoreApps(_ menu: NSMenu) {
         menu.removeAllItems()
-        for t in arrangedTargets().more { menu.addItem(targetRow(t.ref, bundleID: t.bundleID)) }
+        let more = arrangedTargets().more
+        for (i, t) in more.enumerated() {
+            if i > 0, !t.typeable, more[i - 1].typeable { menu.addItem(.separator()) }
+            menu.addItem(targetRow(t.ref, bundleID: t.bundleID))
+        }
     }
 
     private func sendAfterPastingItem() -> NSMenuItem {

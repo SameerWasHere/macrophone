@@ -37,7 +37,7 @@ enum Diagnostics {
             ("Paired phones", "\(model.peers.count) (\(model.connected.count) connected\(model.remotePeers.isEmpty ? "" : ", \(model.remotePeers.count) from away"))"),
             ("Remote access", model.settings.remoteAccess ? "on, port \(model.settings.remotePort), \(model.remoteAddresses.count) address(es), Tailscale \(model.tailscaleAddress == nil ? "not running" : "running")" : "off"),
             ("Send to", AppModel.kind(model.settings.selection)),
-            ("Apps with somewhere to type", "\(model.targets.count)"),
+            ("Apps with somewhere to type", "\(model.targets.filter(\.typeable).count) of \(model.targets.count) open"),
             ("Accessibility granted", model.accessibilityGranted ? "yes" : "no"),
             ("History", model.settings.historyEnabled ? "on (\(model.history.count) items)" : "off"),
         ]

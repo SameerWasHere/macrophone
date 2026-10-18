@@ -182,6 +182,11 @@ enum Paster {
               let win = window ?? AX.element(ax, kAXFocusedWindowAttribute) else { return }
         let rem = (hints.rememberedWindow == wid ? hints.rememberedElement : nil).flatMap { AX.isAlive($0) ? $0 : nil }
         let focused = AX.focused(in: ax)
+        if let tapped = tappedInput(focused, in: win) {
+            prepared = Prepared(pid: r.processIdentifier, windowID: wid ?? AX.windowID(win), composer: tapped,
+                                isDocument: isLarge(tapped, in: win), at: Date())
+            return
+        }
         let scan = await Task.detached(priority: .userInitiated) {
             ComposerFinder.scan(window: win, bundleID: bundleID, focused: focused, remembered: rem, timeLimit: 0.5)
         }.value
@@ -276,7 +281,11 @@ enum Paster {
                 // The input the person last typed in wins — but only while it's still a visible
                 // place to type in this window (a chat app may have moved on to another view).
                 let rem = remembered.flatMap { AX.isAlive($0) ? $0 : nil }
-                if let ready, AX.isAlive(ready.composer) {
+                if let tapped = tappedInput(focused, in: win) {
+                    // He tapped into a text box there (on the Mac, or on the phone's view of it):
+                    // the words go where the cursor is, whatever box that is (Oct 18 2026).
+                    box = tapped
+                } else if let ready, AX.isAlive(ready.composer) {
                     // Found while he was still talking: no walk now.
                     box = ready.composer
                     isDocument = ready.isDocument
@@ -388,6 +397,17 @@ enum Paster {
             if pb.changeCount == ours { saved.restore(to: pb) }
         }
         return result
+    }
+
+    /// The text box the cursor is in, in this window: he tapped or clicked into it. Any visible
+    /// input that takes text — a search box, an address bar, a form field — except a password
+    /// field. Nil when the cursor isn't in one there (then the message box is found instead).
+    static func tappedInput(_ focused: AXUIElement?, in window: AXUIElement?) -> AXUIElement? {
+        guard let f = focused, let window, AX.isTextInput(f), !AX.isSecure(f),
+              let fw = AX.window(of: f), CFEqual(fw, window) else { return nil }
+        let r = AX.frame(f), w = AX.frame(window)
+        guard r.width >= 16, r.height >= 8, !r.intersection(w).isNull else { return nil }
+        return f
     }
 
     /// An editor or document (most of the window), not a message box.

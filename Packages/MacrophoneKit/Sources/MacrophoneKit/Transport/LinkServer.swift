@@ -334,8 +334,11 @@ public final class LinkServer: @unchecked Sendable {
 
     /// Push the open apps/windows list to every connected phone.
     public func broadcastTargets(_ targets: [LiveTarget]) {
-        lock.lock(); let all = Array(sessions.values); lock.unlock()
-        for s in all { Task { try? await s.send(.targets(targets)) } }
+        let all: [(SecureSession, Set<String>)] = lock.sync { sessions.map { ($0.value, features[$0.key] ?? []) } }
+        for (s, f) in all {
+            let list = EveryApp.list(targets, for: f)
+            Task { try? await s.send(.targets(list)) }
+        }
     }
 
     /// Tell the phone that sent dictation `id` where it finally landed. If that phone has
@@ -553,7 +556,7 @@ public final class LinkServer: @unchecked Sendable {
                 }
                 let p = peer
                 try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion, features: macFeatures))
-                try await session.send(.targets(await targetsOnMain()))
+                try await session.send(.targets(EveryApp.list(await targetsOnMain(), for: Set(phoneFeatures ?? []))))
                 // Only a phone that named "remote" gets the addresses (an unknown message would end
                 // an older phone's session).
                 if phoneFeatures?.contains(RemoteAccess.feature) == true {

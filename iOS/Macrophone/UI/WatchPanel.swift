@@ -145,7 +145,12 @@ struct WatchPanel: View {
     /// Every window on the Mac's screen that isn't already one of the places above (Finder, a
     /// dialog, a pop-up — anything).
     private var otherWindows: [LiveTarget] {
-        model.everyWindow.filter { w in !sessions.contains { $0.bundleID == w.bundleID && ($0.windowKey == nil || $0.windowKey == w.windowKey) } }
+        model.everyWindow.filter { w in
+            // A listed window is in the list already; an app listed as a whole stands for its
+            // window only when that's its one window (its dialogs and panels stay here).
+            let alone = model.everyWindow.filter { $0.bundleID == w.bundleID }.count == 1
+            return !sessions.contains { $0.bundleID == w.bundleID && ($0.windowKey == w.windowKey || ($0.windowKey == nil && alone)) }
+        }
     }
 
     private var sessionMenu: some View {

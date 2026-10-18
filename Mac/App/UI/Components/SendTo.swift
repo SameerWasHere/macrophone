@@ -142,10 +142,16 @@ struct SendToPicker: View {
             row(.frontApp)
             if !model.targets.isEmpty || isUnlistedApp {
                 Divider()
-                ForEach(model.targets) { t in row(t.ref, bundleID: t.bundleID) }
+                ForEach(model.targets.filter(\.typeable)) { t in row(t.ref, bundleID: t.bundleID) }
                 if isUnlistedApp, case let .app(bid, _, _) = settings.selection.target {
                     row(settings.selection.target, bundleID: bid)
                 }
+            }
+            // Every other open app: the words go where he tapped into a text box there.
+            let others = model.targets.filter { !$0.typeable }
+            if !others.isEmpty {
+                Divider()
+                ForEach(others) { t in row(t.ref, bundleID: t.bundleID) }
             }
         }
         .labelsHidden()

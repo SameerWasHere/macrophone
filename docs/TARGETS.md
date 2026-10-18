@@ -19,6 +19,24 @@ Code: `Mac/App/Targets/` (`TargetScanner`, `ComposerFinder`, `WindowServer`, `Ap
 **Send to** · **Clipboard** · **Where I'm typing** · the open apps · **Send after pasting** on or
 off (the same words on the iPhone, in the Mac's menu bar and in its window).
 
+## Every open app (Oct 18 2026)
+
+Sameer: *"The send to screen should show every open app, but put the apps where something can be
+entered first in the list and all other apps at the end after a break line. When I'm in an app like
+Dia and tap into a text box then the mic should input there. That way I can use any app on my Mac."*
+
+- The list carries **every regular app with a window** (Macrophone aside — the "never listed" apps
+  below included). The ones with somewhere to type come first, as before; every other one follows
+  as one entry with `canType: false`, newest first. Only a phone naming `everyApp` in its hello
+  gets those (`EveryApp.list`); an older phone gets the list it always did.
+- **The box he tapped wins.** Delivery to an app (and the prepare while he talks) first takes the
+  app's focused text input in that window — any visible one but a password field, a search box
+  or an address bar included (`Paster.tappedInput`) — and only then finds the message box. He
+  taps into it on the Mac, or while watching it on the phone.
+- On the phone a thin line splits the Send to row; the picker has an "Other open apps" section;
+  picking one says "Pastes into the text box you tap in Dia". The whole-screen view sends to
+  Where I'm typing. The Mac's menu and picker carry the same line.
+
 ## Discovery — "has somewhere to type"
 
 A regular app (Dock app) is listed when one of its windows has a **composer**. Per window:

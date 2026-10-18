@@ -4,7 +4,9 @@ import Foundation
 import MacrophoneKit
 
 /// Knows every app (and window) open on this Mac that has somewhere to type, newest first —
-/// the list the iPhone picks from under Send to. docs/TARGETS.md has the rules.
+/// the list the iPhone picks from under Send to — and after them every other open app with a
+/// window (`canType: false`, Oct 18 2026: the words go wherever he tapped into a text box there).
+/// docs/TARGETS.md has the rules.
 ///
 /// Cost: it only runs while someone could look at the list (a phone is connected, or a
 /// Macrophone window or the menu is open). Then it's driven by events — apps launching, quitting
@@ -53,6 +55,8 @@ final class TargetScanner: @unchecked Sendable {
         /// No window seen yet, but it's an app that always has somewhere to type (a terminal) and
         /// it has a window on another desktop.
         var appLevel: Bool
+        /// Somewhere to type was found. False: an open app listed after the others, as one entry.
+        var canType = true
     }
 
     struct ScannedWindow: Sendable {
@@ -169,7 +173,7 @@ final class TargetScanner: @unchecked Sendable {
         let pid = app.processIdentifier
         queue.async {
             self.lastActive[bid] = Date()
-            guard self.active, self.apps[pid] != nil || self.isCandidate(bid) else { return }
+            guard self.active, self.apps[pid] != nil || self.isListed(bid) else { return }
             self.scheduleLocked(pid, after: 0.35)
         }
     }
@@ -246,8 +250,19 @@ final class TargetScanner: @unchecked Sendable {
 
     // MARK: Scanning (queue)
 
+    /// Looked through for somewhere to type.
     private func isCandidate(_ bundleID: String) -> Bool {
-        !bundleID.isEmpty && bundleID != ownBundleID && !bundleID.hasPrefix("com.sameer.macrophone") && !AppQuirks.excluded.contains(bundleID)
+        isListed(bundleID) && !AppQuirks.excluded.contains(bundleID)
+    }
+
+    /// On the list at all: any app with a window, except Macrophone.
+    private func isListed(_ bundleID: String) -> Bool {
+        !bundleID.isEmpty && bundleID != ownBundleID && !bundleID.hasPrefix("com.sameer.macrophone")
+    }
+
+    /// An open app with nowhere to type found: one entry, after the others.
+    private func plain(_ info: AppInfo) -> AppEntry {
+        AppEntry(info: info, windows: [], appLevel: false, canType: false)
     }
 
     @MainActor private static func runningApps() -> [AppInfo] {
@@ -276,23 +291,30 @@ final class TargetScanner: @unchecked Sendable {
         }
         let live = Set(infos.map(\.pid))
         for pid in apps.keys where !live.contains(pid) { terminated(pid) }
-        for info in infos where isCandidate(info.bundleID) {
-            if withWindows.contains(info.pid) {
+        for info in infos where isListed(info.bundleID) {
+            if !withWindows.contains(info.pid) {
+                apps[info.pid] = nil
+            } else if isCandidate(info.bundleID) {
                 scan(info, server: server)
             } else {
-                apps[info.pid] = nil
+                apps[info.pid] = plain(info)
             }
         }
         rebuild()
         if debugLog {
-            print("[targets] full scan \(Int(Date().timeIntervalSince(t0) * 1000)) ms, \(apps.count) apps with somewhere to type")
+            print("[targets] full scan \(Int(Date().timeIntervalSince(t0) * 1000)) ms, \(apps.values.filter(\.canType).count) apps with somewhere to type, \(apps.count) open")
             fflush(stdout)
         }
     }
 
     private func scanOne(_ info: AppInfo) {
-        guard isCandidate(info.bundleID) else { return }
-        scan(info, server: WindowServer.appWindows())
+        guard isListed(info.bundleID) else { return }
+        let server = WindowServer.appWindows()
+        if isCandidate(info.bundleID) {
+            scan(info, server: server)
+        } else {
+            apps[info.pid] = server.contains { $0.pid == info.pid } ? plain(info) : nil
+        }
         rebuild()
     }
 
@@ -349,7 +371,11 @@ final class TargetScanner: @unchecked Sendable {
         windowCache = windowCache.filter { $0.value.pid != pid || alive.contains($0.key) || seen.contains($0.key) }
         wins.sort { $0.z < $1.z }
         let appLevel = wins.isEmpty && (terminal || hidden) && !serverWins.isEmpty
-        if wins.isEmpty && !appLevel { apps[pid] = nil } else { apps[pid] = AppEntry(info: info, windows: wins, appLevel: appLevel) }
+        if wins.isEmpty && !appLevel {
+            apps[pid] = serverWins.isEmpty ? nil : plain(info)
+        } else {
+            apps[pid] = AppEntry(info: info, windows: wins, appLevel: appLevel)
+        }
         if debugLog {
             print("[targets] \(info.name): \(Int(Date().timeIntervalSince(t0) * 1000)) ms, \(wins.count) window(s)\(appLevel ? " (on another desktop)" : "")")
             debug.forEach { print("[targets]    \($0)") }
@@ -386,10 +412,13 @@ final class TargetScanner: @unchecked Sendable {
                                             icon: icon, lastActive: last), w.z))
                 }
             } else {
-                list.append((LiveTarget(bundleID: bid, appName: e.info.name, icon: icon, lastActive: last), e.windows.first?.z ?? 9999))
+                list.append((LiveTarget(bundleID: bid, appName: e.info.name, icon: icon, lastActive: last,
+                                        canType: e.canType ? nil : false), e.windows.first?.z ?? 9999))
             }
         }
         list.sort { a, b in
+            // The apps with somewhere to type first, then every other open app.
+            if a.0.typeable != b.0.typeable { return a.0.typeable }
             let la = a.0.lastActive ?? .distantPast, lb = b.0.lastActive ?? .distantPast
             if la != lb { return la > lb }
             if a.0.bundleID != b.0.bundleID { return a.0.appName.localizedCaseInsensitiveCompare(b.0.appName) == .orderedAscending }
@@ -399,10 +428,10 @@ final class TargetScanner: @unchecked Sendable {
     }
 
     private func schedulePublish(_ list: [LiveTarget]) {
-        let key = { (l: [LiveTarget]) in l.map { "\($0.id)|\($0.title)" } }
+        let key = { (l: [LiveTarget]) in l.map { "\($0.id)|\($0.title)|\($0.typeable)" } }
         let same = key(list) == key(published)
         if same && !forcePublish { return }
-        let added = Set(list.map(\.id)) != Set(published.map(\.id))
+        let added = Set(list.map { "\($0.id)|\($0.typeable)" }) != Set(published.map { "\($0.id)|\($0.typeable)" })
         pendingList = list
         publishWork?.cancel()
         // Apps opening or closing go out quickly; a new order or a retitled window can wait.
