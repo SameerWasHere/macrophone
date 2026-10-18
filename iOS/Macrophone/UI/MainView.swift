@@ -27,7 +27,26 @@ struct MainView: View {
     /// iPhone SE-class heights: a shorter stage and card; History lives in the top bar only.
     @State private var compact = false
 
-    private var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting }
+    private var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting || look == "starting" }
+
+    /// The mic has closed and the last words are settling (a tap waits for them).
+    private var isFinishing: Bool { recorder.phase == .finishing || look == "finishing" }
+
+    /// The mic can't open until a permission is turned on in Settings: the button says so and waits.
+    private var micOff: Bool {
+        if look == "disabled" { return true }
+        if case .problem(_, true) = model.status { return true }
+        return false
+    }
+
+    /// `MACROPHONE_MIC_LOOK` holds one of the button's looks for a screenshot (DEBUG only).
+    private var look: String? {
+        #if DEBUG
+        return DebugHooks.env["MACROPHONE_MIC_LOOK"]
+        #else
+        return nil
+        #endif
+    }
 
     /// The words stay on screen from the first word until the text has gone out.
     private var showLiveWords: Bool {
@@ -95,7 +114,9 @@ struct MainView: View {
                 // Room between the Thread and the mic.
                 Color.clear.frame(height: compact ? 14 : 30)
                 MicButton(recording: isRecording,
-                          busy: false,
+                          finishing: isFinishing,
+                          mode: filamentMode,
+                          disabled: micOff,
                           meter: recorder.meter,
                           onDown: pressDown,
                           onUp: pressUp,
@@ -243,7 +264,7 @@ struct MainView: View {
             Text(typeSize.isAccessibilitySize ? "A\nB\nC" : "A\nB").font(.subheadline).lineSpacing(0)
                 .frame(maxWidth: .infinity)
         } content: {
-            StatusLine(recorder: recorder, holding: holding)
+            StatusLine(recorder: recorder, holding: holding || look == "holding")
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
@@ -289,7 +310,7 @@ struct MainView: View {
 
     private func react() {
         settleTask?.cancel()
-        let mode: FilamentMode
+        var mode: FilamentMode
         if isRecording {
             mode = recorder.hasWords ? .live : .listening
         } else {
@@ -304,6 +325,16 @@ struct MainView: View {
             default: mode = recorder.phase == .finishing ? .sending : .ready
             }
         }
+        #if DEBUG
+        // A held look (screenshots): the Thread, the sky and the button all show it.
+        switch look {
+        case "sending", "finishing": mode = .sending
+        case "sent": mode = .delivered
+        case "queued": mode = .queued
+        case "error": mode = .error
+        default: break
+        }
+        #endif
         withAnimation(.easeInOut(duration: 0.2)) { filamentMode = mode }
         showCheck = (mode == .delivered)
         // A miss stays in view longer than a success.
@@ -311,7 +342,7 @@ struct MainView: View {
         if mode == .delivered || mode == .error || landedMiss {
             settleTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: mode == .delivered ? 2_600_000_000 : 6_000_000_000)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, look == nil else { return }
                 showCheck = false
                 if filamentMode == .delivered || filamentMode == .error || landedMiss { filamentMode = .ready }
             }

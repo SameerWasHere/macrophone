@@ -67,6 +67,16 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   (radii 14 / 18 / 22). Rules: glass carries controls, never the words (the transcript and header
   sit on the ground); a tinted pick's label is dark ink; Increase Contrast adds a firm 1pt edge.
   The mic is a disc inside the spectrum ring, ember while it listens (same size, never moves).
+- **The mic button (phone, Oct 18 2026, the polish pass — `UI/MicButton.swift`):** every state
+  reads on the button itself. Ready = ink glass, a specular rim, the spectrum ring. Pressed = the
+  disc sinks to 0.93 on the frame the finger lands (snap). Mic open = ember, the stop square, one
+  ring of light leaving; round it a lit rim, a soft bloom and a thin ring that breathes with the
+  voice through `VoiceDriver` — Core Animation, a display link only while the mic is open, nothing
+  at rest. Finishing (words settling) = a teal arc in the glyph's place. Then the ring takes the
+  meaning colour — teal sending, mint landed (a ring arrives into the button), ochre queued, rose
+  failed — for as long as the Thread shows it. Microphone off = dim, `mic.slash`, disabled until
+  Settings. Reduce Motion: no rings travel, a calm fixed glow; Reduce Transparency: a solid disc;
+  Increase Contrast: a firm 2pt ring. The hit target is the ring (104pt). Haptics unchanged.
 
 - **Watching (phone, Oct 14 2026; what it is now — the header cluster, the Window menu, Text, the tips — is the map at the top of `CLAUDE.md`, Oct 18 2026):** the picked app's window, live, in the area above the Thread
   (the mic, the Thread and the status line don't move). It opens by itself after a dictation is

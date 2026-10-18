@@ -73,6 +73,37 @@ on my phone". What this pass found and changed, all in `UI/WatchPanel.swift` / `
   accessibility sizes (capped at xLarge — it sat across the Thread). Settings' Send after
   pasting says what the speed pass made true: a moment to cancel only when you're at the Mac.
 
+## The mic button (Oct 18 2026, the polish pass — iOS only)
+
+Sameer: "perfect the mic button on the iPhone. Give it polish and quality." What fell short: the
+button carried no state beyond ink/ember (sent, queued, error and sending all looked like Ready),
+the live halo was a raw-level SwiftUI gradient re-rendered at 30 fps (jittery, a blurred blob), the
+landing showed nothing on the button, there was no finishing or microphone-off look, the hit
+target was ~86 pt, and VoiceOver knew two states. Now, in `UI/MicButton.swift` (the mechanics —
+touch-down start, tap vs hold decided at release, the 0.3 s threshold, the cancelled-touch reset,
+the haptics in `AppModel` — are untouched):
+- **The ring carries the meaning** (`mode: FilamentMode`, the same state the Thread and the sky
+  read): spectrum at rest, gone while the mic is open, teal sending, mint landed, ochre queued,
+  rose failed. `finishing` (the recorder's `.finishing`) shows a teal arc where the glyph was —
+  a tap waits for the words. `disabled` (a `.problem` that needs Settings: mic or speech
+  permission) dims it to `mic.slash` and `.disabled` — iOS relaunches the app when that
+  permission changes, so it never stays stale.
+- **The light is Core Animation** (`MicLightView`, the Filament's pattern): a lit rim, a bloom and
+  a thin ring that breathes with `VoiceDriver`'s smoothed level; a display link only while the mic
+  is open (60 fps, 30 in Low Power Mode), nothing at rest; the ring that leaves as the mic opens
+  and the one that arrives as a dictation lands are one-shot `CAAnimationGroup`s. Reduce Motion:
+  no link, a fixed glow, no travelling rings. Measured on the simulator with the Mac's mic
+  (`MACROPHONE_MIC_ONLY=1 MACROPHONE_RECORD=8 MACROPHONE_MIC_TIMING=1`): 486 frames at 60 fps,
+  **37 µs median main-thread per frame, p95 63 µs**, one 3.4 ms outlier (the first frame); the
+  whole process while recording read the same before and after (the Thread and the transcript
+  dominate it). Before, the halo was a `TimelineView` re-rendering a SwiftUI gradient 30× a second.
+- **Accessibility:** a label and hint per state (Start dictation · Stop and send · Finishing
+  dictation · Microphone off — the UI tests key on the first two), the activate action, the Large
+  Content Viewer, `MACROPHONE_A11Y=motion,transparency,contrast` for the three settings the
+  simulator can't flip live (the button alone honours it), `MACROPHONE_TYPE=accessibility3`.
+- Hooks: `MACROPHONE_MIC_LOOK=pressed|holding|starting|finishing|sending|sent|queued|error|disabled`
+  holds a look (the Thread and sky follow); the SE frame is `MACROPHONE_FRAME=375x667`.
+
 ## Layout
 
 | Path | What |

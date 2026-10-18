@@ -395,8 +395,9 @@ private struct OnboardingTest: View {
                 }
             }
             .frame(height: 110)
-            Filament(mode: recording ? .live : (worked ? .delivered : (model.processing ? .sending : .ready)), meter: recorder.meter, height: 100)
-            MicButton(recording: recording, busy: false, meter: recorder.meter,
+            let mode: FilamentMode = recording ? .live : (worked ? .delivered : (model.processing ? .sending : .ready))
+            Filament(mode: mode, meter: recorder.meter, height: 100)
+            MicButton(recording: recording, finishing: recorder.phase == .finishing, mode: mode, meter: recorder.meter,
                       onDown: {
                           if recording { stopOnRelease = true; startedByPress = false }
                           else { startedByPress = true; holding = true; Task { await model.startRecording() } }

@@ -70,13 +70,15 @@ struct RootView: View {
     @ViewBuilder private var mainView: some View {
         let main = MainView(recorder: recorder, watcher: model.watcher)
         #if DEBUG
+        // MACROPHONE_TYPE: the app at that Dynamic Type size.
+        let sized = main.transformEnvironment(\.dynamicTypeSize) { if let t = DebugHooks.typeSize { $0 = t } }
         if let size = DebugHooks.frame {
             // A smaller phone's screen, to check the compact layout on this simulator.
-            main.safeAreaPadding(.top, 20)
+            sized.safeAreaPadding(.top, 20)
                 .frame(width: size.width, height: size.height)
                 .border(Ink.line)
         } else {
-            main
+            sized
         }
         #else
         main

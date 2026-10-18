@@ -55,7 +55,30 @@ import UIKit
 ///                                            (what tapping an alert does), fit@larger|largest|normal (Aa)
 /// MACROPHONE_VIDEO=0                         a phone from before video: the Mac sends pictures (to compare the two)
 /// MACROPHONE_FRAME=375x667                   the mic screen in a smaller phone's frame (an SE: compact < 700pt) on this simulator
+/// MACROPHONE_MIC_LOOK=pressed|holding|starting|finishing|sending|sent|queued|error|disabled
+///                                            holds one of the mic button's looks (the Thread and the sky follow; holding
+///                                            pairs with MACROPHONE_FAKE_RECORDING for "let go to send")
+/// MACROPHONE_A11Y=motion,transparency,contrast  the mic button as under Reduce Motion / Reduce Transparency / Increase
+///                                            Contrast (the simulator can't flip those live; the button alone honours this)
+/// MACROPHONE_TYPE=xxxLarge|accessibility1…5  the whole app at that Dynamic Type size
+/// MACROPHONE_MIC_TIMING=1                    prints the mic light's main-thread cost per frame when the mic closes
 enum DebugHooks {
+    /// `MACROPHONE_TYPE`, as a Dynamic Type size.
+    static var typeSize: DynamicTypeSize? {
+        switch env["MACROPHONE_TYPE"] {
+        case "large": return .large
+        case "xLarge": return .xLarge
+        case "xxLarge": return .xxLarge
+        case "xxxLarge": return .xxxLarge
+        case "accessibility1": return .accessibility1
+        case "accessibility2": return .accessibility2
+        case "accessibility3": return .accessibility3
+        case "accessibility4": return .accessibility4
+        case "accessibility5": return .accessibility5
+        default: return nil
+        }
+    }
+
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
 
