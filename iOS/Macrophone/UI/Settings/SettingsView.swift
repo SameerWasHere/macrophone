@@ -56,46 +56,63 @@ struct SettingsView: View {
 
     // MARK: Send to (the same choice as the quick controls by the mic)
 
+    // Each switch explains itself in its own row (the three explanations used to run together
+    // as one nine-line footer, Oct 18 2026); the footer keeps the one fact about all of them.
     private var sendToSection: some View {
-        Section {
+        let target = settings.selection.target
+        return Section {
             NavigationLink(value: SettingsRoute.sendTo) {
-                HStack(spacing: 12) {
-                    TargetIcon(target: settings.selection.target, icon: model.liveTarget(for: settings.selection.target)?.icon, size: 28)
-                    LabeledContent("Send to", value: settings.selection.target.displayName)
+                LabeledContent {
+                    Text(target.displayName)
+                } label: {
+                    HStack(spacing: 12) {
+                        TargetIcon(target: target, icon: model.liveTarget(for: target)?.icon, size: 28)
+                        Text("Send to")
+                    }
                 }
             }
             Toggle(isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
-                iconLabel("Send after pasting", systemImage: settings.selection.send ? "paperplane.fill" : "paperplane")
+                row("Send after pasting", symbol: settings.selection.send ? "paperplane.fill" : "paperplane", tint: Light.cyan,
+                    detail: target.canSend
+                        ? "Your Mac presses the app's send key after pasting, after a short countdown you can cancel."
+                        : "\(target.displayName) can't send — sending after pasting is for apps.")
             }
-            .disabled(!settings.selection.target.canSend)
+            .disabled(!target.canSend)
             Toggle(isOn: $settings.watchAfterSending) {
-                iconLabel("Show the app after sending", systemImage: "eye")
+                row("Show the app after sending", symbol: "eye", tint: Light.teal,
+                    detail: "Your iPhone shows that app's window live, so you can read the answer, tap to click, swipe to scroll, and press Esc, the arrows or Return. Only that window, and only while you look.")
             }
             Toggle(isOn: $settings.agentAlerts) {
-                iconLabel("Tell me when an agent asks something", systemImage: "bell.badge")
+                row("Tell me when an agent asks something", symbol: "bell.badge", tint: Light.ember,
+                    detail: "When an agent on your Mac stops to ask something while Macrophone is open here, you get a notification; tap it to answer.")
             }
             .onChange(of: settings.agentAlerts) { _, on in
                 Task { if on { await AgentAlerts.shared.askIfNeeded() } else { await AgentAlerts.shared.unsubscribeInCloud() } }
             }
         } header: {
-            Text("Send to")
+            Kicker("Send to")
         } footer: {
-            Text((settings.selection.target.canSend
-                 ? "Your Mac presses the app's send key after pasting, after a short countdown you can cancel. The choice is the same on your Mac: change it in either place."
-                 : "\(settings.selection.target.displayName) can't send — sending after pasting is for apps. The choice is the same on your Mac: change it in either place.")
-                 + " After sending, your iPhone shows that app's window live, so you can read the answer, tap to click, swipe to scroll, and press Esc, the arrows or Return. Only that window, and only while you look."
-                 + " When an agent on your Mac stops to ask something while Macrophone is open here, you get a notification; tap it to answer.")
+            Text("The choice is the same on your Mac: change it in either place.")
         }
         .listRowBackground(Ink.raised)
     }
 
-    /// A row's symbol in the same 28pt column as the Send to icon above it, so the labels of the
-    /// section line up (they started at four different places, Oct 18 2026).
-    private func iconLabel(_ title: String, systemImage: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage).foregroundStyle(Light.cyan).frame(width: 28).accessibilityHidden(true)
-            Text(title).fixedSize(horizontal: false, vertical: true)
+    /// A row's title led by its mark — a symbol on a tinted plate in the same 28pt column as
+    /// the Send to icon, so every label in Settings starts at one x — and, under it, one line
+    /// of what the row does.
+    private func row(_ title: String, symbol: String, tint: Color, detail: String? = nil) -> some View {
+        HStack(alignment: detail == nil ? .center : .top, spacing: 12) {
+            GlyphPlate(symbol: symbol, tint: tint)
+                .padding(.top, detail == nil ? 0 : 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                if let detail {
+                    Text(detail).font(.footnote).foregroundStyle(Ink.tertiary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.vertical, detail == nil ? 0 : 4)
     }
 
     // MARK: Cleanup
@@ -123,14 +140,18 @@ struct SettingsView: View {
             }
             .padding(.vertical, 6)
             NavigationLink(value: SettingsRoute.customCleanup) {
-                LabeledContent("Custom instructions", value: model.customInstructionsEdited ? "Your own" : "Default")
+                LabeledContent { Text(model.customInstructionsEdited ? "Your own" : "Default") } label: {
+                    row("Custom instructions", symbol: "text.quote", tint: Light.violet)
+                }
             }
             .accessibilityIdentifier("custom-instructions-link")
             NavigationLink(value: SettingsRoute.dictionary) {
-                LabeledContent("Dictionary", value: "\(settings.dictionary.count) of \(DictionaryPass.maxTerms)")
+                LabeledContent { Text("\(settings.dictionary.count) of \(DictionaryPass.maxTerms)") } label: {
+                    row("Dictionary", symbol: "character.book.closed", tint: Light.gold)
+                }
             }
         } header: {
-            Text("Cleanup")
+            Kicker("Cleanup")
         } footer: {
             Text("Cleanup runs on this iPhone with Apple's on-device model. The raw words are always one tap away.")
         }
@@ -142,9 +163,11 @@ struct SettingsView: View {
     private var recordingSection: some View {
         Section {
             NavigationLink(value: SettingsRoute.language) {
-                LabeledContent("Language", value: Languages.displayName(settings.language))
+                LabeledContent { Text(Languages.displayName(settings.language)) } label: {
+                    row("Language", symbol: "globe", tint: Light.cyan)
+                }
             }
-            Toggle("Stop when I stop talking", isOn: $settings.autoStop)
+            Toggle(isOn: $settings.autoStop) { row("Stop when I stop talking", symbol: "ear", tint: Light.teal) }
             if settings.autoStop {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -161,7 +184,7 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Recording")
+            Kicker("Recording")
         } footer: {
             Text("Tap the button to start and tap again to send, or hold it while you talk and let go to send. Quiet only counts after you've started talking. One dictation can run up to 10 minutes.")
         }
@@ -173,11 +196,13 @@ struct SettingsView: View {
     private var macSection: some View {
         Section {
             if let mac = model.pairedMac {
-                LabeledContent("Paired Mac") {
+                LabeledContent {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(mac.name).foregroundStyle(Ink.ink)
                         Text(connectionWord).font(.caption).foregroundStyle(connectionColor)
                     }
+                } label: {
+                    row("Paired Mac", symbol: "laptopcomputer", tint: connectionColor == Ink.tertiary ? Light.cyan : connectionColor)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Paired Mac")
@@ -186,7 +211,7 @@ struct SettingsView: View {
                     .foregroundStyle(Light.rose)
             } else {
                 NavigationLink(value: SettingsRoute.pairing) {
-                    Label("Pair Your Mac", systemImage: "qrcode.viewfinder")
+                    row("Pair Your Mac", symbol: "qrcode.viewfinder", tint: Light.cyan)
                 }
             }
             let field = TextField("iPhone", text: $name)
@@ -199,12 +224,12 @@ struct SettingsView: View {
                 .accessibilityLabel("This iPhone's name")
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("This iPhone's name")
+                    row("This iPhone's name", symbol: "iphone", tint: Light.violet)
                     field
                 }
             } else {
                 HStack {
-                    Text("This iPhone's name")
+                    row("This iPhone's name", symbol: "iphone", tint: Light.violet)
                     Spacer()
                     field.multilineTextAlignment(.trailing)
                 }
@@ -214,7 +239,7 @@ struct SettingsView: View {
                     .foregroundStyle(Light.cyan)
             }
         } header: {
-            Text("Mac")
+            Kicker("Mac")
         } footer: {
             Text("What your Mac calls this iPhone. It shows next to each dictation, and your Mac picks up a new name the next time this iPhone connects.")
         }
@@ -253,22 +278,30 @@ struct SettingsView: View {
     private var awaySection: some View {
         Section {
             if let route = model.linkRoute {
-                LabeledContent("Connected now") { Text(route.short).foregroundStyle(Ink.ink) }
-                    .accessibilityLabel("Connected now: \(route.words)")
+                LabeledContent { Text(route.short).foregroundStyle(Ink.ink) } label: {
+                    row("Connected now", symbol: MacPill.symbol(route), tint: Light.cyan)
+                }
+                .accessibilityLabel("Connected now: \(route.words)")
             }
             // Whether this iPhone is on a Tailscale network right now: it has a Tailscale address.
-            LabeledContent("Tailscale on this iPhone") {
+            LabeledContent {
                 Text(TailscaleHere.isOn ? "On" : "Not on").foregroundStyle(TailscaleHere.isOn ? Ink.ink : Light.ochre)
+            } label: {
+                row("Tailscale on this iPhone", symbol: "network.badge.shield.half.filled", tint: TailscaleHere.isOn ? Light.mint : Light.ochre)
             }
             if let ts = model.macToldAddresses.first(where: \.isTailscale) {
-                LabeledContent("Over Tailscale") {
+                LabeledContent {
                     Text(ts.display).font(.system(.body, design: .monospaced)).foregroundStyle(Ink.ink)
                         .lineLimit(1).minimumScaleFactor(0.7)
+                } label: {
+                    row("Over Tailscale", symbol: "laptopcomputer", tint: Light.cyan)
                 }
             } else if let a = model.macToldAddresses.first {
-                LabeledContent("From your Mac") {
+                LabeledContent {
                     Text(a.display).font(.system(.body, design: .monospaced)).foregroundStyle(Ink.ink)
                         .lineLimit(1).minimumScaleFactor(0.7)
+                } label: {
+                    row("From your Mac", symbol: "laptopcomputer", tint: Light.cyan)
                 }
             } else {
                 Text("Your Mac hasn't shared an address yet. Turn on Remote access in Macrophone on your Mac (Devices), then connect here at home once.")
@@ -286,12 +319,12 @@ struct SettingsView: View {
                 .accessibilityLabel("Your Mac's address from away")
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Or type its address")
+                    row("Or type its address", symbol: "keyboard", tint: Light.violet)
                     field
                 }
             } else {
                 HStack {
-                    Text("Or type its address")
+                    row("Or type its address", symbol: "keyboard", tint: Light.violet)
                     Spacer()
                     field.multilineTextAlignment(.trailing)
                 }
@@ -302,7 +335,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         } header: {
-            Text("Away from home")
+            Kicker("Away from home")
         } footer: {
             Text("""
             When your Mac isn't nearby, this iPhone reaches it through Tailscale — free, and still no server of ours.
@@ -329,12 +362,14 @@ struct SettingsView: View {
 
     private var historySection: some View {
         Section {
-            Toggle("Keep history", isOn: Binding(get: { settings.historyEnabled }, set: { model.setHistoryEnabled($0) }))
+            Toggle(isOn: Binding(get: { settings.historyEnabled }, set: { model.setHistoryEnabled($0) })) {
+                row("Keep history", symbol: "clock.arrow.circlepath", tint: Light.gold)
+            }
             Button("Clear History", role: .destructive) { confirmClear = true }
                 .foregroundStyle(Light.rose)
                 .disabled(model.historyItems.isEmpty)
         } header: {
-            Text("History")
+            Kicker("History")
         } footer: {
             Text("The last 50 dictations, on this iPhone only. Clearing them doesn't touch your Mac's history.")
         }
@@ -349,17 +384,23 @@ struct SettingsView: View {
     private var aboutSection: some View {
         Section {
             NavigationLink(value: SettingsRoute.diagnostics) {
-                Label("Share Diagnostics", systemImage: "stethoscope")
+                row("Share Diagnostics", symbol: "stethoscope", tint: Light.teal)
             }
             Link(destination: Product.website) {
-                LabeledContent("Website") {
+                LabeledContent {
                     Text(Product.macDownloadDisplay).foregroundStyle(Light.cyan)
+                } label: {
+                    row("Website", symbol: "safari", tint: Light.cyan)
                 }
             }
             .foregroundStyle(Ink.ink)
-            LabeledContent("Version", value: "\(Bundle.main.shortVersion) (\(Bundle.main.buildNumber))")
+            LabeledContent {
+                Text("\(Bundle.main.shortVersion) (\(Bundle.main.buildNumber))")
+            } label: {
+                row("Version", symbol: "info.circle", tint: Ink.secondary)
+            }
         } header: {
-            Text("About")
+            Kicker("About")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Speech is transcribed on this iPhone. No audio is kept. Nothing leaves your devices — at home or away, it travels straight to your Mac.")

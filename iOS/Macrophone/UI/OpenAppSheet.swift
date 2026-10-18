@@ -60,7 +60,7 @@ struct OpenAppSheet: View {
                 }
             }
             .background(Ink.ground)
-            .navigationTitle("Open an app")
+            .navigationTitle("Open an App")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your Mac's apps")
             .toolbar {

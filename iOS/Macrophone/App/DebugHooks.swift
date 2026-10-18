@@ -9,6 +9,7 @@ import UIKit
 ///
 /// MACROPHONE_RESET=1                         clear settings, history, queue (not pairings)
 /// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto|custom|settings-custom|openapp
+///                                            (sendto: Settings › Send to, the full list of places)
 /// MACROPHONE_OPEN_APP=<name>                 with SCREEN=openapp: then open that app from the list
 ///                                            (custom: the Custom cleanup editor from the mic screen; settings-custom: from Settings)
 /// MACROPHONE_ONBOARDING_STEP=0…6             which setup step to open on
@@ -106,6 +107,7 @@ enum DebugHooks {
         case "language": return [.language]
         case "diagnostics": return [.diagnostics]
         case "settings-custom": return [.customCleanup]
+        case "sendto": return [.sendTo]
         default: return []
         }
     }
@@ -200,7 +202,7 @@ enum DebugHooks {
         }
         switch env["MACROPHONE_SCREEN"] {
         case "history": model.sheet = .history
-        case "settings", "dictionary", "language", "diagnostics", "settings-custom": model.sheet = .settings
+        case "settings", "dictionary", "language", "diagnostics", "settings-custom", "sendto": model.sheet = .settings
         case "custom": model.sheet = .customCleanup
         case "openapp":
             // After the Mac connects, so the list is real (mpctl serve sends a sample list).

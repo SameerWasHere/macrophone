@@ -97,7 +97,7 @@ struct SendToList: View {
                     row(t.ref, icon: t.icon, subtitle: t.windowTitle == nil ? sendNote(t.ref) : "A window of \(t.appName)" + (sendNote(t.ref).map { " · \($0)" } ?? ""))
                 }
             } header: {
-                Text("Open on \(model.macName)")
+                Kicker("Open on \(model.macName)")
             } footer: {
                 Text(openFooter).padding(.top, 4)
             }
@@ -114,7 +114,7 @@ struct SendToList: View {
                     }
                     .accessibilityIdentifier("picker-send")
                 } header: {
-                    Text("For \(settings.selection.target.displayName)")
+                    Kicker("For \(settings.selection.target.displayName)")
                 } footer: {
                     Text("Your Mac presses the app's send key after pasting, after a short countdown you can cancel. Remembered for each place.")
                 }
