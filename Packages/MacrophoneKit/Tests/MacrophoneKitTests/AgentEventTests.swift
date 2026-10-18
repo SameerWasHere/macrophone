@@ -44,5 +44,14 @@ final class AgentEventTests: XCTestCase {
         XCTAssertEqual(WatchKey.controlC.glyph, "⌃C")
         XCTAssertEqual(WatchKey.shiftTab.glyph, "⇧⇥")
         XCTAssertEqual(WatchKey.commandReturn.name, "Command-Return")
+        XCTAssertEqual(WatchKey("z", command: true, shift: true).glyph, "⇧⌘Z")
+        XCTAssertEqual(WatchKey("z", command: true, shift: true).title, "Redo")
+    }
+
+    func testEveryMenuKeyHasItsOwnWordsAndKeys() {
+        let all = WatchKey.sections.flatMap(\.keys) + WatchKey.digits
+        XCTAssertEqual(Set(all.map(\.id)).count, all.count, "a key twice")
+        let titled = WatchKey.sections.flatMap(\.keys)
+        XCTAssertEqual(Set(titled.map(\.title)).count, titled.count, "two keys read the same")
     }
 }

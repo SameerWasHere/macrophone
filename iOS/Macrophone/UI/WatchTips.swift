@@ -35,7 +35,7 @@ struct WatchTip: Identifiable, Equatable {
                                  detail: "Pan moves your view. Scroll moves the window on your Mac with one finger — two fingers still pan.")
     static let keys = WatchTip(id: "keys", symbol: "ellipsis",
                                title: "More keys",
-                               detail: "Control-C, Tab, Command-Return and more are behind ··· beside Return.")
+                               detail: "Interrupt, Undo, Send, the arrows and more are behind ··· beside Return.")
 }
 
 enum WatchTips {

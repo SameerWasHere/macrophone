@@ -621,15 +621,28 @@ struct WatchActions: View {
         }
     }
 
-    /// ⌃C, Tab, ⇧Tab, ⌘Return, ⌘Z, Space, Delete and the digits, from a menu (a Mac that can).
+    /// More keys, from a menu (a Mac that can): what each does, with its keys under it, by section;
+    /// the digits as one row at the foot.
     private var moreKeys: some View {
         Menu {
-            ForEach(WatchKey.menu) { k in
-                Button { watcher.press(k) } label: {
-                    Text("\(k.glyph)   \(k.name)")
-                    if let hint = k.hint { Text(hint) }
+            ForEach(WatchKey.sections) { section in
+                Section(section.title) {
+                    ForEach(section.keys) { k in
+                        Button { watcher.press(k) } label: {
+                            Text(k.title)
+                            Text(k.glyph)
+                        }
+                        .accessibilityLabel("\(k.title), \(k.name)")
+                    }
                 }
-                .accessibilityLabel(k.name)
+            }
+            Section("Numbers") {
+                ControlGroup {
+                    ForEach(WatchKey.digits) { k in
+                        Button(k.glyph) { watcher.press(k) }.accessibilityLabel(k.key)
+                    }
+                }
+                .controlGroupStyle(.compactMenu)
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -639,7 +652,7 @@ struct WatchActions: View {
         .nativeGlassButton()
         .controlSize(.small)
         .accessibilityLabel("More keys")
-        .accessibilityHint("Control-C, Tab, Command-Return and more, pressed in \(watcher.name) on your Mac.")
+        .accessibilityHint("Interrupt, Tab, Send, Undo, the arrows and more, pressed in \(watcher.name) on your Mac.")
         .accessibilityIdentifier("watch-more-keys")
     }
 

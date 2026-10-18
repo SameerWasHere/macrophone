@@ -600,6 +600,9 @@ final class WatchService {
         if k.shift { flags.insert(.maskShift) }
         if k.control { flags.insert(.maskControl) }
         if k.option { flags.insert(.maskAlternate) }
+        // Arrows and the page keys carry the flags a real keyboard gives them.
+        if ["left", "right", "up", "down"].contains(k.key) { flags.formUnion([.maskNumericPad, .maskSecondaryFn]) }
+        if ["pageup", "pagedown", "home", "end", "forwarddelete"].contains(k.key) { flags.insert(.maskSecondaryFn) }
         act(on: peer, what: k.key == "return" ? "key-return" : "key") { _ in Keys.press(code, flags: flags) }
     }
 
@@ -610,7 +613,19 @@ final class WatchService {
         case "space": return CGKeyCode(kVK_Space)
         case "delete": return CGKeyCode(kVK_Delete)
         case "escape": return CGKeyCode(kVK_Escape)
+        case "forwarddelete": return CGKeyCode(kVK_ForwardDelete)
+        case "left": return CGKeyCode(kVK_LeftArrow)
+        case "right": return CGKeyCode(kVK_RightArrow)
+        case "up": return CGKeyCode(kVK_UpArrow)
+        case "down": return CGKeyCode(kVK_DownArrow)
+        case "pageup": return CGKeyCode(kVK_PageUp)
+        case "pagedown": return CGKeyCode(kVK_PageDown)
+        case "home": return CGKeyCode(kVK_Home)
+        case "end": return CGKeyCode(kVK_End)
+        case "a": return CGKeyCode(kVK_ANSI_A)
         case "c": return CGKeyCode(kVK_ANSI_C)
+        case "l": return CGKeyCode(kVK_ANSI_L)
+        case "v": return CGKeyCode(kVK_ANSI_V)
         case "z": return CGKeyCode(kVK_ANSI_Z)
         case "1": return CGKeyCode(kVK_ANSI_1)
         case "2": return CGKeyCode(kVK_ANSI_2)

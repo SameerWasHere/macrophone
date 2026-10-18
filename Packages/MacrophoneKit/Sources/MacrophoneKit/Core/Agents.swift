@@ -152,12 +152,14 @@ public struct AgentEvent: Codable, Sendable, Equatable {
     }
 }
 
-/// Keys beyond Esc, the arrows and Return (Oct 17 2026): ⌃C to stop a runaway command, Tab and
-/// ⇧Tab, ⌘Return, ⌘Z, Space, Delete and the digits — pressed in the watched window. A key with
-/// its modifiers, by name, so a newer phone's key never breaks an older Mac: one it doesn't know,
-/// it ignores. Only to a Mac whose welcome names the feature.
+/// Keys beyond Esc, the arrows and Return (Oct 17 2026; sections Oct 18 — Sameer: "redundant with
+/// repeated words ... add more common key strokes"). A key with its modifiers, by name, so a newer
+/// phone's key never breaks an older Mac: one it doesn't know, it ignores. The menu says what each
+/// does ("Interrupt", "New line") with the keys under it (⌃C, ⇧↩). Only to a Mac whose welcome
+/// names the feature.
 public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
-    /// "c", "tab", "return", "z", "space", "delete", "1"…"9".
+    /// "c", "tab", "return", "z", "space", "delete", "left", "right", "up", "down", "pageup",
+    /// "pagedown", "1"…"9" — the Mac's `WatchService.keyCode` knows each.
     public var key: String
     public var command: Bool
     public var shift: Bool
@@ -172,7 +174,7 @@ public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
         self.option = option
     }
 
-    public var id: String { (control ? "⌃" : "") + (option ? "⌥" : "") + (shift ? "⇧" : "") + (command ? "⌘" : "") + key }
+    public var id: String { glyph }
 
     public static let feature = "keys"
 
@@ -185,25 +187,73 @@ public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
     public static let delete = WatchKey("delete")
     public static func digit(_ n: Int) -> WatchKey { WatchKey(String(n)) }
 
-    /// The phone's menu of keys, in order.
-    public static let menu: [WatchKey] = [.controlC, .tab, .shiftTab, .commandReturn, .commandZ, .space, .delete,
-                                          .digit(1), .digit(2), .digit(3)]
+    /// One section of the phone's menu.
+    public struct Section: Identifiable, Sendable {
+        public var title: String
+        public var keys: [WatchKey]
+        public var id: String { title }
+    }
 
-    /// What it shows on its key: "⌃C", "⇧⇥", "⌘↩".
+    /// The phone's menu, by what you're doing; the digits last, as one row.
+    public static let sections: [Section] = [
+        Section(title: "Agents & Terminal", keys: [.controlC, .shiftTab, .tab, WatchKey("l", control: true)]),
+        Section(title: "Typing", keys: [.commandReturn, WatchKey("return", shift: true), .space, .delete, WatchKey("delete", option: true)]),
+        Section(title: "Edit", keys: [.commandZ, WatchKey("z", command: true, shift: true), WatchKey("a", command: true),
+                                      WatchKey("c", command: true), WatchKey("v", command: true)]),
+        Section(title: "Move", keys: [WatchKey("left"), WatchKey("right"), WatchKey("pageup"), WatchKey("pagedown"),
+                                      WatchKey("up", command: true), WatchKey("down", command: true)]),
+    ]
+    public static let digits: [WatchKey] = (1...4).map(digit)
+
+    /// What it does, in a word or two — the menu's line.
+    public var title: String {
+        switch (key, command, shift, control, option) {
+        case ("c", false, false, true, false): return "Interrupt"
+        case ("tab", false, true, false, false): return "Switch Mode"
+        case ("tab", false, false, false, false): return "Tab"
+        case ("l", false, false, true, false): return "Clear Screen"
+        case ("return", true, false, false, false): return "Send"
+        case ("return", false, true, false, false): return "New Line"
+        case ("space", _, _, _, _): return "Space"
+        case ("delete", false, false, false, true): return "Delete Word"
+        case ("delete", _, _, _, _): return "Delete"
+        case ("z", true, false, false, false): return "Undo"
+        case ("z", true, true, false, false): return "Redo"
+        case ("a", true, false, false, false): return "Select All"
+        case ("c", true, false, false, false): return "Copy"
+        case ("v", true, false, false, false): return "Paste"
+        case ("left", false, false, false, false): return "Left"
+        case ("right", false, false, false, false): return "Right"
+        case ("pageup", _, _, _, _): return "Page Up"
+        case ("pagedown", _, _, _, _): return "Page Down"
+        case ("up", true, false, false, false): return "To the Top"
+        case ("down", true, false, false, false): return "To the Bottom"
+        default: return name
+        }
+    }
+
+    /// The keys, as on a Mac's menus: "⌃C", "⇧⌘Z", "⇧↩".
     public var glyph: String {
         let mods = (control ? "⌃" : "") + (option ? "⌥" : "") + (shift ? "⇧" : "") + (command ? "⌘" : "")
         let k: String
         switch key {
+        // U+FE0E: drawn as text, never as an emoji (iOS turns a bare ↩ into a blue box).
         case "tab": k = "⇥"
-        case "return": k = "↩"
-        case "space": k = "Space"
+        case "return": k = "↩\u{FE0E}"
+        case "space": k = "␣"
         case "delete": k = "⌫"
+        case "left": k = "←\u{FE0E}"
+        case "right": k = "→\u{FE0E}"
+        case "up": k = "↑\u{FE0E}"
+        case "down": k = "↓\u{FE0E}"
+        case "pageup": k = "⇞"
+        case "pagedown": k = "⇟"
         default: k = key.uppercased()
         }
         return mods + k
     }
 
-    /// Its name in words, for the menu and VoiceOver: "Control-C", "Shift-Tab".
+    /// Its keys in words, for VoiceOver: "Control-C", "Shift-Command-Z".
     public var name: String {
         var parts: [String] = []
         if control { parts.append("Control") }
@@ -216,21 +266,16 @@ public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
         case "return": k = "Return"
         case "space": k = "Space"
         case "delete": k = "Delete"
+        case "left": k = "Left Arrow"
+        case "right": k = "Right Arrow"
+        case "up": k = "Up Arrow"
+        case "down": k = "Down Arrow"
+        case "pageup": k = "Page Up"
+        case "pagedown": k = "Page Down"
         default: k = key.uppercased()
         }
         parts.append(k)
         return parts.joined(separator: "-")
-    }
-
-    /// What it does, where that's worth a line in the menu.
-    public var hint: String? {
-        switch self {
-        case .controlC: return "Stops what's running in a terminal"
-        case .shiftTab: return "Switches modes in Claude Code"
-        case .commandReturn: return "Sends in many chat apps"
-        case .commandZ: return "Undo"
-        default: return nil
-        }
     }
 }
 
