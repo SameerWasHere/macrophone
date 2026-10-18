@@ -183,7 +183,8 @@ struct PlacesRow: View {
                         ForEach(places) { p in
                             PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact,
                                         needs: model.isConnected ? model.needs(p) : nil,
-                                        windowNeeds: { model.needs($0) != nil }) { pick($0) }
+                                        windowNeeds: { model.needs($0) != nil },
+                                        onWatch: { watch(current) }) { pick($0) }
                                 .id(p.id)
                         }
                         // Any app on the Mac, open or not (Open an app).
@@ -267,6 +268,13 @@ struct PlacesRow: View {
         .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
     }
 
+    /// The picked place tapped again: show its window (an app, or Where I'm typing, while connected).
+    private func watch(_ t: TargetRef) {
+        guard t != .clipboard, model.isConnected, !model.isNotOpen(t) else { return }
+        Haptics.tick()
+        model.watcher.open(t)
+    }
+
     private func pick(_ t: TargetRef) {
         guard t != model.selection.target else { return }
         Haptics.tick()
@@ -285,13 +293,16 @@ private struct PlaceButton: View {
     /// One of its windows answered you: the mark on its icon.
     var needs: NeedsYou?
     var windowNeeds: (LiveTarget) -> Bool = { _ in false }
+    /// The place already picked, tapped again: its window, live (Oct 18 2026, Sameer).
+    var onWatch: () -> Void = {}
     var onPick: (TargetRef) -> Void
 
     var body: some View {
         Button {
             // An app already picked keeps its window; otherwise the one that answered you, else its newest.
-            if let n = needs, let w = place.windows.first(where: n.concerns) { onPick(w.ref) }
+            if let n = needs, let w = place.windows.first(where: n.concerns), !current.matches(w) { onPick(w.ref) }
             else if !place.holds(current) { onPick(place.target) }
+            else { onWatch() }
         } label: {
             // Icons only (Oct 18 2026, Sameer: "remove the sub text entirely and just show the App
             // logos in the selector for a cleaner look"): the picked place's name is the line above,

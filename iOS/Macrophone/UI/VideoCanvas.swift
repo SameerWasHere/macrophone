@@ -67,8 +67,11 @@ final class VideoCanvas: UIView {
         guard let format else { return false }
         let renderer = displayLayer.sampleBufferRenderer
         if renderer.status == .failed {
+            // iOS fails the decoder when the app leaves the screen. Reset it — and a keyframe still
+            // goes in now (it was dropped here before, and the picture then waited seconds for the
+            // next one).
             renderer.flush()
-            return false
+            guard frame.keyframe else { return false }
         }
         let n = frame.data.count
         var block: CMBlockBuffer?
@@ -94,6 +97,12 @@ final class VideoCanvas: UIView {
     }
 
     /// A new watch, or pictures instead: the picture goes and the next keyframe starts over.
+    /// A watch starting: a decoder iOS failed while the app was away is reset before frames come.
+    func ready() {
+        let renderer = displayLayer.sampleBufferRenderer
+        if renderer.status == .failed { renderer.flush() }
+    }
+
     func clear() {
         format = nil
         lastSets = nil

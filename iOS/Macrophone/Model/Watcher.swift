@@ -205,6 +205,7 @@ final class Watcher: ObservableObject {
         framePathMicros = []
         awaitingFirstPicture = true
         askedAt = Date()
+        video.ready()
         macCanFit = macFeatures().contains(WatchVideo.fitFeature)
         macCanScroll = macFeatures().contains(WatchScroll.feature)
         phase = !hasPicture || stale ? .starting : phase == .live ? .live : .starting
@@ -545,12 +546,24 @@ final class Watcher: ObservableObject {
     private static let timing = ProcessInfo.processInfo.environment["MACROPHONE_WATCH_TIMING"] == "1"
     #endif
 
-    /// Asks the Mac for a frame that stands on its own, at most once a second.
+    /// Asks the Mac for a frame that stands on its own, at most once a second — and never drops
+    /// the ask: one within the second goes when it's up, and it's asked again each second until a
+    /// frame that stands on its own arrives (Oct 18 2026: a dropped ask on a still window, which
+    /// sends nothing new, left the window black for 4–6 seconds).
     private func askKeyframe() {
-        guard Date().timeIntervalSince(keyframeAskedAt) > 1 else { return }
-        keyframeAskedAt = Date()
-        _ = sendKeyframe()
+        let wait = 1 - Date().timeIntervalSince(keyframeAskedAt)
+        if wait <= 0 {
+            keyframeAskedAt = Date()
+            _ = sendKeyframe()
+        }
+        keyframeRetry?.cancel()
+        keyframeRetry = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(wait, 1) * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.isOpen, !self.phase.isPaused, self.waitingForKeyframe else { return }
+            self.askKeyframe()
+        }
     }
+    private var keyframeRetry: Task<Void, Never>?
 
     /// Each published change re-renders every view watching this; only what changed is set.
     private func show(_ img: UIImage, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, bytes: Int, how: String) {
