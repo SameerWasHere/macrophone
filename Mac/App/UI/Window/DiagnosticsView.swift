@@ -68,20 +68,26 @@ struct DiagnosticsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
             }
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Ink.sunk))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Ink.sunk))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+            .accessibilityLabel("The diagnostics log")
             HStack(spacing: 10) {
                 Button(copied ? "Copied" : "Copy") {
                     Clipboard.copyPlain(text); copied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
                 }
-                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                .buttonStyle(PillButtonStyle(tint: copied ? Light.mint : Ink.ink, filled: false))
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .help("Copy the whole log  ⇧⌘C")
                 Spacer()
-                Button("Close", action: close).buttonStyle(.borderless).keyboardShortcut(.cancelAction)
+                Button("Close", action: close)
+                    .buttonStyle(PillButtonStyle(tint: Ink.secondary, filled: false))
+                    .keyboardShortcut(.cancelAction)
                 Button("Save…") { save() }
                     .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                    .keyboardShortcut("s", modifiers: .command)
+                    .help("Save the log as a text file  ⌘S")
                 ShareButton(text: text, fileName: fileName)
-                    .frame(width: 92, height: 28)
             }
         }
         .padding(.horizontal, 24).padding(.bottom, 20)
@@ -104,30 +110,40 @@ struct DiagnosticsView: View {
     }
 }
 
-/// The system share menu (Mail, Messages, AirDrop…), sharing the log as a .txt file.
-struct ShareButton: NSViewRepresentable {
+/// The system share menu (Mail, Messages, AirDrop…), sharing the log as a .txt file. The
+/// window's primary pill; the picker hangs off an invisible AppKit view under it.
+struct ShareButton: View {
     let text: String
     let fileName: String
+    @State private var anchor = ViewAnchor()
 
-    func makeNSView(context: Context) -> NSButton {
-        let b = NSButton(title: "Share…", target: context.coordinator, action: #selector(Coordinator.share(_:)))
-        b.bezelStyle = .rounded
-        b.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: nil)
-        b.imagePosition = .imageLeading
-        b.keyEquivalent = "\r"
-        return b
+    var body: some View {
+        Button { share() } label: { Label("Share…", systemImage: "square.and.arrow.up") }
+            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+            .keyboardShortcut(.defaultAction)
+            .background(ViewAnchorHost(anchor: anchor))
+            .help("Send the log by Mail, Messages, AirDrop…")
     }
 
-    func updateNSView(_ b: NSButton, context: Context) { context.coordinator.parent = self }
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    final class Coordinator: NSObject {
-        var parent: ShareButton
-        init(parent: ShareButton) { self.parent = parent }
-        @objc func share(_ sender: NSButton) {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent(parent.fileName)
-            try? parent.text.write(to: url, atomically: true, encoding: .utf8)
-            NSSharingServicePicker(items: [url]).show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-        }
+    private func share() {
+        guard let v = anchor.view else { return }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+        NSSharingServicePicker(items: [url]).show(relativeTo: v.bounds, of: v, preferredEdge: .minY)
     }
+}
+
+/// A handle on the AppKit view behind a SwiftUI control (to hang a picker or a popover off).
+final class ViewAnchor {
+    weak var view: NSView?
+}
+
+struct ViewAnchorHost: NSViewRepresentable {
+    let anchor: ViewAnchor
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        anchor.view = v
+        return v
+    }
+    func updateNSView(_ v: NSView, context: Context) { anchor.view = v }
 }

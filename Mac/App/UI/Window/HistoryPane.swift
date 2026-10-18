@@ -6,6 +6,7 @@ struct HistoryPane: View {
     @ObservedObject var settings: Settings
     @State private var query = ""
     @State private var confirmClear = false
+    @FocusState private var searchFocused: Bool
 
     private var items: [HistoryItem] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -21,21 +22,31 @@ struct HistoryPane: View {
         PanePage {
             PaneHeader(title: "History", subtitle: "Your last 50 dictations. They stay on this Mac — separate from your iPhone's history.")
 
-            HStack(spacing: 12) {
+            HStack(spacing: Space.gap) {
                 HStack(spacing: 7) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Ink.tertiary).font(.system(size: 12))
+                        .accessibilityHidden(true)
                     TextField("Search dictations", text: $query)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
+                        .focused($searchFocused)
+                        .accessibilityLabel("Search dictations")
                     if !query.isEmpty {
-                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Ink.tertiary) }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Clear search")
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(Ink.tertiary)
+                                .frame(width: 18, height: 18).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.cancelAction)
+                        .help("Clear the search")
+                        .accessibilityLabel("Clear search")
                     }
                 }
                 .padding(.horizontal, 10).padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Ink.raised))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Ink.well))
+                .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.lineStrong, lineWidth: 1))
+                .fieldFocusRing(searchFocused)
+                .onTapGesture { searchFocused = true }
 
                 Toggle("Keep history", isOn: $settings.historyEnabled)
                     .toggleStyle(.switch)
@@ -47,6 +58,7 @@ struct HistoryPane: View {
                 Button("Clear All…") { confirmClear = true }
                     .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
                     .disabled(model.history.isEmpty)
+                    .help("Delete every dictation kept on this Mac")
                     .confirmationDialog("Clear all history on this Mac?", isPresented: $confirmClear) {
                         Button("Clear All", role: .destructive) { model.clearHistory() }
                     } message: {
@@ -57,14 +69,18 @@ struct HistoryPane: View {
             if !settings.historyEnabled {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "eye.slash").foregroundStyle(Light.ochre)
+                        .frame(width: 20)
+                        .accessibilityHidden(true)
                     Text("History is off. Nothing is saved to disk; tools using the API can still read the latest dictation until Macrophone quits.")
                         .font(.system(size: 12.5)).foregroundStyle(Ink.secondary)
+                        .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Light.ochre.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Light.ochre.opacity(0.22), lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).fill(Light.ochre.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(Light.ochre.opacity(0.22), lineWidth: 1))
+                .accessibilityElement(children: .combine)
             }
 
             if items.isEmpty {
@@ -77,21 +93,20 @@ struct HistoryPane: View {
                                    onDelete: { model.deleteHistoryItem(item.id) })
                     }
                 }
+                .animation(Motion.reduceMotion ? nil : Motion.depart, value: items.map(\.id))
             }
         }
     }
 
     private var empty: some View {
-        VStack(spacing: 14) {
+        EmptyState(title: query.isEmpty ? (settings.historyEnabled ? "Nothing yet" : "History is off") : "No matches",
+                   detail: query.isEmpty
+                       ? (settings.historyEnabled ? "Dictate on your iPhone — it shows up here, newest first."
+                                                  : "Turn Keep history on and the next dictation shows up here.")
+                       : "Nothing here says “\(query.trimmingCharacters(in: .whitespaces))”. Try other words.") {
             FilamentView(peak: 0.15, thick: 1.6, tint: Ink.tertiary, glow: 0.3)
                 .frame(width: 160, height: 24)
-            Text(query.isEmpty ? (settings.historyEnabled ? "Nothing yet" : "History is off") : "No matches")
-                .font(Typeface.serif(18)).foregroundStyle(Ink.secondary)
-            Text(query.isEmpty ? "Dictate on your iPhone — it shows up here, newest first." : "Try other words.")
-                .font(.system(size: 12.5)).foregroundStyle(Ink.tertiary)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
     }
 }
 
@@ -128,6 +143,7 @@ struct HistoryRow: View {
                     .controlSize(.small)
                     .fixedSize()
                     .help("Raw is exactly what was heard; Cleaned is what was delivered.")
+                    .accessibilityLabel("Version shown")
                 }
                 Button {
                     Clipboard.copyPlain(shown)
@@ -174,11 +190,14 @@ struct HistoryRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 13)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Ink.raised.opacity(hover ? 0.95 : 0.72)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+        .padding(.horizontal, Space.inset).padding(.vertical, 13)
+        .background(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).fill(Ink.raised.opacity(hover ? 0.95 : 0.72)))
+        .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(hover ? Ink.lineStrong : Ink.line, lineWidth: 1))
         .onHover { hover = $0 }
+        .animation(Motion.reduceMotion ? nil : .easeOut(duration: 0.15), value: hover)
         .contextMenu { menuItems }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Dictation, \(timeLabel), \(item.profileName)")
     }
 
     @ViewBuilder private var menuItems: some View {

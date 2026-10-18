@@ -309,17 +309,32 @@ private struct FadeFoot: View {
     }
 }
 
+/// The popup's two pills: the one thing to do, filled; the way out, outlined. Hover lifts a
+/// step (the panel tracks the pointer though it is never key).
 struct PopupButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary }
     var kind: Kind
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(kind == .primary ? Ink.ground : Ink.ink)
-            .padding(.horizontal, 13).padding(.vertical, 5.5)
-            .background(Capsule().fill(kind == .primary ? Ink.ink.opacity(configuration.isPressed ? 0.75 : 0.94)
-                                                         : Ink.ink.opacity(configuration.isPressed ? 0.16 : 0.07)))
-            .overlay(Capsule().strokeBorder(kind == .primary ? Color.clear : Ink.lineHeavy, lineWidth: 1))
-            .contentShape(Capsule())
+        PillBody(configuration: configuration, kind: kind)
+    }
+
+    private struct PillBody: View {
+        let configuration: Configuration
+        let kind: Kind
+        @State private var hover = false
+        var body: some View {
+            let pressed = configuration.isPressed
+            configuration.label
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(kind == .primary ? Ink.ground : Ink.ink)
+                .padding(.horizontal, 13).padding(.vertical, 5.5)
+                .background(Capsule().fill(kind == .primary ? Ink.ink.opacity(pressed ? 0.75 : (hover ? 1 : 0.94))
+                                                             : Ink.ink.opacity(pressed ? 0.16 : (hover ? 0.11 : 0.07))))
+                .overlay(Capsule().strokeBorder(kind == .primary ? Color.clear : Ink.lineHeavy, lineWidth: 1))
+                .contentShape(Capsule())
+                .contentShape(.focusEffect, Capsule())
+                .onHover { hover = $0 }
+                .animation(Motion.reduceMotion ? nil : .easeOut(duration: 0.12), value: hover)
+        }
     }
 }

@@ -30,6 +30,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         w.isMovableByWindowBackground = true
         w.isReleasedWhenClosed = false
         super.init(window: w)
+        AppMenu.installIfNeeded()
         nav.firstRun = !model.settings.hasCompletedSetup
         w.contentView = NSHostingView(rootView: SetupView(model: model, nav: nav, settings: model.settings,
                                                           finish: { [weak self] in self?.finish() }))
@@ -77,6 +78,13 @@ struct SetupView: View {
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
 
+            // First run walks three screens: say where you are.
+            if nav.firstRun {
+                StepDots(current: stepIndex, count: 3)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 14)
+            }
+
             if let req = model.codeRequest {
                 Color.black.opacity(0.55).ignoresSafeArea().transition(.opacity)
                 CodeApproval(request: req, answer: { model.answerCode($0) })
@@ -94,6 +102,32 @@ struct SetupView: View {
 
     private func skip() {
         if nav.firstRun { nav.step = .login } else { finish() }
+    }
+
+    private var stepIndex: Int {
+        switch nav.step {
+        case .pair, .paired: return 0
+        case .login: return 1
+        case .modes: return 2
+        }
+    }
+}
+
+/// Three quiet dots at the top of a first run; the current one is lit.
+struct StepDots: View {
+    let current: Int
+    let count: Int
+    var body: some View {
+        HStack(spacing: 7) {
+            ForEach(0..<count, id: \.self) { i in
+                Capsule()
+                    .fill(i == current ? Light.cyan : Ink.ink.opacity(i < current ? 0.45 : 0.18))
+                    .frame(width: i == current ? 18 : 6, height: 6)
+            }
+        }
+        .animation(Motion.reduceMotion ? nil : Motion.settle, value: current)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(current + 1) of \(count)")
     }
 }
 
@@ -256,7 +290,8 @@ struct ModesStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("Where dictations go").font(Typeface.serif(28)).foregroundStyle(Ink.ink).padding(.top, 52)
+            Spacer()
+            Text("Where dictations go").font(Typeface.serif(30)).foregroundStyle(Ink.ink)
             Text("Pick it on your iPhone under Send to — or here. It's one choice, shared.")
                 .font(.system(size: 13.5)).foregroundStyle(Ink.secondary).padding(.top, 8)
             SendToCard(model: model, settings: settings, compact: true)

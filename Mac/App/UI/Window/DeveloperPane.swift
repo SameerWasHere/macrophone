@@ -83,23 +83,33 @@ struct DeveloperPane: View {
                 }
                 PlateDivider()
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
+                    HStack(spacing: Space.gap) {
+                        Image(systemName: "key").font(.system(size: 14, weight: .medium)).foregroundStyle(Ink.secondary)
+                            .frame(width: 22).accessibilityHidden(true)
                         Text("Token").font(.system(size: 13, weight: .medium)).foregroundStyle(Ink.ink)
                         Spacer()
-                        Button(reveal ? "Hide" : "Show") { reveal.toggle() }.buttonStyle(.borderless)
-                        Button("Regenerate…") { confirmRegenerate = true }.buttonStyle(.borderless)
+                        Button(reveal ? "Hide" : "Show") { reveal.toggle() }
+                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                            .help(reveal ? "Mask the token" : "Show the whole token")
+                        Button("Regenerate…") { confirmRegenerate = true }
+                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                            .help("Make a new token; the old one stops working")
                             .confirmationDialog("Make a new token?", isPresented: $confirmRegenerate) {
                                 Button("Regenerate", role: .destructive) { model.regenerateToken() }
                             } message: {
                                 Text("Anything using the old token stops working. The mp command and the MCP server pick up the new one by themselves.")
                             }
                     }
-                    CodePlate(text: reveal ? model.apiToken : masked, copyText: model.apiToken)
-                    Text("The mp command and the MCP server read it from ~/Library/Application Support/Macrophone/api.json, which only you can open.")
-                        .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 8) {
+                        CodePlate(text: reveal ? model.apiToken : masked, copyText: model.apiToken, copyLabel: "Copy")
+                            .accessibilityLabel(reveal ? "API token" : "API token, masked")
+                        Text("The mp command and the MCP server read it from ~/Library/Application Support/Macrophone/api.json, which only you can open.")
+                            .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.leading, 22 + Space.gap)
                 }
-                .padding(16)
+                .padding(.horizontal, Space.inset).padding(.vertical, 13)
                 PlateDivider()
                 PlateRow(title: "Command-line tool", subtitle: cliLine,
                          subtitleColor: cliStatus == .installed ? Light.mint : Ink.tertiary,
@@ -112,12 +122,12 @@ struct DeveloperPane: View {
                 }
                 if let cliMessage {
                     Text(cliMessage).font(.system(size: 11.5)).foregroundStyle(Light.rose)
-                        .padding(.horizontal, 16).padding(.bottom, 12)
+                        .padding(.leading, PlateDivider.rowInset).padding(.trailing, Space.inset).padding(.bottom, 12)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Hook it up")
+            PaneSection("Hook it up") {
                 Plate {
                     VStack(alignment: .leading, spacing: 16) {
                         snippet("curl — the latest dictation", CodePlate(text: curl(reveal ? model.apiToken : masked), copyText: curl(model.apiToken)))
@@ -134,12 +144,13 @@ struct DeveloperPane: View {
                         """))
                         Text("In a terminal: mp prints the latest, mp wait waits for the next, mp list shows recent ones. Agents get two MCP tools: get_latest_dictation and wait_for_dictation.")
                             .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                            .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
-                        Link("Read the API docs", destination: Product.docs)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Light.teal)
+                        Link(destination: Product.docs) { Label("Read the API docs", systemImage: "book") }
+                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                            .accessibilityLabel("Read the API docs on the web")
                     }
-                    .padding(16)
+                    .padding(Space.inset)
                 }
             }
         }

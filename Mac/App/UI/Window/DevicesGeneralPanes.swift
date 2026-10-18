@@ -15,48 +15,47 @@ struct DevicesPane: View {
 
     var body: some View {
         PanePage {
-            HStack(alignment: .bottom) {
-                PaneHeader(title: "Devices", subtitle: "iPhones paired with this Mac. They talk directly over your network — no account, no server.")
-                Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair iPhone…", systemImage: "qrcode") }
-                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: model.peers.isEmpty))
-                    .padding(.bottom, 2)
+            PaneHeader(title: "Devices", subtitle: "iPhones paired with this Mac. They talk directly over your network — no account, no server.") {
+                if !model.peers.isEmpty {
+                    Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair iPhone…", systemImage: "qrcode") }
+                        .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                        .help("Show a code to scan with another iPhone")
+                }
             }
 
             if model.peers.isEmpty {
-                VStack(spacing: 14) {
-                    Image(systemName: "iphone.gen3").font(.system(size: 34, weight: .light)).foregroundStyle(Ink.tertiary)
-                    Text("No iPhone yet").font(Typeface.serif(18)).foregroundStyle(Ink.secondary)
-                    Text("Get Macrophone for iPhone from the App Store, then choose Pair iPhone.")
-                        .font(.system(size: 12.5)).foregroundStyle(Ink.tertiary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 48)
-            } else {
                 Plate {
-                    ForEach(Array(model.peers.enumerated()), id: \.element.id) { i, p in
-                        if i > 0 { PlateDivider(inset: 62) }
-                        phoneRow(p)
+                    EmptyState(title: "No iPhone paired yet",
+                               detail: "Get Macrophone for iPhone from the App Store, then pair it with a code this Mac shows.") {
+                        Image(systemName: "iphone.gen3").font(.system(size: 34, weight: .light)).foregroundStyle(Ink.tertiary)
+                            .accessibilityHidden(true)
+                    } action: {
+                        Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair iPhone…", systemImage: "qrcode") }
+                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                            .keyboardShortcut(.defaultAction)
                     }
                 }
-                Text("Names you give a phone here show in the menu, the popup, History and the API. The phone keeps its own name.")
-                    .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary).padding(.leading, 4)
-                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                PaneSection(note: "Names you give a phone here show in the menu, the popup, History and the API. The phone keeps its own name.") {
+                    Plate {
+                        ForEach(Array(model.peers.enumerated()), id: \.element.id) { i, p in
+                            if i > 0 { PlateDivider(inset: Space.inset + 32 + 14) }
+                            phoneRow(p)
+                        }
+                    }
+                }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("This Mac")
+            PaneSection("This Mac", note: "Your iPhone sees this name. Change it in System Settings › General › Sharing.") {
                 Plate {
                     PlateRow(title: AppPaths.computerName, subtitle: listenerLine, subtitleColor: listenerOK ? Ink.tertiary : Light.ochre,
                              icon: "laptopcomputer", iconColor: listenerOK ? Light.cyan : Light.ochre) {
                         if case .failed = model.listenerState {
                             Button("Open System Settings") { NSWorkspace.shared.open(Self.localNetworkSettings) }
-                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
                         }
                     }
                 }
-                Text("Your iPhone sees this name. Change it in System Settings › General › Sharing.")
-                    .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary).padding(.leading, 4)
             }
 
             awayFromHome
@@ -87,8 +86,7 @@ struct DevicesPane: View {
 
     @ViewBuilder private var awayFromHome: some View {
         let settings = model.settings
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("Away from home")
+        PaneSection("Away from home") {
             Plate {
                 PlateRow(title: "Remote access",
                          subtitle: settings.remoteAccess
@@ -100,7 +98,7 @@ struct DevicesPane: View {
                         .accessibilityLabel("Remote access")
                 }
                 if settings.remoteAccess {
-                    PlateDivider(inset: 50)
+                    PlateDivider()
                     if let ts = model.tailscaleAddress {
                         addressRow(title: "Over Tailscale", address: ts, icon: "point.3.connected.trianglepath.dotted", tint: Light.cyan,
                                    note: model.tailscaleName.map { "Also \($0.display)" } ?? "Works from anywhere, as long as Tailscale is on for both.")
@@ -112,11 +110,11 @@ struct DevicesPane: View {
                         }
                     }
                     ForEach(model.localAddresses, id: \.self) { a in
-                        PlateDivider(inset: 50)
+                        PlateDivider()
                         addressRow(title: "On this network", address: a, icon: "wifi", tint: Ink.secondary,
                                    note: "From outside, only if you forward port \(a.port) to this Mac on your router.")
                     }
-                    PlateDivider(inset: 50)
+                    PlateDivider()
                     PlateRow(title: "Port", subtitle: "The port in the addresses above. Change it only if something else on this Mac uses it.", icon: "number") {
                         TextField("Port", text: $portDraft)
                             .textFieldStyle(.roundedBorder)
@@ -130,26 +128,44 @@ struct DevicesPane: View {
                     }
                 }
             }
-            Text("""
-            Set up once, with Tailscale (free, and still no server of ours):
-            1. Install Tailscale on this Mac and on your iPhone.
-            2. Sign in to both with the same account. On the iPhone, the Tailscale app should list this Mac.
-            3. Turn on Remote access here.
-            4. Open Macrophone on your iPhone once at home — it learns this Mac's address and reaches it from anywhere after that. Its Settings say "Tailscale on this iPhone: On" when it's ready.
-            No Tailscale? Forward the port to this Mac on your router and type your home's address into Macrophone on the iPhone (Settings › Away from home).
-            """)
-                .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary).padding(.leading, 4)
-                .fixedSize(horizontal: false, vertical: true)
+            howToSetUpRemote
         }
     }
+
+    /// The one-time setup, as numbered steps (a wall of text read as one paragraph).
+    private var howToSetUpRemote: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Set up once, with Tailscale (free, and still no server of ours):")
+                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Ink.secondary)
+            ForEach(Array(Self.remoteSteps.enumerated()), id: \.offset) { i, step in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("\(i + 1).").font(Typeface.mono(11, .medium)).foregroundStyle(Ink.tertiary).frame(width: 14, alignment: .trailing)
+                    Text(step).font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text("No Tailscale? Forward the port to this Mac on your router and type your home's address into Macrophone on the iPhone (Settings › Away from home).")
+                .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 3)
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
+    }
+
+    private static let remoteSteps = [
+        "Install Tailscale on this Mac and on your iPhone.",
+        "Sign in to both with the same account. On the iPhone, the Tailscale app should list this Mac.",
+        "Turn on Remote access here.",
+        "Open Macrophone on your iPhone once at home — it learns this Mac's address and reaches it from anywhere after that. Its Settings say “Tailscale on this iPhone: On” when it's ready.",
+    ]
 
     private func addressRow(title: String, address: RemoteAddress, icon: String, tint: Color, note: String) -> some View {
         PlateRow(title: title, subtitle: note, icon: icon, iconColor: tint) {
             HStack(spacing: 10) {
                 Text(address.display).font(Typeface.mono(12.5, .medium)).foregroundStyle(Ink.ink).textSelection(.enabled)
                 Button(copied == address.display ? "Copied" : "Copy") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(address.display, forType: .string)
+                    Clipboard.copyPlain(address.display)
                     copied = address.display
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { if copied == address.display { copied = nil } }
                 }
@@ -226,7 +242,9 @@ struct DevicesPane: View {
                     .accessibilityLabel("Forget \(model.displayName(p))")
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
+        .padding(.horizontal, Space.inset).padding(.vertical, 12)
+        .frame(minHeight: 56)
+        .animation(Motion.reduceMotion ? nil : .easeOut(duration: 0.15), value: isEditing)
     }
 
     private func save(_ p: PairedPeer) {
@@ -260,9 +278,9 @@ struct GeneralPane: View {
                         .toggleStyle(.switch).labelsHidden()
                         .accessibilityLabel("Open at login")
                 }
-                PlateDivider(inset: 50)
+                PlateDivider()
                 HotkeyRow(settings: settings)
-                PlateDivider(inset: 50)
+                PlateDivider()
                 PlateRow(title: "Show a notification when copying",
                          subtitle: settings.clipboardNotification
                             ? "When Send to is Clipboard, a popup shows what arrived. If you're away, it waits in Notification Center."
@@ -273,8 +291,7 @@ struct GeneralPane: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Permissions")
+            PaneSection("Permissions") {
                 Plate {
                     PlateRow(title: "Accessibility",
                              subtitle: model.accessibilityGranted
@@ -291,7 +308,7 @@ struct GeneralPane: View {
                             .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
                         }
                     }
-                    PlateDivider(inset: 50)
+                    PlateDivider()
                     PlateRow(title: "Notifications", subtitle: notificationLine,
                              icon: notificationsOn ? "checkmark.circle.fill" : "bell",
                              iconColor: notificationsOn ? Light.mint : Ink.tertiary) {
@@ -306,11 +323,10 @@ struct GeneralPane: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Updates")
+            PaneSection("Updates") {
                 Plate {
                     PlateRow(title: "Check for updates automatically", subtitle: updateLine, icon: "arrow.triangle.2.circlepath") {
-                        HStack(spacing: 12) {
+                        HStack(spacing: Space.gap) {
                             Button("Check Now") { updater.checkForUpdates() }
                                 .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                                 .disabled(!updater.canCheck)
@@ -321,39 +337,41 @@ struct GeneralPane: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Help")
+            PaneSection("Help") {
                 Plate {
                     PlateRow(title: "Share diagnostics", subtitle: "A plain-text log of connections and deliveries for a bug report. Never what you dictated.", icon: "stethoscope") {
                         Button("Share…") { AppDelegate.shared?.showDiagnostics() }
                             .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                     }
-                    PlateDivider(inset: 50)
+                    PlateDivider()
                     PlateRow(title: "Show the welcome again", subtitle: "Pairing, open at login, and where dictations go.", icon: "sparkle") {
                         Button("Show") { AppDelegate.shared?.openSetup(.pair) }
                             .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                     }
-                    PlateDivider(inset: 50)
+                    PlateDivider()
                     PlateRow(title: "Macrophone on the web", subtitle: Product.macDownloadDisplay, icon: "safari") {
-                        Link("Open", destination: Product.website).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Light.teal)
+                        Link("Open", destination: Product.website)
+                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                            .accessibilityLabel("Open the Macrophone website")
                     }
                 }
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Privacy").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.secondary)
+            PaneSection("Privacy") {
                 Text("Speech is transcribed and cleaned up on your iPhone. No audio is kept, there's no account, and what you dictate travels only between your iPhone and this Mac — at home or, with Remote access, from away. Macrophone collects no analytics.")
                     .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
+                    .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
             }
-            .padding(.top, 6)
 
             HStack {
                 Spacer()
                 Button("Quit Macrophone") { NSApp.terminate(nil) }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(Ink.tertiary)
+                    .buttonStyle(PillButtonStyle(tint: Ink.secondary, filled: false))
+                    .help("Dictations can't arrive while Macrophone isn't running")
             }
+            .padding(.top, 4)
         }
     }
 
@@ -506,13 +524,9 @@ struct AgentsPane: View {
     var body: some View {
         PanePage {
             PaneHeader(title: "Agents",
-                       subtitle: "Your iPhone shows every agent and buzzes the moment one needs you — exactly, from the agent itself.")
-            AgentsSection(apiOn: settings.apiEnabled)
-            Text("Connected agents tell Macrophone when they start working, ask you something, finish or close. Your iPhone lists them above Send to and alerts you with the question. Other apps still alert you when Macrophone reads them asking on screen. Works for sessions started after you connect.")
-                .font(.system(size: 12))
-                .foregroundStyle(Ink.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 4)
+                       subtitle: "Your iPhone buzzes the moment an agent needs you — exactly, from the agent itself.")
+            AgentsSection(apiOn: settings.apiEnabled, labeled: false,
+                          note: "Connected agents tell Macrophone when they start working, ask you something, finish or close, and your iPhone alerts you with the question. Other apps still alert you when Macrophone reads them asking on screen. Works for sessions started after you connect.")
         }
     }
 }
@@ -521,29 +535,31 @@ struct AgentsPane: View {
 /// finish, so your iPhone knows exactly which one waits on you (AgentSetup).
 struct AgentsSection: View {
     var apiOn: Bool
+    /// The kicker above the plate (off on the Agents pane, whose title already says it).
+    var labeled = true
+    /// The quiet line under the plate.
+    var note: String?
     @State private var claude = AgentSetup.claude
     @State private var codex = AgentSetup.codex
     @State private var problem: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("Agents")
+        PaneSection(labeled ? "Agents" : nil, note: note) {
             Plate {
                 row(name: "Claude Code", status: claude, icon: "sparkles") {
                     problem = AgentSetup.setClaude(claude != .connected)
                     claude = AgentSetup.claude
                 }
-                PlateDivider(inset: 50)
+                PlateDivider()
                 row(name: "Codex", status: codex, icon: "chevron.left.forwardslash.chevron.right") {
                     problem = AgentSetup.setCodex(codex != .connected)
                     codex = AgentSetup.codex
                 }
             }
             if let problem {
-                Text(problem).font(.system(size: 12)).foregroundStyle(Light.ochre).padding(.horizontal, 4)
+                PlateNote(problem, color: Light.ochre)
             } else if !apiOn, claude == .connected || codex == .connected {
-                Text("Turn on Local API in Developer — the agents tell Macrophone through it.")
-                    .font(.system(size: 12)).foregroundStyle(Light.ochre).padding(.horizontal, 4)
+                PlateNote("Turn on Local API in Developer — the agents tell Macrophone through it.", color: Light.ochre)
             }
         }
         .onAppear { claude = AgentSetup.claude; codex = AgentSetup.codex }

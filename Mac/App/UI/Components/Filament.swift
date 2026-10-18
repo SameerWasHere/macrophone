@@ -89,15 +89,18 @@ struct FilamentView: View {
                     .opacity(glow)
                 FilamentShape(peak: peak, thin: 0.2, thick: t)
                     .fill(fill)
+                // No blend mode here: a blend inside the drawing group composites against black
+                // and left a dark plate around the mark (the sidebar, the popup, the setup page).
                 FilamentShape(peak: peak, thin: 0.05, thick: t * 0.36)
-                    .fill(LinearGradient(stops: [.init(color: .white.opacity(0.15), location: 0.1),
-                                                 .init(color: .white.opacity(0.75), location: 0.5),
-                                                 .init(color: .white.opacity(0.15), location: 0.9)],
+                    .fill(LinearGradient(stops: [.init(color: .white.opacity(0.12), location: 0.1),
+                                                 .init(color: .white.opacity(0.78), location: 0.5),
+                                                 .init(color: .white.opacity(0.12), location: 0.9)],
                                          startPoint: .leading, endPoint: .trailing))
-                    .blendMode(.plusLighter)
             }
         }
-        .drawingGroup()
+        // Not a drawing group: the offscreen pass flattened the glow's blur onto a dark plate
+        // (visible around the mark in the sidebar and the popup).
+        .compositingGroup()
         .accessibilityHidden(true)
     }
 }

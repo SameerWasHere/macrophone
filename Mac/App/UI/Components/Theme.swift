@@ -18,6 +18,29 @@ enum Ink {
     static var lineHeavy: Color { ink.opacity(A11y.increaseContrast ? 0.5 : 0.22) }
 
     static let groundNS = NSColor(srgbRed: 0.020, green: 0.024, blue: 0.051, alpha: 1)
+
+    /// A control's rest fill on a plate (the search field, the shortcut recorder).
+    static let well = Color(red: 0.040, green: 0.045, blue: 0.075)
+    /// The keyboard focus ring (teal, like the window's tint).
+    static let focus = Color(hex: 0x5CD3C3)
+}
+
+/// One radius per layer: plates 14, the controls on them 10, cards that float 18, sheets 22.
+enum Radius {
+    static let plate: CGFloat = 14
+    static let control: CGFloat = 10
+    static let card: CGFloat = 18
+    static let sheet: CGFloat = 22
+}
+
+/// The spacing rhythm of a pane: 32 at the margins, 24 between sections, 8 from a section's
+/// label to its plate, 16 inside a plate, 12 between a row's columns.
+enum Space {
+    static let margin: CGFloat = 32
+    static let section: CGFloat = 24
+    static let label: CGFloat = 8
+    static let inset: CGFloat = 16
+    static let gap: CGFloat = 12
 }
 
 /// The lights. Each carries one meaning.
@@ -97,8 +120,65 @@ struct Plate<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) { content }
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Ink.raised.opacity(0.72)))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).fill(Ink.raised.opacity(0.72)))
+            .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+    }
+}
+
+/// A labelled section: the kicker, its plate, and an optional quiet note under it — the one
+/// rhythm every pane keeps (label → plate 8, plate → note 8).
+struct PaneSection<Content: View>: View {
+    var label: String?
+    var note: String?
+    @ViewBuilder var content: Content
+    init(_ label: String? = nil, note: String? = nil, @ViewBuilder content: () -> Content) {
+        self.label = label; self.note = note; self.content = content()
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.label) {
+            if let label { SectionLabel(label) }
+            content
+            if let note, !note.isEmpty { PlateNote(note) }
+        }
+    }
+}
+
+/// The quiet line under a plate ("Your iPhone sees this name…").
+struct PlateNote: View {
+    let text: String
+    var color: Color = Ink.tertiary
+    init(_ text: String, color: Color = Ink.tertiary) { self.text = text; self.color = color }
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11.5)).foregroundStyle(color)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 4)
+    }
+}
+
+/// A pane's empty state: a quiet mark, a serif line, one sentence of what to do.
+struct EmptyState<Mark: View, Action: View>: View {
+    let title: String
+    let detail: String
+    @ViewBuilder var mark: Mark
+    @ViewBuilder var action: Action
+    init(title: String, detail: String, @ViewBuilder mark: () -> Mark, @ViewBuilder action: () -> Action = { EmptyView() }) {
+        self.title = title; self.detail = detail; self.mark = mark(); self.action = action()
+    }
+    var body: some View {
+        VStack(spacing: 10) {
+            mark.padding(.bottom, 4)
+            Text(title).font(Typeface.serif(19)).foregroundStyle(Ink.secondary)
+            Text(detail)
+                .font(.system(size: 12.5)).foregroundStyle(Ink.tertiary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 360)
+            action.padding(.top, 6)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 52)
     }
 }
 
@@ -112,25 +192,29 @@ struct PlateRow<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: Space.gap) {
             if let icon {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(iconColor)
                     .frame(width: 22)
+                    .accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(Ink.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle).font(.system(size: 11.5)).foregroundStyle(subtitleColor)
+                        .lineSpacing(1.5)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 12)
+            Spacer(minLength: Space.gap)
             trailing
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.inset)
         .padding(.vertical, 11)
+        .frame(minHeight: 50)
     }
 }
 
@@ -140,22 +224,40 @@ extension PlateRow where Trailing == EmptyView {
     }
 }
 
+/// The hairline between a plate's rows. The default inset lines up with a `PlateRow`'s words
+/// (the icon column and its gap), the way System Settings does it.
 struct PlateDivider: View {
-    var inset: CGFloat = 16
-    var body: some View { Rectangle().fill(Ink.line).frame(height: 1).padding(.leading, inset) }
+    var inset: CGFloat = PlateDivider.rowInset
+    static let rowInset: CGFloat = Space.inset + 22 + Space.gap
+    var body: some View { Rectangle().fill(Ink.line).frame(height: 1).padding(.leading, inset).accessibilityHidden(true) }
 }
 
-/// A pane's heading: serif title, a plain sentence under it.
-struct PaneHeader: View {
+/// A pane's heading: serif title, a plain sentence under it, and room on the title's line for
+/// one action (Devices › Pair iPhone).
+struct PaneHeader<Trailing: View>: View {
     let title: String
     let subtitle: String
+    @ViewBuilder var trailing: Trailing
+
+    init(title: String, subtitle: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+        self.title = title; self.subtitle = subtitle; self.trailing = trailing()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(Typeface.serif(28, .regular)).foregroundStyle(Ink.ink)
+            HStack(alignment: .firstTextBaseline, spacing: Space.gap) {
+                Text(title).font(Typeface.serif(28, .regular)).foregroundStyle(Ink.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                trailing
+            }
             Text(subtitle).font(.system(size: 13)).foregroundStyle(Ink.secondary)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 620, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 2)
     }
 }
 
@@ -164,6 +266,7 @@ struct SectionLabel: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         Kicker(text).padding(.leading, 4).padding(.bottom, 2)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -185,18 +288,63 @@ struct Chip: View {
     }
 }
 
-/// The one quiet primary style used across the window.
+/// The one quiet primary style used across the window: a filled capsule for the one thing to
+/// do, an outlined one for the rest. Hover lifts it a step, a press settles it, disabled fades
+/// it, and the keyboard's focus ring follows the capsule.
 struct PillButtonStyle: ButtonStyle {
     var tint: Color = Ink.ink
     var filled = true
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundStyle(filled ? Ink.ground : tint)
-            .padding(.horizontal, 14).padding(.vertical, 6)
-            .background(Capsule().fill(filled ? tint.opacity(configuration.isPressed ? 0.75 : 0.95) : tint.opacity(configuration.isPressed ? 0.16 : 0.08)))
-            .overlay(Capsule().strokeBorder(filled ? Color.clear : tint.opacity(0.28), lineWidth: 1))
-            .contentShape(Capsule())
+        PillBody(configuration: configuration, tint: tint, filled: filled)
+    }
+
+    private struct PillBody: View {
+        let configuration: Configuration
+        let tint: Color
+        let filled: Bool
+        @Environment(\.isEnabled) private var enabled
+        @State private var hover = false
+
+        var body: some View {
+            let pressed = configuration.isPressed
+            configuration.label
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(filled ? Ink.ground : tint)
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .frame(minHeight: 26)
+                .background(Capsule().fill(filled ? tint.opacity(pressed ? 0.72 : (hover ? 1 : 0.94))
+                                                  : tint.opacity(pressed ? 0.18 : (hover ? 0.13 : 0.08))))
+                .overlay(Capsule().strokeBorder(filled ? Color.clear : tint.opacity(hover ? 0.4 : 0.28), lineWidth: 1))
+                .contentShape(Capsule())
+                .contentShape(.focusEffect, Capsule())
+                .opacity(enabled ? 1 : 0.45)
+                .onHover { hover = $0 }
+                .animation(Motion.reduceMotion ? nil : .easeOut(duration: 0.12), value: hover)
+                .animation(Motion.reduceMotion ? nil : .easeOut(duration: 0.08), value: pressed)
+        }
+    }
+}
+
+/// The teal ring a custom text field wears while it has the keyboard (the system draws one
+/// for its own fields; ours sit on plates and draw their own).
+struct FieldFocusRing: ViewModifier {
+    var focused: Bool
+    var radius: CGFloat = Radius.control
+    /// Like AppKit's ring, it shows only while the window is key.
+    @Environment(\.controlActiveState) private var active
+    func body(content: Content) -> some View {
+        let on = focused && active == .key
+        content
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(Ink.focus.opacity(on ? 0.7 : 0), lineWidth: 2)
+                .padding(-1))
+            .animation(Motion.reduceMotion ? nil : .easeOut(duration: 0.12), value: on)
+    }
+}
+
+extension View {
+    func fieldFocusRing(_ focused: Bool, radius: CGFloat = Radius.control) -> some View {
+        modifier(FieldFocusRing(focused: focused, radius: radius))
     }
 }
 
@@ -226,10 +374,12 @@ struct CodePlate: View {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(copied ? Light.mint : Ink.secondary)
+            .accessibilityLabel(copied ? "Copied" : copyLabel)
+            .animation(Motion.reduceMotion ? nil : .easeOut(duration: 0.15), value: copied)
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Ink.sunk))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Ink.sunk))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
     }
 }
 
