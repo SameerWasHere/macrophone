@@ -36,6 +36,20 @@ struct AgentsPanel: View {
             .padding(.horizontal, 16)
             .padding(.top, compact ? 10 : 12)
             .padding(.bottom, 4)
+            if all.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No agents running")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Ink.ink)
+                    Text("Start Claude Code or Codex on your Mac and they show here, with an alert the moment one needs you. First, on your Mac: Macrophone › Agents › Connect.")
+                        .font(.footnote)
+                        .foregroundStyle(Ink.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .accessibilityElement(children: .combine)
+            }
             ForEach(list) { s in
                 AgentRow(session: s) { open(s) }
                 if s.id != list.last?.id { PanelDivider() }

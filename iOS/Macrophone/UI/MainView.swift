@@ -53,7 +53,7 @@ struct MainView: View {
                                     .padding(.horizontal, 24)
                                     .padding(.top, compact ? 8 : 18)
                                 Spacer(minLength: compact ? 8 : 12)
-                                if model.isConnected, !model.agentSessions.isEmpty {
+                                if model.isConnected, !model.agentSessions.isEmpty || model.showAgentsHint {
                                     AgentsPanel(compact: compact)
                                         .padding(.bottom, compact ? 8 : 12)
                                         .transition(.opacity)

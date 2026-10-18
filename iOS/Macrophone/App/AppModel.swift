@@ -1274,6 +1274,14 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, agents: [AgentSession]) {
         guard client === self.client else { return }
         if agentSessions != agents { agentSessions = agents }
+        if !agents.isEmpty, !UserDefaults.standard.bool(forKey: "agents.seen") {
+            UserDefaults.standard.set(true, forKey: "agents.seen")
+        }
+    }
+
+    /// The Agents panel says how to get agents into it, on a Mac that can, until the first one shows.
+    var showAgentsHint: Bool {
+        client.macFeatures.contains(AgentSession.feature) && !UserDefaults.standard.bool(forKey: "agents.seen")
     }
 
     /// Alerts through iCloud are set up: say so in the next hello (the Mac then keeps looking
