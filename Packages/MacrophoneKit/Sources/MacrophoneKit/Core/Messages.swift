@@ -127,6 +127,8 @@ public enum Message: Codable, Sendable {
     case watchAction(WatchAction)
     /// Phone → Mac: click the watched window here (fractions of it, 0…1, top-left origin).
     case watchClick(x: Double, y: Double)
+    /// Phone → Mac: right-click the watched window here (only to a Mac naming WatchRightClick.feature).
+    case watchRightClick(x: Double, y: Double)
     /// Phone → Mac: scroll the watched window where the finger is (x, y) by (dx, dy) — all as
     /// fractions of the window; positive dy moves the content down, like a finger dragging it.
     case watchScroll(x: Double, y: Double, dx: Double, dy: Double)

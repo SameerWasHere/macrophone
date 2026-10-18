@@ -96,6 +96,10 @@ final class Watcher: ObservableObject {
     var sendWatch: (TargetRef?) -> Bool = { _ in false }
     var sendAction: (WatchAction) -> Void = { _ in }
     var sendClick: (CGPoint) -> Void = { _ in }
+    /// Right-click there; false when the Mac can't (it predates right-clicks).
+    var sendRightClick: (CGPoint) -> Bool = { _ in false }
+    /// The whole window on screen instead of the zoomed-in column (the zoom-out button).
+    @Published private(set) var wholeWindow = false
     var sendScroll: (CGPoint, CGVector) -> Void = { _, _ in }
     var sendScrollPhase: (WatchScrollPhase, CGPoint) -> Void = { _, _ in }
     /// The connected Mac takes a swipe as a trackpad gesture (it named "scroll" in its welcome):
@@ -135,7 +139,7 @@ final class Watcher: ObservableObject {
         guard target != .clipboard else { return }
         let switching = self.target != target
         self.target = target
-        if !isOpen { drag = .pan }
+        if !isOpen { drag = .pan; wholeWindow = false }
         if switching {
             image = nil
             video.clear()
@@ -231,6 +235,23 @@ final class Watcher: ObservableObject {
         touch()
         Haptics.tick()
         sendClick(p)
+    }
+
+    /// A press and hold (or a two-finger tap): a right-click there. False when the Mac can't.
+    @discardableResult
+    func rightClick(_ p: CGPoint) -> Bool {
+        touch()
+        guard sendRightClick(p) else { return false }
+        Haptics.success()
+        log?.add("watching: right-click")
+        return true
+    }
+
+    /// The zoom-out button: the whole window, or back to the column you type in.
+    func toggleWholeWindow() {
+        touch()
+        Haptics.tick()
+        wholeWindow.toggle()
     }
 
     /// A swipe on the picture: scroll the Mac's window there (no haptic — it's continuous).

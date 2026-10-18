@@ -139,6 +139,7 @@ struct WatchPanel: View {
             }
             Spacer(minLength: 8)
             if watcher.macCanFit, watcher.target != .clipboard {
+                WatchWholeButton(watcher: watcher)
                 WatchFitMenu(watcher: watcher)
             }
             Button("Done") {
@@ -151,6 +152,27 @@ struct WatchPanel: View {
             .accessibilityIdentifier("watch-done")
         }
         .frame(minHeight: 44)
+    }
+}
+
+/// Zoom out (Oct 17 2026, Sameer: "a quick tap ... so that we can see the whole window"): the whole
+/// window on screen, and the same button goes back to the column you type in. Same height as Done.
+struct WatchWholeButton: View {
+    @ObservedObject var watcher: Watcher
+
+    var body: some View {
+        Button { watcher.toggleWholeWindow() } label: {
+            Image(systemName: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(watcher.wholeWindow ? Light.cyan : Ink.ink)
+                .frame(minWidth: 24)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .nativeGlassButton()
+        .disabled(watcher.phase != .live)
+        .accessibilityLabel(watcher.wholeWindow ? "Zoom back in" : "Show the whole window")
+        .accessibilityHint(watcher.wholeWindow ? "Back to the part of the window you type in." : "Fits all of \(watcher.name)'s window on screen.")
+        .accessibilityIdentifier("watch-whole")
     }
 }
 
@@ -171,7 +193,7 @@ struct WatchFitMenu: View {
             Text("Aa")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(watcher.fit == .normal ? Ink.ink : Light.cyan)
-                .frame(minWidth: 30, minHeight: 30)
+                .frame(minWidth: 24)
         }
         .nativeGlassButton()
         .disabled(watcher.phase != .live)
@@ -194,16 +216,26 @@ struct WatchKicker: View {
                 .frame(width: 8, height: 8)
                 .shadow(color: color.opacity(0.8), radius: 4)
                 .accessibilityHidden(true)
-            Text(words.uppercased())
-                .font(.mono(.caption, weight: .semibold))
-                .tracking(1.1)
-                .foregroundStyle(watcher.phase == .live ? Ink.secondary : Ink.tertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+            // Whole words or fewer of them, never cut: "LIVE · CLAUDE", then "CLAUDE".
+            ViewThatFits(in: .horizontal) {
+                label(words)
+                label(watcher.phase == .live ? watcher.name : words)
+                label(watcher.phase == .live ? watcher.name : words, fits: false).minimumScaleFactor(0.6)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(words)
         .accessibilityIdentifier("watch-kicker")
+    }
+
+    /// `fits`: measured at its full width (a rung of the ladder); the last rung may shrink instead.
+    private func label(_ text: String, fits: Bool = true) -> some View {
+        Text(text.uppercased())
+            .font(.mono(.caption, weight: .semibold))
+            .tracking(1.1)
+            .foregroundStyle(watcher.phase == .live ? Ink.secondary : Ink.tertiary)
+            .lineLimit(1)
+            .fixedSize(horizontal: fits, vertical: false)
     }
 
     private var words: String {
@@ -246,13 +278,14 @@ struct WatchWindow: View {
                              focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
                              drag: watcher.drag, phased: watcher.macCanScroll,
                              onTouch: { watcher.touch() },
-                             onTap: { watcher.click($0) }, onScroll: { watcher.scroll(at: $0, by: $1) },
+                             onTap: { watcher.click($0) }, onRightClick: { watcher.rightClick($0) }, whole: watcher.wholeWindow,
+                             onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
                              onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } })
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
-                        ? "Tap to click there on your Mac. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
-                        : "Tap to click there on your Mac. Swipe to scroll the window on your Mac; two fingers move the picture.") : "")
+                        ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
+                        : "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Swipe to scroll the window on your Mac; two fingers move the picture.") : "")
                     .accessibilityAddTraits(.isImage)
             }
             if interactive && watcher.movedAway && watcher.phase == .live {
@@ -580,6 +613,10 @@ struct WindowViewer: UIViewRepresentable {
     var phased: Bool
     var onTouch: () -> Void
     var onTap: (CGPoint) -> Void
+    /// A press and hold or a two-finger tap; returns whether the Mac takes right-clicks.
+    var onRightClick: (CGPoint) -> Bool = { _ in false }
+    /// The whole window on screen (the zoom-out button).
+    var whole = false
     var onScroll: (CGPoint, CGVector) -> Void
     var onScrollPhase: (WatchScrollPhase, CGPoint) -> Void
     var onAdjusted: (Bool) -> Void
@@ -593,11 +630,13 @@ struct WindowViewer: UIViewRepresentable {
     func updateUIView(_ v: ViewerScrollView, context: Context) {
         wire(v)
         v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, interactive: interactive, drag: drag, phased: phased)
+        v.showWhole(whole)
     }
 
     private func wire(_ v: ViewerScrollView) {
         v.onTouch = onTouch
         v.onTap = onTap
+        v.onRightClick = onRightClick
         v.onScroll = onScroll
         v.onScrollPhase = onScrollPhase
         v.onAdjusted = onAdjusted
@@ -616,6 +655,13 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     private var lastBounds: CGSize = .zero
     var onTouch: () -> Void = {}
     var onTap: (CGPoint) -> Void = { _ in }
+    var onRightClick: (CGPoint) -> Bool = { _ in false }
+    private var holder: UILongPressGestureRecognizer!
+    private var twoTapper: UITapGestureRecognizer!
+    /// When a hold last right-clicked: the lift that ends it isn't also a click.
+    private var heldAt = Date.distantPast
+    /// Showing the whole window (the zoom-out button), as last set.
+    private var wholeShown = false
     var onScroll: (CGPoint, CGVector) -> Void = { _, _ in }
     var onScrollPhase: (WatchScrollPhase, CGPoint) -> Void = { _, _ in }
     var onAdjusted: (Bool) -> Void = { _ in }
@@ -647,6 +693,14 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         addSubview(canvas)
         tapper = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         addGestureRecognizer(tapper)
+        // Right-click, as remote-desktop apps do it: a press and hold, or a two-finger tap.
+        holder = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        holder.minimumPressDuration = 0.45
+        holder.allowableMovement = 10
+        addGestureRecognizer(holder)
+        twoTapper = UITapGestureRecognizer(target: self, action: #selector(twoTapped(_:)))
+        twoTapper.numberOfTouchesRequired = 2
+        addGestureRecognizer(twoTapper)
         swiper = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         swiper.maximumNumberOfTouches = 1
         addGestureRecognizer(swiper)
@@ -666,6 +720,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         isScrollEnabled = interactive
         pinchGestureRecognizer?.isEnabled = interactive
         tapper.isEnabled = interactive
+        holder.isEnabled = interactive
+        twoTapper.isEnabled = interactive
         self.phased = phased
         apply(drag: drag)
         let focusChanged = focus != self.focus && !adjusted
@@ -763,7 +819,40 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         contentInset = UIEdgeInsets(top: dy, left: dx, bottom: dy, right: dx)
     }
 
+    /// The whole window, fitted, or back to the start (the column you type in).
+    func showWhole(_ on: Bool) {
+        guard on != wholeShown, imageSize != .zero, bounds.width > 0 else { return }
+        wholeShown = on
+        guard on else { reset(animated: true); return }
+        adjusted = true
+        UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+            self.setZoomScale(self.minimumZoomScale, animated: false)
+            self.centerIfSmall()
+            self.contentOffset = CGPoint(x: -self.contentInset.left, y: -self.contentInset.top)
+        }
+    }
+
+    /// Where on the window a gesture is, as fractions of it; nil off the picture.
+    private func spot(_ g: UIGestureRecognizer) -> CGPoint? {
+        guard imageSize.width > 0 else { return nil }
+        let p = g.location(in: canvas)
+        let n = CGPoint(x: p.x / imageSize.width, y: p.y / imageSize.height)
+        return (0...1).contains(n.x) && (0...1).contains(n.y) ? n : nil
+    }
+
+    @objc private func held(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began, let n = spot(g) else { return }
+        heldAt = Date()
+        if onRightClick(n) { ring(at: g.location(in: self), right: true) }
+    }
+
+    @objc private func twoTapped(_ g: UITapGestureRecognizer) {
+        guard let n = spot(g) else { return }
+        if onRightClick(n) { ring(at: g.location(in: self), right: true) }
+    }
+
     @objc private func tapped(_ g: UITapGestureRecognizer) {
+        guard Date().timeIntervalSince(heldAt) > 1 else { return }
         guard imageSize.width > 0 else { return }
         let p = g.location(in: canvas)
         let n = CGPoint(x: p.x / imageSize.width, y: p.y / imageSize.height)
@@ -870,8 +959,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         if newWindow == nil { endMomentum() }
     }
 
-    /// Where the click landed: a ring that grows and fades.
-    private func ring(at p: CGPoint) {
+    /// Where the click landed: a ring that grows and fades (a double one for a right-click).
+    private func ring(at p: CGPoint, right: Bool = false) {
+        if right { DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in self?.ring(at: p) } }
         let r: CGFloat = 16
         let layer = CAShapeLayer()
         layer.path = UIBezierPath(ovalIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)).cgPath

@@ -651,6 +651,14 @@ final class WatchService {
         }
     }
 
+    /// A press and hold (or a two-finger tap) on the phone's picture: a right-click there.
+    func rightClick(_ p: CGPoint, for peer: UUID) {
+        act(on: peer, what: "right click") { wid in
+            guard let b = WindowServer.bounds(of: wid) else { return }
+            await Self.click(at: CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height), right: true)
+        }
+    }
+
     func click(_ p: CGPoint, for peer: UUID) {
         act(on: peer, what: "click") { wid in await Self.click(window: wid, at: p) }
     }
@@ -690,17 +698,18 @@ final class WatchService {
         await click(at: CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height))
     }
 
-    /// A left click at a point on screen; the pointer goes back where it was.
-    private static func click(at pt: CGPoint) async {
+    /// A click at a point on screen (the right button for a right-click); the pointer goes back
+    /// where it was.
+    private static func click(at pt: CGPoint, right: Bool = false) async {
         let original = CGEvent(source: nil)?.location
         let src = CGEventSource(stateID: .hidSystemState)
         CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
         try? await Task.sleep(nanoseconds: 40_000_000)
-        let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)
+        let down = CGEvent(mouseEventSource: src, mouseType: right ? .rightMouseDown : .leftMouseDown, mouseCursorPosition: pt, mouseButton: right ? .right : .left)
         down?.setIntegerValueField(.mouseEventClickState, value: 1)
         down?.post(tap: .cghidEventTap)
         try? await Task.sleep(nanoseconds: 50_000_000)
-        let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)
+        let up = CGEvent(mouseEventSource: src, mouseType: right ? .rightMouseUp : .leftMouseUp, mouseCursorPosition: pt, mouseButton: right ? .right : .left)
         up?.setIntegerValueField(.mouseEventClickState, value: 1)
         up?.post(tap: .cghidEventTap)
         try? await Task.sleep(nanoseconds: 150_000_000)

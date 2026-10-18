@@ -32,6 +32,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID)
     /// A click on the watched window, at a fraction of its size (top-left origin).
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID)
+    /// A right-click on the watched window, at a fraction of its size (top-left origin).
+    func linkServer(_ server: LinkServer, watchRightClick point: CGPoint, from peerID: UUID)
     /// A swipe on the watched window: scroll it at `point` by `delta` (fractions of the window).
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID)
     /// Answer the prompt the watched window showed (`WatchPrompt.id`) with the answer at `index`.
@@ -61,6 +63,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchClick point: CGPoint, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchRightClick point: CGPoint, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {}
@@ -602,6 +605,9 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
+            case let .watchRightClick(x, y):
+                guard (0...1).contains(x), (0...1).contains(y) else { break }
+                notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses:
                 break
             }

@@ -173,3 +173,9 @@ public enum WatchChange {
         return Double(n) / Double(a.count)
     }
 }
+
+/// Right-click on the watched window (Oct 17 2026): a press and hold, or a two-finger tap, like
+/// remote-desktop apps (Sill's long press). Only to a Mac whose welcome names the feature.
+public enum WatchRightClick {
+    public static let feature = "rightClick"
+}
