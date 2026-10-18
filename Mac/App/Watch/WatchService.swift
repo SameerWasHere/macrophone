@@ -761,7 +761,7 @@ final class WatchService {
             }
         }
         guard CGPreflightScreenCaptureAccess(), let scw = await scWindow(wid), let img = await WindowReader.capture(scw) else { return nil }
-        let column = w.focus.map { f in max(0, Double(f.minX) - 0.03)...min(1, Double(f.maxX) + 0.03) }
+        let column = w.focus.map { f in max(0, Double(f.minX) - 0.06)...min(1, Double(f.maxX) + 0.06) }
         let lines = await WindowReader.pictureLines(img, column: terminal ? nil : column)
         return ReaderPage(lines: lines, monospaced: terminal, fromPicture: true)
     }

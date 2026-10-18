@@ -67,14 +67,14 @@ enum WindowReader {
         // on: here the words matter more than the symbols.
         request.recognitionLevel = .fast
         request.usesLanguageCorrection = true
-        let lo = min(max(column?.lowerBound ?? 0, 0), 0.95)
-        let hi = max(min(column?.upperBound ?? 1, 1), lo + 0.05)
-        request.regionOfInterest = CGRect(x: lo, y: 0, width: hi - lo, height: 1)
+        // The whole window is read and a line kept when its middle sits in the column: cropping the
+        // picture instead slices the first letter off lines that start at the column's edge.
         do { try VNImageRequestHandler(cgImage: image).perform([request]) } catch { return [] }
         struct Piece { var text: String; var x: Double; var y: Double; var h: Double }
         let pieces: [Piece] = (request.results ?? []).compactMap { o in
             guard let t = o.topCandidates(1).first?.string else { return nil }
             let b = o.boundingBox
+            if let column, !column.contains(Double(b.midX)) { return nil }
             return Piece(text: t, x: Double(b.minX), y: Double(1 - b.midY), h: Double(b.height))
         }.sorted { $0.y < $1.y }
         // Pieces on one row (their middles closer than half a line) read left to right as one line.

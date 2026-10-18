@@ -360,6 +360,18 @@ func demoIcon(_ bundleID: String, _ px: Int) -> Data? {
 
 @MainActor
 final class PhoneDelegate: LinkClientDelegate {
+    func linkClient(_ client: LinkClient, reader: ReaderPage) {
+        stdout("READER \(reader.lines.count) lines\(reader.monospaced ? " mono" : "")\(reader.fromPicture ? " picture" : " text")")
+        for l in reader.lines.suffix(Int(flag("--show") ?? "8") ?? 8) { stdout("  | \(l.prefix(100))") }
+    }
+    func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String) {
+        var what = "none"
+        if let t = clipboard?.text { what = "text \(t.count) chars" } else if let i = clipboard?.image { what = "image \(i.count) bytes" }
+        stdout("CLIPBOARD \(what) — \(detail)")
+    }
+    func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {
+        stdout("ATTACHMENT \(ok ? "ok" : "failed") — \(detail)")
+    }
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {
         stdout("NEEDS YOU \(needsYou.count)" + needsYou.map { " \($0.bundleID)#\($0.windowKey)\($0.asking ? " asking" : "")" }.joined())
     }
@@ -637,6 +649,29 @@ func run() async -> Int32 {
         do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
         if command == "targets" { client.refreshTargets() }
         try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "1.5") ?? 1.5) * 1e9))
+        client.stop()
+        return 0
+
+    case "reader":
+        // mpctl reader --target <bundleID> [--window <key>] [--seconds 6]: watch it, then read its words.
+        let (client, _) = makeClient()
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        let bid = flag("--target") ?? "com.apple.Terminal"
+        _ = client.watch(.app(bundleID: bid, windowKey: flag("--window"), name: bid))
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        client.requestReader()
+        try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "6") ?? 6) * 1e9))
+        _ = client.watch(nil)
+        client.stop()
+        return 0
+
+    case "clip-get":
+        let (client, _) = makeClient()
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        client.requestClipboard()
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
         client.stop()
         return 0
 
