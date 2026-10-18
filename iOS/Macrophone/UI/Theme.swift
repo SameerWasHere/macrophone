@@ -108,6 +108,42 @@ struct Kicker: View {
     }
 }
 
+/// A symbol on a small tinted plate — the mark the app uses for a place without an icon
+/// (`TargetIcon`), and since the refinement pass (Oct 18 2026) for every row glyph in Settings,
+/// so a list row carries the same mark as the panel by the mic.
+struct GlyphPlate: View {
+    var symbol: String
+    var tint: Color
+    var size: CGFloat = 28
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.5, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: size, height: size)
+            .background(shape.fill(tint.opacity(0.16)))
+            .overlay(shape.strokeBorder(tint.opacity(0.3), lineWidth: 1))
+            .accessibilityHidden(true)
+    }
+}
+
+/// A plate's edge lit from above, like light on glass: a hairline that is brightest along the
+/// top and fades toward the foot (the refinement pass). Increase Contrast: a firm, even edge.
+struct SpecularEdge<S: InsettableShape>: View {
+    var shape: S
+    @Environment(\.colorSchemeContrast) private var contrast
+    var body: some View {
+        if contrast == .increased {
+            shape.strokeBorder(Ink.ink.opacity(0.45), lineWidth: 1)
+        } else {
+            shape.strokeBorder(
+                LinearGradient(colors: [Ink.ink.opacity(0.30), Ink.line, Ink.ink.opacity(0.07)],
+                               startPoint: .top, endPoint: .bottom),
+                lineWidth: 1)
+        }
+    }
+}
+
 /// A panel: Liquid Glass on iOS 26+ (a rounded rect of regular glass), else ultra-thin material
 /// over the ground with a hairline and a soft shadow. Increase Contrast: a firmer edge.
 /// Reduce Transparency: a solid raised plate.

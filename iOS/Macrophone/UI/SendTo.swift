@@ -51,14 +51,7 @@ struct TargetIcon: View {
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {
-            let tint = onTint ? Ink.ground : Self.tint(target)
-            Image(systemName: TargetGlyph.symbol(for: target))
-                .font(.system(size: size * 0.5, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: size, height: size)
-                .background(RoundedRectangle(cornerRadius: size * 0.26, style: .continuous).fill(tint.opacity(0.16)))
-                .overlay(RoundedRectangle(cornerRadius: size * 0.26, style: .continuous).strokeBorder(tint.opacity(0.3), lineWidth: 1))
-                .accessibilityHidden(true)
+            GlyphPlate(symbol: TargetGlyph.symbol(for: target), tint: onTint ? Ink.ground : Self.tint(target), size: size)
         }
     }
 

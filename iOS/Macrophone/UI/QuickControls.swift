@@ -101,6 +101,8 @@ struct QuickControls: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
     var compact = false
+    /// The Thread's light, under the panel: the plate's foot takes a breath of it.
+    var glow: Color = Light.cyan
     @AppStorage("onboarding.macNudgeDismissed") private var macNudgeDismissed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -120,7 +122,7 @@ struct QuickControls: View {
             PanelDivider()
             CleanupRow(settings: settings, compact: compact) { model.sheet = .customCleanup }
         }
-        .controlPanel()
+        .controlPanel(glow: glow)
         .padding(.horizontal, Space.margin)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
@@ -205,11 +207,10 @@ struct PlacesRow: View {
     }
 
 
+    /// The app's one kicker voice (mono, tracked) — the same as "TO CLAUDE · SENDS" over the
+    /// transcript and the times in History.
     private var kicker: some View {
-        Text("SEND TO")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Ink.tertiary)
-            .accessibilityHidden(true)
+        Kicker("Send to").accessibilityHidden(true)
     }
 
     private func title(_ current: TargetRef, notOpen: Bool, answered: NeedsYou?) -> some View {
@@ -300,7 +301,9 @@ private struct PlaceButton: View {
                         }
                     }
                     .animation(Motion.snap, value: needs != nil)
-                Text(place.kind == .closed ? "Not open" : place.kind == .opening ? "Opening…" : place.shortName)
+                // A closed app keeps its name under its dimmed icon (the line above says it's
+                // not open); one on its way says so.
+                Text(place.kind == .opening ? "Opening…" : place.shortName)
                     .font(.caption2.weight(selected ? .semibold : .medium))
                     .foregroundStyle(selected ? Ink.ground : (place.kind == .closed ? Light.ochre : Ink.secondary))
                     .lineLimit(1)
@@ -489,38 +492,46 @@ struct CleanupRow: View {
         let available = CleanupWords.available(model, settings)
         let level = available ? settings.cleanupLevel : .off
         VStack(alignment: .leading, spacing: compact ? 6 : 8) {
-            Text("Cleanup")
-                .font(.body)
-                .foregroundStyle(Ink.ink)
-                .accessibilityAddTraits(.isHeader)
-            CleanupPicker(settings: settings)
+            // Edit instructions sits beside the kicker, as Watch sits beside Send to — so the
+            // line under the picker keeps the whole width and never runs to a third line past
+            // the panel's foot (it did on an SE, Oct 18 2026). The row keeps the button's
+            // height whether or not it's there, so a level change can't make the panel jump.
             HStack(alignment: .center, spacing: 10) {
-                Text(available ? CleanupWords.line(level, edited: model.customInstructionsEdited)
-                               : CleanupWords.unavailableReason(model, settings))
-                    .font(.footnote)
-                    .foregroundStyle(available ? Ink.secondary : Light.ochre)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentTransition(.opacity)
+                Kicker("Cleanup")
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
                 if available, level == .custom {
                     Button("Edit instructions", action: onEditCustom)
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Ink.ink)
                         .controlSize(.small)
                         .nativeGlassButton()
+                        .transition(.opacity)
                         .accessibilityIdentifier("edit-custom")
                 }
             }
-            // Room for two lines either way, so a level change can't make the panel jump.
-            .frame(minHeight: twoLines, alignment: .topLeading)
-            .animation(.easeInOut(duration: 0.2), value: level)
+            .frame(minHeight: buttonRow)
+            CleanupPicker(settings: settings)
+            Text(available ? CleanupWords.line(level, edited: model.customInstructionsEdited)
+                           : CleanupWords.unavailableReason(model, settings))
+                .font(.footnote)
+                .foregroundStyle(available ? Ink.secondary : Light.ochre)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentTransition(.opacity)
+                // Room for two lines either way.
+                .frame(minHeight: twoLines, alignment: .topLeading)
         }
+        .animation(.easeInOut(duration: 0.2), value: level)
         .padding(.horizontal, Space.inset)
         .padding(.top, compact ? 10 : 12)
         .padding(.bottom, compact ? 6 : 8)
     }
 
-    @ScaledMetric(relativeTo: .footnote) private var twoLines: CGFloat = 28
+    /// Two footnote lines (18pt each at the default size).
+    @ScaledMetric(relativeTo: .footnote) private var twoLines: CGFloat = 36
+    /// A small glass button's height — the kicker row's, with or without the button.
+    @ScaledMetric(relativeTo: .footnote) private var buttonRow: CGFloat = 30
 }
 
 /// The words for cleanup.
@@ -561,18 +572,29 @@ enum CleanupWords {
 // MARK: The panel's container
 
 private struct ControlPanel: ViewModifier {
-    @Environment(\.colorSchemeContrast) private var contrast
+    var glow: Color
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {
         // A material plate, like a sheet's: the controls on it are the glass (glass on glass blurs
-        // twice and merges the buttons into the panel).
+        // twice and merges the buttons into the panel). Its edge is lit from above and its foot
+        // takes a breath of the Thread's light below it — cool at rest, ember while the mic is
+        // open, mint when the words land — so the plate sits in the page's light, not on top of it.
         let shape = RoundedRectangle(cornerRadius: Radius.panel, style: .continuous)
         content
-            .background(.regularMaterial, in: shape)
-            .overlay(shape.strokeBorder(contrast == .increased ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
+            .background {
+                ZStack {
+                    if reduceTransparency { shape.fill(Ink.raised) } else { shape.fill(.regularMaterial) }
+                    shape.fill(RadialGradient(colors: [glow.opacity(0.14), .clear],
+                                              center: UnitPoint(x: 0.5, y: 1.1), startRadius: 0, endRadius: 360))
+                        .animation(.easeInOut(duration: 0.7), value: glow)
+                }
+            }
+            .overlay(SpecularEdge(shape: shape))
     }
 }
 
 extension View {
-    /// The controls' grouped panel: a regular-material plate with a hairline.
-    func controlPanel() -> some View { modifier(ControlPanel()) }
+    /// The controls' grouped panel: a regular-material plate with a lit edge, its foot in the
+    /// Thread's light.
+    func controlPanel(glow: Color = Light.cyan) -> some View { modifier(ControlPanel(glow: glow)) }
 }

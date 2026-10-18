@@ -61,6 +61,10 @@ struct MainView: View {
                         }
                         .scrollBounceBehavior(.basedOnSize)
                         .scrollIndicators(.hidden)
+                        // At a text size where the panel runs past the area, its edge dissolves
+                        // toward the Thread instead of being sliced (the fade sits in the panel's
+                        // own bottom padding, so a panel that fits is never touched).
+                        .edgeFade(bottom: compact ? 8 : 16)
                     }
                     .opacity(showSettings ? 1 : 0)
                     .allowsHitTesting(showSettings)
@@ -226,7 +230,7 @@ struct MainView: View {
     // MARK: Quick controls, the mic, the status line
 
     private var quickControls: some View {
-        QuickControls(settings: model.settings, compact: compact)
+        QuickControls(settings: model.settings, compact: compact, glow: skyGlow)
             .padding(.bottom, compact ? 10 : 18)
     }
 
