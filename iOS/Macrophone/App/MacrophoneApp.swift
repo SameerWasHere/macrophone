@@ -42,7 +42,7 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Ink.ground.ignoresSafeArea()
-            MainView(recorder: recorder, watcher: model.watcher)
+            mainView
                 .opacity(model.showOnboarding ? 0 : 1)
             if model.showOnboarding {
                 OnboardingView(recorder: recorder)
@@ -65,6 +65,22 @@ struct RootView: View {
             .presentationBackground(Ink.ground)
             .presentationDragIndicator(.visible)
         }
+    }
+
+    @ViewBuilder private var mainView: some View {
+        let main = MainView(recorder: recorder, watcher: model.watcher)
+        #if DEBUG
+        if let size = DebugHooks.frame {
+            // A smaller phone's screen, to check the compact layout on this simulator.
+            main.safeAreaPadding(.top, 20)
+                .frame(width: size.width, height: size.height)
+                .border(Ink.line)
+        } else {
+            main
+        }
+        #else
+        main
+        #endif
     }
 }
 

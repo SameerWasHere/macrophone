@@ -37,7 +37,7 @@ struct StatusLine: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Space.text)
         .animation(.easeInOut(duration: 0.2), value: text)
     }
 

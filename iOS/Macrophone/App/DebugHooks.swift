@@ -53,9 +53,17 @@ import UIKit
 ///                                            next / prev (the next or previous window), attend@<bundle>@<window>
 ///                                            (what tapping an alert does), fit@larger|largest|normal (Aa)
 /// MACROPHONE_VIDEO=0                         a phone from before video: the Mac sends pictures (to compare the two)
+/// MACROPHONE_FRAME=375x667                   the mic screen in a smaller phone's frame (an SE: compact < 700pt) on this simulator
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
+
+    /// A smaller phone's screen, drawn in the middle of this one (a 20pt status bar, like an SE's).
+    static var frame: CGSize? {
+        guard let v = env["MACROPHONE_FRAME"] else { return nil }
+        let p = v.split(separator: "x").compactMap { Double($0) }
+        return p.count == 2 ? CGSize(width: p[0], height: p[1]) : nil
+    }
 
     /// Runs before the model exists.
     static func early() {

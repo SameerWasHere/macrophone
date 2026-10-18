@@ -42,17 +42,19 @@ struct MainView: View {
             VStack(spacing: 0) {
                 // The top area: the settings at rest; the transcript while the mic is open.
                 ZStack(alignment: .top) {
-                    // At rest the settings fill the area (the panel in thumb reach, just above the
-                    // Thread); at large text sizes, when they don't fit, they scroll instead of
-                    // being cut off at the Thread.
+                    // At rest the settings fill the area: the top bar at the top, the panel in
+                    // thumb reach just above the Thread, and the header centred in the room
+                    // between them (Oct 18 2026 — it used to hug the top bar, leaving all the
+                    // spare height as one gap over the panel). At large text sizes, when they
+                    // don't fit, they scroll instead of being cut off at the Thread.
                     GeometryReader { area in
                         ScrollView(.vertical) {
                             VStack(spacing: 0) {
                                 topBar
+                                Spacer(minLength: compact ? 10 : 20)
                                 header
-                                    .padding(.horizontal, 24)
-                                    .padding(.top, compact ? 8 : 18)
-                                Spacer(minLength: compact ? 8 : 12)
+                                    .padding(.horizontal, Space.text)
+                                Spacer(minLength: compact ? 10 : 20)
                                 quickControls
                             }
                             .frame(minHeight: area.size.height)
@@ -71,7 +73,7 @@ struct MainView: View {
                         VStack(spacing: 0) {
                             if watcher.isOpen {
                                 WatchStrip(watcher: watcher, compact: compact)
-                                    .padding(.horizontal, 16)
+                                    .padding(.horizontal, Space.margin)
                                     .padding(.top, 8)
                             }
                             transcriptArea
@@ -133,7 +135,7 @@ struct MainView: View {
                 MacPill()
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.margin)
         .padding(.top, 6)
         .opacity(isRecording ? 0.35 : 1)
         .allowsHitTesting(!isRecording)
@@ -176,10 +178,10 @@ struct MainView: View {
     private var transcriptArea: some View {
         VStack(spacing: 0) {
             DestinationLine(words: recorder.words)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, Space.text)
                 .padding(.top, 14)
             LiveWords(words: recorder.words, listening: isRecording)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, Space.text)
                 .padding(.top, 8)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .clipped()
@@ -402,9 +404,10 @@ struct LiveWords: View {
 }
 
 extension Image {
-    /// A top-bar glyph, sized for the native circular glass button.
+    /// A top-bar glyph, sized so the native circular glass button comes out 44pt — the same
+    /// height as the Mac's pill beside it.
     func topBarGlyph() -> some View {
-        font(.system(size: 17, weight: .semibold)).foregroundStyle(Ink.ink).frame(width: 28, height: 28)
+        font(.system(size: 17, weight: .semibold)).foregroundStyle(Ink.ink).frame(width: 30, height: 30)
     }
 }
 
@@ -436,6 +439,7 @@ struct MacPill: View {
                 }
             }
             .padding(.horizontal, 2)
+            .frame(minHeight: 37)
         }
         .nativeGlassButton()
         .buttonBorderShape(.capsule)
@@ -501,7 +505,7 @@ struct MacAppNudge: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Ink.ink)
                 }
-                .padding(.leading, 16)
+                .padding(.leading, Space.inset)
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }

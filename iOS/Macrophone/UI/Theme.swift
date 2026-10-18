@@ -69,6 +69,18 @@ enum Radius {
     static let small: CGFloat = 14
     static let medium: CGFloat = 18
     static let large: CGFloat = 22
+    /// The controls panel by the mic: the rows' 16pt inset plus a 10pt curve.
+    static let panel: CGFloat = 26
+}
+
+/// The page's spacing, shared so every screen keeps the same edges (the design-review pass,
+/// Oct 18 2026): one margin from the screen's edge for the top bar, the panel and the watched
+/// window; one inset from a panel's edge to its rows; a wider one for running text (the header,
+/// the transcript, the status line), which reads better set in from the controls.
+enum Space {
+    static let margin: CGFloat = 16
+    static let inset: CGFloat = 16
+    static let text: CGFloat = 24
 }
 
 extension Font {
