@@ -101,12 +101,11 @@ final class AttentionWatcher {
                 continue
             }
             guard let p = found else {
-                if asked.removeValue(forKey: key) != nil { app.agents.screen(t, question: nil, promptID: nil) }
+                asked.removeValue(forKey: key)
                 continue
             }
             guard asked[key] != p.id else { continue }
             asked[key] = p.id
-            app.agents.screen(t, question: p.question, promptID: p.id)
             let a = Attention(ref: t.ref, appName: t.appName, title: t.title, question: p.question, promptID: p.id)
             if phones.isEmpty {
                 // No phone connected (the app is closed): through iCloud.

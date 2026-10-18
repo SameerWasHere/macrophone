@@ -6,19 +6,15 @@ import MacrophoneKit
 /// and Codex run `mp hook` on their own events; the hook posts each to the local API, and this
 /// keeps one row per session — working, waiting on you, or your turn — with the window it runs
 /// in. A session that starts waiting tells the phone at once (no looking at pictures, so no
-/// false alarm and no five-second wait), and the phone's list of agents follows every change.
-///
-/// Windows whose agent isn't connected still show while the attention watcher reads them asking
-/// a question on screen (`screenAsks`).
+/// false alarm and no five-second wait); `ReplyWatcher` asks it whether a chat's agent is done
+/// (the Answered you mark), and the attention watcher leaves its windows alone. The list itself
+/// never goes to the phone (its Agents panel was removed Oct 18 2026).
 ///
 /// What an agent says (its question, its last words) goes only to the phone, never to the log.
 @MainActor
 final class AgentHub {
     private unowned let app: AppModel
     private var sessions: [String: Entry] = [:]
-    /// Windows the attention watcher reads asking, keyed by the window: shown until they stop.
-    private var screenAsks: [String: AgentSession] = [:]
-    private var broadcast: Task<Void, Never>?
     private var sweeper: Task<Void, Never>?
     /// A session nobody heard from in this long is gone (a terminal closed mid-turn).
     static let stale: TimeInterval = 12 * 3600
@@ -31,16 +27,6 @@ final class AgentHub {
     }
 
     init(app: AppModel) { self.app = app }
-
-    /// The list for the phone: waiting first, then your turn, then working; newest first in each.
-    var list: [AgentSession] {
-        let order: [AgentSession.State: Int] = [.waiting: 0, .yourTurn: 1, .working: 2]
-        let screen = screenAsks.values.filter { s in !sessions.values.contains { $0.session.ref == s.ref && s.ref != nil } }
-        return (sessions.values.map(\.session) + screen).sorted {
-            let a = order[$0.state] ?? 3, b = order[$1.state] ?? 3
-            return a != b ? a < b : $0.since > $1.since
-        }
-    }
 
     /// Where the agent in this window is, when one told the Mac (the newest, if several).
     func state(of window: CGWindowID) -> (state: AgentSession.State, since: Date)? {
@@ -62,7 +48,6 @@ final class AgentHub {
         case .ends:
             guard sessions.removeValue(forKey: key) != nil else { return }
             app.log.add("agents: a session ended")
-            changed()
             return
         case let .state(state, detail):
             let now = Date()
@@ -85,24 +70,8 @@ final class AgentHub {
             sessions[key] = entry
             if isNew { app.log.add("agents: \(e.agentName) session started (\(sessions.count) now)") }
             if state == .waiting, was != .waiting || detail != nil { alert(entry.session) }
-            if state != was || isNew || detail != nil { changed() }
         }
         sweep()
-    }
-
-    /// The attention watcher reads a window asking (`question` nil: it stopped).
-    func screen(_ t: LiveTarget, question: String?, promptID: String?) {
-        let key = "screen:\(t.id)"
-        if let question = question ?? promptID.map({ _ in "\(t.appName) is asking" }) {
-            let s = AgentSession(id: key, agent: t.appName, project: t.windowTitle.flatMap(Self.titleProject),
-                                 ref: t.ref, appName: t.appName, state: .waiting, detail: question,
-                                 since: screenAsks[key]?.since ?? Date(), fromScreen: true)
-            guard screenAsks[key] != s else { return }
-            screenAsks[key] = s
-        } else {
-            guard screenAsks.removeValue(forKey: key) != nil else { return }
-        }
-        changed()
     }
 
     // MARK: Which window
@@ -171,16 +140,6 @@ final class AgentHub {
         return "agent-" + String(h, radix: 16)
     }
 
-    /// The phones' lists follow, a beat after a burst of events.
-    private func changed() {
-        broadcast?.cancel()
-        broadcast = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard let self, !Task.isCancelled else { return }
-            self.app.server.broadcastAgents(self.list)
-        }
-    }
-
     /// Sessions gone quiet for hours, or whose app quit, leave the list; checked every few minutes.
     private func sweep() {
         guard sweeper == nil else { return }
@@ -188,13 +147,11 @@ final class AgentHub {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 180 * 1_000_000_000)
                 guard let self else { return }
-                let before = self.sessions.count
                 self.sessions = self.sessions.filter { _, e in
                     guard Date().timeIntervalSince(e.heardAt) < Self.stale else { return false }
                     guard let pid = e.pid else { return true }
                     return NSRunningApplication(processIdentifier: pid).map { !$0.isTerminated } ?? false
                 }
-                if self.sessions.count != before { self.changed() }
                 if self.sessions.isEmpty { self.sweeper = nil; return }
             }
         }
@@ -205,7 +162,4 @@ final class AgentHub {
         let name = URL(fileURLWithPath: cwd).lastPathComponent
         return name == "/" || name == NSUserName() ? nil : name
     }
-
-    /// "claude ~/app" → nil; a window's title is shown as it is elsewhere, so none here.
-    private static func titleProject(_ title: String) -> String? { title.isEmpty ? nil : title }
 }

@@ -41,8 +41,6 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame)
     /// A window on the Mac is asking something (only when `features` names "attention").
     func linkClient(_ client: LinkClient, attention: Attention)
-    /// Every agent session the Mac knows of (a Mac that names none never sends it).
-    func linkClient(_ client: LinkClient, agents: [AgentSession])
     /// The chats you're in that answered you (a Mac that names none never sends it).
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou])
     /// Reader: the watched window's words.
@@ -73,7 +71,6 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchFrame: WatchFrame) {}
     func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame) {}
     func linkClient(_ client: LinkClient, attention: Attention) {}
-    func linkClient(_ client: LinkClient, agents: [AgentSession]) {}
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {}
     func linkClient(_ client: LinkClient, reader: ReaderPage) {}
     func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String) {}
@@ -648,11 +645,6 @@ public final class LinkClient: @unchecked Sendable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.delegate?.linkClient(self, needsYou: list)
-            }
-        case let .agents(list):
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.delegate?.linkClient(self, agents: list)
             }
         case let .remoteAddresses(list):
             // Kept with the pairing: what the Mac says replaces what it said before; a typed

@@ -40,8 +40,6 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID)
     /// Fit to iPhone: the watched window takes this shape (width ÷ height), as big as it goes.
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID)
-    /// The agent sessions, sent to a phone that named "agents" right after its welcome.
-    func liveAgents(_ server: LinkServer) -> [AgentSession]
     /// The chats that answered, sent to a phone naming NeedsYou.feature right after its welcome.
     func liveNeeds(_ server: LinkServer) -> [NeedsYou]
     /// Reader: the words of the window that phone watches (nil when there's none).
@@ -85,7 +83,6 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {}
-    func liveAgents(_ server: LinkServer) -> [AgentSession] { [] }
     func liveNeeds(_ server: LinkServer) -> [NeedsYou] { [] }
     func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage? { nil }
     func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) { (nil, "") }
@@ -562,9 +559,6 @@ public final class LinkServer: @unchecked Sendable {
                 if phoneFeatures?.contains(RemoteAccess.feature) == true {
                     try await session.send(.remoteAddresses(await remoteAddressesOnMain()))
                 }
-                if phoneFeatures?.contains(AgentSession.feature) == true {
-                    try await session.send(.agents(await agentsOnMain()))
-                }
                 if phoneFeatures?.contains(NeedsYou.feature) == true {
                     try await session.send(.needsYou(await needsOnMain()))
                 }
@@ -679,7 +673,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .agents, .needsYou, .reader, .clipboardReply, .attachmentLanded:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .reader, .clipboardReply, .attachmentLanded:
                 break
             }
         }
@@ -703,16 +697,6 @@ public final class LinkServer: @unchecked Sendable {
     /// The chats that answered changed: tell every phone that understands them.
     public func broadcastNeeds(_ list: [NeedsYou]) {
         for id in phones(with: NeedsYou.feature) { Task { await self.send(.needsYou(list), to: id) } }
-    }
-
-    @MainActor private func agentsOnMain() -> [AgentSession] {
-        guard let delegate else { return [] }
-        return delegate.liveAgents(self)
-    }
-
-    /// The agent sessions changed: tell every phone that understands them.
-    public func broadcastAgents(_ list: [AgentSession]) {
-        for id in phones(with: AgentSession.feature) { Task { await self.send(.agents(list), to: id) } }
     }
 
     @MainActor private func remoteAddressesOnMain() -> [RemoteAddress] {

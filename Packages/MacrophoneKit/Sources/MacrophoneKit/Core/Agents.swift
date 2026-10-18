@@ -1,10 +1,11 @@
 import Foundation
 
-/// Your agents, by what they say themselves (Oct 17 2026). Claude Code and Codex tell the Mac
-/// when they start working, ask for permission, finish a turn or end — through `mp hook`, which
-/// they run on their own events — so the phone knows exactly which one waits on you, with no
-/// guessing from the window's picture. A window whose agent isn't connected still shows here
-/// while the Mac reads it asking a question on screen (`fromScreen`).
+/// One agent session on the Mac, by what the agent says itself (Oct 17 2026). Claude Code and
+/// Codex tell the Mac when they start working, ask for permission, finish a turn or end — through
+/// `mp hook`, which they run on their own events — so the Mac knows exactly which one waits on
+/// you, with no guessing from the window's picture. The Mac's own record (`AgentHub`): it feeds
+/// the alert the moment one asks and the Answered you mark; the phone never sees the list (its
+/// Agents panel was removed Oct 18 2026, and with it the `agents` message).
 public struct AgentSession: Codable, Sendable, Identifiable, Equatable {
     public enum State: String, Codable, Sendable {
         /// Running a turn: thinking, editing, running tools.
@@ -15,7 +16,7 @@ public struct AgentSession: Codable, Sendable, Identifiable, Equatable {
         case yourTurn
     }
 
-    /// The agent's own session id ("screen:<window>" for one read from the screen).
+    /// The agent's own session id.
     public var id: String
     /// "Claude Code", "Codex".
     public var agent: String
@@ -31,13 +32,11 @@ public struct AgentSession: Codable, Sendable, Identifiable, Equatable {
     public var detail: String?
     /// When it got to this state.
     public var since: Date
-    /// Read from the window's picture, not told by the agent.
-    public var fromScreen: Bool
 
     public var state: State { State(rawValue: stateName) ?? .working }
 
     public init(id: String, agent: String, project: String?, ref: TargetRef?, appName: String,
-                state: State, detail: String?, since: Date, fromScreen: Bool = false) {
+                state: State, detail: String?, since: Date) {
         self.id = id
         self.agent = agent
         self.project = project
@@ -46,17 +45,7 @@ public struct AgentSession: Codable, Sendable, Identifiable, Equatable {
         self.stateName = state.rawValue
         self.detail = detail
         self.since = since
-        self.fromScreen = fromScreen
     }
-
-    /// "Claude Code · Macrophone", or "Terminal" for one read off the screen.
-    public var name: String {
-        if let project, !project.isEmpty { return "\(agent) · \(project)" }
-        return agent
-    }
-
-    /// The phone understands `.agents`, sent in its hello.
-    public static let feature = "agents"
 }
 
 /// One event from an agent, as `mp hook` posts it to the Mac's local API (`POST /v1/agent`).

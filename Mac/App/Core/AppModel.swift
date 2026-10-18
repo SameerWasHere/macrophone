@@ -647,8 +647,6 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         watch.press(key, for: peerID)
     }
 
-    func liveAgents(_ server: LinkServer) -> [AgentSession] { agents.list }
-
     func liveNeeds(_ server: LinkServer) -> [NeedsYou] { replies.needs }
 
     func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage? {
