@@ -77,12 +77,16 @@ struct OnboardingView: View {
                     .accessibilityLabel("Step \(step.rawValue + 1) of \(OnboardingStep.allCases.count)")
             }
             Spacer()
-            Button(step == .test ? "Finish" : "Skip") {
+            Button {
                 if step == .test { finish() } else { advance() }
+            } label: {
+                // The 44pt frame inside the label, so the whole of it takes the tap.
+                Text(step == .test ? "Finish" : "Skip")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .font(.body.weight(.medium))
             .foregroundStyle(Ink.secondary)
-            .frame(minWidth: 44, minHeight: 44)
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
