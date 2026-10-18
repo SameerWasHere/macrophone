@@ -83,9 +83,10 @@ final class Watcher: ObservableObject {
     @Published private(set) var fit: WatchFit = .normal
     /// The connected Mac can size windows (it named "fit" in its welcome).
     @Published private(set) var macCanFit = false
-    /// A moment of words over the window: what just changed, in a sentence.
+    /// A moment of words over the window: what just changed, in a sentence, with a symbol for it.
     @Published private(set) var noteSeq = 0
     private(set) var noteWords = ""
+    private(set) var noteSymbol = "info.circle"
     var sendFit: (WatchFit) -> Bool = { _ in false }
     var macFeatures: () -> Set<String> = { [] }
 
@@ -274,7 +275,7 @@ final class Watcher: ObservableObject {
         // and whenever this app's window opens while it keeps this shape.
         if let target { Self.setFitted(target, true) }
         drag = .scroll
-        say("\(name)'s window now has your iPhone's shape — all of it fits here, and one finger scrolls it")
+        say("\(name)'s window now has your iPhone's shape — all of it fits here, and one finger scrolls it", symbol: "iphone.gen3")
         log?.add("watching: fit to iPhone")
     }
 
@@ -334,7 +335,7 @@ final class Watcher: ObservableObject {
         Haptics.tick()
         drag = d
         log?.add("watching: one finger \(d == .pan ? "moves the picture" : "scrolls the window")")
-        say(d == .pan ? "One finger moves the picture" : "One finger scrolls your Mac's window")
+        say(d == .pan ? "One finger moves the picture" : "One finger scrolls your Mac's window", symbol: d == .pan ? "hand.draw" : "arrow.up.and.down")
     }
 
     /// An answer tapped: the Mac presses the keys that give it, if the question is still up.
@@ -349,10 +350,10 @@ final class Watcher: ObservableObject {
         log?.add("watching: answered a prompt")
     }
 
-    /// Esc · ↑ · ↓ · Return for this prompt, instead of its answers.
+    /// Esc · ↑ · ↓ · Return for this prompt, instead of its answers (no haptic: nothing happens
+    /// on the Mac).
     func showKeys() {
         touch()
-        Haptics.tick()
         keysInstead = true
     }
 
@@ -373,10 +374,10 @@ final class Watcher: ObservableObject {
         // A new text size reshapes the window: start from its fit, not the old zoom.
         if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
         if sendFit(f) {
-            say(f.explanation(appName: name))
+            say(f.explanation(appName: name), symbol: "textformat.size")
             recenter &+= 1
         } else {
-            say("Your Mac can't resize windows yet — update Macrophone there")
+            say("Your Mac can't resize windows yet — update Macrophone there", symbol: "exclamationmark.triangle")
         }
         log?.add("watching: text \(f.rawValue)")
     }
@@ -403,9 +404,10 @@ final class Watcher: ObservableObject {
 
     private static func fitKey(_ target: TargetRef) -> String? { target.bundleID.map { "watch.fit." + $0 } }
 
-    /// A sentence over the window for a moment.
-    private func say(_ words: String) {
+    /// A sentence over the window for a moment, with the symbol of what changed.
+    private func say(_ words: String, symbol: String) {
         noteWords = words
+        noteSymbol = symbol
         noteSeq &+= 1
     }
 

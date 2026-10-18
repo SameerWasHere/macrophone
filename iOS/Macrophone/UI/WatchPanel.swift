@@ -389,7 +389,7 @@ struct WatchWindow: View {
                 .accessibilityIdentifier("watch-newest")
             }
             if let dragNote, interactive && watcher.phase == .live {
-                WatchNote(symbol: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down", words: dragNote)
+                WatchNote(symbol: watcher.noteSymbol, words: dragNote)
                     .padding(.top, 10)
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
