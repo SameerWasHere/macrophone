@@ -149,10 +149,9 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: give the watched window this shape (the phone's view of it, in points), as
     /// big as the screen allows — Fit to iPhone (only to a Mac naming WatchShape.feature).
     case watchShape(width: Double, height: Double)
-    /// Phone → Mac: the watched window's words, now (only to a Mac naming ReaderPage.feature).
-    case readerRequest
-    /// Mac → phone: the watched window's words (only to a phone naming ReaderPage.feature).
-    case reader(ReaderPage)
+    /// Phone → Mac: a dictation for this place has started — get it ready (only to a Mac naming
+    /// DictationPrepare.feature). Nothing is typed until the dictation arrives.
+    case prepare(TargetRef)
     /// Phone → Mac: send me your clipboard (only to a Mac naming ClipboardItem.feature).
     case clipboardRequest
     /// Phone → Mac: put this on your clipboard (only to a Mac naming ClipboardItem.feature).

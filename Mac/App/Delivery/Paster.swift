@@ -140,6 +140,65 @@ enum Paster {
         name.components(separatedBy: " — ").first ?? name
     }
 
+    // MARK: Ready while you speak (Oct 18 2026, the speed pass)
+
+    /// What `prepare` found while the phone was still recording: the app's window and its place to
+    /// type, so the paste only has to paste.
+    struct Prepared {
+        var pid: pid_t
+        var windowID: CGWindowID?
+        var composer: AXUIElement
+        var isDocument: Bool
+        var at: Date
+    }
+    @MainActor static var prepared: Prepared?
+
+    /// The phone started recording for this place: bring it forward now when nobody's at the Mac
+    /// (the activation and its settling happen while he talks), wake a web app's accessibility,
+    /// and find the place to type. Nothing is typed. A minute and a half later it's stale.
+    @MainActor
+    static func prepare(_ target: Target, scanner: TargetScanner, activate: Bool) async {
+        guard isTrusted, case let .app(bundleID, windowKey, name) = target,
+              let r = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first(where: { !$0.isTerminated }) else { return }
+        let hints = await scanner.hints(for: r.processIdentifier)
+        var wid: CGWindowID?
+        if let windowKey, let id = CGWindowID(windowKey) {
+            guard WindowServer.exists(id) else { return }
+            wid = id
+        } else {
+            let ids = hints.windows.map(\.id)
+            if let last = hints.lastWindow, ids.contains(last) || ids.isEmpty, WindowServer.exists(last) { wid = last }
+            else { wid = ids.first }
+        }
+        let ax = AX.app(r.processIdentifier)
+        if AppQuirks.isChromium(bundleID: bundleID, url: r.bundleURL) { AX.wakeWebContent(ax) }
+        var window: AXUIElement?
+        if activate, !StayAwake.isLocked {
+            window = try? await bringToFront(r, windowID: wid, required: windowKey != nil, name: r.localizedName ?? appName(fromTitle: name))
+        } else if let wid {
+            window = AX.window(in: ax, id: wid)
+        }
+        guard !AppQuirks.isTerminal(bundleID), !AppQuirks.hiddenComposer.contains(bundleID),
+              let win = window ?? AX.element(ax, kAXFocusedWindowAttribute) else { return }
+        let rem = (hints.rememberedWindow == wid ? hints.rememberedElement : nil).flatMap { AX.isAlive($0) ? $0 : nil }
+        let focused = AX.focused(in: ax)
+        let scan = await Task.detached(priority: .userInitiated) {
+            ComposerFinder.scan(window: win, bundleID: bundleID, focused: focused, remembered: rem, timeLimit: 0.5)
+        }.value
+        guard let c = scan.composer else { return }
+        prepared = Prepared(pid: r.processIdentifier, windowID: wid ?? AX.windowID(win), composer: c.element, isDocument: c.isDocument, at: Date())
+    }
+
+    /// The prepared place to type, if it's for this app's window, fresh and still there.
+    @MainActor
+    private static func takePrepared(pid: pid_t, windowID: CGWindowID?) -> Prepared? {
+        guard let p = prepared else { return nil }
+        prepared = nil
+        guard p.pid == pid, windowID == nil || p.windowID == nil || p.windowID == windowID,
+              Date().timeIntervalSince(p.at) < 90, AX.isAlive(p.composer) else { return nil }
+        return p
+    }
+
     /// The paste, start to finish:
     ///   1. the right app and window in front (launching nothing — a closed app is copied instead),
     ///   2. the place to type found and focused,
@@ -154,6 +213,7 @@ enum Paster {
         let running: NSRunningApplication
         var window: AXUIElement?
         var remembered: AXUIElement?
+        var ready: Prepared?
         switch req.target {
         case .front:
             guard let f = NSWorkspace.shared.frontmostApplication else { throw PasteFailure.nowhereToType(app: "the app in front") }
@@ -180,6 +240,7 @@ enum Paster {
                 if let last = hints.lastWindow, ids.contains(last) || ids.isEmpty, WindowServer.exists(last) { wid = last }
                 else { wid = ids.first }
             }
+            ready = await takePrepared(pid: r.processIdentifier, windowID: wid)
             window = try await bringToFront(r, windowID: wid, required: windowKey != nil, name: appTitle)
             if let rw = hints.rememberedWindow, rw == wid { remembered = hints.rememberedElement }
         }
@@ -215,7 +276,11 @@ enum Paster {
                 // The input the person last typed in wins — but only while it's still a visible
                 // place to type in this window (a chat app may have moved on to another view).
                 let rem = remembered.flatMap { AX.isAlive($0) ? $0 : nil }
-                if let win {
+                if let ready, AX.isAlive(ready.composer) {
+                    // Found while he was still talking: no walk now.
+                    box = ready.composer
+                    isDocument = ready.isDocument
+                } else if let win {
                     // The walk can take its whole half-second: off the main thread, so the popup
                     // keeps drawing "Opening Claude" instead of freezing on it.
                     var scan = await Task.detached(priority: .userInitiated) {

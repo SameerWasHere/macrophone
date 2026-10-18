@@ -1,31 +1,8 @@
 import Foundation
 
-// Oct 18 2026, Sameer: "Build 1, 3, 4" — Reader, photos and files into the chat, the clipboard
-// both ways. Each is a feature the phone and the Mac name in their hello / welcome; neither sends
+// Oct 18 2026, Sameer: "Build 1, 3, 4" — photos and files into the chat, the clipboard both ways
+// (Reader, the window's words as text, came and went the same day: "not that great"). Each is a feature the phone and the Mac name in their hello / welcome; neither sends
 // one of these messages to the other unless it named it (an unknown message ends a session).
-
-/// Reader: the watched window's words as text — a terminal's own text, else what text recognition
-/// reads off the window's picture (the column you type in, so a sidebar stays out). What's on the
-/// window now; scroll the window for more. The phone asks while Reader shows.
-public struct ReaderPage: Codable, Sendable, Equatable {
-    public var lines: [String]
-    /// A terminal's text: set in a monospaced face, lines kept as they are.
-    public var monospaced: Bool
-    /// Read off the picture, so a word may be misread.
-    public var fromPicture: Bool
-    public var at: Date
-
-    public init(lines: [String], monospaced: Bool, fromPicture: Bool, at: Date = Date()) {
-        self.lines = lines
-        self.monospaced = monospaced
-        self.fromPicture = fromPicture
-        self.at = at
-    }
-
-    public static let feature = "reader"
-    /// At most this much text in a page (the newest end of it).
-    public static let maxCharacters = 60_000
-}
 
 /// The clipboard, both ways, only when asked: the phone asks for the Mac's (copied to the phone's
 /// clipboard), or sends its own (onto the Mac's, to paste with ⌘V). Text, or an image. A copy a
@@ -93,4 +70,11 @@ public struct AttachmentChunk: Codable, Sendable {
         if t.isEmpty { t = "file" }
         return String(t.prefix(120))
     }
+}
+
+/// Ready while you speak (Oct 18 2026, the speed pass): the phone tells the Mac where a dictation
+/// is going the moment recording starts, so the app is in front and its place to type found by the
+/// time the words arrive. Only to a Mac whose welcome names the feature.
+public enum DictationPrepare {
+    public static let feature = "prepare"
 }

@@ -142,7 +142,7 @@ final class Watcher: ObservableObject {
         guard target != .clipboard else { return }
         let switching = self.target != target
         self.target = target
-        if !isOpen { drag = .pan; wholeWindow = false; reading = false }
+        if !isOpen { drag = .pan; wholeWindow = false }
         // A window fitted to the phone shows whole: one finger scrolls it (nothing to pan to).
         if Self.isFitted(target), (switching || !isOpen) { drag = .scroll }
         if switching {
@@ -285,18 +285,6 @@ final class Watcher: ObservableObject {
     static func setFitted(_ t: TargetRef, _ on: Bool) {
         guard let k = fittedKey(t) else { return }
         if on { UserDefaults.standard.set(true, forKey: k) } else { UserDefaults.standard.removeObject(forKey: k) }
-    }
-
-    /// Reader (Oct 18 2026): the window's words as text instead of its picture. The picture stays
-    /// the default — every window opens on it.
-    @Published private(set) var reading = false
-
-    func setReading(_ on: Bool) {
-        guard on != reading else { return }
-        touch()
-        Haptics.tick()
-        reading = on
-        log?.add("watching: \(on ? "reader" : "window")")
     }
 
     /// The Mac presses keys beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…).

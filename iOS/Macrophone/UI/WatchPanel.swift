@@ -47,15 +47,10 @@ struct WatchPanel: View {
     var body: some View {
         VStack(spacing: compact ? 8 : 12) {
             header
-            Group {
-                // Reader: the words in place of the picture (the picture is the default).
-                if watcher.reading { WatchReaderView(watcher: watcher).transition(.opacity) }
-                else { WatchWindow(watcher: watcher, interactive: true).transition(.opacity) }
-            }
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: watcher.reading)
+            WatchWindow(watcher: watcher, interactive: true)
                 .frame(maxHeight: .infinity)
                 // The first times: what a tap, a hold, a pinch and the side swipe do.
-                .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count, canRead: model.canRead) }
+                .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count) }
                 .offset(x: slide)
                 .opacity(slide == 0 ? 1 : 0.6)
             WatchActions(watcher: watcher)
@@ -179,14 +174,8 @@ struct WatchPanel: View {
             Spacer(minLength: 8)
             if watcher.macCanFit, watcher.target != .clipboard {
                 HStack(spacing: 0) {
-                    if model.canRead {
-                        WatchReaderButton(watcher: watcher)
-                        WatchCellDivider()
-                    }
-                    if !watcher.reading {
-                        WatchWholeButton(watcher: watcher)
-                        WatchCellDivider()
-                    }
+                    WatchWholeButton(watcher: watcher)
+                    WatchCellDivider()
                     WatchWindowMenu(watcher: watcher)
                 }
                 .watchGlass(Capsule())
@@ -687,10 +676,6 @@ struct WatchDragSwitch: View {
             option(.pan, "Pan", symbol: "hand.draw")
             option(.scroll, "Scroll", symbol: "arrow.up.and.down")
         }
-        // Reader scrolls its own text: the switch steps out (its room kept, so the keys don't move).
-        .opacity(watcher.reading ? 0 : 1)
-        .allowsHitTesting(!watcher.reading)
-        .accessibilityHidden(watcher.reading)
         .padding(3)
         .watchGlass(Capsule())
         .dynamicTypeSize(...DynamicTypeSize.xLarge)

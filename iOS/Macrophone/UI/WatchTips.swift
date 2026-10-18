@@ -40,9 +40,6 @@ struct WatchTip: Identifiable, Equatable {
     static let scroll = WatchTip(id: "scroll", symbol: "scroll",
                                  title: "Pan or Scroll",
                                  detail: "Pan moves your view. Scroll moves the window on your Mac with one finger — two fingers still pan. Zoomed all the way out, Scroll picks itself.")
-    static let text = WatchTip(id: "text", symbol: "text.alignleft",
-                               title: "Read it as text",
-                               detail: "The text button by Done shows the window's words at your size — select, copy, read back. Tap again for the picture.")
     static let keys = WatchTip(id: "keys", symbol: "ellipsis",
                                title: "More keys",
                                detail: "Interrupt, Undo, Send, the arrows and more are behind ··· beside Return.")
@@ -66,21 +63,18 @@ struct WatchTipCard: View {
     @ObservedObject var watcher: Watcher
     /// How many windows there are to flip between.
     var sessions: Int
-    /// The Mac reads the window's words (the Text switch is there).
-    var canRead = false
     /// Bumped by Show Tips Again.
     @AppStorage(WatchTips.key) private var seenRaw = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// In the order they're met: the first tap, the picture, the other windows, the switch under
-    /// the thumb, the Text switch, the ··· — each only when it works with this Mac.
+    /// the thumb, the ··· — each only when it works with this Mac.
     private var tips: [WatchTip] {
         var out: [WatchTip] = [watcher.canRightClick ? .click : WatchTip(id: "click", symbol: "hand.tap", title: "Tap to click",
                                                                        detail: "A tap is a click there on your Mac.")]
         out.append(watcher.canFitToPhone ? .zoomAndFit : .zoom)
         if sessions > 1 { out.append(.swipe) }
         if watcher.macCanScroll { out.append(.scroll) }
-        if canRead { out.append(.text) }
         if watcher.canPressKeys { out.append(.keys) }
         return out
     }
@@ -90,7 +84,7 @@ struct WatchTipCard: View {
         let open = tips.filter { !seen.contains($0.id) }
         let all = tips
         Group {
-            if watcher.phase == .live, !watcher.reading, let tip = open.first, let at = all.firstIndex(of: tip) {
+            if watcher.phase == .live, let tip = open.first, let at = all.firstIndex(of: tip) {
                 card(tip, at: at, of: all.count, left: open.count)
                     .id(tip.id)
                     .transition(.opacity.combined(with: .move(edge: .top)))

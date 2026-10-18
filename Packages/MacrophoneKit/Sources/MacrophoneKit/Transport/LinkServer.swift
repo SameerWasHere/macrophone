@@ -42,8 +42,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID)
     /// The chats that answered, sent to a phone naming NeedsYou.feature right after its welcome.
     func liveNeeds(_ server: LinkServer) -> [NeedsYou]
-    /// Reader: the words of the window that phone watches (nil when there's none).
-    func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage?
+    /// A dictation for this place has started on that phone: get it ready.
+    func linkServer(_ server: LinkServer, prepare target: TargetRef, from peerID: UUID)
     /// The Mac's clipboard (nil when empty or concealed) and a plain line about it.
     func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String)
     /// Put this on the Mac's clipboard; a plain line about it.
@@ -84,7 +84,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {}
     func liveNeeds(_ server: LinkServer) -> [NeedsYou] { [] }
-    func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage? { nil }
+    func linkServer(_ server: LinkServer, prepare target: TargetRef, from peerID: UUID) {}
     func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) { (nil, "") }
     func linkServer(_ server: LinkServer, setClipboard item: ClipboardItem, from peerID: UUID) async -> String { "" }
     func linkServer(_ server: LinkServer, attachment chunk: AttachmentChunk, from peerID: UUID) async -> (Bool, String)? { nil }
@@ -634,12 +634,8 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
             case let .watchWindow(command):
                 notify { $0.linkServer(self, watchWindow: command, from: phoneID) }
-            case .readerRequest:
-                let s = session
-                Task { @MainActor [weak self] in
-                    guard let self, let d = self.delegate, let page = await d.readerPage(self, for: phoneID) else { return }
-                    try? await s.send(.reader(page))
-                }
+            case let .prepare(target):
+                notify { $0.linkServer(self, prepare: target, from: phoneID) }
             case .clipboardRequest:
                 let s = session
                 Task { @MainActor [weak self] in
@@ -673,7 +669,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .reader, .clipboardReply, .attachmentLanded:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .clipboardReply, .attachmentLanded:
                 break
             }
         }

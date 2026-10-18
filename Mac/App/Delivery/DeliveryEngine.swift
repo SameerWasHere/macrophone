@@ -41,6 +41,17 @@ final class DeliveryEngine {
         return route(s.target, send: s.send)
     }
 
+    /// The phone started a dictation for this place: get it ready while he talks (Paster.prepare).
+    func prepare(_ t: TargetRef) {
+        guard case let .paste(target, _, _) = route(t, send: false) else { return }
+        let activate = !Self.someoneAtMac
+        let scanner = app.scanner
+        Task { @MainActor in
+            await Paster.prepare(target, scanner: scanner, activate: activate)
+            self.log.add("prepare: \(Paster.prepared != nil ? "ready" : "not found")\(activate ? ", in front" : "")")
+        }
+    }
+
     func route(_ t: TargetRef, send: Bool) -> Route {
         switch AppModel.named(t) {
         case .clipboard: return .clipboard

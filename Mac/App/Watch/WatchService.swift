@@ -760,24 +760,6 @@ final class WatchService {
         w.wake()
     }
 
-    /// Reader: the words of the window this phone watches — a terminal's own text, else read off
-    /// a full picture of the window within the column you type in (`focus`, widened a little).
-    func readerPage(for peer: UUID) async -> ReaderPage? {
-        guard let w = watches[peer], let wid = w.windowID else { return nil }
-        let terminal = AppQuirks.isTerminal(w.bundleID)
-        if terminal, Paster.isTrusted {
-            let pid = w.pid
-            if let lines = await Task.detached(priority: .userInitiated, operation: { WindowReader.terminalLines(pid: pid, windowID: wid) }).value,
-               !lines.isEmpty {
-                return ReaderPage(lines: lines, monospaced: true, fromPicture: false)
-            }
-        }
-        guard CGPreflightScreenCaptureAccess(), let scw = await scWindow(wid), let img = await WindowReader.capture(scw) else { return nil }
-        let column = w.focus.map { f in max(0, Double(f.minX) - 0.06)...min(1, Double(f.maxX) + 0.06) }
-        let lines = await WindowReader.pictureLines(img, column: terminal ? nil : column)
-        return ReaderPage(lines: lines, monospaced: terminal, fromPicture: true)
-    }
-
     /// Fit to iPhone: the window takes the phone's view's shape, as tall as the screen allows. Like
     /// the Window menu's sizes, it takes over from Aa and Back to How It Was undoes it.
     func fitToPhone(aspect: CGFloat, for peer: UUID) {

@@ -43,8 +43,6 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, attention: Attention)
     /// The chats you're in that answered you (a Mac that names none never sends it).
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou])
-    /// Reader: the watched window's words.
-    func linkClient(_ client: LinkClient, reader: ReaderPage)
     /// The Mac's clipboard (nil: empty, concealed, or the answer to one sent), with a plain line.
     func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String)
     /// Where a photo or file went.
@@ -72,7 +70,6 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame) {}
     func linkClient(_ client: LinkClient, attention: Attention) {}
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {}
-    func linkClient(_ client: LinkClient, reader: ReaderPage) {}
     func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String) {}
     func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
@@ -626,11 +623,6 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, attention: a)
             }
-        case let .reader(page):
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.delegate?.linkClient(self, reader: page)
-            }
         case let .clipboardReply(item, detail):
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -672,7 +664,7 @@ public final class LinkClient: @unchecked Sendable {
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
         case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
-             .readerRequest, .clipboardRequest, .clipboardSet, .attachment:
+             .clipboardRequest, .clipboardSet, .attachment, .prepare:
             break
         }
     }
@@ -835,13 +827,10 @@ public final class LinkClient: @unchecked Sendable {
         return true
     }
 
-    /// The connected Mac reads a watched window's words (Reader).
-    public var canRead: Bool { lock.sync { session != nil && macFeatures.contains(ReaderPage.feature) } }
-
-    /// Ask for the watched window's words; they come back as `reader`.
-    public func requestReader() {
-        guard let s = lock.sync({ macFeatures.contains(ReaderPage.feature) ? session : nil }) else { return }
-        Task { try? await s.send(.readerRequest) }
+    /// A dictation for this place has started: the Mac gets it ready (only a Mac that can).
+    public func prepare(_ target: TargetRef) {
+        guard let s = lock.sync({ macFeatures.contains(DictationPrepare.feature) ? session : nil }) else { return }
+        Task { try? await s.send(.prepare(target)) }
     }
 
     /// The connected Mac shares its clipboard.

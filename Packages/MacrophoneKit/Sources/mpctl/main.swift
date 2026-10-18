@@ -64,22 +64,6 @@ func stdout(_ s: String) { print(s); fflush(Foundation.stdout) }
 
 @MainActor
 final class ServeDelegate: LinkServerDelegate {
-    /// Reader on the demo window: the conversation it draws, as text.
-    func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage? {
-        ReaderPage(lines: [
-            "The token check runs before the refresh finishes, so a token that expires mid-request is treated as invalid.",
-            "",
-            "I'll move the check after the refresh and add a test for the expired-token case.",
-            "",
-            "● Update(AuthView.swift)",
-            "  ⎿ 12 lines changed",
-            "",
-            "Do you want to make this edit to AuthView.swift?",
-            "❯ 1. Yes",
-            "  2. Yes, and don't ask again this session",
-            "  3. No, and tell Claude what to do instead",
-        ], monospaced: false, fromPicture: true)
-    }
     func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) {
         (ClipboardItem(text: "git push origin main"), "Copied from your Mac")
     }
@@ -386,10 +370,6 @@ func demoIcon(_ bundleID: String, _ px: Int) -> Data? {
 
 @MainActor
 final class PhoneDelegate: LinkClientDelegate {
-    func linkClient(_ client: LinkClient, reader: ReaderPage) {
-        stdout("READER \(reader.lines.count) lines\(reader.monospaced ? " mono" : "")\(reader.fromPicture ? " picture" : " text")")
-        for l in reader.lines.suffix(Int(flag("--show") ?? "8") ?? 8) { stdout("  | \(l.prefix(100))") }
-    }
     func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String) {
         var what = "none"
         if let t = clipboard?.text { what = "text \(t.count) chars" } else if let i = clipboard?.image { what = "image \(i.count) bytes" }
@@ -562,7 +542,7 @@ func run() async -> Int32 {
         }
         // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
         server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, WatchRightClick.feature, WatchKey.feature, WatchShape.feature, WatchWindowCommand.feature,
-                                                         ReaderPage.feature, ClipboardItem.feature, AttachmentChunk.feature]
+                                                         ClipboardItem.feature, AttachmentChunk.feature]
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -676,20 +656,6 @@ func run() async -> Int32 {
         do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
         if command == "targets" { client.refreshTargets() }
         try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "1.5") ?? 1.5) * 1e9))
-        client.stop()
-        return 0
-
-    case "reader":
-        // mpctl reader --target <bundleID> [--window <key>] [--seconds 6]: watch it, then read its words.
-        let (client, _) = makeClient()
-        client.start()
-        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
-        let bid = flag("--target") ?? "com.apple.Terminal"
-        _ = client.watch(.app(bundleID: bid, windowKey: flag("--window"), name: bid))
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
-        client.requestReader()
-        try? await Task.sleep(nanoseconds: UInt64((Double(flag("--seconds") ?? "6") ?? 6) * 1e9))
-        _ = client.watch(nil)
         client.stop()
         return 0
 

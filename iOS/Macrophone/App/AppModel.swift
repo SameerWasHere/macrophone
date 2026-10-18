@@ -101,12 +101,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var localNetworkDenied = false
     /// The Mac's open apps/windows with somewhere to type, newest first (cached while it's away).
     @Published private(set) var liveTargets: [LiveTarget] = []
-    /// Reader: the watched window's words, as the Mac last read them.
-    @Published private(set) var readerPage: ReaderPage?
     /// A photo or file on its way (its words for the status line).
     @Published private(set) var sendingAttachment: String?
-    /// Asks the Mac for Reader's words while it shows.
-    private var readerTask: Task<Void, Never>?
 
     /// The chats you're in that answered you: their apps wear a mark in Send to.
     @Published private(set) var needsYou: [NeedsYou] = []
@@ -164,10 +160,6 @@ final class AppModel: ObservableObject {
         watcher.sendFit = { [weak self] f in self?.client.watchFit(f) ?? false }
         watcher.macFeatures = { [weak self] in self?.client.macFeatures ?? [] }
         AgentAlerts.shared.install(self)
-        // Reader asks the Mac for the window's words every few seconds while it shows.
-        Publishers.CombineLatest3(watcher.$reading, watcher.$isOpen, watcher.$target)
-            .sink { [weak self] reading, open, _ in self?.readerFollows(reading && open) }
-            .store(in: &bag)
         // Looking at a chat that answered settles its mark.
         watcher.$target.compactMap { $0 }.sink { [weak self] t in self?.clearNeeds(for: t) }.store(in: &bag)
         Task { await AgentAlerts.shared.subscribeInCloud() }
@@ -178,6 +170,15 @@ final class AppModel: ObservableObject {
         }.store(in: &bag)
         recorder.onFinish = { [weak self] outcome in self?.recordingFinished(outcome) }
         recorder.$phase.sink { [weak self] in self?.recorderPhase = $0 }.store(in: &bag)
+        // Cleanup while you talk: every pause (all the words settled), what's been said is cleaned
+        // in the background; stopping after a pause finds it done.
+        recorder.words.$parts
+            .filter { !$0.settled.isEmpty && $0.pending.isEmpty }
+            .map(\.settled)
+            .removeDuplicates()
+            .debounce(for: .milliseconds(350), scheduler: RunLoop.main)
+            .sink { [weak self] settled in self?.cleanAhead(settled) }
+            .store(in: &bag)
         recorder.$softCapReached.filter { $0 }.sink { [weak self] _ in
             Haptics.warning()
             self?.objectWillChange.send()
@@ -201,7 +202,7 @@ final class AppModel: ObservableObject {
         // one with remote access on tells it where it can be reached from away; one that can sends
         // the watched window as video (Watcher decodes it).
         c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, NeedsYou.feature,
-                      ReaderPage.feature, ClipboardItem.feature, AttachmentChunk.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+                      ClipboardItem.feature, AttachmentChunk.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -392,6 +393,11 @@ final class AppModel: ObservableObject {
         let level = effectiveCleanupLevel
         Haptics.light()
         status = .listening
+        // The Mac gets the place ready while he talks (Oct 18 2026, the speed pass).
+        let place = override?.target ?? selection.target
+        if case .app = place, isConnected { client.prepare(place) }
+        aheadDone = [:]
+        aheadRunning = nil
         do {
             try await recorder.start(language: settings.language,
                                      contextualStrings: settings.dictionary,
@@ -465,7 +471,13 @@ final class AppModel: ObservableObject {
         if level != .off {
             status = .cleaning
             let t0 = Date()
-            let result = await Self.cleanWithDeadline(route.body, level: level, dictionary: settings.dictionary, language: o.language)
+            // Cleaned during a pause, with nothing said after it: no wait at all.
+            let ahead = await cleanedAhead(route.body, level: level, language: o.language)
+            if ahead != nil { log.add("cleanup \(level.rawValue): ready from the pause") }
+            let result: CleanupResult?
+            if let ahead { result = ahead } else { result = await Self.cleanWithDeadline(route.body, level: level, dictionary: settings.dictionary, language: o.language) }
+            aheadDone = [:]
+            aheadRunning = nil
             cleaned = result?.cleaned
             partial = result?.skipped == "partial"
             let outcome = result == nil ? "timed out, kept raw" : (cleaned == nil ? "kept raw (\(result?.skipped ?? "unchanged"))" : (partial ? "partly applied (deadline)" : "applied"))
@@ -488,6 +500,50 @@ final class AppModel: ObservableObject {
         resolveTextWaiters(d.text)
         await deliver(d, resend: false)
         if o.reason == .hardCap { status = .notice("Stopped at 10:00, the limit for one dictation — it was sent") }
+    }
+
+    // MARK: Cleanup while you talk (Oct 18 2026, the speed pass)
+
+    /// Cleanups done during the pauses, by what they cleaned (the level, words and language too).
+    private var aheadDone: [String: CleanupResult] = [:]
+    /// The one running now, and what it's cleaning.
+    private var aheadRunning: (key: String, task: Task<CleanupResult?, Never>)?
+
+    private func aheadKey(_ body: String, _ level: CleanupLevel, _ language: String) -> String {
+        "\(level.rawValue)|\(language)|\(settings.dictionary.joined(separator: ","))|\(body)"
+    }
+
+    /// A pause while recording: clean what's been said so far, one at a time (a newer pause waits
+    /// for the running one rather than racing the model).
+    private func cleanAhead(_ settled: String) {
+        guard recorder.phase == .recording || recorder.phase == .starting else { return }
+        let level = effectiveCleanupLevel
+        guard level != .off, cleanupAvailability.isAvailable else { return }
+        let body = route(for: settled.trimmingCharacters(in: .whitespacesAndNewlines)).body
+        guard !body.isEmpty else { return }
+        let key = aheadKey(body, level, settings.language)
+        guard aheadDone[key] == nil, aheadRunning?.key != key else { return }
+        let previous = aheadRunning?.task
+        let dictionary = settings.dictionary, language = settings.language
+        let task = Task<CleanupResult?, Never> { [weak self] in
+            _ = await previous?.value
+            let r = await Self.cleanWithDeadline(body, level: level, dictionary: dictionary, language: language)
+            await MainActor.run {
+                guard let self else { return }
+                if let r { self.aheadDone[key] = r }
+                if self.aheadRunning?.key == key { self.aheadRunning = nil }
+            }
+            return r
+        }
+        aheadRunning = (key, task)
+    }
+
+    /// What a pause already cleaned for exactly these words, waiting for it if it's still running.
+    private func cleanedAhead(_ body: String, level: CleanupLevel, language: String) async -> CleanupResult? {
+        let key = aheadKey(body, level, language)
+        if let done = aheadDone[key] { return done }
+        if let running = aheadRunning, running.key == key { return await running.task.value }
+        return nil
     }
 
     /// Cleanup never holds a dictation hostage. The budget is 8 s plus a second per 120
@@ -1306,36 +1362,10 @@ extension AppModel: LinkClientDelegate {
         log.add("attention: \(attention.appName) is asking")
     }
 
-    // MARK: Reader, the clipboard, photos and files (Oct 18 2026)
+    // MARK: The clipboard, photos and files (Oct 18 2026)
 
-    var canRead: Bool { client.canRead }
     var canShareClipboard: Bool { client.canShareClipboard }
     var canAttach: Bool { client.canAttach }
-
-    /// Ask the Mac for the watched window's words (Reader asks every few seconds while it shows).
-    func requestReader() { client.requestReader() }
-    func clearReader() { readerPage = nil }
-
-    /// While Reader shows: the words now, then every 2.5 seconds (the Mac reads only on asking).
-    private func readerFollows(_ on: Bool) {
-        readerTask?.cancel()
-        readerTask = nil
-        readerPage = nil
-        guard on else { return }
-        readerTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            while !Task.isCancelled {
-                guard let self else { return }
-                if self.watcher.phase == .live { self.client.requestReader() }
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-            }
-        }
-    }
-
-    func linkClient(_ client: LinkClient, reader: ReaderPage) {
-        guard client === self.client, watcher.isOpen else { return }
-        if readerPage != reader { readerPage = reader }
-    }
 
     /// The Mac's clipboard onto this iPhone's.
     func copyMacClipboard() {
