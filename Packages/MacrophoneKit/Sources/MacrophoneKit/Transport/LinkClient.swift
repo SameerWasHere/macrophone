@@ -45,6 +45,12 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, agents: [AgentSession])
     /// The chats you're in that answered you (a Mac that names none never sends it).
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou])
+    /// Reader: the watched window's words.
+    func linkClient(_ client: LinkClient, reader: ReaderPage)
+    /// The Mac's clipboard (nil: empty, concealed, or the answer to one sent), with a plain line.
+    func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String)
+    /// Where a photo or file went.
+    func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String)
     /// The apps installed on the Mac (answer to `listApps`).
     func linkClient(_ client: LinkClient, installedApps: [MacApp])
     /// An app asked for with `openApp` opened (or didn't).
@@ -69,6 +75,9 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, attention: Attention) {}
     func linkClient(_ client: LinkClient, agents: [AgentSession]) {}
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {}
+    func linkClient(_ client: LinkClient, reader: ReaderPage) {}
+    func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String) {}
+    func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {}
     func linkClient(_ client: LinkClient, appQuit bundleID: String, ok: Bool, detail: String) {}
@@ -620,6 +629,21 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, attention: a)
             }
+        case let .reader(page):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, reader: page)
+            }
+        case let .clipboardReply(item, detail):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, clipboard: item, detail: detail)
+            }
+        case let .attachmentLanded(id, ok, detail):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, attachmentLanded: id, ok: ok, detail: detail)
+            }
         case let .needsYou(list):
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -655,7 +679,8 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
+             .readerRequest, .clipboardRequest, .clipboardSet, .attachment:
             break
         }
     }
@@ -816,6 +841,48 @@ public final class LinkClient: @unchecked Sendable {
         guard let s = lock.sync({ macFeatures.contains(WatchWindowCommand.feature) ? session : nil }) else { return false }
         Task { try? await s.send(.watchWindow(command)) }
         return true
+    }
+
+    /// The connected Mac reads a watched window's words (Reader).
+    public var canRead: Bool { lock.sync { session != nil && macFeatures.contains(ReaderPage.feature) } }
+
+    /// Ask for the watched window's words; they come back as `reader`.
+    public func requestReader() {
+        guard let s = lock.sync({ macFeatures.contains(ReaderPage.feature) ? session : nil }) else { return }
+        Task { try? await s.send(.readerRequest) }
+    }
+
+    /// The connected Mac shares its clipboard.
+    public var canShareClipboard: Bool { lock.sync { session != nil && macFeatures.contains(ClipboardItem.feature) } }
+
+    /// Ask for the Mac's clipboard; it comes back as `clipboard`.
+    @discardableResult
+    public func requestClipboard() -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(ClipboardItem.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.clipboardRequest) }
+        return true
+    }
+
+    /// Put this on the Mac's clipboard.
+    @discardableResult
+    public func sendClipboard(_ item: ClipboardItem) -> Bool {
+        guard (item.text?.utf8.count ?? 0) <= ClipboardItem.maxText, (item.image?.count ?? 0) <= ClipboardItem.maxImage,
+              let s = lock.sync({ macFeatures.contains(ClipboardItem.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.clipboardSet(item)) }
+        return true
+    }
+
+    /// The connected Mac takes photos and files for the chat.
+    public var canAttach: Bool { lock.sync { session != nil && macFeatures.contains(AttachmentChunk.feature) } }
+
+    /// Send a photo or file to the chat at `target`, in pieces. Nil when it can't (too big, no Mac
+    /// that can); else its id, which `attachmentLanded` answers.
+    public func sendAttachment(_ data: Data, filename: String, kind: String, target: TargetRef) -> UUID? {
+        let chunks = AttachmentChunk.chunks(of: data, filename: filename, kind: kind, target: target)
+        guard chunks.count <= AttachmentChunk.maxChunks,
+              let s = lock.sync({ macFeatures.contains(AttachmentChunk.feature) ? session : nil }) else { return nil }
+        Task { for c in chunks { try? await s.send(.attachment(c)) } }
+        return chunks.first?.id
     }
 
     /// Fit to iPhone: the watched window takes the phone's view's shape (only a Mac that can).

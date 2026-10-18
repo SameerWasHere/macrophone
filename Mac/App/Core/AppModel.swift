@@ -31,6 +31,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var attention: AttentionWatcher!
     private(set) var agents: AgentHub!
     private(set) var replies: ReplyWatcher!
+    private(set) var attachments: AttachmentInbox!
     /// Phone → the app it's watching, for the menu.
     @Published private(set) var watching: [UUID: String] = [:]
 
@@ -99,6 +100,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         attention = AttentionWatcher(app: self)
         agents = AgentHub(app: self)
         replies = ReplyWatcher(app: self)
+        attachments = AttachmentInbox(app: self)
         watch.onChange = { [weak self] in
             guard let self, self.watching != self.watch.watching else { return }
             self.watching = self.watch.watching
@@ -106,7 +108,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.log = log
         server.delegate = self
         // What this Mac can do beyond the first version, for phones that can too.
-        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature]
+        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature,
+                              ReaderPage.feature, ClipboardItem.feature, AttachmentChunk.feature]
         // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
         let watchService = watch!
         server.watchInput = { peer, input in watchService.scrollInput(peer, input) }
@@ -641,6 +644,25 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     func liveAgents(_ server: LinkServer) -> [AgentSession] { agents.list }
 
     func liveNeeds(_ server: LinkServer) -> [NeedsYou] { replies.needs }
+
+    func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage? {
+        await watch.readerPage(for: peerID)
+    }
+
+    func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) {
+        let (item, detail) = ClipboardShare.read()
+        log.add(item == nil ? "clipboard: nothing sent to the phone" : "clipboard: sent to the phone")
+        return (item, detail)
+    }
+
+    func linkServer(_ server: LinkServer, setClipboard item: ClipboardItem, from peerID: UUID) async -> String {
+        log.add("clipboard: the phone's is on the Mac's")
+        return ClipboardShare.write(item)
+    }
+
+    func linkServer(_ server: LinkServer, attachment chunk: AttachmentChunk, from peerID: UUID) async -> (Bool, String)? {
+        await attachments.receive(chunk)
+    }
 
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {
         watch.fitToPhone(aspect: aspect, for: peerID)

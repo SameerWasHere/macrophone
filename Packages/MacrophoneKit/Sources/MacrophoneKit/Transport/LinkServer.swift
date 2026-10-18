@@ -44,6 +44,14 @@ public protocol LinkServerDelegate: AnyObject {
     func liveAgents(_ server: LinkServer) -> [AgentSession]
     /// The chats that answered, sent to a phone naming NeedsYou.feature right after its welcome.
     func liveNeeds(_ server: LinkServer) -> [NeedsYou]
+    /// Reader: the words of the window that phone watches (nil when there's none).
+    func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage?
+    /// The Mac's clipboard (nil when empty or concealed) and a plain line about it.
+    func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String)
+    /// Put this on the Mac's clipboard; a plain line about it.
+    func linkServer(_ server: LinkServer, setClipboard item: ClipboardItem, from peerID: UUID) async -> String
+    /// A piece of a photo or file; the outcome when it was the last piece (else nil).
+    func linkServer(_ server: LinkServer, attachment chunk: AttachmentChunk, from peerID: UUID) async -> (Bool, String)?
     /// A swipe on the watched window: scroll it at `point` by `delta` (fractions of the window).
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID)
     /// Answer the prompt the watched window showed (`WatchPrompt.id`) with the answer at `index`.
@@ -79,6 +87,10 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {}
     func liveAgents(_ server: LinkServer) -> [AgentSession] { [] }
     func liveNeeds(_ server: LinkServer) -> [NeedsYou] { [] }
+    func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage? { nil }
+    func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) { (nil, "") }
+    func linkServer(_ server: LinkServer, setClipboard item: ClipboardItem, from peerID: UUID) async -> String { "" }
+    func linkServer(_ server: LinkServer, attachment chunk: AttachmentChunk, from peerID: UUID) async -> (Bool, String)? { nil }
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {}
@@ -628,6 +640,36 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
             case let .watchWindow(command):
                 notify { $0.linkServer(self, watchWindow: command, from: phoneID) }
+            case .readerRequest:
+                let s = session
+                Task { @MainActor [weak self] in
+                    guard let self, let d = self.delegate, let page = await d.readerPage(self, for: phoneID) else { return }
+                    try? await s.send(.reader(page))
+                }
+            case .clipboardRequest:
+                let s = session
+                Task { @MainActor [weak self] in
+                    guard let self, let d = self.delegate else { return }
+                    let (item, detail) = await d.clipboard(self)
+                    try? await s.send(.clipboardReply(item, detail: detail))
+                }
+            case let .clipboardSet(item):
+                guard (item.text?.utf8.count ?? 0) <= ClipboardItem.maxText, (item.image?.count ?? 0) <= ClipboardItem.maxImage else { break }
+                let s = session
+                Task { @MainActor [weak self] in
+                    guard let self, let d = self.delegate else { return }
+                    let detail = await d.linkServer(self, setClipboard: item, from: phoneID)
+                    try? await s.send(.clipboardReply(nil, detail: detail))
+                }
+            case let .attachment(chunk):
+                guard chunk.count >= 1, chunk.count <= AttachmentChunk.maxChunks, (0..<chunk.count).contains(chunk.index),
+                      chunk.data.count <= AttachmentChunk.chunkSize else { break }
+                let s = session
+                Task { @MainActor [weak self] in
+                    guard let self, let d = self.delegate,
+                          let (ok, detail) = await d.linkServer(self, attachment: chunk, from: phoneID) else { return }
+                    try? await s.send(.attachmentLanded(id: chunk.id, ok: ok, detail: detail))
+                }
             case let .watchShape(w, h):
                 guard w > 0, h > 0, w < 10_000, h < 10_000 else { break }
                 notify { $0.linkServer(self, watchShape: CGFloat(w / h), from: phoneID) }
@@ -637,7 +679,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .agents, .needsYou:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .agents, .needsYou, .reader, .clipboardReply, .attachmentLanded:
                 break
             }
         }

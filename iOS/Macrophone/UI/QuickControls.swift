@@ -141,6 +141,9 @@ struct PanelDivider: View {
 /// "SEND TO", the picked place's name, and a row of buttons — one per place.
 struct PlacesRow: View {
     @EnvironmentObject var model: AppModel
+    /// The ⋯ menu's photo and file pickers.
+    @State private var pickingPhoto = false
+    @State private var pickingFile = false
     var current: TargetRef
     var compact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -249,6 +252,7 @@ struct PlacesRow: View {
         Menu {
             Button { model.sheet = .openApp } label: { Label("Open an App on Your Mac…", systemImage: "plus.app") }
             Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+            MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
         } label: {
             Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
         }
@@ -256,8 +260,9 @@ struct PlacesRow: View {
         .buttonBorderShape(.circle)
         .controlSize(.small)
         .accessibilityLabel("More")
-        .accessibilityHint("Open any app on your Mac, or refresh the list of open apps.")
+        .accessibilityHint("Open any app on your Mac, send it a photo or file, or move the clipboard.")
         .accessibilityIdentifier("send-to-more")
+        .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
     }
 
     private func pick(_ t: TargetRef) {

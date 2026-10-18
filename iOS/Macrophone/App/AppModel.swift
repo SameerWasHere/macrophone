@@ -101,6 +101,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var localNetworkDenied = false
     /// The Mac's open apps/windows with somewhere to type, newest first (cached while it's away).
     @Published private(set) var liveTargets: [LiveTarget] = []
+    /// Reader: the watched window's words, as the Mac last read them.
+    @Published private(set) var readerPage: ReaderPage?
+    /// A photo or file on its way (its words for the status line).
+    @Published private(set) var sendingAttachment: String?
+
     /// The chats you're in that answered you: their apps wear a mark in Send to.
     @Published private(set) var needsYou: [NeedsYou] = []
     /// The Mac sent its list since the link last connected (so "Not open on your Mac" is current).
@@ -189,7 +194,8 @@ final class AppModel: ObservableObject {
         // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts);
         // one with remote access on tells it where it can be reached from away; one that can sends
         // the watched window as video (Watcher decodes it).
-        c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, NeedsYou.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+        c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, NeedsYou.feature,
+                      ReaderPage.feature, ClipboardItem.feature, AttachmentChunk.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -1291,6 +1297,103 @@ extension AppModel: LinkClientDelegate {
         if sceneActive, watcher.isOpen, watcher.target == attention.ref, !watcher.phase.isPaused { return }
         AgentAlerts.shared.post(attention)
         log.add("attention: \(attention.appName) is asking")
+    }
+
+    // MARK: Reader, the clipboard, photos and files (Oct 18 2026)
+
+    var canRead: Bool { client.canRead }
+    var canShareClipboard: Bool { client.canShareClipboard }
+    var canAttach: Bool { client.canAttach }
+
+    /// Ask the Mac for the watched window's words (Reader asks every few seconds while it shows).
+    func requestReader() { client.requestReader() }
+    func clearReader() { readerPage = nil }
+
+    func linkClient(_ client: LinkClient, reader: ReaderPage) {
+        guard client === self.client, watcher.isOpen else { return }
+        if readerPage != reader { readerPage = reader }
+    }
+
+    /// The Mac's clipboard onto this iPhone's.
+    func copyMacClipboard() {
+        guard client.requestClipboard() else { explain("Update Macrophone on your Mac to share its clipboard"); return }
+        Haptics.tick()
+        explain("Asking your Mac for its clipboard…")
+    }
+
+    /// This iPhone's clipboard onto the Mac's (iOS asks first, the first time).
+    func sendClipboardToMac() {
+        let pb = UIPasteboard.general
+        var item = ClipboardItem()
+        if pb.hasStrings, let s = pb.string { item.text = s }
+        else if pb.hasImages, let img = pb.image { item.image = Self.jpeg(img, maxBytes: ClipboardItem.maxImage) }
+        guard !item.isEmpty else { explain("Your iPhone's clipboard is empty"); return }
+        guard client.sendClipboard(item) else {
+            explain(item.text.map { $0.utf8.count > ClipboardItem.maxText } == true ? "That's too long to send" : "Update Macrophone on your Mac to share the clipboard")
+            return
+        }
+        Haptics.tick()
+        log.add("clipboard: sent the phone's")
+    }
+
+    func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String) {
+        guard client === self.client else { return }
+        if let clipboard {
+            if let t = clipboard.text { UIPasteboard.general.string = t }
+            else if let d = clipboard.image, let img = UIImage(data: d) { UIPasteboard.general.image = img }
+            Haptics.success()
+            log.add("clipboard: the Mac's is on the phone")
+        }
+        explain(detail)
+    }
+
+    /// A photo into the chat you send to (or the window you watch): at most 2,400 pixels across.
+    func sendPhoto(_ image: UIImage) {
+        guard let data = Self.jpeg(image, maxBytes: 8_000_000, side: 2400) else { explain("Couldn't read that photo"); return }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        sendAttachment(data, filename: "Photo \(f.string(from: Date())).jpg", kind: "image")
+    }
+
+    func sendFile(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { explain("Couldn't read that file"); return }
+        let image = ["png", "jpg", "jpeg", "heic", "gif", "webp", "tiff"].contains(url.pathExtension.lowercased())
+        sendAttachment(data, filename: url.lastPathComponent, kind: image ? "image" : "file")
+    }
+
+    private func sendAttachment(_ data: Data, filename: String, kind: String) {
+        guard data.count <= AttachmentChunk.chunkSize * AttachmentChunk.maxChunks else { explain("That's over 20 MB — too big to send"); return }
+        let target = watcher.isOpen ? (watcher.target ?? selection.target) : selection.target
+        guard client.sendAttachment(data, filename: filename, kind: kind, target: target) != nil else {
+            explain(isConnected ? "Update Macrophone on your Mac to send photos and files" : "Your Mac isn't connected")
+            return
+        }
+        Haptics.tick()
+        let what = kind == "image" ? "the photo" : "the file"
+        sendingAttachment = "Sending \(what) to \(Places.appName(target, in: self))…"
+        explain(sendingAttachment ?? "", for: 30)
+        log.add("attachment: sending (\(kind))")
+    }
+
+    func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {
+        guard client === self.client else { return }
+        sendingAttachment = nil
+        if ok { Haptics.success() } else { Haptics.error() }
+        explain(detail, for: 4)
+    }
+
+    /// JPEG at most `maxBytes`, the long side at most `side` pixels.
+    static func jpeg(_ image: UIImage, maxBytes: Int, side: CGFloat = 2400) -> Data? {
+        let long = max(image.size.width, image.size.height) * image.scale
+        let k = min(1, side / max(long, 1))
+        let size = CGSize(width: image.size.width * image.scale * k, height: image.size.height * image.scale * k)
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let scaled = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        for q in [0.85, 0.7, 0.5] as [CGFloat] {
+            if let d = scaled.jpegData(compressionQuality: q), d.count <= maxBytes { return d }
+        }
+        return nil
     }
 
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {

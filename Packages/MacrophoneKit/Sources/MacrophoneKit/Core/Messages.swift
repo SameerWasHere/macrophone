@@ -152,6 +152,22 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: give the watched window this shape (the phone's view of it, in points), as
     /// big as the screen allows — Fit to iPhone (only to a Mac naming WatchShape.feature).
     case watchShape(width: Double, height: Double)
+    /// Phone → Mac: the watched window's words, now (only to a Mac naming ReaderPage.feature).
+    case readerRequest
+    /// Mac → phone: the watched window's words (only to a phone naming ReaderPage.feature).
+    case reader(ReaderPage)
+    /// Phone → Mac: send me your clipboard (only to a Mac naming ClipboardItem.feature).
+    case clipboardRequest
+    /// Phone → Mac: put this on your clipboard (only to a Mac naming ClipboardItem.feature).
+    case clipboardSet(ClipboardItem)
+    /// Mac → phone: the Mac's clipboard (nil when it's empty or concealed), or what happened to
+    /// the one sent; `detail` is one plain line.
+    case clipboardReply(ClipboardItem?, detail: String)
+    /// Phone → Mac: a piece of a photo or file for the chat (only to a Mac naming
+    /// AttachmentChunk.feature).
+    case attachment(AttachmentChunk)
+    /// Mac → phone: where the photo or file went, in a plain line.
+    case attachmentLanded(id: UUID, ok: Bool, detail: String)
     /// Mac → phone: how watching is going.
     case watchState(WatchState)
     /// Mac → phone: the window, when it changed (a picture — to a phone that didn't name "video").
