@@ -76,7 +76,7 @@ struct WatchTipCard: View {
         let open = tips.filter { !seen.contains($0.id) }
         let all = tips
         Group {
-            if watcher.phase == .live, let tip = open.first, let at = all.firstIndex(of: tip) {
+            if watcher.phase == .live, !watcher.reading, let tip = open.first, let at = all.firstIndex(of: tip) {
                 card(tip, at: at, of: all.count, left: open.count)
                     .id(tip.id)
                     .transition(.opacity.combined(with: .move(edge: .top)))

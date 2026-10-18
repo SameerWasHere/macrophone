@@ -47,7 +47,12 @@ struct WatchPanel: View {
     var body: some View {
         VStack(spacing: compact ? 8 : 12) {
             header
-            WatchWindow(watcher: watcher, interactive: true)
+            Group {
+                // Reader: the words in place of the picture (the picture is the default).
+                if watcher.reading { WatchReaderView(watcher: watcher).transition(.opacity) }
+                else { WatchWindow(watcher: watcher, interactive: true).transition(.opacity) }
+            }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: watcher.reading)
                 .frame(maxHeight: .infinity)
                 // The first times: what a tap, a hold, a pinch and the side swipe do.
                 .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count) }
@@ -133,40 +138,55 @@ struct WatchPanel: View {
             .accessibilityHidden(true)
     }
 
+    private var sessionMenu: some View {
+        Menu {
+            ForEach(sessions) { t in
+                Button { show(t) } label: {
+                    if watcher.target?.matches(t) ?? false { Label(t.title, systemImage: "checkmark") }
+                    else if model.needs(t) != nil { Label(t.title, systemImage: "circlebadge.fill") }
+                    else { Text(t.title) }
+                    if model.needs(t) != nil, !(watcher.target?.matches(t) ?? false) { Text("Answered you") }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                WatchKicker(watcher: watcher)
+                Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
+            }
+            .frame(minHeight: WatchLook.control)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Window: \(watcher.name)")
+        .accessibilityHint("Shows another window from your Mac — and sends there. You can also swipe in from the side.")
+        .accessibilityIdentifier("watch-sessions")
+    }
+
     private var header: some View {
         HStack(spacing: 10) {
+            // The name keeps its room; the page dots step aside when the controls need it.
             if sessions.count > 1 {
-                Menu {
-                    ForEach(sessions) { t in
-                        Button { show(t) } label: {
-                            if watcher.target?.matches(t) ?? false { Label(t.title, systemImage: "checkmark") }
-                            else if model.needs(t) != nil { Label(t.title, systemImage: "circlebadge.fill") }
-                            else { Text(t.title) }
-                            if model.needs(t) != nil, !(watcher.target?.matches(t) ?? false) { Text("Answered you") }
-                        }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        sessionMenu
+                        if sessions.count <= 8, let i = current { WatchPageDots(count: sessions.count, current: i) }
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        WatchKicker(watcher: watcher)
-                        Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
-                    }
-                    .frame(minHeight: WatchLook.control)
-                    .contentShape(Rectangle())
+                    sessionMenu
                 }
-                .accessibilityLabel("Window: \(watcher.name)")
-                .accessibilityHint("Shows another window from your Mac — and sends there. You can also swipe in from the side.")
-                .accessibilityIdentifier("watch-sessions")
-                if sessions.count <= 8, let i = current {
-                    WatchPageDots(count: sessions.count, current: i)
-                }
+                .layoutPriority(1)
             } else {
-                WatchKicker(watcher: watcher)
+                WatchKicker(watcher: watcher).layoutPriority(1)
             }
             Spacer(minLength: 8)
             if watcher.macCanFit, watcher.target != .clipboard {
                 HStack(spacing: 0) {
-                    WatchWholeButton(watcher: watcher)
-                    WatchCellDivider()
+                    if model.canRead {
+                        WatchReaderButton(watcher: watcher)
+                        WatchCellDivider()
+                    }
+                    if !watcher.reading {
+                        WatchWholeButton(watcher: watcher)
+                        WatchCellDivider()
+                    }
                     WatchWindowMenu(watcher: watcher)
                 }
                 .watchGlass(Capsule())
@@ -176,7 +196,8 @@ struct WatchPanel: View {
                 watcher.close()
             }
             .font(.subheadline.weight(.semibold))
-            .buttonStyle(WatchCellStyle(inset: 18))
+            .buttonStyle(WatchCellStyle(inset: 16))
+            .fixedSize()
             .watchGlass(Capsule())
             .accessibilityHint("Stops showing the window and brings back Send to and Cleanup.")
             .accessibilityIdentifier("watch-done")
@@ -217,7 +238,7 @@ struct WatchWholeButton: View {
                 .font(.subheadline.weight(.semibold))
                 .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(WatchCellStyle(width: 48, tint: watcher.wholeWindow ? Light.cyan : Ink.ink))
+        .buttonStyle(WatchCellStyle(width: 44, tint: watcher.wholeWindow ? Light.cyan : Ink.ink))
         .disabled(watcher.phase != .live)
         .accessibilityLabel(watcher.wholeWindow ? "Zoom back in" : "Show the whole window")
         .accessibilityHint(watcher.wholeWindow ? "Back to the part of the window you type in." : "Fits all of \(watcher.name)'s window on screen.")
@@ -229,8 +250,11 @@ struct WatchWholeButton: View {
 /// minimize and close — picked from a list, since dragging a window's edge on a phone is fiddly
 /// (Sill's window controls, the same idea). Close asks first. Tinted while Aa narrows the window.
 struct WatchWindowMenu: View {
+    @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
     @State private var confirmClose = false
+    @State private var pickingPhoto = false
+    @State private var pickingFile = false
 
     var body: some View {
         Menu {
@@ -260,6 +284,8 @@ struct WatchWindowMenu: View {
                     }
                 }
             }
+            // Photos, files and the clipboard, into this window's chat.
+            MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
             Section {
                 Button { WatchTips.reset() } label: { Label("Show Tips Again", systemImage: "lightbulb") }
             }
@@ -267,11 +293,12 @@ struct WatchWindowMenu: View {
             Image(systemName: "macwindow")
                 .font(.subheadline.weight(.semibold))
         }
-        .buttonStyle(WatchCellStyle(width: 48, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
+        .buttonStyle(WatchCellStyle(width: 44, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
         .disabled(watcher.phase != .live)
         .accessibilityLabel("Window")
         .accessibilityHint("Text size on this iPhone, and the window's size, minimize and close on your Mac.")
         .accessibilityIdentifier("watch-window")
+        .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
         .confirmationDialog("Close \(watcher.name)'s window on your Mac?", isPresented: $confirmClose, titleVisibility: .visible) {
             Button("Close Window", role: .destructive) { watcher.window(.close) }
         } message: {
@@ -368,7 +395,8 @@ struct WatchWindow: View {
                              onTap: { watcher.click($0) }, onRightClick: { watcher.rightClick($0) }, whole: watcher.wholeWindow,
                              onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
-                             onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } })
+                             onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } },
+                             onWhole: { whole in if interactive { watcher.wholeShown(whole) } })
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerSize = $0 }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
@@ -655,6 +683,10 @@ struct WatchDragSwitch: View {
             option(.pan, "Pan", symbol: "hand.draw")
             option(.scroll, "Scroll", symbol: "arrow.up.and.down")
         }
+        // Reader scrolls its own text: the switch steps out (its room kept, so the keys don't move).
+        .opacity(watcher.reading ? 0 : 1)
+        .allowsHitTesting(!watcher.reading)
+        .accessibilityHidden(watcher.reading)
         .padding(3)
         .watchGlass(Capsule())
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
@@ -958,6 +990,8 @@ struct WindowViewer: UIViewRepresentable {
     var onScroll: (CGPoint, CGVector) -> Void
     var onScrollPhase: (WatchScrollPhase, CGPoint) -> Void
     var onAdjusted: (Bool) -> Void
+    /// The whole window is on screen (fully zoomed out), or no longer is.
+    var onWhole: (Bool) -> Void = { _ in }
 
     func makeUIView(context: Context) -> ViewerScrollView {
         let v = ViewerScrollView()
@@ -979,6 +1013,7 @@ struct WindowViewer: UIViewRepresentable {
         v.onScroll = onScroll
         v.onScrollPhase = onScrollPhase
         v.onAdjusted = onAdjusted
+        v.onWholeShown = onWhole
     }
 }
 
@@ -1163,6 +1198,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         }
         if animated { UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply) }
         else { apply() }
+        reportWhole()
     }
 
     private var fitWidth: CGFloat { imageSize.width > 0 ? bounds.width / imageSize.width : 1 }
@@ -1208,6 +1244,20 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
             self.centerIfSmall()
             self.contentOffset = CGPoint(x: -self.contentInset.left, y: -self.contentInset.top)
         }
+        reportWhole()
+    }
+
+    /// Fully zoomed out (Oct 18 2026, Sameer: "when user is fully zoomed out then the mode should
+    /// automatically switch to scroll mode"): said once each time it changes.
+    var onWholeShown: (Bool) -> Void = { _ in }
+    private var lastWhole: Bool?
+
+    private func reportWhole() {
+        guard imageSize != .zero, bounds.width > 0, minimumZoomScale > 0 else { return }
+        let whole = zoomScale <= minimumZoomScale * 1.03
+        guard whole != lastWhole else { return }
+        lastWhole = whole
+        onWholeShown(whole)
     }
 
     /// Where on the window a gesture is, as fractions of it; nil off the picture.
@@ -1370,7 +1420,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { adjusted = true; onTouch() }
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) { adjusted = true; onTouch() }
     func scrollViewDidZoom(_ scrollView: UIScrollView) { centerIfSmall() }
-    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { keepView() }
+    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { keepView(); reportWhole() }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { keepView() } }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { keepView() }
 }

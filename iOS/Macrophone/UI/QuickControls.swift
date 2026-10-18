@@ -291,8 +291,11 @@ private struct PlaceButton: View {
             if let n = needs, let w = place.windows.first(where: n.concerns) { onPick(w.ref) }
             else if !place.holds(current) { onPick(place.target) }
         } label: {
-            VStack(spacing: 4) {
-                TargetIcon(target: place.target, icon: place.icon, size: compact ? 28 : 32, onTint: selected)
+            // Icons only (Oct 18 2026, Sameer: "remove the sub text entirely and just show the App
+            // logos in the selector for a cleaner look"): the picked place's name is the line above,
+            // every icon's name is its VoiceOver label, and a long press lists an app's windows.
+            ZStack {
+                TargetIcon(target: place.target, icon: place.icon, size: compact ? 32 : 36, onTint: selected)
                     .saturation(place.kind == .closed ? 0 : 1)
                     .overlay(alignment: .topTrailing) {
                         if needs != nil {
@@ -306,15 +309,10 @@ private struct PlaceButton: View {
                         }
                     }
                     .animation(Motion.snap, value: needs != nil)
-                // A closed app keeps its name under its dimmed icon (the line above says it's
-                // not open); one on its way says so.
-                Text(place.kind == .opening ? "Opening…" : place.shortName)
-                    .font(.caption2.weight(selected ? .semibold : .medium))
-                    .foregroundStyle(selected ? Ink.ground : (place.kind == .closed ? Light.ochre : Ink.secondary))
-                    .lineLimit(1)
-                    .fixedSize()
+                // On its way (just opened from Open an App): a turn over its icon.
+                if place.kind == .opening { ProgressView().controlSize(.small).tint(Ink.ink) }
             }
-            .frame(minWidth: compact ? 44 : 50)
+            .frame(width: compact ? 40 : 44, height: compact ? 40 : 44)
         }
         .placeButtonStyle(selected: selected)
         .controlSize(.small)
@@ -355,20 +353,13 @@ private struct MoreAppsButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: (compact ? 28 : 32) * 0.45, weight: .bold))
-                    .foregroundStyle(Ink.secondary)
-                    .frame(width: compact ? 28 : 32, height: compact ? 28 : 32)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Ink.ink.opacity(0.08)))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
-                Text("More apps")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(Ink.secondary)
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            .frame(minWidth: compact ? 44 : 50)
+            Image(systemName: "plus")
+                .font(.system(size: (compact ? 32 : 36) * 0.42, weight: .semibold))
+                .foregroundStyle(Ink.secondary)
+                .frame(width: compact ? 32 : 36, height: compact ? 32 : 36)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Ink.ink.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+                .frame(width: compact ? 40 : 44, height: compact ? 40 : 44)
         }
         .placeButtonStyle(selected: false)
         .controlSize(.small)

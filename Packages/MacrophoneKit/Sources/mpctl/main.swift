@@ -64,6 +64,32 @@ func stdout(_ s: String) { print(s); fflush(Foundation.stdout) }
 
 @MainActor
 final class ServeDelegate: LinkServerDelegate {
+    /// Reader on the demo window: the conversation it draws, as text.
+    func readerPage(_ server: LinkServer, for peerID: UUID) async -> ReaderPage? {
+        ReaderPage(lines: [
+            "The token check runs before the refresh finishes, so a token that expires mid-request is treated as invalid.",
+            "",
+            "I'll move the check after the refresh and add a test for the expired-token case.",
+            "",
+            "● Update(AuthView.swift)",
+            "  ⎿ 12 lines changed",
+            "",
+            "Do you want to make this edit to AuthView.swift?",
+            "❯ 1. Yes",
+            "  2. Yes, and don't ask again this session",
+            "  3. No, and tell Claude what to do instead",
+        ], monospaced: false, fromPicture: true)
+    }
+    func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) {
+        (ClipboardItem(text: "git push origin main"), "Copied from your Mac")
+    }
+    func linkServer(_ server: LinkServer, setClipboard item: ClipboardItem, from peerID: UUID) async -> String {
+        stdout("CLIPBOARD SET \(item.text?.count ?? 0) chars"); return "On your Mac's clipboard — press ⌘V to paste"
+    }
+    func linkServer(_ server: LinkServer, attachment chunk: AttachmentChunk, from peerID: UUID) async -> (Bool, String)? {
+        stdout("ATTACHMENT piece \(chunk.index + 1)/\(chunk.count)")
+        return chunk.index + 1 == chunk.count ? (true, "Added to Claude — say what it's for") : nil
+    }
     var received = 0
     func linkServer(_ server: LinkServer, approveCode code: String, phoneName: String) async -> Bool {
         stdout("\n“\(phoneName)” wants to pair. Code on the Mac: \(code)")
@@ -535,7 +561,8 @@ func run() async -> Int32 {
             server.setRemote(RemoteConfig(port: port))
         }
         // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
-        server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, WatchRightClick.feature, WatchKey.feature, WatchShape.feature, WatchWindowCommand.feature]
+        server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, WatchRightClick.feature, WatchKey.feature, WatchShape.feature, WatchWindowCommand.feature,
+                                                         ReaderPage.feature, ClipboardItem.feature, AttachmentChunk.feature]
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")

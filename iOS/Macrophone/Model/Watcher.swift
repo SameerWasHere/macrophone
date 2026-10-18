@@ -142,7 +142,7 @@ final class Watcher: ObservableObject {
         guard target != .clipboard else { return }
         let switching = self.target != target
         self.target = target
-        if !isOpen { drag = .pan; wholeWindow = false }
+        if !isOpen { drag = .pan; wholeWindow = false; reading = false }
         // A window fitted to the phone shows whole: one finger scrolls it (nothing to pan to).
         if Self.isFitted(target), (switching || !isOpen) { drag = .scroll }
         if switching {
@@ -287,6 +287,18 @@ final class Watcher: ObservableObject {
         if on { UserDefaults.standard.set(true, forKey: k) } else { UserDefaults.standard.removeObject(forKey: k) }
     }
 
+    /// Reader (Oct 18 2026): the window's words as text instead of its picture. The picture stays
+    /// the default — every window opens on it.
+    @Published private(set) var reading = false
+
+    func setReading(_ on: Bool) {
+        guard on != reading else { return }
+        touch()
+        Haptics.tick()
+        reading = on
+        log?.add("watching: \(on ? "reader" : "window")")
+    }
+
     /// The Mac presses keys beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…).
     var canPressKeys: Bool { macFeatures().contains(WatchKey.feature) }
     var sendKey: (WatchKey) -> Bool = { _ in false }
@@ -329,7 +341,24 @@ final class Watcher: ObservableObject {
         sendScrollPhase(phase, p)
     }
 
+    /// Scroll that the zoom chose, not him: zooming back in returns to Pan.
+    private var autoScroll = false
+
+    /// The whole window is on screen (fully zoomed out): nothing to pan to, so one finger scrolls
+    /// the Mac's window; zoomed back in, it pans again — unless he picked the mode himself.
+    func wholeShown(_ whole: Bool) {
+        if whole, drag == .pan {
+            drag = .scroll
+            autoScroll = true
+            log?.add("watching: whole window — scroll")
+        } else if !whole, autoScroll, drag == .scroll {
+            drag = .pan
+            autoScroll = false
+        }
+    }
+
     func setDrag(_ d: Drag) {
+        autoScroll = false
         guard d != drag else { return }
         touch()
         Haptics.tick()

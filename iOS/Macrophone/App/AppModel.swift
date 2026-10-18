@@ -105,6 +105,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var readerPage: ReaderPage?
     /// A photo or file on its way (its words for the status line).
     @Published private(set) var sendingAttachment: String?
+    /// Asks the Mac for Reader's words while it shows.
+    private var readerTask: Task<Void, Never>?
 
     /// The chats you're in that answered you: their apps wear a mark in Send to.
     @Published private(set) var needsYou: [NeedsYou] = []
@@ -162,6 +164,10 @@ final class AppModel: ObservableObject {
         watcher.sendFit = { [weak self] f in self?.client.watchFit(f) ?? false }
         watcher.macFeatures = { [weak self] in self?.client.macFeatures ?? [] }
         AgentAlerts.shared.install(self)
+        // Reader asks the Mac for the window's words every few seconds while it shows.
+        Publishers.CombineLatest3(watcher.$reading, watcher.$isOpen, watcher.$target)
+            .sink { [weak self] reading, open, _ in self?.readerFollows(reading && open) }
+            .store(in: &bag)
         // Looking at a chat that answered settles its mark.
         watcher.$target.compactMap { $0 }.sink { [weak self] t in self?.clearNeeds(for: t) }.store(in: &bag)
         Task { await AgentAlerts.shared.subscribeInCloud() }
@@ -1308,6 +1314,22 @@ extension AppModel: LinkClientDelegate {
     /// Ask the Mac for the watched window's words (Reader asks every few seconds while it shows).
     func requestReader() { client.requestReader() }
     func clearReader() { readerPage = nil }
+
+    /// While Reader shows: the words now, then every 2.5 seconds (the Mac reads only on asking).
+    private func readerFollows(_ on: Bool) {
+        readerTask?.cancel()
+        readerTask = nil
+        readerPage = nil
+        guard on else { return }
+        readerTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.watcher.phase == .live { self.client.requestReader() }
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+            }
+        }
+    }
 
     func linkClient(_ client: LinkClient, reader: ReaderPage) {
         guard client === self.client, watcher.isOpen else { return }
