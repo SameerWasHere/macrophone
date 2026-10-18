@@ -32,6 +32,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var agents: AgentHub!
     private(set) var replies: ReplyWatcher!
     private(set) var attachments: AttachmentInbox!
+    private(set) var stayAwake: StayAwake!
     /// Phone → the app it's watching, for the menu.
     @Published private(set) var watching: [UUID: String] = [:]
 
@@ -101,8 +102,11 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         agents = AgentHub(app: self)
         replies = ReplyWatcher(app: self)
         attachments = AttachmentInbox(app: self)
+        stayAwake = StayAwake(log: log)
         watch.onChange = { [weak self] in
-            guard let self, self.watching != self.watch.watching else { return }
+            guard let self else { return }
+            self.stayAwake.update(phonesConnected: !self.connected.isEmpty, watching: !self.watch.watching.isEmpty)
+            guard self.watching != self.watch.watching else { return }
             self.watching = self.watch.watching
         }
         server.log = log
@@ -573,6 +577,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         log.add("phone connected (app \(appVersion)), \(peerRoutes[peer.id]?.rawValue ?? "route unknown")")
         pushStatus()
         attention.update()
+        stayAwake.update(phonesConnected: true, watching: !watch.watching.isEmpty)
     }
 
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) {
@@ -583,6 +588,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         log.add("phone disconnected")
         pushStatus()
         attention.update()
+        stayAwake.update(phonesConnected: !connected.isEmpty, watching: !watch.watching.isEmpty)
     }
 
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {

@@ -64,7 +64,12 @@ final class AttachmentInbox {
     private func deliver(_ url: URL, image: NSImage?, to target: TargetRef) async -> (Bool, String) {
         let what = image != nil ? "The photo" : "The file"
         let pb = NSPasteboard.general
-        if target == .clipboard {
+        if target == .clipboard || StayAwake.isLocked {
+            if StayAwake.isLocked {
+                pb.clearContents()
+                pb.writeObjects(image.map { [url as NSURL, $0] } ?? [url as NSURL])
+                return (true, "Your Mac is locked — \(what.lowercased()) is on its clipboard")
+            }
             pb.clearContents()
             pb.writeObjects(image.map { [url as NSURL, $0] } ?? [url as NSURL])
             return (true, "\(what) is on your Mac's clipboard")

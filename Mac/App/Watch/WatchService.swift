@@ -253,6 +253,11 @@ final class WatchService {
     /// One check: the window is there and on screen, the stream is running, and where the place
     /// to type is. Returns how watching is going.
     private func look(_ w: Watch) async -> WatchState {
+        // Locked: the window can't be shown or used until he unlocks it.
+        if StayAwake.isLocked {
+            w.dropStream()
+            return .unavailable("Your Mac is locked — unlock it to see and use its windows", canReveal: false)
+        }
         // Where to look.
         if let reason = await resolve(w) { w.dropStream(); return reason }
         guard let wid = w.windowID, let place = WindowServer.info(wid) else {
@@ -808,6 +813,11 @@ final class WatchService {
               let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
         guard Paster.isTrusted else {
             app.log.add("watch \(what) skipped: Accessibility not granted")
+            return
+        }
+        // A locked Mac: a key or a click would land on the lock screen.
+        guard !StayAwake.isLocked else {
+            app.log.add("watch \(what) skipped: the Mac is locked")
             return
         }
         let name = w.appName

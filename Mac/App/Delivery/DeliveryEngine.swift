@@ -112,6 +112,10 @@ final class DeliveryEngine {
             popup.show(c)
             if let early {
                 failed(c, early, req: req, name: name, itemID: id)
+            } else if StayAwake.isLocked {
+                // Never typed into the lock screen's password field.
+                failed(c, .macLocked, req: req, name: name, itemID: id)
+                log.add("paste skipped: the Mac is locked")
             } else if !Paster.isTrusted {
                 failed(c, .accessibilityMissing, req: req, name: name, itemID: id)
                 log.add("paste skipped: Accessibility not granted")

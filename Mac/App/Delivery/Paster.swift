@@ -16,6 +16,8 @@ enum PasteFailure: Error, Equatable {
     case nowhereToType(app: String)
     /// The words never showed up in the message box (nothing was sent).
     case notLanded(app: String)
+    /// The Mac is locked: nothing is typed into the lock screen.
+    case macLocked
 
     var title: String {
         switch self {
@@ -28,6 +30,7 @@ enum PasteFailure: Error, Equatable {
         case .appDidNotActivate(let n): return "\(n) didn't come to the front"
         case .nowhereToType(let app): return "Nowhere to type in \(app) — copied instead"
         case .notLanded(let app): return "Didn't send — it didn't land in \(app)'s message box"
+        case .macLocked: return "Your Mac is locked — copied instead"
         }
     }
 
@@ -47,13 +50,15 @@ enum PasteFailure: Error, Equatable {
             return "It's on your clipboard. Click in a text field in \(app) and choose Try Again, or press ⌘V."
         case .notLanded(let app):
             return "It's on your clipboard. Click in \(app)'s message box and press ⌘V, or try again."
+        case .macLocked:
+            return "It's on your Mac's clipboard. Unlock your Mac and press ⌘V where you want it."
         }
     }
 
     /// The text was copied instead of going to a place that isn't there right now.
     var copiedInstead: Bool {
         switch self {
-        case .appNotOpen, .windowGone, .nowhereToType: return true
+        case .appNotOpen, .windowGone, .nowhereToType, .macLocked: return true
         default: return false
         }
     }
