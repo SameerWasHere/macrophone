@@ -178,7 +178,7 @@ struct EmptyState<Mark: View, Action: View>: View {
             action.padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 52)
+        .padding(.vertical, 44)
     }
 }
 

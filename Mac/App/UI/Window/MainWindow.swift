@@ -2,8 +2,16 @@ import AppKit
 import MacrophoneKit
 import SwiftUI
 
+/// Which section the window shows. Remembered across opens, like System Settings.
 final class MainNav: ObservableObject {
-    @Published var pane: Pane? = .history
+    @Published var pane: Pane? {
+        didSet { if let pane { AppPaths.defaults.set(pane.rawValue, forKey: Self.key) } }
+    }
+    private static let key = "window.pane"
+
+    init() {
+        pane = AppPaths.defaults.string(forKey: Self.key).flatMap(Pane.init(rawValue:)) ?? .history
+    }
 }
 
 /// The standard menus, built the first time a window opens (the app has no storyboard).

@@ -106,7 +106,8 @@ struct DevicesPane: View {
                         PlateRow(title: "Over Tailscale", subtitle: "Tailscale isn't running on this Mac. Install it (free), sign in, and this Mac's Tailscale address appears here.",
                                  subtitleColor: Light.ochre, icon: "point.3.connected.trianglepath.dotted", iconColor: Light.ochre) {
                             Link("Get Tailscale", destination: URL(string: "https://tailscale.com/download")!)
-                                .font(.system(size: 12.5, weight: .medium)).foregroundStyle(Light.teal)
+                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                                .accessibilityLabel("Get Tailscale on the web")
                         }
                     }
                     ForEach(model.localAddresses, id: \.self) { a in
@@ -443,6 +444,7 @@ struct HotkeyRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contentShape(.focusEffect, Capsule())
             .accessibilityLabel("Shortcut to open Macrophone")
             .accessibilityValue(recording ? "Recording. Press the new shortcut" : (key.enabled ? key.words : "None"))
             .accessibilityHint(recording ? "Escape cancels" : "Click to record a new shortcut")

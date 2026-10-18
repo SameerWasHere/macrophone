@@ -47,6 +47,10 @@ struct HistoryPane: View {
                 .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.lineStrong, lineWidth: 1))
                 .fieldFocusRing(searchFocused)
                 .onTapGesture { searchFocused = true }
+                // ⌘F lands in the search, as everywhere on the Mac. The button draws nothing.
+                .background(Button("") { searchFocused = true }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true))
 
                 Toggle("Keep history", isOn: $settings.historyEnabled)
                     .toggleStyle(.switch)
