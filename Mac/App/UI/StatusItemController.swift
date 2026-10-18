@@ -188,6 +188,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(action("Open Local Network Settings…", #selector(openLocalNetwork)))
         } else if model.peers.isEmpty {
             menu.addItem(action("Pair Your iPhone…", #selector(pair), symbol: "iphone"))
+        } else if AgentSetup.claude == .notConnected {
+            let mi = action("Connect Claude Code…", #selector(openAgents), symbol: "sparkles")
+            mi.toolTip = "So your iPhone knows the moment Claude Code needs you."
+            menu.addItem(mi)
         }
 
         // Send to: the choice the iPhone and this Mac share.
@@ -351,6 +355,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func pair() { AppDelegate.shared?.openSetup(.pair) }
     @objc private func openLocalNetwork() { NSWorkspace.shared.open(DevicesPane.localNetworkSettings) }
     @objc private func openWindow() { AppDelegate.shared?.openMainWindow() }
+    @objc private func openAgents() { AppDelegate.shared?.openMainWindow(pane: .agents) }
     @objc private func checkUpdates() { updater.checkForUpdates() }
     @objc private func quit() { NSApp.terminate(nil) }
 

@@ -273,8 +273,6 @@ struct GeneralPane: View {
                 }
             }
 
-            AgentsSection(apiOn: settings.apiEnabled)
-
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Permissions")
                 Plate {
@@ -497,6 +495,25 @@ struct HotkeyRow: View {
         live = ""
         HotkeyCenter.shared.apply(settings.hotkey)
         problem = HotkeyCenter.shared.lastError
+    }
+}
+
+/// Agents (Oct 18 2026, its own page — in General nobody found it): connect Claude Code and Codex.
+struct AgentsPane: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var settings: Settings
+
+    var body: some View {
+        PanePage {
+            PaneHeader(title: "Agents",
+                       subtitle: "Your iPhone shows every agent and buzzes the moment one needs you — exactly, from the agent itself.")
+            AgentsSection(apiOn: settings.apiEnabled)
+            Text("Connected agents tell Macrophone when they start working, ask you something, finish or close. Your iPhone lists them above Send to and alerts you with the question. Other apps still alert you when Macrophone reads them asking on screen. Works for sessions started after you connect.")
+                .font(.system(size: 12))
+                .foregroundStyle(Ink.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+        }
     }
 }
 
