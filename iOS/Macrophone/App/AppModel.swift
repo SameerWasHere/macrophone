@@ -148,6 +148,7 @@ final class AppModel: ObservableObject {
         watcher.sendRightClick = { [weak self] p in self?.client.watchRightClick(p) ?? false }
         watcher.sendWindow = { [weak self] c in self?.client.watchWindow(c) ?? false }
         watcher.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
+        watcher.sendShape = { [weak self] s in self?.client.watchShape(s) ?? false }
         watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         watcher.sendScrollPhase = { [weak self] phase, p in self?.client.watchScrollPhase(phase, at: p) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }
@@ -1124,6 +1125,18 @@ final class AppModel: ObservableObject {
     var debugTargetsLocked = false
 
     var debugPairingLocked = false
+
+    func debugFakeAgents() {
+        let t = Date()
+        agentSessions = [
+            AgentSession(id: "a", agent: "Claude Code", project: "Macrophone", ref: .app(bundleID: "com.apple.Terminal", windowKey: "1", name: "Terminal"),
+                         appName: "Terminal", state: .waiting, detail: "Run git push origin main?", since: t - 40),
+            AgentSession(id: "b", agent: "Codex", project: "api", ref: .app(bundleID: "com.apple.Terminal", windowKey: "2", name: "Terminal"),
+                         appName: "Terminal", state: .yourTurn, detail: "Tests pass, three files changed in the auth module", since: t - 300),
+            AgentSession(id: "c", agent: "Claude Code", project: "site", ref: .app(bundleID: "com.anthropic.claudefordesktop", windowKey: nil, name: "Claude"),
+                         appName: "Claude", state: .working, detail: nil, since: t - 260),
+        ]
+    }
 
     func debugFakePairing(mac: String) {
         debugPairingLocked = true

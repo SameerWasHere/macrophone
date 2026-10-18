@@ -12,8 +12,8 @@ import SwiftUI
 //   │   Run git push origin main?                  │
 //   │ ● Codex · api                     Terminal   │  mint: your turn
 //   │   Your turn · Tests pass, 3 files changed    │
-//   │ ● Claude Code · site              Claude     │  teal: working
-//   │   Working · 4 min                            │
+//   │ ● Claude Code · site              Claude     │
+//   │   Working · 4 min                            │  violet: working
 //   └──────────────────────────────────────────────┘
 
 struct AgentsPanel: View {
@@ -115,7 +115,7 @@ private struct AgentRow: View {
         switch session.state {
         case .waiting: return Light.ember
         case .yourTurn: return Light.mint
-        case .working: return Light.teal
+        case .working: return Light.violet
         }
     }
 

@@ -29,6 +29,8 @@ struct WatchPanel: View {
             header
             WatchWindow(watcher: watcher, interactive: true)
                 .frame(maxHeight: .infinity)
+                // The first times: what a tap, a hold, a pinch and the side swipe do.
+                .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count) }
             WatchActions(watcher: watcher)
                 .opacity(watcher.phase == .live ? 1 : 0)
                 .allowsHitTesting(watcher.phase == .live)
@@ -190,6 +192,14 @@ struct WatchWindowMenu: View {
                     ForEach(WatchFit.allCases, id: \.self) { f in Text(f.title).tag(f) }
                 }
             }
+            if watcher.canFitToPhone {
+                Section {
+                    Button { watcher.fitToPhone() } label: {
+                        Label("Fit to iPhone", systemImage: "iphone.gen3")
+                        Text("The whole window, filling this view")
+                    }
+                }
+            }
             if watcher.canWindowCommands {
                 Section("Size on your Mac") {
                     ForEach([WatchWindowCommand.fill, .leftHalf, .rightHalf, .middle, .restore], id: \.self) { c in
@@ -202,6 +212,9 @@ struct WatchWindowMenu: View {
                         Label(WatchWindowCommand.close.title, systemImage: WatchWindowCommand.close.symbol)
                     }
                 }
+            }
+            Section {
+                Button { WatchTips.reset() } label: { Label("Show Tips Again", systemImage: "lightbulb") }
             }
         } label: {
             Image(systemName: "macwindow")
@@ -302,6 +315,7 @@ struct WatchWindow: View {
                              onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
                              onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } })
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerSize = $0 }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
@@ -568,7 +582,8 @@ struct WatchActions: View {
 
     private var keys: some View {
         HStack(spacing: 6) {
-            key(.escape, label: Text("Esc"), name: "Escape")
+            // Esc keeps its word whole; the arrows and ··· give way first.
+            key(.escape, label: Text("Esc"), name: "Escape").fixedSize(horizontal: true, vertical: false)
             key(.arrowUp, label: Image(systemName: "arrow.up"), name: "Up arrow")
             key(.arrowDown, label: Image(systemName: "arrow.down"), name: "Down arrow")
             key(.returnKey, label: Image(systemName: "return"), name: "Return")

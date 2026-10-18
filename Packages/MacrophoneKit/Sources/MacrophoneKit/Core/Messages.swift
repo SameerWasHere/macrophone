@@ -146,6 +146,9 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: press a key with its modifiers in the watched window (only to a Mac naming
     /// WatchKey.feature).
     case watchKey(WatchKey)
+    /// Phone → Mac: give the watched window this shape (the phone's view of it, in points), as
+    /// big as the screen allows — Fit to iPhone (only to a Mac naming WatchShape.feature).
+    case watchShape(width: Double, height: Double)
     /// Mac → phone: how watching is going.
     case watchState(WatchState)
     /// Mac → phone: the window, when it changed (a picture — to a phone that didn't name "video").

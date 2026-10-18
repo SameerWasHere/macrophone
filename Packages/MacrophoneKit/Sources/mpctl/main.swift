@@ -520,7 +520,7 @@ func run() async -> Int32 {
             server.setRemote(RemoteConfig(port: port))
         }
         // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
-        server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature]
+        server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, WatchRightClick.feature, WatchKey.feature, WatchShape.feature, WatchWindowCommand.feature]
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")

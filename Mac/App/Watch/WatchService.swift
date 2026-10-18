@@ -733,6 +733,28 @@ final class WatchService {
         w.wake()
     }
 
+    /// Fit to iPhone: the window takes the phone's view's shape, as tall as the screen allows. Like
+    /// the Window menu's sizes, it takes over from Aa and Back to How It Was undoes it.
+    func fitToPhone(aspect: CGFloat, for peer: UUID) {
+        guard let w = watches[peer], let wid = w.windowID else { return }
+        guard Paster.isTrusted else { app.log.add("watch fit to iPhone skipped: Accessibility not granted"); return }
+        guard let win = AX.window(in: AX.app(w.pid), id: wid), AX.isAlive(win), !AX.bool(win, "AXFullScreen") else {
+            app.log.add("watch fit to iPhone: the window isn't answering")
+            return
+        }
+        let now = AX.frame(win)
+        if w.beforeWindowChanges == nil { w.beforeWindowChanges = w.fit?.original ?? now }
+        w.fit = nil
+        w.wantedFit = .normal
+        guard let area = WindowFit.visibleArea(around: now),
+              let target = WatchShape.frame(aspect: aspect, window: now, in: area) else { return }
+        _ = WindowFit.set(win, frame: target)
+        app.log.add("watch fit to iPhone: \(Int(now.width))×\(Int(now.height)) → \(Int(target.width))×\(Int(target.height))")
+        w.focusAt = .distantPast
+        w.hurry()
+        w.wake()
+    }
+
     /// A press and hold (or a two-finger tap) on the phone's picture: a right-click there.
     func rightClick(_ p: CGPoint, for peer: UUID) {
         act(on: peer, what: "right click") { wid in

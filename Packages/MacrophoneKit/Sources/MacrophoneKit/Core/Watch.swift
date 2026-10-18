@@ -229,3 +229,24 @@ public enum WatchWindowCommand: String, Codable, Sendable, CaseIterable {
         }
     }
 }
+
+/// Fit to iPhone (Oct 17 2026, Sameer: "an auto optimize window button that resizes the window to
+/// be large and fit better in the iPhone view box"): the window takes the exact shape of the
+/// phone's view of it, as tall as the screen allows, so the whole window fills the phone with
+/// nothing wasted and nothing to pan to. Only to a Mac whose welcome names the feature.
+public enum WatchShape {
+    public static let feature = "fitPhone"
+
+    /// The window's new frame: `aspect` (width ÷ height, the phone's view) at the full height of
+    /// `area` (the screen's visible frame, top-left origin), or its full width when that's what
+    /// limits it; kept centered where the window is now, inside the area.
+    public static func frame(aspect: CGFloat, window now: CGRect, in area: CGRect) -> CGRect? {
+        guard aspect > 0.2, aspect < 5, area.width > 0, area.height > 0 else { return nil }
+        var h = area.height
+        var w = (h * aspect).rounded()
+        if w > area.width { w = area.width; h = (w / aspect).rounded() }
+        let x = min(max(now.midX - w / 2, area.minX), area.maxX - w).rounded()
+        let y = (area.minY + (area.height - h) / 2).rounded()
+        return CGRect(x: x, y: y, width: w, height: h)
+    }
+}

@@ -98,6 +98,8 @@ final class Watcher: ObservableObject {
     var sendClick: (CGPoint) -> Void = { _ in }
     /// Right-click there; false when the Mac can't (it predates right-clicks).
     var sendRightClick: (CGPoint) -> Bool = { _ in false }
+    /// The Mac takes right-clicks (a press and hold, or a two-finger tap).
+    var canRightClick: Bool { macFeatures().contains(WatchRightClick.feature) }
     /// The whole window on screen instead of the zoomed-in column (the zoom-out button).
     @Published private(set) var wholeWindow = false
     var sendScroll: (CGPoint, CGVector) -> Void = { _, _ in }
@@ -250,6 +252,23 @@ final class Watcher: ObservableObject {
     /// The Mac takes Window menu commands (sizes, minimize, close).
     var canWindowCommands: Bool { macFeatures().contains(WatchWindowCommand.feature) }
     var sendWindow: (WatchWindowCommand) -> Bool = { _ in false }
+
+    /// The size of this phone's view of the window, in points (Fit to iPhone sends its shape).
+    var viewerSize: CGSize = .zero
+    var canFitToPhone: Bool { macFeatures().contains(WatchShape.feature) }
+    var sendShape: (CGSize) -> Bool = { _ in false }
+
+    /// Fit to iPhone: the Mac gives the window this view's shape, as big as its screen allows, so
+    /// the whole window fills the view. Takes over from Aa, like the Window menu's sizes.
+    func fitToPhone() {
+        touch()
+        guard viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
+        Haptics.tick()
+        if fit != .normal { setFitLocally(.normal) }
+        if wholeWindow { toggleWholeWindow() }
+        say("\(name)'s window now has your iPhone's shape — all of it fits here")
+        log?.add("watching: fit to iPhone")
+    }
 
     /// The Mac presses keys beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…).
     var canPressKeys: Bool { macFeatures().contains(WatchKey.feature) }

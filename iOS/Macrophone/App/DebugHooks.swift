@@ -147,6 +147,7 @@ enum DebugHooks {
     }
 
     @MainActor static func apply(_ model: AppModel) {
+        if env["MACROPHONE_FAKE_AGENTS"] == "1" { model.debugFakeAgents() }
         if let mac = env["MACROPHONE_FAKE_PAIRED"] {
             model.debugFakePairing(mac: mac)
             if env["MACROPHONE_FAKE_TARGETS"] == nil { model.debugFakeTargets(sampleApps()) }

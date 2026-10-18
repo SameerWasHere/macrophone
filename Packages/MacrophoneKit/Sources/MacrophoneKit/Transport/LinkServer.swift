@@ -38,6 +38,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID)
     /// A key with its modifiers, pressed in the watched window.
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID)
+    /// Fit to iPhone: the watched window takes this shape (width ÷ height), as big as it goes.
+    func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID)
     /// The agent sessions, sent to a phone that named "agents" right after its welcome.
     func liveAgents(_ server: LinkServer) -> [AgentSession]
     /// A swipe on the watched window: scroll it at `point` by `delta` (fractions of the window).
@@ -72,6 +74,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchRightClick point: CGPoint, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {}
     func liveAgents(_ server: LinkServer) -> [AgentSession] { [] }
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
@@ -619,6 +622,9 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchClick: CGPoint(x: x, y: y), from: phoneID) }
             case let .watchWindow(command):
                 notify { $0.linkServer(self, watchWindow: command, from: phoneID) }
+            case let .watchShape(w, h):
+                guard w > 0, h > 0, w < 10_000, h < 10_000 else { break }
+                notify { $0.linkServer(self, watchShape: CGFloat(w / h), from: phoneID) }
             case let .watchKey(key):
                 guard key.key.count <= 12 else { break }
                 notify { $0.linkServer(self, watchKey: key, from: phoneID) }

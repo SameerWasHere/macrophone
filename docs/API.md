@@ -69,6 +69,10 @@ Every key is always present; `cleaned` and `profile` are `null` when absent.
 | `GET /v1/next?timeout=S` | Waits for the next dictation to arrive and answers `200` with it, or `204` after S seconds (1–300, default 60) |
 | `GET /v1/status` | `200 {"app_version":"1.0.0","api_version":1,"history_enabled":true,"phones":[{"name":"Sameer's iPhone","connected":true,"last_seen":"…"}]}` |
 
+| `POST /v1/agent` | An agent's event (what `mp hook` sends): `{"agent":"claude","event":"PermissionRequest","session":"…","cwd":"…","tool":"Bash","toolDetail":"git push","pids":[…]}`. `204`. The phone's list of agents and its alerts follow. |
+
+**Agents (Oct 17 2026).** Macrophone › General › Agents › Connect adds `…/Macrophone.app/Contents/Helpers/macrophone hook claude` to Claude Code's hooks in `~/.claude/settings.json` (SessionStart, UserPromptSubmit, PermissionRequest, Notification, PostToolUse, Stop, SessionEnd) or sets Codex's `notify` in `~/.codex/config.toml` (never over one you set). The first change backs the file up beside it (`.macrophone-backup`); Disconnect takes out exactly what it added. The hook prints nothing, always exits 0 and gives up after 1.5 s.
+
 Errors are JSON `{"error":"…"}`: `401` missing or wrong token, `403` a browser request or a wrong
 `Host`, `404` unknown path, `405` anything but `GET`.
 

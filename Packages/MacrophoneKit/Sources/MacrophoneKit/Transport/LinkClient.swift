@@ -647,7 +647,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey:
+        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape:
             break
         }
     }
@@ -807,6 +807,15 @@ public final class LinkClient: @unchecked Sendable {
     public func watchWindow(_ command: WatchWindowCommand) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchWindowCommand.feature) ? session : nil }) else { return false }
         Task { try? await s.send(.watchWindow(command)) }
+        return true
+    }
+
+    /// Fit to iPhone: the watched window takes the phone's view's shape (only a Mac that can).
+    @discardableResult
+    public func watchShape(_ size: CGSize) -> Bool {
+        guard size.width > 0, size.height > 0,
+              let s = lock.sync({ macFeatures.contains(WatchShape.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchShape(width: Double(size.width), height: Double(size.height))) }
         return true
     }
 
