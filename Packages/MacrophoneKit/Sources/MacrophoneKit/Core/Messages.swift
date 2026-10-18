@@ -149,6 +149,8 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: give the watched window this shape (the phone's view of it, in points), as
     /// big as the screen allows — Fit to iPhone (only to a Mac naming WatchShape.feature).
     case watchShape(width: Double, height: Double)
+    /// Mac → phone: every window on screen (only to a phone naming AllWindows.feature), as it changes.
+    case windows([LiveTarget])
     /// Phone → Mac: a dictation for this place has started — get it ready (only to a Mac naming
     /// DictationPrepare.feature). Nothing is typed until the dictation arrives.
     case prepare(TargetRef)

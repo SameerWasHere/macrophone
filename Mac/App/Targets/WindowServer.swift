@@ -49,6 +49,29 @@ enum WindowServer {
 
     /// One window's frame on screen (top-left origin) — a lookup of that window alone, cheap enough
     /// for every step of a swipe (the whole list, with each window's desktops, isn't).
+    /// Every window on this desktop worth watching, front to back — app windows, dialogs, panels and
+    /// alerts (layers up to the pop-up levels), not the Dock, the menu bar or the wallpaper, nor
+    /// Macrophone's own. Titles come with Screen Recording.
+    static func everyWindow() -> [(id: CGWindowID, pid: pid_t, title: String?)] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let skip: Set<String> = ["Dock", "Window Server", "SystemUIServer", "Control Center", "Spotlight", "Wallpaper", "WindowManager", "TextInputMenuAgent"]
+        var out: [(id: CGWindowID, pid: pid_t, title: String?)] = []
+        for w in list {
+            guard let layer = w[kCGWindowLayer as String] as? Int, (0...25).contains(layer),
+                  let id = w[kCGWindowNumber as String] as? CGWindowID,
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+                  let b = w[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: b as CFDictionary),
+                  rect.width >= 120, rect.height >= 60,
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) >= 0.05 else { continue }
+            if let owner = w[kCGWindowOwnerName as String] as? String, skip.contains(owner) { continue }
+            let title = (w[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            out.append((id, pid, title))
+        }
+        return out
+    }
+
     /// The whole screen, watched like a window (DesktopWatch): its place is the main display's.
     static let desktopID: CGWindowID = 0x7FFF_FFF0
     static var desktopBounds: CGRect { CGDisplayBounds(CGMainDisplayID()) }

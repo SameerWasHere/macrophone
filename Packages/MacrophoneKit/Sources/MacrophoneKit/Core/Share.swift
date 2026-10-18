@@ -97,3 +97,10 @@ public struct FrontApp: Codable, Sendable, Equatable {
     public var name: String
     public init(bundleID: String, name: String) { self.bundleID = bundleID; self.name = name }
 }
+
+/// Every window (Oct 18 2026, Sameer: "any window that is open on the Mac should be available to
+/// view and control. Like Finder or a pop up. Anything"): the Mac tells a phone that asks every
+/// window on screen — not only the places with somewhere to type — each watchable like any other.
+public enum AllWindows {
+    public static let feature = "allWindows"
+}

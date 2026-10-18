@@ -104,6 +104,9 @@ final class AppModel: ObservableObject {
     /// A photo or file on its way (its words for the status line).
     @Published private(set) var sendingAttachment: String?
 
+    /// Every window on the Mac's screen (AllWindows): the window switcher lists them all.
+    @Published private(set) var everyWindow: [LiveTarget] = []
+
     /// The chats you're in that answered you: their apps wear a mark in Send to.
     @Published private(set) var needsYou: [NeedsYou] = []
     /// The Mac sent its list since the link last connected (so "Not open on your Mac" is current).
@@ -202,7 +205,7 @@ final class AppModel: ObservableObject {
         // one with remote access on tells it where it can be reached from away; one that can sends
         // the watched window as video (Watcher decodes it).
         c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, NeedsYou.feature,
-                      ClipboardItem.feature, AttachmentChunk.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+                      ClipboardItem.feature, AttachmentChunk.feature, AllWindows.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -1465,6 +1468,11 @@ extension AppModel: LinkClientDelegate {
             if let d = scaled.jpegData(compressionQuality: q), d.count <= maxBytes { return d }
         }
         return nil
+    }
+
+    func linkClient(_ client: LinkClient, windows: [LiveTarget]) {
+        guard client === self.client else { return }
+        if everyWindow != windows { everyWindow = windows }
     }
 
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {

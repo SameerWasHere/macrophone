@@ -142,6 +142,12 @@ struct WatchPanel: View {
             .accessibilityHidden(true)
     }
 
+    /// Every window on the Mac's screen that isn't already one of the places above (Finder, a
+    /// dialog, a pop-up — anything).
+    private var otherWindows: [LiveTarget] {
+        model.everyWindow.filter { w in !sessions.contains { $0.bundleID == w.bundleID && ($0.windowKey == nil || $0.windowKey == w.windowKey) } }
+    }
+
     private var sessionMenu: some View {
         Menu {
             // The whole screen first: for a pop-up that isn't in any one window.
@@ -150,6 +156,15 @@ struct WatchPanel: View {
                     Button { model.watchWholeScreen() } label: {
                         Label("Whole Screen", systemImage: watcher.isDesktop ? "checkmark" : "display")
                         Text("Everything on your Mac, live")
+                    }
+                }
+            }
+            if !otherWindows.isEmpty {
+                Section("Every Window") {
+                    ForEach(otherWindows) { t in
+                        Button { watcher.open(t.ref) } label: {
+                            if watcher.target?.matches(t) ?? false { Label(t.title, systemImage: "checkmark") } else { Text(t.title) }
+                        }
                     }
                 }
             }
@@ -177,7 +192,7 @@ struct WatchPanel: View {
     private var header: some View {
         HStack(spacing: 10) {
             // The name keeps its room; the page dots step aside when the controls need it.
-            if sessions.count > 1 || watcher.canWatchDesktop {
+            if sessions.count > 1 || watcher.canWatchDesktop || !model.everyWindow.isEmpty {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 10) {
                         sessionMenu

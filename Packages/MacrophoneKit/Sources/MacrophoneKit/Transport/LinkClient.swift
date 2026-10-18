@@ -43,6 +43,8 @@ public protocol LinkClientDelegate: AnyObject {
     func linkClient(_ client: LinkClient, attention: Attention)
     /// The chats you're in that answered you (a Mac that names none never sends it).
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou])
+    /// Every window on the Mac's screen (a Mac that names none never sends it).
+    func linkClient(_ client: LinkClient, windows: [LiveTarget])
     /// The Mac's clipboard (nil: empty, concealed, or the answer to one sent), with a plain line.
     func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String)
     /// Where a photo or file went.
@@ -70,6 +72,7 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, watchVideo: WatchVideoFrame) {}
     func linkClient(_ client: LinkClient, attention: Attention) {}
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {}
+    func linkClient(_ client: LinkClient, windows: [LiveTarget]) {}
     func linkClient(_ client: LinkClient, clipboard: ClipboardItem?, detail: String) {}
     func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {}
     func linkClient(_ client: LinkClient, installedApps: [MacApp]) {}
@@ -632,6 +635,11 @@ public final class LinkClient: @unchecked Sendable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.delegate?.linkClient(self, attachmentLanded: id, ok: ok, detail: detail)
+            }
+        case let .windows(list):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, windows: list)
             }
         case let .needsYou(list):
             Task { @MainActor [weak self] in

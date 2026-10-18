@@ -33,6 +33,9 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var replies: ReplyWatcher!
     private(set) var attachments: AttachmentInbox!
     private(set) var stayAwake: StayAwake!
+    /// Every window on screen, as last told to the phones (AllWindows).
+    private var everyWindowSent: [LiveTarget] = []
+    private var everyWindowTimer: Timer?
     /// Phone → the app it's watching, for the menu.
     @Published private(set) var watching: [UUID: String] = [:]
 
@@ -578,6 +581,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         pushStatus()
         attention.update()
         stayAwake.update(phonesConnected: true, watching: !watch.watching.isEmpty)
+        followEveryWindow()
     }
 
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) {
@@ -589,6 +593,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         pushStatus()
         attention.update()
         stayAwake.update(phonesConnected: !connected.isEmpty, watching: !watch.watching.isEmpty)
+        followEveryWindow()
     }
 
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {
@@ -648,6 +653,39 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     }
 
     func liveNeeds(_ server: LinkServer) -> [NeedsYou] { replies.needs }
+
+    /// While a phone that asks for every window is connected: the list, every two seconds, sent
+    /// when it changed (and right away to a phone that just came).
+    private func followEveryWindow() {
+        let wanted = !server.phones(with: AllWindows.feature).isEmpty
+        if wanted, everyWindowTimer == nil {
+            everyWindowSent = []
+            let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sendEveryWindow() } }
+            RunLoop.main.add(t, forMode: .common)
+            everyWindowTimer = t
+            sendEveryWindow()
+        } else if !wanted {
+            everyWindowTimer?.invalidate()
+            everyWindowTimer = nil
+        } else {
+            everyWindowSent = []
+            sendEveryWindow()
+        }
+    }
+
+    private func sendEveryWindow() {
+        var names: [pid_t: (String, String)] = [:]
+        let list: [LiveTarget] = WindowServer.everyWindow().compactMap { w in
+            if names[w.pid] == nil, let r = NSRunningApplication(processIdentifier: w.pid), let bid = r.bundleIdentifier {
+                names[w.pid] = (bid, r.localizedName ?? bid)
+            }
+            guard let (bid, name) = names[w.pid] else { return nil }
+            return LiveTarget(bundleID: bid, appName: name, windowTitle: w.title ?? name, windowKey: String(w.id))
+        }
+        guard list != everyWindowSent else { return }
+        everyWindowSent = list
+        server.broadcastWindows(list)
+    }
 
     func linkServer(_ server: LinkServer, prepare target: TargetRef, from peerID: UUID) {
         delivery.prepare(target)

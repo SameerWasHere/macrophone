@@ -669,7 +669,7 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .clipboardReply, .attachmentLanded:
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
             }
         }
@@ -688,6 +688,11 @@ public final class LinkServer: @unchecked Sendable {
     @MainActor private func needsOnMain() -> [NeedsYou] {
         guard let delegate else { return [] }
         return delegate.liveNeeds(self)
+    }
+
+    /// Every window on screen changed: tell every phone that asked for them.
+    public func broadcastWindows(_ list: [LiveTarget]) {
+        for id in phones(with: AllWindows.feature) { Task { await self.send(.windows(list), to: id) } }
     }
 
     /// The chats that answered changed: tell every phone that understands them.
