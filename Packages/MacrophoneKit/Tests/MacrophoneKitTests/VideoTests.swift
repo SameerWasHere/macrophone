@@ -63,6 +63,10 @@ final class VideoWireTests: XCTestCase {
         // Pictures over the home network: ten a second; the slow pace is unchanged.
         XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.3, quick: true), 0.05)
         XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.3), 0.3)
+        // Live video: every real change at the stream's rate; a caret or spinner at fifteen a second.
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0, quick: true, rate: 60, live: true), .infinity)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 0.008, quick: true, rate: 60, live: true), 0.9 / 60, accuracy: 1e-9)
+        XCTAssertEqual(WatchPacing.minimumInterval(changed: 40.0 / 1_700_000, quick: true, rate: 60, live: true), 1.0 / 15, accuracy: 1e-9)
     }
 
     func testABusyChipIsJudgedOnSustainedTimings() {

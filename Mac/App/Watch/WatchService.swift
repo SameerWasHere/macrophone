@@ -155,7 +155,14 @@ final class WatchService {
     /// every picture crosses a slower path.
     static let maxWidth: CGFloat = 1500
     static let remoteMaxWidth: CGFloat = 1000
-    private func maxWidth(for w: Watch) -> CGFloat { app.isRemote(w.peer) ? Self.remoteMaxWidth : Self.maxWidth }
+    /// Video at the window's own Retina sharpness (Oct 18 2026, "high fidelity"): text holds up
+    /// when you zoom in; HEVC carries it easily at home, a little less away.
+    static let videoMaxWidth: CGFloat = 2560
+    static let remoteVideoMaxWidth: CGFloat = 1600
+    private func maxWidth(for w: Watch) -> CGFloat {
+        if w.wantsVideo { return app.isRemote(w.peer) ? Self.remoteVideoMaxWidth : Self.videoMaxWidth }
+        return app.isRemote(w.peer) ? Self.remoteMaxWidth : Self.maxWidth
+    }
 
     /// Who's watching what, for the menu ("Your iPhone is watching Claude").
     private(set) var watching: [UUID: String] = [:]

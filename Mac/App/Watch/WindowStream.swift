@@ -30,8 +30,8 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// twelve away from home, where every frame crosses a slower path).
     static let pictureRate = 6
     static let quickPictureRate = 10
-    static let videoRate = 30
-    static let remoteVideoRate = 12
+    static let videoRate = 60
+    static let remoteVideoRate = 24
     private let maxRate: Int
     /// Frames for a video encoder come as the chip takes them (Y′CbCr planes, full range): no
     /// conversion before the encode, and the change sample reads the brightness plane. Pictures

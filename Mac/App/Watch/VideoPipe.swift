@@ -172,7 +172,7 @@ final class VideoPipe: @unchecked Sendable {
         guard !stopped, let (pixels, _) = pending else { return }
         let now = Date()
         let swiping = now < inputUntil && changedSince >= WatchPacing.sliver
-        let interval = now < forceUntil ? 0 : WatchPacing.minimumInterval(changed: swiping ? max(changedSince, WatchPacing.small) : changedSince, quick: true, rate: rate)
+        let interval = now < forceUntil ? 0 : WatchPacing.minimumInterval(changed: swiping ? max(changedSince, WatchPacing.small) : changedSince, quick: true, rate: rate, live: true)
         if interval == .infinity { pending = nil; return }
         let due = lastSentAt.addingTimeInterval(interval)
         if now < due {

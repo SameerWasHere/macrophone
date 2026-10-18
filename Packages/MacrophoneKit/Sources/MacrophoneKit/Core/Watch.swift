@@ -106,8 +106,15 @@ public enum WatchPacing {
     /// and a wait as long as its period lost every other frame to the one arriving as it ended, so
     /// the wait is half of it); a line or a highlight moving still waits, and a caret or a spinner
     /// every few seconds.
-    public static func minimumInterval(changed: Double, quick: Bool = false, rate: Int = 10) -> TimeInterval {
+    ///
+    /// `live` (video, Oct 18 2026 — Sameer: "it should almost feel like the Mac is running in real
+    /// time on my phone"): every real change goes at the stream's own rate, a line of output or a
+    /// highlight included (they waited half a second, so an agent typing showed at two frames a
+    /// second); a caret or a spinner at up to fifteen a second. A video frame for a small change is
+    /// a few hundred bytes, so holding it back saved nothing.
+    public static func minimumInterval(changed: Double, quick: Bool = false, rate: Int = 10, live: Bool = false) -> TimeInterval {
         if changed <= 0 { return .infinity }
+        if live { return changed < sliver ? 1.0 / 15 : 0.9 / Double(max(1, rate)) }
         if changed < sliver { return 3 }
         if changed < small { return quick ? 0.5 : 1 }
         return quick ? 0.5 / Double(max(1, rate)) : 0.3
