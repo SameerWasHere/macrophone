@@ -225,6 +225,9 @@ struct MainView: View {
         }
         .frame(minHeight: 22)
         .padding(.bottom, 2)
+        // A clock, not a line to read: at accessibility sizes it stays small enough to sit under
+        // the Thread instead of across it.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 
     // MARK: Quick controls, the mic, the status line

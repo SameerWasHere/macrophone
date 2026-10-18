@@ -63,6 +63,9 @@ struct WatchTipCard: View {
     @ObservedObject var watcher: Watcher
     /// How many windows there are to flip between.
     var sessions: Int
+    /// The window's height here: a card shows only when it fits over the window with the newest
+    /// lines still clear beneath it (the window's question had pushed a card over the answers).
+    var room: CGFloat = .greatestFiniteMagnitude
     /// Bumped by Show Tips Again.
     @AppStorage(WatchTips.key) private var seenRaw = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -84,7 +87,7 @@ struct WatchTipCard: View {
         let open = tips.filter { !seen.contains($0.id) }
         let all = tips
         Group {
-            if watcher.phase == .live, let tip = open.first, let at = all.firstIndex(of: tip) {
+            if watcher.phase == .live, room >= 250, let tip = open.first, let at = all.firstIndex(of: tip) {
                 card(tip, at: at, of: all.count, left: open.count)
                     .id(tip.id)
                     .transition(.opacity.combined(with: .move(edge: .top)))

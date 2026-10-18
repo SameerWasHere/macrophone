@@ -117,7 +117,7 @@ struct SendToList: View {
                 } header: {
                     Kicker("For \(settings.selection.target.displayName)")
                 } footer: {
-                    Text("Your Mac presses the app's send key after pasting, after a short countdown you can cancel. Remembered for each place.")
+                    Text("Your Mac presses the app's send key after pasting. If you're at the Mac, you get a moment to cancel first. Remembered for each place.")
                 }
                 .listRowBackground(Ink.raised)
             }

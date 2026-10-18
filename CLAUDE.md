@@ -40,6 +40,39 @@ Feature flags: a message goes only to a peer that named its feature in hello / w
 (`LinkClient.features`, `LinkServer.macFeatures`; `mpctl serve` names them all) — App Store
 iPhone 1.0 and an older Mac keep working.
 
+## The window in hand (Oct 18 2026, the third polish pass — iOS only)
+
+Sameer: "make the app exceptional … it should almost feel like the Mac is running in real time
+on my phone". What this pass found and changed, all in `UI/WatchPanel.swift` / `Model/Watcher.swift`:
+- **A switch keeps the picture.** Flipping windows tore the viewer down to an empty plate and
+  rebuilt it on the next frame. Now `Watcher.stale` keeps the last window's picture under a dim
+  (`Opening …` only after 450 ms, as before) until the new window's first frame; `windowSeq`
+  tells the viewer to start that window's view fresh, and any size change (a switch, Fit to
+  iPhone, a text size) lands under a 0.22 s cross-dissolve instead of a jump. The slide's group
+  opacity (an offscreen pass over the video) is gone.
+- **Input is answered at once.** A finger landing on the window gets a mark the moment it
+  touches (`touchDown`, a zero-wait press beside the other gestures — a scroll view never hands
+  a tap's touches to the view itself; the tap's ring grows from it, a drag fades it, and it never
+  outlives 1.5 s). **Simulator only:** a sublayer removed over the video surface keeps its last
+  pixels until that region repaints (proven: the ring's layer gone from the tree, presentation
+  opacity 0, still on screen) — the click ring and the mark look stuck there; a device
+  recomposites. A key, an answer or a Window command pulses the bezel's rim (`inputSeq`) so
+  nothing feels lost while the Mac's next frame is on its way. A pan coasts at the normal rate
+  (`.fast` stopped short, like a page).
+- **Zoom stops at one point per Mac pixel** (`maximumZoomScale = max(1, fitAll × 2)`): three
+  screen pixels to one of the Mac's is as large as Retina text needs; past it a pinch only blurred.
+  The video layer draws at the screen's own resolution under the zoom (no double scaling — the
+  surface is composited, never rasterised).
+- **Measured, simulator, `MACROPHONE_WATCH_TIMING=1`** (new on the phone: the log's closing line
+  carries "main thread per frame: median / p95 / max"): the frame path's main-thread cost is
+  **median 100–160 µs a frame**, p95 544 µs, one 13.7 ms outlier on a window's first keyframe
+  (the decoder's set-up). The busiest-second count is kept as frames arrive (the old close-time
+  pass was quadratic over the frame times).
+- **Tips wait for room** (`WatchTipCard(room:)`, ≥ 250 pt): with the window's answers up at an
+  accessibility size, the card had spilled over them. The recording timer stays a clock at
+  accessibility sizes (capped at xLarge — it sat across the Thread). Settings' Send after
+  pasting says what the speed pass made true: a moment to cancel only when you're at the Mac.
+
 ## Layout
 
 | Path | What |

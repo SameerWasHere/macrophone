@@ -42,6 +42,8 @@ struct WatchPanel: View {
     @State private var switchedTask: Task<Void, Never>?
     /// The window slides in from the side it came from (a swipe's direction, or the menu's).
     @State private var slide: CGFloat = 0
+    /// The window's height here: a tip waits until there's room for its card over the window.
+    @State private var windowHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -49,10 +51,10 @@ struct WatchPanel: View {
             header
             WatchWindow(watcher: watcher, interactive: true)
                 .frame(maxHeight: .infinity)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
                 // The first times: what a tap, a hold, a pinch and the side swipe do.
-                .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count) }
+                .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight) }
                 .offset(x: slide)
-                .opacity(slide == 0 ? 1 : 0.6)
             WatchActions(watcher: watcher)
                 .opacity(watcher.phase == .live ? 1 : 0)
                 .allowsHitTesting(watcher.phase == .live)
@@ -381,7 +383,8 @@ struct WatchWindow: View {
             Ink.sunk
             if watcher.hasPicture {
                 WindowViewer(image: watcher.image, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
-                             focus: watcher.focus, recenter: watcher.recenter, interactive: interactive && watcher.phase == .live,
+                             focus: watcher.focus, recenter: watcher.recenter, generation: watcher.windowSeq,
+                             interactive: interactive && watcher.phase == .live,
                              drag: watcher.drag, phased: watcher.macCanScroll,
                              viewKey: interactive ? watcher.viewKey : nil,
                              onTouch: { watcher.touch() },
@@ -396,6 +399,10 @@ struct WatchWindow: View {
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
                         : "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Swipe to scroll the window on your Mac; two fingers move the picture.") : "")
                     .accessibilityAddTraits(.isImage)
+            }
+            // A switch: the last window's picture stays, dimmed, until the new one's first frame.
+            if watcher.stale {
+                Ink.ground.opacity(0.5).transition(.opacity).allowsHitTesting(false).accessibilityHidden(true)
             }
             if interactive && watcher.movedAway && watcher.phase == .live {
                 Button { watcher.showNewest() } label: {
@@ -443,6 +450,20 @@ struct WatchWindow: View {
                     .accessibilityHidden(true)
             }
         }
+        // A key, an answer or a Window command on its way: the rim answers the moment it's sent,
+        // so the input never feels lost while the Mac's next frame is on its way (a click has
+        // its ring at the finger instead).
+        .overlay {
+            if interactive && !reduceMotion {
+                bezel.strokeBorder(Light.cyan, lineWidth: 1.5)
+                    .keyframeAnimator(initialValue: 0.0, trigger: watcher.inputSeq) { ring, a in ring.opacity(a) } keyframes: { _ in
+                        CubicKeyframe(0.7, duration: 0.07)
+                        CubicKeyframe(0, duration: 0.33)
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .onChange(of: watcher.cameAlive) { _, _ in if interactive { Haptics.soft() } }
         .onChange(of: watcher.noteSeq) { _, _ in
             guard interactive else { return }
@@ -456,15 +477,16 @@ struct WatchWindow: View {
                 withAnimation(.easeIn(duration: 0.3)) { dragNote = nil }
             }
         }
-        .task(id: watcher.phase == .starting && !watcher.hasPicture) {
+        .task(id: watcher.phase == .starting && (!watcher.hasPicture || watcher.stale)) {
             opening = false
-            guard watcher.phase == .starting, !watcher.hasPicture else { return }
+            guard watcher.phase == .starting, !watcher.hasPicture || watcher.stale else { return }
             try? await Task.sleep(nanoseconds: 450_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.2)) { opening = true }
         }
         .animation(.easeInOut(duration: 0.25), value: watcher.phase)
         .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
+        .animation(.easeInOut(duration: 0.2), value: watcher.stale)
     }
 
     /// The light under the bezel: the window's state, in the kicker's colour.
@@ -489,7 +511,7 @@ struct WatchWindow: View {
         case .live:
             EmptyView()
         case .starting:
-            if !watcher.hasPicture, opening {
+            if !watcher.hasPicture || watcher.stale, opening {
                 Note(symbol: nil, title: "Opening \(watcher.name)'s window", detail: nil) { ProgressView().tint(Ink.secondary) }
                     .transition(.opacity)
             }
@@ -964,6 +986,8 @@ struct WindowViewer: UIViewRepresentable {
     var videoSize: CGSize
     var focus: CGRect?
     var recenter: Int
+    /// Which window this is (bumped on a switch): a new one starts its view fresh.
+    var generation: Int = 0
     var interactive: Bool
     var drag: Watcher.Drag
     /// The Mac takes a swipe's phases (it named "scroll").
@@ -991,7 +1015,7 @@ struct WindowViewer: UIViewRepresentable {
     func updateUIView(_ v: ViewerScrollView, context: Context) {
         wire(v)
         v.viewKey = viewKey
-        v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, interactive: interactive, drag: drag, phased: phased)
+        v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, generation: generation, interactive: interactive, drag: drag, phased: phased)
         v.showWhole(whole)
     }
 
@@ -1006,15 +1030,24 @@ struct WindowViewer: UIViewRepresentable {
     }
 }
 
-final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
+final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     /// What zooms: the picture, with the video canvas over it while video flows.
     private let canvas = UIView()
+    /// Fires the moment a finger lands (a press with no wait, beside every other gesture): a
+    /// mark under the finger says the touch is registered before the tap, the hold or the drag
+    /// has decided what it is.
+    private var touchDown: UILongPressGestureRecognizer!
+    private var pressMark: CALayer?
+    private var pressMarkTask: Task<Void, Never>?
     private let imageView = UIImageView()
     private var imageSize: CGSize = .zero
     private var focus: CGRect?
     /// The person zoomed or dragged: leave the view where they put it.
     private var adjusted = false { didSet { if adjusted != oldValue { onAdjusted(adjusted) } } }
     private var lastRecenter: Int?
+    private var lastGeneration = 0
+    /// A picture has been up: the next size change dissolves instead of jumping.
+    private var hadPicture = false
     private var lastBounds: CGSize = .zero
     var onTouch: () -> Void = {}
     var onTap: (CGPoint) -> Void = { _ in }
@@ -1048,7 +1081,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         delegate = self
         showsVerticalScrollIndicator = false
         showsHorizontalScrollIndicator = false
-        decelerationRate = .fast
+        // A pan coasts as a photo does (the fast rate stopped short, like a page).
+        decelerationRate = .normal
         bouncesZoom = true
         contentInsetAdjustmentBehavior = .never
         backgroundColor = .clear
@@ -1069,10 +1103,79 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         swiper = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         swiper.maximumNumberOfTouches = 1
         addGestureRecognizer(swiper)
+        touchDown = UILongPressGestureRecognizer(target: self, action: #selector(fingerDown(_:)))
+        touchDown.minimumPressDuration = 0
+        touchDown.allowableMovement = .greatestFiniteMagnitude
+        touchDown.cancelsTouchesInView = false
+        touchDown.delaysTouchesBegan = false
+        touchDown.delaysTouchesEnded = false
+        touchDown.delegate = self
+        addGestureRecognizer(touchDown)
         apply(drag: .pan)
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// The touch-down mark lives beside every other gesture; it decides nothing.
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { g === touchDown }
+
+    /// A small mark the moment a finger lands on the picture (a press with no wait — the view's
+    /// own touches never arrive for a tap inside a scroll view); it lifts with the finger (a tap's
+    /// ring grows from it) and fades as soon as the finger moves on to pan, scroll or zoom.
+    @objc private func fingerDown(_ g: UILongPressGestureRecognizer) {
+        switch g.state {
+        case .began:
+            guard g.numberOfTouches == 1, spot(g) != nil else { return }
+            showPressMark(at: g.location(in: self))
+        case .changed:
+            if let m = pressMark, abs(m.position.x - g.location(in: self).x) + abs(m.position.y - g.location(in: self).y) > 8 { hidePressMark() }
+        default:
+            hidePressMark()
+        }
+    }
+
+    private func showPressMark(at p: CGPoint) {
+        pressMark?.removeFromSuperlayer()
+        // Whatever the touch becomes, the mark never outlives a long hold.
+        pressMarkTask?.cancel()
+        pressMarkTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.hidePressMark()
+        }
+        let r: CGFloat = 9
+        let m = CALayer()
+        m.bounds = CGRect(x: 0, y: 0, width: r * 2, height: r * 2)
+        m.cornerRadius = r
+        m.position = p
+        m.backgroundColor = UIColor(Light.cyan).withAlphaComponent(0.22).cgColor
+        m.borderColor = UIColor(Light.cyan).withAlphaComponent(0.7).cgColor
+        m.borderWidth = 1
+        layer.addSublayer(m)
+        if !UIAccessibility.isReduceMotionEnabled {
+            let grow = CABasicAnimation(keyPath: "transform.scale")
+            grow.fromValue = 0.5
+            grow.toValue = 1
+            grow.duration = 0.1
+            grow.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            m.add(grow, forKey: "in")
+        }
+        pressMark = m
+    }
+
+    private func hidePressMark() {
+        pressMarkTask?.cancel()
+        pressMarkTask = nil
+        guard let m = pressMark else { return }
+        pressMark = nil
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = 0.15
+        m.opacity = 0
+        m.add(fade, forKey: "out")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { m.removeFromSuperlayer() }
+    }
 
     /// Pan: one finger moves the picture (the scroll view's own drag). Scroll: one finger scrolls the
     /// Mac's window, and the picture moves with two.
@@ -1081,14 +1184,25 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         swiper.isEnabled = drag == .scroll && isScrollEnabled
     }
 
-    func update(image: UIImage?, video: VideoCanvas?, videoSize: CGSize, focus: CGRect?, recenter: Int, interactive: Bool, drag: Watcher.Drag, phased: Bool) {
+    func update(image: UIImage?, video: VideoCanvas?, videoSize: CGSize, focus: CGRect?, recenter: Int, generation: Int, interactive: Bool, drag: Watcher.Drag, phased: Bool) {
         isScrollEnabled = interactive
         pinchGestureRecognizer?.isEnabled = interactive
         tapper.isEnabled = interactive
         holder.isEnabled = interactive
         twoTapper.isEnabled = interactive
+        touchDown.isEnabled = interactive
         self.phased = phased
         apply(drag: drag)
+        if generation != lastGeneration {
+            // Another window: its view starts fresh with its first frame (the picture of the one
+            // before stays in place, dimmed by the panel, until then).
+            lastGeneration = generation
+            imageSize = .zero
+            adjusted = false
+            lastRecenter = nil
+            wholeShown = false
+            lastWhole = nil
+        }
         let focusChanged = focus != self.focus && !adjusted
         self.focus = focus
         imageView.image = image
@@ -1096,15 +1210,22 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         let size = video != nil ? videoSize : image?.size ?? .zero
         guard size != .zero else { return }
         if size != imageSize {
-            // A new size (first picture, or the window was resized): start over.
+            // A new size (first picture, another window, or the window was resized): start over —
+            // under a short dissolve when a picture was already up, so the view never jumps.
+            let dissolve = hadPicture && !UIAccessibility.isReduceMotionEnabled
             imageSize = size
-            zoomScale = 1
-            canvas.frame = CGRect(origin: .zero, size: size)
-            imageView.frame = canvas.bounds
-            video?.frame = canvas.bounds
-            contentSize = size
-            configureZoom()
-            reset(animated: false)
+            let apply = {
+                self.zoomScale = 1
+                self.canvas.frame = CGRect(origin: .zero, size: size)
+                self.imageView.frame = self.canvas.bounds
+                video?.frame = self.canvas.bounds
+                self.contentSize = size
+                self.configureZoom()
+                self.reset(animated: false)
+            }
+            if dissolve { UIView.transition(with: self, duration: 0.22, options: [.transitionCrossDissolve, .allowUserInteraction], animations: apply) }
+            else { apply() }
+            hadPicture = true
         } else if lastRecenter != nil, recenter != lastRecenter {
             // A key, an answer or a dictation: its result shows at the bottom. Your zoom stays.
             reset(animated: true, toBottom: true)
@@ -1164,7 +1285,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         guard imageSize.width > 0, bounds.width > 0 else { return }
         let fitAll = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
         minimumZoomScale = fitAll
-        maximumZoomScale = max(1.6, fitAll * 6)
+        // In to one point per pixel of the Mac's picture (three screen pixels to one of the
+        // Mac's): Retina text reads large there, and past it a pinch only blurred.
+        maximumZoomScale = max(1.0, fitAll * 2)
     }
 
     /// Back to the start: where you last left this app's window (your zoom, your spot across it,
@@ -1274,6 +1397,10 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate {
         let p = g.location(in: canvas)
         let n = CGPoint(x: p.x / imageSize.width, y: p.y / imageSize.height)
         guard (0...1).contains(n.x), (0...1).contains(n.y) else { return }
+        // The ring grows out of the touch-down mark, at once.
+        pressMarkTask?.cancel()
+        pressMark?.removeFromSuperlayer()
+        pressMark = nil
         ring(at: g.location(in: self))
         onTap(n)
     }

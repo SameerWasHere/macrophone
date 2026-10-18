@@ -74,7 +74,7 @@ struct SettingsView: View {
             Toggle(isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
                 row("Send after pasting", symbol: settings.selection.send ? "paperplane.fill" : "paperplane", tint: Light.cyan,
                     detail: target.canSend
-                        ? "Your Mac presses the app's send key after pasting, after a short countdown you can cancel."
+                        ? "Your Mac presses the app's send key after pasting. If you're at the Mac, you get a moment to cancel first."
                         : "\(target.displayName) can't send — sending after pasting is for apps.")
             }
             .disabled(!target.canSend)

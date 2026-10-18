@@ -51,6 +51,15 @@ final class Watcher: ObservableObject {
     @Published private(set) var videoSize: CGSize?
     /// Something to show: a picture, or video.
     var hasPicture: Bool { image != nil || videoSize != nil }
+    /// The picture on screen is the window before this one (a switch): it stays, dimmed, until
+    /// the new window's first frame lands, so a flip never drops to an empty plate.
+    @Published private(set) var stale = false
+    /// Bumped on every switch to another window: the viewer starts that window's view fresh.
+    @Published private(set) var windowSeq = 0
+    /// Bumped when something was sent to the Mac that has no mark of its own on the picture (a
+    /// key, an answer, a Window command): the bezel's rim answers at once, so input never feels
+    /// lost while the Mac catches up.
+    @Published private(set) var inputSeq = 0
     /// The window's own name for itself ("Claude"), from the Mac.
     @Published private(set) var appName = ""
     @Published private(set) var bundleID: String?
@@ -123,10 +132,15 @@ final class Watcher: ObservableObject {
     /// Video: frames in order; one out of order or that fails waits for a keyframe.
     private var waitingForKeyframe = true
     private var keyframeAskedAt = Date.distantPast
-    /// How the pictures come, for the log (numbers only): frames, bytes, and when each came.
+    /// How the pictures come, for the log (numbers only): frames, bytes, the busiest second
+    /// (a one-second window kept as frames arrive) and the main thread's time per frame.
     private var videoFrames = 0
     private var videoBytes = 0
-    private var frameTimes: [Date] = []
+    private var recentFrames: [CFTimeInterval] = []
+    private var peakPerSecond = 0
+    /// Microseconds the main thread spent handing each frame to the canvas (DEBUG, for the
+    /// log's "frame path" line — the one place the frame path touches the main thread).
+    private var framePathMicros: [Int] = []
 
     /// "Claude" — what the header calls it before the Mac has answered.
     var name: String {
@@ -146,9 +160,10 @@ final class Watcher: ObservableObject {
         // A window fitted to the phone shows whole: one finger scrolls it (nothing to pan to).
         if Self.isFitted(target), (switching || !isOpen) { drag = .scroll }
         if switching {
-            image = nil
-            video.clear()
-            videoSize = nil
+            // The last window's picture stays on screen, dimmed, until the new one's first frame:
+            // the viewer never tears down to an empty plate between two windows.
+            stale = hasPicture
+            windowSeq &+= 1
             appName = ""
             bundleID = target.bundleID
             focus = nil
@@ -167,9 +182,12 @@ final class Watcher: ObservableObject {
         idleTask?.cancel()
         _ = sendWatch(nil)
         if videoFrames > 0 {
-            var peak = 0
-            for (i, t) in frameTimes.enumerated() { peak = max(peak, frameTimes[i...].prefix { $0.timeIntervalSince(t) < 1 }.count) }
-            log?.add("watching: \(videoFrames) video frames, \(videoBytes / 1024) KB, peak \(peak) a second")
+            var line = "watching: \(videoFrames) video frames, \(videoBytes / 1024) KB, peak \(peakPerSecond) a second"
+            if !framePathMicros.isEmpty {
+                let sorted = framePathMicros.sorted()
+                line += " · main thread per frame: median \(sorted[sorted.count / 2]) µs, p95 \(sorted[min(sorted.count - 1, sorted.count * 95 / 100)]) µs, max \(sorted.last!) µs"
+            }
+            log?.add(line)
         }
         log?.add("watching closed")
     }
@@ -182,12 +200,14 @@ final class Watcher: ObservableObject {
         waitingForKeyframe = true
         videoFrames = 0
         videoBytes = 0
-        frameTimes = []
+        recentFrames = []
+        peakPerSecond = 0
+        framePathMicros = []
         awaitingFirstPicture = true
         askedAt = Date()
         macCanFit = macFeatures().contains(WatchVideo.fitFeature)
         macCanScroll = macFeatures().contains(WatchScroll.feature)
-        phase = image == nil ? .starting : phase == .live ? .live : .starting
+        phase = !hasPicture || stale ? .starting : phase == .live ? .live : .starting
         if !sendWatch(target) { phase = .offline; return }
         // A frame that stands on its own first (a Mac that sends pictures never hears this).
         askKeyframe()
@@ -231,6 +251,7 @@ final class Watcher: ObservableObject {
         touch()
         Haptics.tick()
         sendAction(action)
+        inputSeq &+= 1
         // The answer to a key shows at the bottom of the window: go back there.
         recenter &+= 1
     }
@@ -296,6 +317,7 @@ final class Watcher: ObservableObject {
         touch()
         guard sendKey(k) else { return }
         Haptics.tick()
+        inputSeq &+= 1
         recenter &+= 1
         log?.add("watching: key")
     }
@@ -305,6 +327,7 @@ final class Watcher: ObservableObject {
         touch()
         guard sendWindow(c) else { return }
         Haptics.tick()
+        inputSeq &+= 1
         if c.frame(in: .zero) != nil || c == .restore, fit != .normal { setFitLocally(.normal) }
         // Another size: no longer the phone's shape.
         if c.frame(in: .zero) != nil || c == .restore, let target { Self.setFitted(target, false) }
@@ -363,6 +386,7 @@ final class Watcher: ObservableObject {
         answeredID = p.id
         objectWillChange.send()
         sendChoose(p, index)
+        inputSeq &+= 1
         recenter &+= 1
         log?.add("watching: answered a prompt")
     }
@@ -435,7 +459,7 @@ final class Watcher: ObservableObject {
         switch state {
         case .live(let name):
             appName = name
-            if image != nil { phase = .live }
+            if hasPicture, !stale { phase = .live }
         case .needsPermission: phase = .needsPermission
         case let .unavailable(why, canReveal): phase = .unavailable(why, canReveal: canReveal)
         case .stopped:
@@ -460,6 +484,17 @@ final class Watcher: ObservableObject {
         }
     }
 
+    /// Counts a frame put on screen: the busiest second so far, kept as they arrive.
+    private func countFrame() {
+        videoFrames += 1
+        let now = CACurrentMediaTime()
+        recentFrames.append(now)
+        if recentFrames.count > 1, let first = recentFrames.first, now - first >= 1 {
+            recentFrames.removeFirst(recentFrames.firstIndex { now - $0 < 1 } ?? recentFrames.count)
+        }
+        peakPerSecond = max(peakPerSecond, recentFrames.count)
+    }
+
     /// A frame of video, handed to the canvas in order (the system decodes and draws it). Only
     /// the words (the question, the place to type) when there's nothing to decode.
     func received(_ frame: WatchVideoFrame) {
@@ -477,6 +512,9 @@ final class Watcher: ObservableObject {
             return
         }
         newestSeq = frame.seq
+        #if DEBUG
+        let t0 = Self.timing ? CACurrentMediaTime() : 0
+        #endif
         guard video.enqueue(frame) else {
             log?.add("watching: a frame didn't decode — asking for a keyframe")
             waitingForKeyframe = true
@@ -484,18 +522,28 @@ final class Watcher: ObservableObject {
             return
         }
         waitingForKeyframe = false
-        videoFrames += 1
+        countFrame()
         videoBytes += frame.data.count
-        if frameTimes.count < 4000 { frameTimes.append(Date()) }
+        // The first frame of a new window (a switch, a resize): the stale picture goes, the
+        // picture under the video with it.
+        if stale { stale = false; image = nil }
         if videoSize != video.frameSize { videoSize = video.frameSize }
         words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt)
         if phase != .live { phase = .live }
+        #if DEBUG
+        if Self.timing, framePathMicros.count < 20_000 { framePathMicros.append(Int((CACurrentMediaTime() - t0) * 1_000_000)) }
+        #endif
         if awaitingFirstPicture {
             awaitingFirstPicture = false
             cameAlive &+= 1
             log?.add("watching: first \(frame.keyframe ? "keyframe" : "frame") \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(frame.data.count / 1024) KB")
         }
     }
+
+    #if DEBUG
+    /// MACROPHONE_WATCH_TIMING=1: the main thread's time per frame goes in the log at the end.
+    private static let timing = ProcessInfo.processInfo.environment["MACROPHONE_WATCH_TIMING"] == "1"
+    #endif
 
     /// Asks the Mac for a frame that stands on its own, at most once a second.
     private func askKeyframe() {
@@ -507,6 +555,8 @@ final class Watcher: ObservableObject {
     /// Each published change re-renders every view watching this; only what changed is set.
     private func show(_ img: UIImage, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, bytes: Int, how: String) {
         image = img
+        if stale { stale = false }
+        countFrame()
         words(appName: appName, bundleID: bundleID, focus: focus, prompt: prompt)
         if phase != .live { phase = .live }
         if awaitingFirstPicture {
