@@ -6,15 +6,18 @@ import UIKit
 // on the iPhone, in Core Animation. Three strands braided into one luminous ribbon — spectrum
 // fills through ribbon masks, a soft glow, white-hot cores, and a bloom of light behind it.
 //
-// Ready      — at rest in a soft S, still. Costs nothing: no display link, no animation.
+// Ready      — at rest in a soft S that flows (Oct 18 2026, Sameer: "a subtle wave flow animation
+//              … when idle"): the weave drifts along the ribbon, a cycle about every eleven
+//              seconds, and the S and its light breathe on a seven-second swell. At 30 fps; still
+//              (no display link at all) in Low Power Mode and under Reduce Motion.
 // Listening  — the mic is open, no words yet: the cool end of the spectrum, a sweep of light, and
 //              the weave already following the voice.
 // Live       — words arriving: the full spectrum. The weave's height, the strands' spread and
 //              thickness, and the light all follow the level (attack fast, release slow); the phase
 //              runs faster while he speaks and calms in pauses; an onset lifts the cores.
 // Sending    — the working weave, beads of light flowing along the strands.
-// Delivered  — settles flat in mint (the ✓ is the caller's).
-// Queued     — flat, ochre, dim.
+// Delivered  — settles flat in mint (the ✓ is the caller's), then flows faintly like Ready.
+// Queued     — flat, ochre, dim, flowing faintly.
 // Error      — rose, broken into dashes, still.
 //
 // A CADisplayLink runs only while something moves (live looks, the sending weave, a transition
@@ -134,6 +137,10 @@ final class ThreadView: UIView {
         layer.masksToBounds = false
         proxy.owner = self
         build()
+        NotificationCenter.default.addObserver(self, selector: #selector(motionSettingsChanged),
+                                               name: .NSProcessInfoPowerStateDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(motionSettingsChanged),
+                                               name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -320,11 +327,15 @@ final class ThreadView: UIView {
                 let q = still ? 1 : min(max(t / Self.settleTime, 0), 1)
                 let settle = 1 - pow(1 - q, 3)
                 let lively = rest * 0.5 + A * 0.12 * e * sin(2 * .pi * 1.5 * f * u + phi)
-                y = lively * (1 - settle) + A * 0.022 * e * sin(2 * .pi * 1.5 * f * u + phi) * settle
+                let drift = still ? 0 : Self.flowSpeed * max(0, t - Self.settleTime)
+                y = lively * (1 - settle) + A * 0.03 * e * sin(2 * .pi * 1.5 * f * u + phi - drift) * settle
             case .error:
                 y = rest * 0.35
             case .ready:
-                y = rest + A * 0.11 * e * sin(2 * .pi * 1.5 * f * u + phi)
+                // The idle flow: the weave travels along the ribbon and the S breathes.
+                let tt = still ? 0 : t
+                let swell = 1 + 0.08 * sin(2 * .pi * tt / Self.breath + phi * 0.4)
+                y = rest * swell + A * 0.11 * e * sin(2 * .pi * 1.5 * f * u + phi - Self.flowSpeed * tt)
             }
             return CGPoint(x: Double(r.minX) + u * w, y: Double(r.midY) + y)
         }
@@ -442,10 +453,22 @@ final class ThreadView: UIView {
 
     // MARK: Motion
 
+    /// The idle flow: radians a second the weave travels (a cycle about every eleven seconds), and
+    /// the seconds of one breath of the S and its light.
+    static let flowSpeed = 0.55
+    static let breath = 7.0
+
+    /// At rest, flowing: Ready, and Delivered or Queued once settled — not in Low Power Mode or
+    /// under Reduce Motion, where it holds still and costs nothing.
+    private var idleFlow: Bool {
+        (mode == .ready || mode == .delivered || mode == .queued) && !reduceMotion
+            && !ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
+
     /// Whether anything is moving: the display link runs only then.
     private var moving: Bool {
         let now = CACurrentMediaTime()
-        if mode.isLive || mode == .sending { return true }
+        if mode.isLive || mode == .sending || idleFlow { return true }
         if now - blendStart < Self.blendTime + 0.05 { return true }
         if (mode == .delivered || mode == .queued) && now - modeStart < Self.settleTime + 0.05 && !reduceMotion { return true }
         return false
@@ -454,7 +477,7 @@ final class ThreadView: UIView {
     private func updateLink() {
         guard window != nil, bounds.width > 4 else { stopLink(); return }
         if moving {
-            let fps: Float = reduceMotion ? 15 : (ProcessInfo.processInfo.isLowPowerModeEnabled ? 30 : 60)
+            let fps = wantedFPS
             if link == nil {
                 let l = CADisplayLink(target: proxy, selector: #selector(LinkProxy.tick(_:)))
                 l.preferredFrameRateRange = CAFrameRateRange(minimum: min(fps, 30), maximum: fps, preferred: fps)
@@ -469,6 +492,17 @@ final class ThreadView: UIView {
         }
     }
 
+    /// Sixty while it follows a voice or settles; thirty for the slow idle flow (smooth at half the cost).
+    private var wantedFPS: Float {
+        let now = CACurrentMediaTime()
+        let busy = mode.isLive || mode == .sending || now - blendStart < Self.blendTime + 0.05
+            || ((mode == .delivered || mode == .queued) && now - modeStart < Self.settleTime + 0.05)
+        return reduceMotion ? 15 : (ProcessInfo.processInfo.isLowPowerModeEnabled || !busy ? 30 : 60)
+    }
+
+    /// Low Power Mode or Reduce Motion turned off while it held still: the flow starts again.
+    @objc private func motionSettingsChanged() { DispatchQueue.main.async { [weak self] in self?.updateLink() } }
+
     func stopLink() {
         link?.invalidate()
         link = nil
@@ -477,7 +511,12 @@ final class ThreadView: UIView {
     fileprivate func tick(_ l: CADisplayLink) {
         let now = CACurrentMediaTime()
         render(now: now)
-        if !moving { stopLink() }
+        if !moving { stopLink(); return }
+        // A send settling into the idle flow drops to its slower pace.
+        let fps = wantedFPS
+        if l.preferredFrameRateRange.preferred != fps {
+            l.preferredFrameRateRange = CAFrameRateRange(minimum: min(fps, 30), maximum: fps, preferred: fps)
+        }
     }
 
     /// One frame: the level in, the pose and the light out.
@@ -538,12 +577,14 @@ final class ThreadView: UIView {
             bloom.opacity = Float(0.45 + 0.55 * L)
             bloom.transform = CATransform3DMakeScale(1, CGFloat(0.85 + 0.3 * L), 1)
         case .ready:
+            // The light breathes with the S.
+            let b = reduceMotion ? 0 : sin(2 * .pi * t / Self.breath)
             container.opacity = 0.9
-            glowFill.opacity = 0.5
+            glowFill.opacity = Float(0.5 + 0.06 * b)
             bodyFill.opacity = 0.82
-            for c in cores { c.opacity = 0.42 }
-            bloom.opacity = 0.6
-            bloom.transform = CATransform3DIdentity
+            for c in cores { c.opacity = Float(0.42 + 0.06 * b) }
+            bloom.opacity = Float(0.6 + 0.07 * b)
+            bloom.transform = CATransform3DMakeScale(1, CGFloat(1 + 0.04 * b), 1)
         case .sending:
             container.opacity = 0.95
             glowFill.opacity = 0.6
