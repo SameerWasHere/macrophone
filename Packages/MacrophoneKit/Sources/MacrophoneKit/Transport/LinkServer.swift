@@ -103,6 +103,10 @@ public final class LinkServer: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "macrophone.server")
     private var listener: NWListener?
+    /// The away door (Oct 17 2026, like Sill's "remote door"): its own listener on the fixed port,
+    /// never peer-to-peer and never advertised, so a Tailscale or forwarded-port connection is a
+    /// plain one. The home listener keeps Bonjour and the direct link on a port of its own.
+    private var awayListener: NWListener?
     private let lock = NSLock()
     private var sessions: [UUID: SecureSession] = [:]
     /// Remote access: listen on a fixed port and take connections from beyond the local network
@@ -152,17 +156,16 @@ public final class LinkServer: @unchecked Sendable {
     public func route(_ peerID: UUID) -> LinkRoute? { lock.sync { sessions[peerID]?.route } }
 
     public func start() {
-        let old = lock.sync { () -> NWListener? in let l = listener; listener = nil; return l }
+        let (old, oldAway) = lock.sync { () -> (NWListener?, NWListener?) in
+            let l = (listener, awayListener); listener = nil; awayListener = nil; return l
+        }
         old?.cancel()
+        oldAway?.cancel()
         let params = Self.parameters()
         let config = lock.sync { remote }
+        if let config { startAway(port: config.port) }
         do {
-            let l: NWListener
-            if let config, let port = NWEndpoint.Port(rawValue: config.port) {
-                l = try NWListener(using: params, on: port)
-            } else {
-                l = try NWListener(using: params)
-            }
+            let l = try NWListener(using: params)
             let txt = NWTXTRecord(["id": identity.id.uuidString, "v": String(Product.protocolVersion)])
             l.service = NWListener.Service(name: identity.name, type: Product.serviceType, domain: nil, txtRecord: txt)
             l.stateUpdateHandler = { [weak self, weak l] state in
@@ -170,7 +173,7 @@ public final class LinkServer: @unchecked Sendable {
                 switch state {
                 case .ready:
                     let port = l?.port?.rawValue ?? 0
-                    self.log?.add("listener ready on port \(port)\(config != nil ? " (remote access on)" : ""), advertising \(Product.serviceType)")
+                    self.log?.add("listener ready on port \(port), advertising \(Product.serviceType)")
                     self.notify { $0.linkServer(self, listenerChanged: .ready(port: port)) }
                 case .failed(let e):
                     self.log?.add("listener failed: \(e)")
@@ -192,10 +195,54 @@ public final class LinkServer: @unchecked Sendable {
         }
     }
 
+    /// The away door on the fixed port: plain TCP (no peer-to-peer, no Bonjour), retried if the
+    /// port is busy for a moment.
+    private func startAway(port: UInt16) {
+        guard let p = NWEndpoint.Port(rawValue: port), let l = try? NWListener(using: Self.awayParameters(), on: p) else {
+            log?.add("away door couldn't open on port \(port)")
+            return
+        }
+        l.stateUpdateHandler = { [weak self, weak l] state in
+            guard let self else { return }
+            switch state {
+            case .ready: self.log?.add("away door open on port \(port)")
+            case .failed(let e):
+                self.log?.add("away door failed: \(e)")
+                self.queue.asyncAfter(deadline: .now() + 5) { [weak self] in
+                    guard let self, self.lock.sync({ self.awayListener === l && self.remote?.port == port }) else { return }
+                    l?.cancel()
+                    self.startAway(port: port)
+                }
+            default: break
+            }
+        }
+        l.newConnectionHandler = { [weak self] conn in self?.accept(conn) }
+        lock.sync { awayListener = l }
+        l.start(queue: queue)
+    }
+
+    /// For the away door and the phone's dials away: plain TCP with keepalive, no peer-to-peer —
+    /// a Tailscale or internet address must never be tried over Apple's direct Wi-Fi link.
+    public static func awayParameters() -> NWParameters {
+        let tcp = NWProtocolTCP.Options()
+        tcp.enableKeepalive = true
+        tcp.keepaliveIdle = 10
+        tcp.keepaliveInterval = 5
+        tcp.keepaliveCount = 3
+        tcp.noDelay = true
+        let p = NWParameters(tls: nil, tcp: tcp)
+        p.includePeerToPeer = false
+        p.serviceClass = .interactiveVideo
+        return p
+    }
+
     public func stop() {
         lock.lock()
         let l = listener
         listener = nil
+        let away = awayListener
+        awayListener = nil
+        away?.cancel()
         let all = Array(sessions.values)
         sessions.removeAll()
         lock.unlock()

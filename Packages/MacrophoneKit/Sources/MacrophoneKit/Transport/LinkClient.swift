@@ -296,7 +296,7 @@ public final class LinkClient: @unchecked Sendable {
     /// others are closed before any handshake, so the Mac only ever sees one session.
     private func raceConnect(_ addresses: [RemoteAddress], timeout: TimeInterval) async throws -> FramedConnection {
         log?.add("dialling \(addresses.count) remote address(es)")
-        let conns = addresses.map { FramedConnection(NWConnection(to: $0.endpoint, using: LinkServer.parameters()), queue: queue) }
+        let conns = addresses.map { FramedConnection(NWConnection(to: $0.endpoint, using: LinkServer.awayParameters()), queue: queue) }
         return try await withThrowingTaskGroup(of: FramedConnection.self) { g in
             for c in conns { g.addTask { try await c.start(timeout: timeout); return c } }
             var winner: FramedConnection?
