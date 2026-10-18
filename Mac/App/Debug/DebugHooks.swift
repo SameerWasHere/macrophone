@@ -27,7 +27,10 @@ import SwiftUI
 ///   MACROPHONE_INSTALL_CLI=1        runs the CLI install at launch
 ///   MACROPHONE_CLI_DIR=path         install the CLI links there instead of /usr/local/bin
 ///   MACROPHONE_INSTANCE=<name>      a debug copy with its own settings, folder, pairing keys and identity (AppPaths)
-///   Distributed notification "com.sameer.macrophone.debug.openMenu" opens the menu bar menu.
+///   Distributed notification "com.sameer.macrophone.debug.openMenu" opens the menu bar menu
+///                                   ("….openMenu.<instance>" opens only that MACROPHONE_INSTANCE's).
+///   MACROPHONE_FAKE_MENU=route:tailscale,watching:Claude  the menu's header says how a stand-in phone is
+///                                   connected (homeNetwork|nearby|tailscale|internet) and names a window it's watching
 ///   MACROPHONE_TARGETS_DEBUG=1      print every target scan (timing, what was found) to stdout
 ///   MACROPHONE_WATCH_TIMING=1       print each watched picture's or video frame's stages in milliseconds (WatchService)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
@@ -61,6 +64,14 @@ enum DebugHooks {
                                                                        object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { app.debugStatusItem.openMenu() }
         })
+        // The same, for one instance only ("….openMenu.<MACROPHONE_INSTANCE>"): two debug copies
+        // can't both open a menu at once.
+        if let instance = AppPaths.instance {
+            bag.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.openMenu.\(instance)"),
+                                                                           object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { app.debugStatusItem.openMenu() }
+            })
+        }
         if env["MACROPHONE_FRESH"] == "1" { model.settings.hasCompletedSetup = false }
         if env["MACROPHONE_SEED_HISTORY"] == "1" { seed(model) }
         if let name = env["MACROPHONE_FORGET"] {

@@ -35,13 +35,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.menu = menu
         model.$connected.combineLatest(model.$peers, model.$watching).receive(on: RunLoop.main)
             .sink { [weak self] _, _, _ in self?.refreshIcon() }.store(in: &bag)
-        // A scan finishing while Send to is open shows up in it straight away.
-        model.$targets.receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                guard let self, self.menuOpen else { return }
-                if let m = self.sendToMenu { self.fillSendTo(m) }
-                self.refreshSendToSubtitle()
-            }.store(in: &bag)
+        // A scan finishing, or the phone changing Send to, while the menu is open shows up in
+        // its rows straight away.
+        model.$targets.map { _ in () }.merge(with: model.settings.$selection.map { _ in () })
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.refreshSendTo() }.store(in: &bag)
         watchVisibility()
     }
 
@@ -139,6 +137,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // Don't let the hidden state stick in this build's defaults for later runs.
         UserDefaults.standard.removeObject(forKey: "NSStatusItem VisibleCC MacrophoneStatusItem")
     }
+    /// MACROPHONE_FAKE_MENU=route:tailscale,watching:Claude — stand-ins for what the stand-in
+    /// phones can't say (how they're connected, a window they're watching), for screenshots.
+    private var staged: [String: String] {
+        guard let spec = ProcessInfo.processInfo.environment["MACROPHONE_FAKE_MENU"] else { return [:] }
+        var out: [String: String] = [:]
+        for part in spec.split(separator: ",") {
+            let kv = part.split(separator: ":", maxSplits: 1).map(String.init)
+            if kv.count == 2 { out[kv[0]] = kv[1] }
+        }
+        return out
+    }
     #endif
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -150,27 +159,30 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if menu === item.menu { menuOpen = false; model.setMenuOpen(false) }
     }
 
+    /// The menu, top to bottom: who's connected and how · the way in · Send to (the shared
+    /// choice, a check on the current one) · Recent (click copies) · the rarely needed · Quit.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        if menu === sendToMenu {
-            fillSendTo(menu)
-            return
-        }
+        if menu === moreAppsMenu { fillMoreApps(menu); return }
+        guard menu === item.menu else { return }
         menu.removeAllItems()
+        sendToItems = []
+        moreAppsMenu = nil
 
-        // Status: who's connected, when the last dictation came in.
-        menu.addItem(statusHeader())
-        // A phone watching a window: say which, and offer to stop it.
-        for (peerID, appName) in model.watching.sorted(by: { $0.value < $1.value }) {
+        // 1. Status.
+        let failed: Bool = { if case .failed = model.listenerState { return true } else { return false } }()
+        menu.addItem(headerItem(failed: failed))
+        for (peerID, appName) in watchingNow.sorted(by: { $0.value < $1.value }) {
             let who = model.peers.first { $0.id == peerID }.map(model.displayName) ?? "Your iPhone"
-            let mi = action("\(who) is watching \(appName) — Stop", #selector(stopWatching(_:)), symbol: "eye")
+            let w = MenuWords.stopWatching(app: appName, phone: who)
+            let mi = action(w.title, #selector(stopWatching(_:)), symbol: "eye.slash", detail: w.detail)
             mi.representedObject = peerID.uuidString
-            mi.toolTip = "Your iPhone is showing \(appName)'s window. Stop sends it no more pictures."
             menu.addItem(mi)
         }
         menu.addItem(.separator())
 
-        // The way into the app — first, with an icon, so it's never missed.
-        // Shows the global shortcut, so the menu teaches the way in when the icon is hidden.
+        // 2. The way in, and the one setup step still open (if any). With nothing paired yet,
+        // pairing is the one thing to do, so it comes first.
+        if !failed, model.peers.isEmpty { menu.addItem(action("Pair Your iPhone…", #selector(pair), symbol: "qrcode.viewfinder")) }
         let open = action("Open Macrophone", #selector(openWindow), key: ",", symbol: "macwindow")
         let hk = model.settings.hotkey
         let keyName = Hotkey.keyName(hk.keyCode)
@@ -184,66 +196,48 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             open.keyEquivalentModifierMask = m
         }
         menu.addItem(open)
-        if case .failed = model.listenerState {
-            menu.addItem(action("Open Local Network Settings…", #selector(openLocalNetwork)))
-        } else if model.peers.isEmpty {
-            menu.addItem(action("Pair Your iPhone…", #selector(pair), symbol: "iphone"))
-        } else if AgentSetup.claude == .notConnected {
+        if failed {
+            menu.addItem(action("Open Local Network Settings…", #selector(openLocalNetwork), symbol: "network"))
+        } else if !model.peers.isEmpty, AgentSetup.claude == .notConnected {
             let mi = action("Connect Claude Code…", #selector(openAgents), symbol: "sparkles")
             mi.toolTip = "So your iPhone knows the moment Claude Code needs you."
             menu.addItem(mi)
         }
+        menu.addItem(.separator())
 
-        // Send to: the choice the iPhone and this Mac share.
-        let sendTo = NSMenuItem(title: SendToWords.title, action: nil, keyEquivalent: "")
-        sendTo.image = NSImage(systemSymbolName: "paperplane", accessibilityDescription: nil)
-        sendToItem = sendTo
-        refreshSendToSubtitle()
-        let sub = NSMenu(title: SendToWords.title)
-        sub.delegate = self
-        sub.autoenablesItems = false
-        sendToMenu = sub
-        fillSendTo(sub)
-        sendTo.submenu = sub
-        menu.addItem(sendTo)
-        let send = action(SendToWords.sendAfterPasting, #selector(toggleSend))
-        send.state = model.selection.send && model.selection.target.canSend ? .on : .off
-        send.isEnabled = model.selection.target.canSend
-        send.toolTip = model.selection.target.canSend ? "Presses the app's send key after pasting, after a 2.5-second countdown."
-            : "Pick an app or Where I'm typing to send after pasting."
-        menu.addItem(send)
+        // 3. Send to — the choice the iPhone and this Mac share, picked in place.
+        menu.addItem(NSMenuItem.sectionHeader(title: SendToWords.title))
+        fillSendTo(menu)
 
-        // The three most recent dictations; click copies.
+        // 4. Recent — the three newest, click (or Return) copies; History has the rest.
         let recent = Array(model.history.prefix(3))
         if !recent.isEmpty {
             menu.addItem(.separator())
-            menu.addItem(sectionHeader("Recent"))
+            menu.addItem(NSMenuItem.sectionHeader(title: "Recent"))
             for h in recent {
-                let mi = NSMenuItem()
-                let view = RecentItemView(item: h) { [weak self, weak menu] in
-                    Clipboard.copyPlain(h.dictation.text)
-                    menu?.cancelTracking()
-                    self?.flashReceived()
-                }
-                mi.view = view
+                // A short title: the row draws the words, and a long title would widen the menu.
+                let mi = NSMenuItem(title: "Copy", action: #selector(copyRecent(_:)), keyEquivalent: "")
+                mi.target = self
+                mi.representedObject = h.dictation.text
+                mi.view = RecentRowView(item: h)
                 mi.toolTip = "Click to copy"
                 menu.addItem(mi)
             }
+            menu.addItem(action("Show All History…", #selector(openHistory), symbol: "clock.arrow.circlepath"))
         }
 
+        // 5. Rarely, then Quit.
         menu.addItem(.separator())
-        if !model.peers.isEmpty { menu.addItem(action("Pair Another iPhone…", #selector(pair))) }
-        menu.addItem(action("Check for Updates…", #selector(checkUpdates)))
-
+        if !model.peers.isEmpty { menu.addItem(action("Pair Another iPhone…", #selector(pair), symbol: "qrcode.viewfinder")) }
+        menu.addItem(action("Check for Updates…", #selector(checkUpdates), symbol: "arrow.down.circle"))
         if model.peers.count == 1, let p = model.peers.first {
-            menu.addItem(.separator())
-            let mi = action("Forget This iPhone…", #selector(forget(_:)))
+            let mi = action("Forget \(model.displayName(p))…", #selector(forget(_:)), symbol: "iphone.slash")
             mi.representedObject = p.id.uuidString
             menu.addItem(mi)
         } else if model.peers.count > 1 {
-            menu.addItem(.separator())
             let forgetItem = NSMenuItem(title: "Forget an iPhone", action: nil, keyEquivalent: "")
-            let sub = NSMenu()
+            forgetItem.image = symbolImage("iphone.slash")
+            let sub = NSMenu(title: "Forget an iPhone")
             for p in model.peers {
                 let mi = action("\(model.displayName(p))…", #selector(forget(_:)))
                 mi.representedObject = p.id.uuidString
@@ -252,9 +246,47 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             forgetItem.submenu = sub
             menu.addItem(forgetItem)
         }
-
         menu.addItem(.separator())
         menu.addItem(action("Quit Macrophone", #selector(quit), key: "q"))
+    }
+
+    /// Phone → the app it's watching (a staged one in a DEBUG run).
+    private var watchingNow: [UUID: String] {
+        #if DEBUG
+        if let app = staged["watching"], let p = model.connectedPeer ?? model.peers.first { return [p.id: app] }
+        #endif
+        return model.watching
+    }
+
+    private func headerItem(failed: Bool) -> NSMenuItem {
+        #if DEBUG
+        let stagedRoute = staged["route"].flatMap(LinkRoute.init(rawValue:))
+        #else
+        let stagedRoute: LinkRoute? = nil
+        #endif
+        let phones = model.peers.map { p in
+            let on = model.connected.contains(p.id)
+            return MenuWords.Phone(name: model.displayName(p), connected: on,
+                                   route: on ? (model.peerRoutes[p.id] ?? stagedRoute) : nil, lastSeen: p.lastSeen)
+        }
+        let mi = NSMenuItem()
+        mi.view = MenuHeaderView(MenuWords.header(phones: phones, listenerFailed: failed))
+        mi.isEnabled = false
+        return mi
+    }
+
+    private func symbolImage(_ name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
+    private func action(_ title: String, _ sel: Selector, key: String = "", symbol: String? = nil, detail: String? = nil) -> NSMenuItem {
+        let mi = NSMenuItem(title: title, action: sel, keyEquivalent: key)
+        mi.target = self
+        if let symbol { mi.image = symbolImage(symbol) }
+        if let detail {
+            if #available(macOS 14.4, *) { mi.subtitle = detail } else { mi.toolTip = detail }
+        }
+        return mi
     }
 
     @objc private func stopWatching(_ sender: NSMenuItem) {
@@ -262,85 +294,106 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         model.stopWatching(id)
     }
 
-    private func statusHeader() -> NSMenuItem {
-        let mi = NSMenuItem()
-        let on = model.connectedPeer != nil
-        var second: String?
-        if let last = model.lastReceived {
-            second = "Last received \(last.relativeShort)"
-        } else if !model.peers.isEmpty {
-            second = "Nothing received yet"
-        }
-        var title = model.statusLine
-        var warning = false
-        if case .failed = model.listenerState {
-            title = "Your iPhone can't reach this Mac"
-            second = "Allow Macrophone in System Settings › Privacy & Security › Local Network."
-            warning = true
-        }
-        mi.view = StatusHeaderView(title: title, detail: second, connected: on, warning: warning)
-        return mi
-    }
-
-    private func sectionHeader(_ s: String) -> NSMenuItem {
-        if #available(macOS 14.0, *) { return NSMenuItem.sectionHeader(title: s) }
-        let mi = NSMenuItem(title: s, action: nil, keyEquivalent: "")
-        mi.isEnabled = false
-        return mi
-    }
-
-    private func action(_ title: String, _ sel: Selector, key: String = "", symbol: String? = nil) -> NSMenuItem {
-        let mi = NSMenuItem(title: title, action: sel, keyEquivalent: key)
-        mi.target = self
-        if let symbol { mi.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
-        return mi
+    @objc private func copyRecent(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String else { return }
+        Clipboard.copyPlain(text)
+        flashReceived()
     }
 
     // MARK: Send to
 
-    private weak var sendToMenu: NSMenu?
-    private weak var sendToItem: NSMenuItem?
-
-    /// "Claude · then send" under Send to — kept current while the menu is open.
-    private func refreshSendToSubtitle() {
-        guard let item = sendToItem else { return }
-        if #available(macOS 14.4, *) {
-            let sel = model.selection
-            item.subtitle = SendToWords.name(sel.target, in: model) + (sel.send && sel.target.canSend ? " · then send" : "")
-        }
-    }
+    /// The rows under the Send to header, Send after pasting included (so a scan finishing
+    /// while the menu is open can swap them in place).
+    private var sendToItems: [NSMenuItem] = []
+    private weak var moreAppsMenu: NSMenu?
     private var menuOpen = false
 
-    private func fillSendTo(_ menu: NSMenu) {
-        menu.removeAllItems()
-        let current = model.selection.target
-        func add(_ ref: TargetRef, bundleID: String? = nil) {
-            let mi = NSMenuItem(title: SendToWords.name(ref, in: model), action: #selector(pickTarget(_:)), keyEquivalent: "")
-            mi.target = self
-            mi.representedObject = SelectionBox(ref)
-            mi.state = ref == current ? .on : .off
-            if let bundleID, let icon = TargetIcons.image(bundleID: bundleID) {
-                mi.image = icon
-            } else {
-                mi.image = NSImage(systemSymbolName: TargetIcons.symbol(for: ref), accessibilityDescription: nil)
-            }
-            menu.addItem(mi)
+    /// Send to changed (the phone, a scan): redraw its rows while the menu is open.
+    private func refreshSendTo() {
+        guard menuOpen, let menu = item.menu, let first = sendToItems.first else { return }
+        let at = menu.index(of: first)
+        guard at >= 0 else { return }
+        for mi in sendToItems { menu.removeItem(mi) }
+        fillSendTo(menu, at: at)
+    }
+
+    private func targetRow(_ ref: TargetRef, bundleID: String? = nil) -> NSMenuItem {
+        let mi = NSMenuItem(title: SendToWords.name(ref, in: model), action: #selector(pickTarget(_:)), keyEquivalent: "")
+        mi.target = self
+        mi.representedObject = SelectionBox(ref)
+        mi.state = ref == model.selection.target ? .on : .off
+        if let bundleID, let icon = TargetIcons.image(bundleID: bundleID) {
+            mi.image = icon
+        } else {
+            mi.image = symbolImage(TargetIcons.symbol(for: ref))
         }
-        add(.clipboard)
-        add(.frontApp)
-        let apps = model.targets
+        return mi
+    }
+
+    /// The open apps and windows, newest first, split into the few the menu shows and the rest
+    /// under More Apps. The chosen one is always in the menu, even when it's far down the list.
+    private func arrangedTargets() -> (inline: [LiveTarget], more: [LiveTarget]) {
+        var apps = model.targets
+        let current = model.selection.target
+        if let i = apps.firstIndex(where: { current.matches($0) }), i >= MenuWords.inlineApps {
+            apps.insert(apps.remove(at: i), at: MenuWords.inlineApps - 1)
+        }
+        return (Array(apps.prefix(MenuWords.inlineApps)), Array(apps.dropFirst(MenuWords.inlineApps)))
+    }
+
+    /// Clipboard · Where I'm typing · the open apps and windows — the first few in the menu,
+    /// the rest under More Apps — then Send after pasting.
+    private func fillSendTo(_ menu: NSMenu, at index: Int? = nil) {
+        var rows: [NSMenuItem] = [targetRow(.clipboard), targetRow(.frontApp)]
+        let current = model.selection.target
         var unlisted: TargetRef?
         if case .app = current, model.liveTarget(for: current) == nil { unlisted = current }
-        if !apps.isEmpty || unlisted != nil {
-            menu.addItem(.separator())
-            for t in apps { add(t.ref, bundleID: t.bundleID) }
-            if let unlisted { add(unlisted, bundleID: unlisted.bundleID) }
+        let (inline, more) = arrangedTargets()
+        if !inline.isEmpty || unlisted != nil {
+            for t in inline { rows.append(targetRow(t.ref, bundleID: t.bundleID)) }
+            if let unlisted { rows.append(targetRow(unlisted, bundleID: unlisted.bundleID)) }
         } else {
-            menu.addItem(.separator())
-            let none = NSMenuItem(title: "No other apps with somewhere to type", action: nil, keyEquivalent: "")
+            // Before the first scan finishes nothing can be said of the open apps.
+            let none = NSMenuItem(title: model.targetsKnown ? "No open app has somewhere to type" : "Looking for open apps…",
+                                  action: nil, keyEquivalent: "")
             none.isEnabled = false
-            menu.addItem(none)
+            rows.append(none)
         }
+        if !more.isEmpty {
+            let mi = NSMenuItem(title: "More Apps", action: nil, keyEquivalent: "")
+            mi.image = symbolImage("square.grid.2x2")
+            let sub = NSMenu(title: "More Apps")
+            sub.delegate = self
+            sub.autoenablesItems = false
+            fillMoreApps(sub)
+            mi.submenu = sub
+            moreAppsMenu = sub
+            rows.append(mi)
+        }
+        // Send after pasting, on its own: a toggle, not another place.
+        rows.append(.separator())
+        rows.append(sendAfterPastingItem())
+        if let index {
+            for (i, mi) in rows.enumerated() { menu.insertItem(mi, at: index + i) }
+        } else {
+            for mi in rows { menu.addItem(mi) }
+        }
+        sendToItems = rows
+    }
+
+    private func fillMoreApps(_ menu: NSMenu) {
+        menu.removeAllItems()
+        for t in arrangedTargets().more { menu.addItem(targetRow(t.ref, bundleID: t.bundleID)) }
+    }
+
+    private func sendAfterPastingItem() -> NSMenuItem {
+        let target = model.selection.target
+        let terminal = target.bundleID.map(AppQuirks.isTerminal) ?? false
+        let send = action(SendToWords.sendAfterPasting, #selector(toggleSend),
+                          detail: MenuWords.sendAfterPastingDetail(canSend: target.canSend, terminal: terminal))
+        send.state = model.selection.send && target.canSend ? .on : .off
+        send.isEnabled = target.canSend
+        return send
     }
 
     @objc private func pickTarget(_ sender: NSMenuItem) {
@@ -355,6 +408,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func pair() { AppDelegate.shared?.openSetup(.pair) }
     @objc private func openLocalNetwork() { NSWorkspace.shared.open(DevicesPane.localNetworkSettings) }
     @objc private func openWindow() { AppDelegate.shared?.openMainWindow() }
+    @objc private func openHistory() { AppDelegate.shared?.openMainWindow(pane: .history) }
     @objc private func openAgents() { AppDelegate.shared?.openMainWindow(pane: .agents) }
     @objc private func checkUpdates() { updater.checkForUpdates() }
     @objc private func quit() { NSApp.terminate(nil) }
@@ -371,129 +425,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         alert.buttons.first?.hasDestructiveAction = true
         if alert.runModal() == .alertFirstButtonReturn { model.forget(peer) }
     }
-}
-
-/// A recent dictation in the menu: time and where it went on top, the words under them, a fade
-/// instead of "…" when they run long. Click copies.
-final class RecentItemView: NSView {
-    private let item: HistoryItem
-    private let onClick: () -> Void
-    private var tracking: NSTrackingArea?
-    private var hovered = false { didSet { needsDisplay = true } }
-
-    init(item: HistoryItem, onClick: @escaping () -> Void) {
-        self.item = item
-        self.onClick = onClick
-        super.init(frame: NSRect(x: 0, y: 0, width: 300, height: 52))
-        setAccessibilityElement(true)
-        setAccessibilityRole(.menuItem)
-        setAccessibilityLabel("Copy: \(item.dictation.text)")
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(t)
-        tracking = t
-    }
-
-    override func mouseEntered(with event: NSEvent) { hovered = true }
-    override func mouseExited(with event: NSEvent) { hovered = false }
-    override func mouseUp(with event: NSEvent) { onClick() }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let highlighted = hovered || (enclosingMenuItem?.isHighlighted ?? false)
-        if highlighted {
-            NSColor.selectedContentBackgroundColor.setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
-        }
-        let primary = highlighted ? NSColor.white : NSColor.labelColor
-        let secondary = highlighted ? NSColor.white.withAlphaComponent(0.8) : NSColor.secondaryLabelColor
-        let inset: CGFloat = 16
-        let width = bounds.width - inset * 2
-
-        var meta = item.receivedAt.relativeShort
-        if item.delayed { meta += " · delayed" }
-        meta += " · " + item.profileName
-        (meta as NSString).draw(in: NSRect(x: inset, y: bounds.height - 18, width: width, height: 14),
-                                withAttributes: [.font: NSFont.systemFont(ofSize: 10.5, weight: .medium), .foregroundColor: secondary])
-
-        let para = NSMutableParagraphStyle()
-        para.lineBreakMode = .byClipping
-        para.baseWritingDirection = TextDirection.isRTL(item.dictation.text) ? .rightToLeft : .natural
-        para.alignment = TextDirection.isRTL(item.dictation.text) ? .right : .natural
-        let text = item.dictation.text.replacingOccurrences(of: "\n", with: " ")
-        let font = NSFont(descriptor: NSFont.systemFont(ofSize: 13).fontDescriptor.withDesign(.serif) ?? NSFont.systemFont(ofSize: 13).fontDescriptor, size: 13)
-            ?? NSFont.systemFont(ofSize: 13)
-        let textRect = NSRect(x: inset, y: 8, width: width, height: 18)
-        NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(rect: textRect).addClip()
-        (text as NSString).draw(in: textRect, withAttributes: [.font: font, .foregroundColor: primary, .paragraphStyle: para])
-        NSGraphicsContext.restoreGraphicsState()
-        // Fade the trailing edge rather than cut with "…".
-        let size = (text as NSString).size(withAttributes: [.font: font])
-        if size.width > width, let ctx = NSGraphicsContext.current {
-            let rtl = TextDirection.isRTL(text)
-            let fadeW: CGFloat = 40
-            let fadeRect = NSRect(x: rtl ? textRect.minX : textRect.maxX - fadeW, y: textRect.minY - 2, width: fadeW, height: textRect.height + 4)
-            ctx.saveGraphicsState()
-            ctx.compositingOperation = .destinationOut
-            let g = NSGradient(colors: [NSColor.black.withAlphaComponent(0), NSColor.black])
-            g?.draw(in: fadeRect, angle: rtl ? 180 : 0)
-            ctx.restoreGraphicsState()
-            if highlighted {
-                // destinationOut also cut the highlight; paint it back under the fade.
-                ctx.saveGraphicsState()
-                ctx.compositingOperation = .destinationOver
-                NSColor.selectedContentBackgroundColor.setFill()
-                NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
-                ctx.restoreGraphicsState()
-            }
-        }
-    }
-}
-
-/// The menu's first row: a status dot, who's connected, when the last dictation came in.
-/// Both lines wrap rather than cut off.
-final class StatusHeaderView: NSView {
-    init(title: String, detail: String?, connected: Bool, warning: Bool = false) {
-        let width: CGFloat = 300, textX: CGFloat = 32, textW: CGFloat = 252
-        let t = NSTextField(wrappingLabelWithString: title)
-        t.font = .systemFont(ofSize: 13, weight: .semibold)
-        t.textColor = .labelColor
-        t.preferredMaxLayoutWidth = textW
-        let tH = ceil(t.fittingSize.height)
-        var d: NSTextField?
-        var dH: CGFloat = 0
-        if let detail {
-            let f = NSTextField(wrappingLabelWithString: detail)
-            f.font = .systemFont(ofSize: 11.5)
-            f.textColor = warning ? .systemOrange : .secondaryLabelColor
-            f.preferredMaxLayoutWidth = textW
-            dH = ceil(f.fittingSize.height)
-            d = f
-        }
-        let height = 8 + tH + (d == nil ? 0 : 2 + dH) + 8
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        t.frame = NSRect(x: textX, y: height - 8 - tH, width: textW, height: tH)
-        addSubview(t)
-        if let d {
-            d.frame = NSRect(x: textX, y: 8, width: textW, height: dH)
-            addSubview(d)
-        }
-        let dot = NSView(frame: NSRect(x: 16, y: height - 8 - tH / 2 - 4, width: 8, height: 8))
-        dot.wantsLayer = true
-        dot.layer?.cornerRadius = 4
-        dot.layer?.backgroundColor = (connected ? NSColor(srgbRed: 0.345, green: 0.725, blue: 0.871, alpha: 1)
-                                      : (warning ? NSColor.systemOrange : NSColor.tertiaryLabelColor)).cgColor
-        addSubview(dot)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.staticText)
-        setAccessibilityLabel([title, detail].compactMap { $0 }.joined(separator: ". "))
-    }
-    required init?(coder: NSCoder) { fatalError() }
 }
 
 /// A TargetRef in a menu item's representedObject.
