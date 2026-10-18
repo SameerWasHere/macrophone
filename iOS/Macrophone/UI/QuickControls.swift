@@ -121,7 +121,7 @@ struct QuickControls: View {
             CleanupRow(settings: settings, compact: compact) { model.sheet = .customCleanup }
         }
         .controlPanel()
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.margin)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
@@ -131,7 +131,7 @@ struct QuickControls: View {
 
 /// A hairline between the panel's rows, inset like a grouped list's.
 struct PanelDivider: View {
-    var body: some View { Divider().overlay(Ink.line).padding(.leading, 16) }
+    var body: some View { Divider().overlay(Ink.line).padding(.leading, Space.inset) }
 }
 
 // MARK: Send to
@@ -149,56 +149,28 @@ struct PlacesRow: View {
         let notOpen = model.isNotOpen(current)
         let answered = model.liveTarget(for: current).flatMap { model.needs($0) }
         VStack(alignment: .leading, spacing: compact ? 8 : 10) {
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("SEND TO")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Ink.tertiary)
-                    (Text(current.displayName).foregroundColor(Ink.ink)
-                     + (notOpen ? Text("  Not open on your Mac").font(.subheadline).foregroundColor(Light.ochre) : Text(""))
-                     + (answered.map { Text($0.asking ? "  Asking you" : "  Answered you").font(.subheadline).foregroundColor(Light.ember) } ?? Text("")))
-                        .font(.headline)
-                        // A window name can run to 70 characters plus "Not open": three lines, never "…".
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .contentTransition(.opacity)
-                        .animation(Motion.snap, value: current)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Send to: \(current.displayName)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : "")
-                                    + (answered.map { $0.asking ? ", asking you something" : ", answered you" } ?? ""))
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("send-to")
-                Spacer(minLength: 0)
-                // See the picked app's window on the Mac (an app or Where I'm typing, while connected).
-                if current != .clipboard, model.isConnected, !notOpen {
-                    Button {
-                        Haptics.tick()
-                        model.watcher.open(current)
-                    } label: {
-                        Label("Watch", systemImage: "eye").font(.subheadline.weight(.semibold)).fixedSize()
+            // The name beside Watch and ⋯ when it fits on one line; a longer one (a Terminal
+            // window's title) takes the whole width under them instead of wrapping to six
+            // lines beside them (Oct 18 2026).
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        kicker
+                        title(current, notOpen: notOpen, answered: answered).fixedSize()
                     }
-                    .nativeGlassButton()
-                    .controlSize(.small)
-                    .accessibilityHint("Shows \(Places.appName(current, in: model))'s window on your Mac, live.")
-                    .accessibilityIdentifier("watch")
-                    .transition(.opacity)
+                    Spacer(minLength: 0)
+                    buttons(current, notOpen: notOpen)
                 }
-                // ⋯: open any app on the Mac, even one that isn't open.
-                Menu {
-                    Button { model.sheet = .openApp } label: { Label("Open an App on Your Mac…", systemImage: "plus.app") }
-                    Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
-                } label: {
-                    Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .center, spacing: 10) {
+                        kicker
+                        Spacer(minLength: 0)
+                        buttons(current, notOpen: notOpen)
+                    }
+                    title(current, notOpen: notOpen, answered: answered)
                 }
-                .nativeGlassButton()
-                .buttonBorderShape(.circle)
-                .controlSize(.small)
-                .accessibilityLabel("More")
-                .accessibilityHint("Open any app on your Mac, or refresh the list of open apps.")
-                .accessibilityIdentifier("send-to-more")
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Space.inset)
 
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
@@ -212,7 +184,7 @@ struct PlacesRow: View {
                         // Any app on the Mac, open or not (Open an app).
                         MoreAppsButton(compact: compact) { model.sheet = .openApp }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Space.inset)
                     .padding(.vertical, 4)
                 }
                 .scrollIndicators(.hidden)
@@ -230,6 +202,61 @@ struct PlacesRow: View {
         .padding(.top, compact ? 10 : 14)
         .padding(.bottom, compact ? 6 : 10)
         .opacity(model.isConnected ? 1 : 0.8)
+    }
+
+
+    private var kicker: some View {
+        Text("SEND TO")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Ink.tertiary)
+            .accessibilityHidden(true)
+    }
+
+    private func title(_ current: TargetRef, notOpen: Bool, answered: NeedsYou?) -> some View {
+        (Text(current.displayName).foregroundColor(Ink.ink)
+         + (notOpen ? Text("  Not open on your Mac").font(.subheadline).foregroundColor(Light.ochre) : Text(""))
+         + (answered.map { Text($0.asking ? "  Asking you" : "  Answered you").font(.subheadline).foregroundColor(Light.ember) } ?? Text("")))
+            .font(.headline)
+            // A window name can run to 70 characters plus "Not open": as many lines as it
+            // takes, never "…" (a limit of three cut a Terminal title mid-word).
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.opacity)
+            .animation(Motion.snap, value: current)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Send to: \(current.displayName)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : "")
+                                + (answered.map { $0.asking ? ", asking you something" : ", answered you" } ?? ""))
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("send-to")
+    }
+
+    @ViewBuilder private func buttons(_ current: TargetRef, notOpen: Bool) -> some View {
+        // See the picked app's window on the Mac (an app or Where I'm typing, while connected).
+        if current != .clipboard, model.isConnected, !notOpen {
+            Button {
+                Haptics.tick()
+                model.watcher.open(current)
+            } label: {
+                Label("Watch", systemImage: "eye").font(.subheadline.weight(.semibold)).fixedSize()
+            }
+            .nativeGlassButton()
+            .controlSize(.small)
+            .accessibilityHint("Shows \(Places.appName(current, in: model))'s window on your Mac, live.")
+            .accessibilityIdentifier("watch")
+            .transition(.opacity)
+        }
+        // ⋯: open any app on the Mac, even one that isn't open.
+        Menu {
+            Button { model.sheet = .openApp } label: { Label("Open an App on Your Mac…", systemImage: "plus.app") }
+            Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+        } label: {
+            Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+        }
+        .nativeGlassButton()
+        .buttonBorderShape(.circle)
+        .controlSize(.small)
+        .accessibilityLabel("More")
+        .accessibilityHint("Open any app on your Mac, or refresh the list of open apps.")
+        .accessibilityIdentifier("send-to-more")
     }
 
     private func pick(_ t: TargetRef) {
@@ -377,7 +404,7 @@ private struct UnpairedPlace: View {
                 Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(Ink.tertiary)
                     .accessibilityHidden(true)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Space.inset)
             .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
@@ -410,7 +437,7 @@ struct SendAfterPastingRow: View {
         .toggleStyle(.switch)
         .tint(Light.cyan)
         .disabled(!enabled)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.inset)
         .padding(.vertical, compact ? 8 : 11)
         // VoiceOver reads the switch with both lines: what it is, and what it does here (or why not).
         .accessibilityIdentifier("send-toggle")
@@ -488,7 +515,7 @@ struct CleanupRow: View {
             .frame(minHeight: twoLines, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.2), value: level)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.inset)
         .padding(.top, compact ? 10 : 12)
         .padding(.bottom, compact ? 6 : 8)
     }
@@ -538,7 +565,7 @@ private struct ControlPanel: ViewModifier {
     func body(content: Content) -> some View {
         // A material plate, like a sheet's: the controls on it are the glass (glass on glass blurs
         // twice and merges the buttons into the panel).
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: Radius.panel, style: .continuous)
         content
             .background(.regularMaterial, in: shape)
             .overlay(shape.strokeBorder(contrast == .increased ? Ink.ink.opacity(0.45) : Ink.line, lineWidth: 1))
