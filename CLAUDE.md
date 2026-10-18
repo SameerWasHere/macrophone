@@ -84,6 +84,8 @@ on my phone". What this pass found and changed, all in `UI/WatchPanel.swift` / `
 
 The website lives in the sameer.us repo (`sameer-gpt`), static pages under `public/macrophone/`.
 
+The app icon is the Thread itself, light and dark (Oct 18 2026): `sh scripts/thread-icon.sh <work> install bold` renders it from `scripts/render-thread-icon.swift` (a port of `ThreadView` at rest) into both `.icon` bundles and the fallback PNG sets; the sheet is `docs/icon/thread/sheet.png`.
+
 ## The protocol in one breath
 
 Mac advertises `_macrophone._tcp` (peer-to-peer on). Pairing: QR carries a one-time token + the

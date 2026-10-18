@@ -1,5 +1,9 @@
 // Macrophone's app icon, from code — the Liquid Glass (iOS 26 / macOS 26) icon and its fallbacks.
 //
+// SUPERSEDED (Oct 18 2026): the shipped icon is the Thread itself — scripts/render-thread-icon.swift,
+// run by scripts/thread-icon.sh. This file keeps the earlier marks (capsule, strand, window) and
+// the wiring notes below, which still hold.
+//
 //   xcrun swiftc -O -parse-as-library -target arm64-apple-macos14.0 scripts/render-icons.swift -o /tmp/render-icons
 //   /tmp/render-icons preview <dir>       # every direction: layers, .icon bundles, flattened renders, one comparison sheet
 //   /tmp/render-icons install [design]    # writes the shipped icon in place (run from the repo root)

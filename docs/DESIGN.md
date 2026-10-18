@@ -104,7 +104,12 @@ Delivered: "Delivered to Sameer's MacBook Pro · Copied". No internal names on s
 
 ## App icon
 
-A dark ink rounded square with the Filament crossing it as a single luminous stroke that
-swells in the middle like a voice peak — the spectrum gradient above. Same mark on both apps;
-the Mac icon follows the macOS squircle grid with a subtle depth. The menu bar icon is a
-monochrome template version (a short filament with a peak), with a dot state when connected.
+The Thread itself (Oct 18 2026, Sameer: "I want the wave form we have in the app to be the main
+visual") — `ThreadView` at rest, ported number for number into `scripts/render-thread-icon.swift`
+(run `scripts/thread-icon.sh`), a closer crop with the braid running off both edges so it reads
+at 29 pt. Light and dark: dark is the app's ground with the luminous Thread as the app draws it;
+light is the app's ink falling to a pale mist with the strands deepened. Both live in the Icon
+Composer bundles (`iOS/Macrophone/AppIcon.icon`, `Mac/Resources/AppIcon.icon`) with the classic
+PNG sets as the fallback; the sheet and the in-app comparison are in `docs/icon/thread/`. The
+menu bar icon is a monochrome template version (a short filament with a peak), with a dot state
+when connected.
