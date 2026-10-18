@@ -88,13 +88,7 @@ struct WatchTipCard: View {
     private func card(_ tip: WatchTip, at: Int, of count: Int, left: Int) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: tip.symbol)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Light.cyan)
-                    .frame(width: 30, height: 30)
-                    .background(Circle().fill(Light.cyan.opacity(0.14)))
-                    .overlay(Circle().strokeBorder(Light.cyan.opacity(0.3), lineWidth: 1))
-                    .accessibilityHidden(true)
+                GlyphPlate(symbol: tip.symbol, tint: Light.cyan, size: 30)
                 Kicker("Tip \(at + 1) of \(count)")
                 Spacer(minLength: 4)
                 Button { dismissAll() } label: {

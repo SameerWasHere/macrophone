@@ -408,10 +408,8 @@ struct WatchWindow: View {
                 .shadow(color: glow.opacity(reduceTransparency ? 0 : glowStrength), radius: 28, y: 6)
                 .shadow(color: .black.opacity(reduceTransparency ? 0 : 0.5), radius: 16, y: 10)
         }
-        // A specular rim: lit from the top left, as glass is.
-        .overlay(bezel.strokeBorder(high ? AnyShapeStyle(Ink.ink.opacity(0.5)) : AnyShapeStyle(LinearGradient(
-            colors: [Ink.ink.opacity(0.28), Ink.ink.opacity(0.08), Ink.ink.opacity(0.05), Ink.ink.opacity(0.16)],
-            startPoint: .topLeading, endPoint: .bottomTrailing)), lineWidth: 1))
+        // The rim, lit from above as every plate in the app is.
+        .overlay(SpecularEdge(shape: bezel))
         // The window comes alive: one pass of light round its rim as the first picture lands.
         .overlay {
             if interactive && !reduceMotion {
@@ -533,13 +531,7 @@ struct WatchWindow: View {
         var body: some View {
             VStack(spacing: 12) {
                 if let symbol {
-                    Image(systemName: symbol)
-                        .font(.title3.weight(.medium))
-                        .foregroundStyle(Ink.secondary)
-                        .frame(width: 48, height: 48)
-                        .background(Circle().fill(Ink.ink.opacity(0.06)))
-                        .overlay(Circle().strokeBorder(Ink.line, lineWidth: 1))
-                        .accessibilityHidden(true)
+                    GlyphPlate(symbol: symbol, tint: Ink.secondary, size: 44)
                 }
                 VStack(spacing: 6) {
                     Text(title).font(.headline).foregroundStyle(Ink.ink)
