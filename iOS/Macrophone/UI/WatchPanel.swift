@@ -468,11 +468,12 @@ struct WatchWindow: View {
 /// picture). It ends the key row on the right, where the thumb rests, so a watched window works
 /// with one hand.
 struct WatchDragSwitch: View {
-    /// How much of each option shows: its glyph and word, the word, or the glyph — the key row
-    /// picks the widest that fits (a 402pt phone takes the words; the glyphs stay for narrower).
+    /// How much of each option shows: the word (the usual), the glyph when the row is too narrow
+    /// for the words, or both (the full form, kept for a wide row that asks for it). The key row
+    /// and the answers' row pick the same form, so the switch never changes shape between them.
     enum Style { case full, words, glyphs }
     @ObservedObject var watcher: Watcher
-    var style: Style = .full
+    var style: Style = .words
     @Namespace private var pill
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -578,7 +579,7 @@ struct WatchActions: View {
             HStack(spacing: 6) {
                 key(.escape, label: Text("Esc"), name: "Escape").fixedSize()
                 Button { watcher.showKeys() } label: {
-                    Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold)).frame(minHeight: 30)
+                    Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold)).frame(minHeight: Self.keyHeight)
                 }
                 .nativeGlassButton()
                 .controlSize(.small)
@@ -586,19 +587,21 @@ struct WatchActions: View {
                 .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
                 .accessibilityIdentifier("watch-keys")
                 Spacer(minLength: 0)
-                WatchDragSwitch(watcher: watcher).fixedSize()
+                ViewThatFits(in: .horizontal) {
+                    WatchDragSwitch(watcher: watcher, style: .words).fixedSize()
+                    WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize()
+                }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
     }
 
-    /// The row at the widest it fits: Pan | Scroll with glyphs and words, then the words alone,
-    /// then the glyphs (Oct 18 2026 — the full row is 381pt, so on every phone it overflowed the
-    /// margins by a few points each side and widened the whole panel with it).
+    /// The row at the widest it fits: Pan | Scroll as words, else as glyphs (Oct 18 2026 — with
+    /// glyphs and words the row was 381pt, so on every phone it overflowed the margins by a few
+    /// points each side and widened the whole panel with it).
     private var keys: some View {
         ViewThatFits(in: .horizontal) {
-            keyRow(.full)
             keyRow(.words)
             keyRow(.glyphs)
         }
@@ -631,7 +634,7 @@ struct WatchActions: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 30)
+                .frame(maxWidth: .infinity, minHeight: Self.keyHeight)
         }
         .nativeGlassButton()
         .controlSize(.small)
@@ -640,13 +643,17 @@ struct WatchActions: View {
         .accessibilityIdentifier("watch-more-keys")
     }
 
+    /// A key's label height: with the small glass button's own padding it comes out 44pt, the
+    /// same as the Pan | Scroll switch beside it (they were 35 next to its 44).
+    static let keyHeight: CGFloat = 38
+
     private func key<L: View>(_ a: WatchAction, label: L, name: String) -> some View {
         Button { watcher.perform(a) } label: {
             label
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, minHeight: 30)
+                .frame(maxWidth: .infinity, minHeight: Self.keyHeight)
         }
         .nativeGlassButton()
         .controlSize(.small)
