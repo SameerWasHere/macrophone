@@ -240,6 +240,27 @@ lookup — no Tailscale CLI). Unit tests in `RemoteAccessTests`.
   lands, the move home with no "not found" in between. Still needs a real phone on cellular with
   Tailscale on both.
 
+## Agents tell the Mac themselves (Oct 17 2026)
+
+Sameer picked "know exactly when an agent waits" over reading pictures. Claude Code (hooks) and
+Codex (`notify`) run `…/Contents/Helpers/macrophone hook claude|codex`, which posts an
+`AgentEvent` to `POST /v1/agent` (silent, exit 0, 1.5 s cap). `Watch/AgentHub.swift` keeps one
+`AgentSession` per session (working · waiting · yourTurn), finds its app from the hook's
+ancestor pids and its window (kept; the app's only one; a title naming the project; the front
+one on a new prompt), sends `.attention` the moment one waits (iCloud when no phone is
+connected) and `.agents` to phones naming "agents". The attention watcher skips windows an
+agent claims and reports the ones it reads asking (`fromScreen`). Mac › General › Agents
+connects/disconnects (`Core/AgentSetup.swift`; backs the file up once; never replaces his own
+Codex `notify`). Phone: `UI/AgentsPanel.swift` above Send to; a tap = `openAttention`.
+Same day: More keys (`WatchKey`, feature "keys": ⌃C, Tab, ⇧Tab, ⌘↩, ⌘Z, Space, ⌫, digits —
+by name, so a newer key never breaks an older Mac), Fit to iPhone (`watchShape`, feature
+"fitPhone": the window takes the phone's view shape at full screen height), first-use tips
+(`UI/WatchTips.swift`, one card at a time over the window's top; Window › Show Tips Again),
+the zoom kept per app (`watch.view.<bundleID>`, dropped when the window's shape changes), and a
+minimized window stays the watched one so "Show it on my Mac" brings it back.
+Debug: `MACROPHONE_FAKE_AGENTS=1` (with `MACROPHONE_FAKE_PAIRED`); `mpctl serve` names every
+new feature.
+
 ## Checks
 
 ```
