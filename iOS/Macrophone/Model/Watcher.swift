@@ -490,7 +490,7 @@ final class Watcher: ObservableObject {
     private static func fitKey(_ target: TargetRef) -> String? { target.bundleID.map { "watch.fit." + $0 } }
 
     /// A sentence over the window for a moment, with the symbol of what changed.
-    private func say(_ words: String, symbol: String) {
+    func say(_ words: String, symbol: String) {
         noteWords = words
         noteSymbol = symbol
         noteSeq &+= 1
@@ -524,9 +524,12 @@ final class Watcher: ObservableObject {
             guard let img, self.isOpen, !self.phase.isPaused, frame.seq == 1 || frame.seq >= self.newestSeq else { return }
             // A picture after video (the Mac's chip got busy): the picture is what shows now.
             if self.videoSize != nil { self.video.clear(); self.videoSize = nil }
-            self.show(img, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: data.count, how: "picture")
+            self.show(img, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: data.count, how: "picture", points: frame.points)
         }
     }
+
+    /// The window's size in points as the Mac last said it (nil from a Mac that doesn't).
+    private var lastPoints: CGSize?
 
     /// Counts a frame put on screen: the busiest second so far, kept as they arrive.
     private func countFrame() {
@@ -572,7 +575,11 @@ final class Watcher: ObservableObject {
         // The first frame of a new window (a switch, a resize): the stale picture goes, the
         // picture under the video with it.
         if stale { stale = false; image = nil }
-        if videoSize != video.frameSize { videoSize = video.frameSize; notePictureSize(video.frameSize) }
+        if videoSize != video.frameSize || frame.points != lastPoints {
+            lastPoints = frame.points
+            videoSize = video.frameSize
+            notePictureSize(video.frameSize, points: frame.points)
+        }
         words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt)
         if phase != .live { phase = .live }
         #if DEBUG
@@ -610,8 +617,8 @@ final class Watcher: ObservableObject {
     private var keyframeRetry: Task<Void, Never>?
 
     /// Each published change re-renders every view watching this; only what changed is set.
-    private func show(_ img: UIImage, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, bytes: Int, how: String) {
-        if image?.size != img.size { notePictureSize(img.size) }
+    private func show(_ img: UIImage, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, bytes: Int, how: String, points: CGSize? = nil) {
+        if image?.size != img.size || points != lastPoints { lastPoints = points; notePictureSize(img.size, points: points) }
         image = img
         if stale { stale = false }
         countFrame()
@@ -637,9 +644,12 @@ final class Watcher: ObservableObject {
         if self.prompt != prompt { self.prompt = prompt }
     }
 
-    /// The picture's size in pixels: the trackpad moves the pointer in the window's points, which
-    /// the phone takes as half of that (a Retina Mac).
-    private func notePictureSize(_ s: CGSize) {
+    /// The window's size in points — the trackpad moves the pointer in those. A Mac that says it
+    /// (`points`, Oct 19 2026, the polish pass) is believed: a 1× display, or a picture narrowed
+    /// for a remote link, is no longer taken for a Retina window at full size. From a Mac that
+    /// doesn't, the picture's pixels halved (a Retina Mac at home).
+    private func notePictureSize(_ s: CGSize, points: CGSize? = nil) {
+        if let points, points.width > 0, points.height > 0 { input.windowPoints = points; return }
         guard s.width > 0, s.height > 0 else { return }
         input.windowPoints = CGSize(width: s.width / 2, height: s.height / 2)
     }

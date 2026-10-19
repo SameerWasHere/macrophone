@@ -428,7 +428,8 @@ final class WatchService {
     /// What each video frame carries, as of now.
     private func words(_ w: Watch) -> VideoPipe.Words {
         .init(appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt,
-              front: w.windowID == WindowServer.desktopID ? Self.frontApp() : nil)
+              front: w.windowID == WindowServer.desktopID ? Self.frontApp() : nil,
+              points: w.stream?.windowSize)
     }
 
     /// The app in front, not Macrophone.
@@ -543,7 +544,7 @@ final class WatchService {
         w.changedSince = 0
         w.forceUntil = .distantPast
         let frame = WatchFrame(seq: w.seq, jpeg: data, width: image.width, height: image.height,
-                               appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt)
+                               appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt, points: w.stream?.windowSize)
         // Waits until it's on the wire: a slow link gets fewer pictures, never a backlog.
         await app.server.send(.watchFrame(frame), to: w.peer)
         if timing { print("[watch] encode \(encoded) · send \(data.count / 1024) KB \(Self.ms(t) - encoded)"); fflush(stdout) }

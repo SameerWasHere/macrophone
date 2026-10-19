@@ -25,6 +25,8 @@ final class VideoPipe: @unchecked Sendable {
         var prompt: WatchPrompt?
         /// The whole screen: the app in front.
         var front: FrontApp?
+        /// The window's size in points (the phone's trackpad moves the pointer in those).
+        var points: CGSize?
     }
 
     /// Where frames went (numbers only, for the log line).
@@ -131,7 +133,7 @@ final class VideoPipe: @unchecked Sendable {
             self.seq += 1
             let w = self.currentWords
             self.outgoingContinuation.yield(WatchVideoFrame(seq: self.seq, data: Data(), parameterSets: nil, keyframe: false, width: v.width, height: v.height,
-                                                            appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt, front: w.front))
+                                                            appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt, front: w.front, points: w.points))
         }
     }
 
@@ -233,7 +235,7 @@ final class VideoPipe: @unchecked Sendable {
         stats.sentAt.append(Date())
         let w = currentWords
         outgoingContinuation.yield(WatchVideoFrame(seq: seq, data: e.data, parameterSets: e.parameterSets, keyframe: e.keyframe,
-                                                   width: v.width, height: v.height, appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt, front: w.front))
+                                                   width: v.width, height: v.height, appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt, front: w.front, points: w.points))
         if timing { print("[watch] video encode \(Int(took * 1000)) · \(e.data.count / 1024) KB\(e.keyframe ? " key" : "")"); fflush(stdout) }
         // A video chip busy elsewhere for good: pictures from here on.
         if v.struggling {

@@ -21,8 +21,10 @@ public struct WatchFrame: Codable, Sendable {
     /// A question the window is asking, read off this picture (the phone shows its answers as
     /// buttons). Nil when there's none — or from a Mac that doesn't read them.
     public var prompt: WatchPrompt?
+    /// The window's size in points on the Mac (`WatchVideoFrame.points`); nil from a Mac from before.
+    public var points: CGSize?
 
-    public init(seq: Int, jpeg: Data, width: Int, height: Int, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil) {
+    public init(seq: Int, jpeg: Data, width: Int, height: Int, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil, points: CGSize? = nil) {
         self.seq = seq
         self.jpeg = jpeg
         self.width = width
@@ -31,6 +33,7 @@ public struct WatchFrame: Codable, Sendable {
         self.bundleID = bundleID
         self.focus = focus
         self.prompt = prompt
+        self.points = points
     }
 }
 

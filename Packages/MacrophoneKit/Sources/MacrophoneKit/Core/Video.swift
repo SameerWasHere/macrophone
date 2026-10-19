@@ -45,10 +45,15 @@ public struct WatchVideoFrame: Codable, Sendable {
     /// Watching the whole screen (DesktopWatch): the app in front, so the phone can go to its
     /// window. Nil otherwise (an older Mac never sends it).
     public var front: FrontApp?
+    /// The window's size in points on the Mac (Oct 19 2026): the phone's trackpad moves the pointer
+    /// in those, so a 1× display or a picture narrowed for a remote link moves it right. Nil from a
+    /// Mac from before (the phone then takes the picture as a Retina window at full size).
+    public var points: CGSize?
 
     public init(seq: Int, data: Data, parameterSets: [Data]?, keyframe: Bool, width: Int, height: Int,
-                appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil, front: FrontApp? = nil) {
+                appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil, front: FrontApp? = nil, points: CGSize? = nil) {
         self.front = front
+        self.points = points
         self.seq = seq
         self.data = data
         self.parameterSets = parameterSets
