@@ -72,7 +72,8 @@ final class MicHardware: @unchecked Sendable {
     }
 
     private func configure() throws {
-        guard !configured else { return }
+        // Set again after the Mac's sound had the session as `.playback` (MacAudioPlayer).
+        guard !configured || AVAudioSession.sharedInstance().category != .record else { return }
         try AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement, options: [.allowBluetoothHFP])
         configured = true
     }

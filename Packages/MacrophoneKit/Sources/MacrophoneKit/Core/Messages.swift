@@ -186,6 +186,12 @@ public enum Message: Codable, Sendable {
     /// deltas between two phases are one trackpad gesture on the Mac. Only to a Mac that named
     /// "scroll".
     case watchScrollPhase(WatchScrollPhase, x: Double, y: Double)
+    /// Phone → Mac: Sound in the window view turned on or off (only to a Mac naming
+    /// MacSound.feature). Off unless the person turned it on.
+    case watchSound(on: Bool)
+    /// Mac → phone: 20 ms of the Mac's sound (only to a phone naming MacSound.feature that turned
+    /// Sound on).
+    case macAudio(MacAudioPacket)
     // Either way
     case ping
     case pong

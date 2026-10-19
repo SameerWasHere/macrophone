@@ -72,6 +72,8 @@ final class AppModel: ObservableObject {
     let recorder = Recorder()
     /// The picked app's window, live (Watching).
     let watcher = Watcher()
+    /// The Mac's sound with the window (off unless the person turned it on).
+    let macAudio = MacAudioPlayer()
     let queue = DeliveryQueue(url: AppFiles.queue)
     let log = DiagnosticLog(url: AppFiles.log)
     private let history: HistoryStore<HistoryItem>
@@ -164,6 +166,10 @@ final class AppModel: ObservableObject {
         watcher.sendKeyframe = { [weak self] in self?.client.watchKeyframe() ?? false }
         watcher.sendFit = { [weak self] f in self?.client.watchFit(f) ?? false }
         watcher.macFeatures = { [weak self] in self?.client.macFeatures ?? [] }
+        macAudio.log = log
+        macAudio.attach(client)
+        macAudio.bind(watcher: watcher, recorderPhase: recorder.$phase.eraseToAnyPublisher(), remote: $isRemote.eraseToAnyPublisher(),
+                      link: $linkState.eraseToAnyPublisher())
         AgentAlerts.shared.install(self)
         // Looking at a chat that answered settles its mark.
         watcher.$target.compactMap { $0 }.sink { [weak self] t in self?.clearNeeds(for: t) }.store(in: &bag)
@@ -207,7 +213,7 @@ final class AppModel: ObservableObject {
         // one with remote access on tells it where it can be reached from away; one that can sends
         // the watched window as video (Watcher decodes it).
         c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, NeedsYou.feature,
-                      ClipboardItem.feature, AttachmentChunk.feature, AllWindows.feature, EveryApp.feature, SaveToDownloads.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+                      ClipboardItem.feature, AttachmentChunk.feature, AllWindows.feature, EveryApp.feature, SaveToDownloads.feature, MacSound.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -403,6 +409,8 @@ final class AppModel: ObservableObject {
         if case .app = place, isConnected { client.prepare(place) }
         aheadDone = [:]
         aheadRunning = nil
+        // The Mac's sound stops before the mic takes the audio session (it comes back after).
+        macAudio.micOpening()
         do {
             try await recorder.start(language: settings.language,
                                      contextualStrings: settings.dictionary,
@@ -906,6 +914,7 @@ final class AppModel: ObservableObject {
         client.stop()
         client = Self.makeClient(store: pairingStore, name: settings.deviceName, log: log)
         client.delegate = self
+        macAudio.attach(client)
         if sceneActive, networkExplained || isPaired { client.start() }
         log.add("device renamed")
     }

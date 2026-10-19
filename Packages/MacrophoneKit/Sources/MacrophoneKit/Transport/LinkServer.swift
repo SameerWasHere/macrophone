@@ -60,6 +60,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID)
     /// A swipe on the watched window landed, lifted, or its coast began or ended, at `point`.
     func linkServer(_ server: LinkServer, watchScrollPhase phase: WatchScrollPhase, at point: CGPoint, from peerID: UUID)
+    /// That phone turned Sound in the window view on or off (MacSound.feature).
+    func linkServer(_ server: LinkServer, watchSound on: Bool, from peerID: UUID)
     /// The apps installed on this Mac, by name (Open an app).
     func installedApps(_ server: LinkServer) async -> [MacApp]
     /// Open an app and bring it forward. Returns whether it opened and a plain line about it.
@@ -93,6 +95,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchScrollPhase phase: WatchScrollPhase, at point: CGPoint, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchSound on: Bool, from peerID: UUID) {}
     func installedApps(_ server: LinkServer) async -> [MacApp] { [] }
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't open apps") }
     func linkServer(_ server: LinkServer, quitApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't quit apps") }
@@ -672,7 +675,9 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
-            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
+            case let .watchSound(on):
+                notify { $0.linkServer(self, watchSound: on, from: phoneID) }
+            case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
             }
         }

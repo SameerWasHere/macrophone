@@ -30,6 +30,8 @@ import MacrophoneKit
 //   mpctl serve --software                    # encode in software from the start (the hardware encoder is busy elsewhere)
 //   mpctl watch --swipe 0.3 [--flick 1500]    # a swipe as the phone sends it: a gesture, then the coast after a flick
 //   mpctl put-file <path> [--downloads] [--target …]   # a photo or file as the phone sends it (serve --save-to DIR writes it there)
+//   mpctl watch --sound --features video,sound   # Sound on: the tone `serve` sends, decoded and measured (latency, underruns)
+//   mpctl serve --sound-gap 2                 # the tone pauses for 2 s after 3 s (a gap, not an underrun)
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -214,7 +216,7 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {
         watches[peerID]?.cancel()
         watches[peerID] = nil
-        guard let target else { stdout("WATCH stopped"); return }
+        guard let target else { tones.set(false, for: peerID, server: server); stdout("WATCH stopped"); return }
         stdout("WATCH \(target.displayName)")
         let demo = self.demo(for: target)
         lock.sync { watched[peerID] = demo }
@@ -289,6 +291,12 @@ final class ServeDelegate: LinkServerDelegate {
                 try? await Task.sleep(nanoseconds: 33_000_000)
             }
         }
+    }
+
+    /// Sound: a test tone through the Mac's own sender, only to a phone that named it and turned it on.
+    let tones = ToneServer()
+    func linkServer(_ server: LinkServer, watchSound on: Bool, from peerID: UUID) {
+        tones.set(on, for: peerID, server: server)
     }
 
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {
@@ -562,7 +570,7 @@ func run() async -> Int32 {
         }
         // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
         server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, WatchRightClick.feature, WatchKey.feature, WatchShape.feature, WatchWindowCommand.feature,
-                                                         ClipboardItem.feature, AttachmentChunk.feature, SaveToDownloads.feature]
+                                                         ClipboardItem.feature, AttachmentChunk.feature, SaveToDownloads.feature, MacSound.feature]
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -760,6 +768,15 @@ func run() async -> Int32 {
         client.watch(target)
         if client.macFeatures.contains(WatchVideo.feature) { client.watchKeyframe() }
         let seconds = Double(flag("--seconds") ?? "6") ?? 6
+        // --sound: Sound on, as the phone's toggle does (to a Mac that names it), and the tone measured.
+        var listener: SoundListener?
+        if has("--sound") {
+            let l = SoundListener(remote: client.isRemote)
+            client.onMacAudio = { l.receive($0) }
+            l.start()
+            listener = l
+            stdout("SOUND asked: \(client.watchSound(true))")
+        }
         if let fit = flag("--fit").flatMap(WatchFit.init(rawValue:)) {
             try? await Task.sleep(nanoseconds: UInt64(seconds / 3 * 1e9))
             stdout("FIT \(fit.rawValue) sent: \(client.watchFit(fit))")
@@ -807,6 +824,7 @@ func run() async -> Int32 {
         } else {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
         }
+        if let listener { client.watchSound(false); _ = listener.finish(seconds: seconds) }
         client.watch(nil)
         try? await Task.sleep(nanoseconds: 300_000_000)
         client.stop()

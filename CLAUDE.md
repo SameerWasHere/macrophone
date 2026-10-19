@@ -396,6 +396,50 @@ button (a tap picks the window that answered), "Answered you" / "Asking you" by 
 name, `circlebadge.fill` in the window menus; looking clears it at once (`clearNeeds`).
 Debug: `MACROPHONE_FAKE_NEEDS=1` (with `MACROPHONE_FAKE_PAIRED`).
 
+## Hear the Mac (Oct 19 2026)
+
+Part of "control the Mac entirely from the iPhone": the Mac's sound plays on the phone while a
+window shows. **Off by default — on a fresh install, after an update, whenever it isn't explicitly
+on** (Sameer's rule): only a tap on **Sound** (`speaker.slash` / `speaker.wave.2.fill`, its own
+glass beside the zoom-out | Window cluster, shown only when the Mac names `sound`) turns it on,
+remembered in `watch.sound.on` (`SoundSetting`: anything but a stored true is off; pinned by
+`SoundDefaultTests`). The Mac sends nothing to a phone that didn't name `sound` AND send
+`watchSound(true)` (`MacSound.sends`).
+- **Wire** (`Core/Audio.swift`): phone → Mac `watchSound(on:)`, Mac → phone `macAudio(MacAudioPacket)`
+  — seq, stream id, sample time (a jump = a gap the Mac marks), Opus 20 ms (AAC-ELD if a Mac lacks
+  Opus), the decoder's cookie on the first packet and every 50th, `sentAt`, `macDelay`. 96 kbps at
+  home, 40 away (`MacSound.bitrate`). `MacAudioEncoder` / `MacAudioDecoder` (AudioConverter),
+  `MacAudioSender` (numbering, gaps), `SoundJitter` (pure: holds 70 ms — 120 away — before playing,
+  plays silence and refills when dry, drops the oldest past +90 ms instead of drifting, drops
+  late/out-of-order, starts over on a new stream; an emptying inside a marked gap isn't an
+  underrun), `SoundLatency`, `TestTone`. Tests: `AudioTests.swift`.
+- **Mac** (`Watch/AudioPipe.swift`): its own ScreenCaptureKit stream of the main display's
+  **audio — the whole system mix, Macrophone's own excluded** (`excludesCurrentProcessAudio`;
+  48 kHz stereo; a 2×2 picture at 1 fps as the stream's price). So a window watch hears everything
+  the Mac plays, not just that app — kept separate from `WindowStream` on purpose: flips, resizes
+  and the video→pictures fallback never cut the sound. One capture while any phone listens; per
+  phone a sender and one ordered send task (newest 25 kept). Off on `watch(nil)` (also sent on
+  disconnect) and `watchSound(false)`. Same Screen Recording permission, nothing new.
+- **Phone** (`Model/MacAudioPlayer.swift`, `UI/WatchSound.swift`): plays only while Sound is on, a
+  window is live/starting, the app is in front, the mic is closed and the Mac can. The packets go
+  from the link's receive queue (`LinkClient.onMacAudio`, no main actor) through the decoder into
+  the jitter buffer; an `AVAudioSourceNode` pulls it. Session `.playback` + `.mixWithOthers`, only
+  while playing: playback because he turned Sound on (the silent switch muting it would read as
+  broken), mixing so it never stops his podcast. The mic wins: `startRecording` stops it before
+  the recorder opens (`MicHardware.configure` now resets `.record` if the category changed); it
+  resumes 0.4 s after the mic closes. Away from home it restarts at the lower bitrate.
+- **Measured** (simulator ↔ `mpctl serve`'s tone, loopback): latency estimate **median 78–88 ms,
+  p95 83–94** (Mac 20 — the packet's own 20 ms; wire 1; buffer 54–64; output 3), **0 underruns,
+  0 late**, Opus ~48 kbps on the tone, decode ~90 µs a packet; mic open → off, back on after.
+  mpctl phone ↔ serve: median 60 ms (no output stage), a 2 s gap marked as a gap, 0 underruns.
+- Hooks: phone `MACROPHONE_SOUND=1` (on for a run, not stored), `MACROPHONE_SOUND_TIMING=1` (a
+  line a second), `MACROPHONE_WATCH_ACTIONS=…,sound,mic`; Mac `MACROPHONE_SOUND_TONE=1` (DEBUG: the
+  tone instead of the capture); `mpctl watch --sound --features video,sound`, `mpctl serve
+  --sound-gap 2`. Logs: "sound: N packets, kbps · latency estimate … · underruns · late · trimmed
+  · gaps · resyncs" (phone), "sound on/off: N packets, N gaps" (Mac) — numbers only.
+- Needs a real check: the capture on Sameer's Mac (does a silent Mac send silence or nothing —
+  either works), Bluetooth output latency, a call interrupting it.
+
 ## Checks
 
 ```
@@ -403,6 +447,7 @@ cd Packages/MacrophoneKit && swift test
 swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url>' / pair-code / send
 .build/debug/mpctl cleanup-eval                           # cleanup test set on the real on-device model
 .build/debug/mpctl watch --target com.anthropic.claudefordesktop --swipe 0.3 --features video   # a swipe as the phone sends it, video back
+.build/debug/mpctl watch --sound --features video,sound      # the Mac's sound: serve's tone, latency and underruns printed
 .build/debug/mpctl serve --remote --port 47899 --auto-approve   # then: mpctl pair '<url>' (at home), and
 .build/debug/mpctl roam --no-bonjour --bonjour-after 3 --expect home   # away by the stored address, then back home
 ```

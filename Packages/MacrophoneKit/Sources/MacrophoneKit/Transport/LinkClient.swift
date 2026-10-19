@@ -621,6 +621,9 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, watchVideo: frame)
             }
+        case let .macAudio(packet):
+            // Straight from the receive loop to the player (fifty a second; no main actor between).
+            lock.sync { _onMacAudio }?(packet)
         case let .attention(a):
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -672,7 +675,7 @@ public final class LinkClient: @unchecked Sendable {
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
         case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
-             .clipboardRequest, .clipboardSet, .attachment, .prepare:
+             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound:
             break
         }
     }
@@ -924,6 +927,26 @@ public final class LinkClient: @unchecked Sendable {
     public func watchKeyframe() -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchVideo.feature) ? session : nil }) else { return false }
         Task { try? await s.send(.watchKeyframe) }
+        return true
+    }
+
+    /// The Mac's sound, each packet as it lands — called on the link's receive queue, never the
+    /// main actor (MacAudioPlayer feeds its jitter buffer from here).
+    public var onMacAudio: (@Sendable (MacAudioPacket) -> Void)? {
+        get { lock.sync { _onMacAudio } }
+        set { lock.sync { _onMacAudio = newValue } }
+    }
+    private var _onMacAudio: (@Sendable (MacAudioPacket) -> Void)?
+
+    /// The connected Mac sends its sound (it named MacSound.feature).
+    public var macCanPlaySound: Bool { lock.sync { session != nil && macFeatures.contains(MacSound.feature) } }
+
+    /// Sound in the window view on or off. Only a Mac that named MacSound.feature gets it. False
+    /// when it wasn't sent.
+    @discardableResult
+    public func watchSound(_ on: Bool) -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(MacSound.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchSound(on: on)) }
         return true
     }
 

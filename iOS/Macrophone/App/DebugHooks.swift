@@ -52,7 +52,10 @@ import UIKit
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
 ///                                            answer@1 (the window's question, second answer), keys,
 ///                                            next / prev (the next or previous window), attend@<bundle>@<window>
-///                                            (what tapping an alert does), fit@larger|largest|normal (Aa)
+///                                            (what tapping an alert does), fit@larger|largest|normal (Aa),
+///                                            sound (the Sound button's tap), mic (the mic opening, for the sound)
+/// MACROPHONE_SOUND=1                         Sound held on for this run (nothing stored; a real launch reads off)
+/// MACROPHONE_SOUND_TIMING=1                  a line each second of the Mac's sound: held, latency, underruns
 /// MACROPHONE_VIDEO=0                         a phone from before video: the Mac sends pictures (to compare the two)
 /// MACROPHONE_FRAME=375x667                   the mic screen in a smaller phone's frame (an SE: compact < 700pt) on this simulator
 /// MACROPHONE_MIC_LOOK=pressed|holding|starting|finishing|sending|sent|queued|error|disabled
@@ -278,6 +281,12 @@ enum DebugHooks {
                         // scroll@0.5@0.4@0.2: at (0.5, 0.4), content dragged down by 20% of the window.
                         let v = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if v.count == 3 { model.watcher.scroll(at: CGPoint(x: v[0], y: v[1]), by: CGVector(dx: 0, dy: v[2])) }
+                    } else if a == "sound" {
+                        // The Sound button's tap (stores the setting, as a real tap does).
+                        model.macAudio.toggle()
+                    } else if a == "mic" {
+                        // What a mic tap does to the Mac's sound (it stops, then comes back).
+                        model.macAudio.micOpening()
                     } else if a.hasPrefix("answer@"), let i = Int(a.dropFirst(7)) {
                         model.watcher.choose(i)
                     } else if a.hasPrefix("attend@") {

@@ -210,6 +210,7 @@ struct WatchPanel: View {
                 WatchKicker(watcher: watcher).layoutPriority(1)
             }
             Spacer(minLength: 8)
+            WatchSoundButton(player: model.macAudio)
             if watcher.macCanFit, watcher.target != .clipboard {
                 HStack(spacing: 0) {
                     WatchWholeButton(watcher: watcher)

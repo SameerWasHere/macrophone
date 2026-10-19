@@ -28,6 +28,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var delivery: DeliveryEngine!
     /// A phone watching the window it sends to (WatchService).
     private(set) var watch: WatchService!
+    /// The Mac's sound, for phones that turned Sound on (AudioPipe).
+    private(set) var sound: AudioPipe!
     private(set) var attention: AttentionWatcher!
     private(set) var agents: AgentHub!
     private(set) var replies: ReplyWatcher!
@@ -101,6 +103,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
         delivery = DeliveryEngine(app: self)
         watch = WatchService(app: self)
+        sound = AudioPipe(server: server, log: log)
         attention = AttentionWatcher(app: self)
         agents = AgentHub(app: self)
         replies = ReplyWatcher(app: self)
@@ -117,7 +120,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         // What this Mac can do beyond the first version, for phones that can too.
         server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature,
                               ClipboardItem.feature, AttachmentChunk.feature, DictationPrepare.feature, DesktopWatch.feature,
-                              SaveToDownloads.feature]
+                              SaveToDownloads.feature, MacSound.feature]
         // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
         let watchService = watch!
         server.watchInput = { peer, input in watchService.scrollInput(peer, input) }
@@ -631,6 +634,12 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {
         watch.set(target.map(Self.named), for: peerID)
+        // Not watching (or gone): no sound either; the phone turns it on again when it shows a window.
+        if target == nil { sound.remove(peerID) }
+    }
+
+    func linkServer(_ server: LinkServer, watchSound on: Bool, from peerID: UUID) {
+        sound.set(on, for: peerID, remote: isRemote(peerID))
     }
 
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {
