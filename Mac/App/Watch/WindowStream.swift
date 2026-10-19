@@ -11,6 +11,11 @@ import VideoToolbox
 /// Frames arrive on the stream's own queue.
 final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     private let stream: SCStream
+    /// Hears the stream stop on its own and tells this one (an SCStream's delegate is fixed when
+    /// it's made, before `self` exists — the streams were made with none, so a stream macOS stopped
+    /// — a window on another display, a display change — was never noticed and the picture froze:
+    /// Oct 19 2026, Sameer: "real time updates … don't work when the window is on an external display").
+    private let relay = StopRelay()
     private let queue = DispatchQueue(label: "macrophone.window-stream", qos: .userInitiated)
     /// A new picture (its pixels, to turn into an image only if it's sent) and the share of it
     /// that changed since the one before (0…1).
@@ -61,8 +66,9 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
         let (cfg, size) = Self.configuration(for: frameSize, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
         self.size = size
         windowSize = frameSize
-        stream = SCStream(filter: filter, configuration: cfg, delegate: nil)
+        stream = SCStream(filter: filter, configuration: cfg, delegate: relay)
         super.init()
+        relay.owner = self
     }
 
     /// The pointer shown in the picture, or not (the phone's trackpad came or went).
@@ -140,8 +146,9 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
         let (cfg, size) = Self.configuration(for: points, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
         self.size = size
         windowSize = points
-        stream = SCStream(filter: filter, configuration: cfg, delegate: nil)
+        stream = SCStream(filter: filter, configuration: cfg, delegate: relay)
         super.init()
+        relay.owner = self
     }
 
     /// The window was resized: pictures follow its new shape.
@@ -225,5 +232,14 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         onStop?(error)
+    }
+}
+
+/// The stream's delegate, made before the WindowStream itself (SCStream keeps its delegate weakly;
+/// the WindowStream keeps this).
+private final class StopRelay: NSObject, SCStreamDelegate {
+    weak var owner: WindowStream?
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        owner?.stream(stream, didStopWithError: error)
     }
 }

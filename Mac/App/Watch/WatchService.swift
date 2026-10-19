@@ -447,9 +447,13 @@ final class WatchService {
                     self.arrived(pixels, changed: changed, w)
                 }
             }
-            s.onStop = { [weak self, weak w, weak s] _ in
+            s.onStop = { [weak self, weak w, weak s] error in
+                let code = (error as NSError?)?.code ?? 0
                 Task { @MainActor in
                     guard let self, let w, w.stream === s else { return }
+                    // macOS stopped the stream (a window moved displays, a display changed): start
+                    // a fresh one on the next look instead of leaving the picture frozen.
+                    self.app.log.add("watching: the stream stopped (code \(code)) — starting it again")
                     w.dropStream()
                     self.content = nil
                     w.wake()
@@ -463,7 +467,12 @@ final class WatchService {
             }
             w.stream = s
             w.forceUntil = Date().addingTimeInterval(5)
-            app.log.add("watching: streaming the window")
+            // Which display, and its scale (numbers only): a window on an external display is the
+            // case to tell apart.
+            let displays = MacDisplays.online()
+            let on = displays.firstIndex { CGDisplayBounds($0).contains(CGPoint(x: place.bounds.midX, y: place.bounds.midY)) }
+            let scaleOn = NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == on.map({ displays[$0] }) }?.backingScaleFactor ?? 0
+            app.log.add("watching: streaming the window (display \((on ?? -1) + 1) of \(displays.count), \(Int(scaleOn))×)")
         }
 
         // What's laid over the window right now (an Open panel, a menu, a sheet) goes in the picture.
@@ -1007,7 +1016,10 @@ final class WatchService {
         guard let area = WindowFit.visibleArea(around: now),
               let target = WatchShape.frame(aspect: aspect, window: now, in: area) else { return }
         _ = WindowFit.set(win, frame: target)
-        app.log.add("watch fit to iPhone: \(Int(now.width))×\(Int(now.height)) → \(Int(target.width))×\(Int(target.height))")
+        // What the window took (an app with a smallest size keeps it): a shape off the phone's shows
+        // as bars beside the picture, so the log says both.
+        let took = AX.frame(win)
+        app.log.add("watch fit to iPhone: \(Int(now.width))×\(Int(now.height)) → \(Int(target.width))×\(Int(target.height)), took \(Int(took.width))×\(Int(took.height))")
         w.focusAt = .distantPast
         w.hurry()
         w.wake()
