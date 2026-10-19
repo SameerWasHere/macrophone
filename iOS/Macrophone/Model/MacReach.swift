@@ -116,7 +116,10 @@ extension AppModel {
         _ = reach.wakeVersion
         guard isPaired, !isConnected, let info = WakeOnLAN.info(for: pairedMac?.id), !info.interfaces.isEmpty,
               WakeOnLAN.onSameNetwork(as: info) else { return nil }
-        if case .connecting = linkState { return nil }
+        // Only once the Mac wasn't found — never while the app is still looking at launch (it
+        // flashed beside the Mac's name and pushed the top bar to two lines and back — Oct 19
+        // 2026, Sameer: "the Sameer's MacBook Pro in the top left jumps around a little").
+        guard case .unreachable = linkState else { return nil }
         return info
     }
 

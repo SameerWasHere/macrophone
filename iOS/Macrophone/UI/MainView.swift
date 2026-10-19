@@ -461,6 +461,8 @@ extension Image {
 /// globe over the internet. Taps through to pairing when unpaired.
 struct MacPill: View {
     @EnvironmentObject var model: AppModel
+    /// One width for every connection sign (Wi-Fi, globe, shield), so none moves the pill.
+    @ScaledMetric(relativeTo: .caption) private var iconSlot: CGFloat = 18
 
     var body: some View {
         Button {
@@ -474,11 +476,17 @@ struct MacPill: View {
                     .foregroundStyle(Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
-                if case .connected = model.linkState, let route = model.linkRoute {
-                    Image(systemName: Self.symbol(route))
+                // The way it's connected, in a slot that's always there: the pill keeps its width
+                // from launch to connected instead of growing when the sign arrives.
+                if model.isPaired {
+                    let route: LinkRoute? = { if case .connected = model.linkState { return model.linkRoute }; return nil }()
+                    Image(systemName: Self.symbol(route ?? .homeNetwork))
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(route.isAway ? Light.cyan : Ink.tertiary)
+                        .foregroundStyle(route?.isAway == true ? Light.cyan : Ink.tertiary)
+                        .frame(width: iconSlot)
+                        .opacity(route == nil ? 0 : 1)
                         .contentTransition(.symbolEffect(.replace))
+                        .animation(.easeOut(duration: 0.25), value: route)
                         .accessibilityHidden(true)
                 }
             }
