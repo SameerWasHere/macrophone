@@ -243,6 +243,16 @@ final class TargetScanner: @unchecked Sendable {
     fileprivate func axEvent(pid: pid_t, _ name: String) {
         queue.async {
             guard self.active else { return }
+            if name == (kAXUIElementDestroyedNotification as String) {
+                // A window closed: off the list at once, and once more after its closing
+                // animation, when the window server has let it go too (Oct 19 2026, Sameer: "after
+                // I close a window, it lingers … it should go away right away").
+                self.scheduleLocked(pid, after: 0.1)
+                if let app = NSRunningApplication(processIdentifier: pid), let info = Self.info(app) {
+                    self.scanLaterLocked(info, after: 0.7)
+                }
+                return
+            }
             // A title changing is rarely urgent (and terminals retitle constantly).
             self.scheduleLocked(pid, after: name == (kAXTitleChangedNotification as String) ? 1.5 : 0.4)
         }
@@ -298,6 +308,7 @@ final class TargetScanner: @unchecked Sendable {
                 scan(info, server: server)
             } else {
                 apps[info.pid] = plain(info)
+                observeWindows(info.pid)
             }
         }
         rebuild()
@@ -313,7 +324,9 @@ final class TargetScanner: @unchecked Sendable {
         if isCandidate(info.bundleID) {
             scan(info, server: server)
         } else {
-            apps[info.pid] = server.contains { $0.pid == info.pid } ? plain(info) : nil
+            let open = server.contains { $0.pid == info.pid }
+            apps[info.pid] = open ? plain(info) : nil
+            if open { observeWindows(info.pid) }
         }
         rebuild()
     }
@@ -357,9 +370,10 @@ final class TargetScanner: @unchecked Sendable {
                 }
             }
             windowCache[id] = WindowEntry(pid: pid, title: title, composer: composer)
+            // Every window is watched for closing (an app whose last window closes leaves the list).
+            watch(w, id: id, pid: pid)
             if composer {
                 wins.append(ScannedWindow(id: id, title: title, z: z[id] ?? 1000 + wins.count))
-                watch(w, id: id, pid: pid)
             }
         }
         // Windows on other desktops: Accessibility can't see them, the window server can. Keep
@@ -435,7 +449,8 @@ final class TargetScanner: @unchecked Sendable {
         pendingList = list
         publishWork?.cancel()
         // Apps opening or closing go out quickly; a new order or a retitled window can wait.
-        let delay = (added || forcePublish) ? 0.25 : max(0.5, 5 - Date().timeIntervalSince(lastPublish))
+        let removed = !Set(published.map(\.id)).isSubset(of: Set(list.map(\.id)))
+        let delay = removed ? 0.05 : (added || forcePublish) ? 0.25 : max(0.5, 5 - Date().timeIntervalSince(lastPublish))
         let w = DispatchWorkItem { [weak self] in self?.publishNow() }
         publishWork = w
         queue.asyncAfter(deadline: .now() + delay, execute: w)
@@ -513,6 +528,15 @@ final class TargetScanner: @unchecked Sendable {
         AXObserverAddNotification(obs, window, kAXUIElementDestroyedNotification as CFString, refcon)
         AXObserverAddNotification(obs, window, kAXTitleChangedNotification as CFString, refcon)
         watched[pid, default: []].insert(id)
+    }
+
+    /// An app listed with nowhere to type: its windows are watched for closing all the same.
+    private func observeWindows(_ pid: pid_t) {
+        attach(pid)
+        for w in AX.windows(AX.app(pid)) {
+            guard AX.subrole(w) == (kAXStandardWindowSubrole as String), let id = AX.windowID(w) else { continue }
+            watch(w, id: id, pid: pid)
+        }
     }
 
     private func detach(_ pid: pid_t) {

@@ -368,8 +368,13 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     private func targetsChanged(_ list: [LiveTarget]) {
         targetsKnown = true
+        if list.count != targets.count {
+            log.add("send to list: \(list.count) places, \(list.filter(\.typeable).count) with somewhere to type")
+        }
         targets = list
         if !connected.isEmpty { server.broadcastTargets(list) }
+        // A window opened or closed: Every Window follows now, not on its next two-second look.
+        if everyWindowTimer != nil { sendEveryWindow() }
         normalizeSelection(list)
     }
 
