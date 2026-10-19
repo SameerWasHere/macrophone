@@ -114,18 +114,23 @@ struct QuickControls: View {
     var body: some View {
         let target = model.selection.target
         VStack(spacing: 0) {
+            // Condensed (Oct 19 2026, Sameer: "the send to block … is a bit tall"): Send after
+            // pasting and Cleanup share one row under the places; what a choice does is said by the
+            // status line under the mic when it's made, and by each Cleanup level in its menu.
             if model.isPaired {
                 PlacesRow(current: target, compact: compact)
                 PanelDivider()
-                SendAfterPastingRow(target: target, compact: compact)
-            } else if showNudge {
-                MacAppNudge { withAnimation(Motion.pick(Motion.depart, reduce: reduceMotion)) { macNudgeDismissed = true } }
-                    .transition(.opacity)
+                OptionsRow(settings: settings, target: target, compact: compact) { model.sheet = .customCleanup }
             } else {
-                UnpairedPlace()
+                if showNudge {
+                    MacAppNudge { withAnimation(Motion.pick(Motion.depart, reduce: reduceMotion)) { macNudgeDismissed = true } }
+                        .transition(.opacity)
+                } else {
+                    UnpairedPlace()
+                }
+                PanelDivider()
+                OptionsRow(settings: settings, target: nil, compact: compact) { model.sheet = .customCleanup }
             }
-            PanelDivider()
-            CleanupRow(settings: settings, compact: compact) { model.sheet = .customCleanup }
         }
         .controlPanel(glow: glow)
         .padding(.horizontal, Space.margin)
@@ -164,6 +169,15 @@ struct PlacesRow: View {
             // window's title) takes the whole width under them instead of wrapping to six
             // lines beside them (Oct 18 2026).
             ViewThatFits(in: .horizontal) {
+                // One line: SEND TO Claude, then the round icons.
+                HStack(alignment: .center, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        kicker.fixedSize()
+                        title(current, notOpen: notOpen, answered: answered).fixedSize()
+                    }
+                    Spacer(minLength: 0)
+                    buttons(current, notOpen: notOpen)
+                }
                 HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 1) {
                         // Whole, or this layout doesn't fit (it had wrapped to "SEND / TO" beside
@@ -218,8 +232,8 @@ struct PlacesRow: View {
             .accessibilityLabel("Places on your Mac")
             .accessibilityIdentifier("places")
         }
-        .padding(.top, compact ? 10 : 14)
-        .padding(.bottom, compact ? 6 : 10)
+        .padding(.top, compact ? 8 : 12)
+        .padding(.bottom, compact ? 4 : 8)
         .opacity(model.isConnected ? 1 : 0.8)
     }
 
@@ -492,6 +506,126 @@ private struct UnpairedPlace: View {
 // MARK: Send after pasting
 
 /// The native switch with its whole name (what it does for this place is the VoiceOver hint).
+/// Send after pasting and Cleanup on one line (Oct 19 2026): the switch, then the level as a
+/// small menu — each level with its line, and Edit Custom Instructions under Custom. When the two
+/// don't fit side by side (a small phone, large text) they stack, still without the old kicker and
+/// caption lines. Without a Mac only Cleanup shows.
+struct OptionsRow: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var settings: Settings
+    /// The place picked; nil while unpaired (no Send after pasting).
+    var target: TargetRef?
+    var compact = false
+    var onEditCustom: () -> Void
+
+    var body: some View {
+        Group {
+            if let target {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        sendSwitch(target).fixedSize()
+                        Spacer(minLength: 0)
+                        CleanupMenu(settings: settings, onEditCustom: onEditCustom).fixedSize()
+                    }
+                    // The level alone beside the switch ("✦ Medium ⌄"; VoiceOver still says Cleanup).
+                    HStack(spacing: 10) {
+                        sendSwitch(target).fixedSize()
+                        Spacer(minLength: 0)
+                        CleanupMenu(settings: settings, short: true, onEditCustom: onEditCustom).fixedSize()
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        sendSwitch(target)
+                        CleanupMenu(settings: settings, onEditCustom: onEditCustom)
+                    }
+                }
+            } else {
+                HStack {
+                    Spacer(minLength: 0)
+                    CleanupMenu(settings: settings, onEditCustom: onEditCustom)
+                }
+            }
+        }
+        .padding(.horizontal, Space.inset)
+        .padding(.vertical, compact ? 6 : 9)
+    }
+
+    private func sendSwitch(_ target: TargetRef) -> some View {
+        let enabled = target.canSend
+        let on = enabled && model.sendSetting(for: target)
+        return Toggle(isOn: Binding(get: { on }, set: { new in
+            Haptics.tick()
+            withAnimation(Motion.snap) { model.setSend(new, for: target) }
+            model.explain(Places.sentence(for: target, send: new))
+        })) {
+            Text("Send after pasting")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
+        }
+        .toggleStyle(.switch)
+        .tint(Light.cyan)
+        .disabled(!enabled)
+        // VoiceOver hears what it is and what it does here (or why it can't).
+        .accessibilityLabel("Send after pasting. \(Places.sendDetail(target, in: model))")
+        .accessibilityIdentifier("send-toggle")
+    }
+}
+
+/// Cleanup as a small glass menu: "✦ Medium ⌄"; inside, each level with what it does, and Edit
+/// Custom Instructions when Custom is on. Unavailable (another language, no model yet): the menu
+/// says why.
+struct CleanupMenu: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var settings: Settings
+    /// Just the level beside the wand, where "Cleanup:" doesn't fit.
+    var short = false
+    var onEditCustom: () -> Void
+
+    var body: some View {
+        let available = CleanupWords.available(model, settings)
+        let level = available ? settings.cleanupLevel : .off
+        Menu {
+            if available {
+                Section("Cleanup") {
+                    ForEach(CleanupLevel.allCases) { l in
+                        Button { pick(l) } label: {
+                            if l == level { Label(l.title, systemImage: "checkmark") } else { Text(l.title) }
+                            Text(CleanupWords.line(l, edited: model.customInstructionsEdited).components(separatedBy: " — ").dropFirst().joined(separator: " — "))
+                        }
+                        .accessibilityIdentifier("cleanup-\(l.rawValue)")
+                    }
+                }
+                if level == .custom {
+                    Button(action: onEditCustom) { Label("Edit Custom Instructions…", systemImage: "pencil") }
+                        .accessibilityIdentifier("edit-custom")
+                }
+            } else {
+                Text(CleanupWords.unavailableReason(model, settings))
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "wand.and.sparkles").font(.footnote.weight(.semibold)).foregroundStyle(available ? Light.cyan : Ink.tertiary)
+                Text(available ? (short ? level.title : "Cleanup: \(level.title)") : "Cleanup off")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Ink.ink)
+                    .contentTransition(.opacity)
+                Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.secondary)
+            }
+        }
+        .nativeGlassButton()
+        .controlSize(.small)
+        .accessibilityLabel(available ? "Cleanup, \(level.title)" : "Cleanup off")
+        .accessibilityHint(available ? CleanupWords.line(level, edited: model.customInstructionsEdited) : CleanupWords.unavailableReason(model, settings))
+        .accessibilityIdentifier("cleanup-menu")
+    }
+
+    private func pick(_ l: CleanupLevel) {
+        guard l != settings.cleanupLevel else { return }
+        Haptics.tick()
+        model.setCleanupLevel(l)
+        model.explain(CleanupWords.sentence(for: l, edited: model.customInstructionsEdited))
+    }
+}
+
 struct SendAfterPastingRow: View {
     @EnvironmentObject var model: AppModel
     var target: TargetRef

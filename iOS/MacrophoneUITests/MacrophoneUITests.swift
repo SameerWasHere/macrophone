@@ -20,9 +20,24 @@ final class MacrophoneUITests: XCTestCase {
     private func sendTo(_ app: XCUIApplication) -> XCUIElement { app.descendants(matching: .any)["send-to"] }
     /// The native Send after pasting switch.
     private func sendSwitch(_ app: XCUIApplication) -> XCUIElement { app.switches["send-toggle"] }
-    /// A cleanup level's segment.
-    private func level(_ app: XCUIApplication, _ title: String) -> XCUIElement {
-        app.segmentedControls["cleanup-level"].buttons[title]
+    /// The Cleanup menu by the switch (Oct 19 2026: a menu, not a segmented row).
+    private func cleanupMenu(_ app: XCUIApplication) -> XCUIElement { app.buttons["cleanup-menu"] }
+    /// Picks a cleanup level from the menu (waiting for the panel to be back first).
+    private func pickLevel(_ app: XCUIApplication, _ title: String) {
+        tapWhenBack(cleanupMenu(app))
+        // A menu's items keep their names (not always their identifiers).
+        let item = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label BEGINSWITH %@", "cleanup-\(title.lowercased())", title)).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 3), "\(title) in the Cleanup menu")
+        item.tap()
+    }
+    /// The level the menu shows.
+    private func isLevel(_ app: XCUIApplication, _ title: String) -> Bool { cleanupMenu(app).label.contains(title) }
+    /// Edit Custom Instructions, from the menu.
+    private func editCustom(_ app: XCUIApplication) {
+        tapWhenBack(cleanupMenu(app))
+        let item = app.buttons.matching(NSPredicate(format: "identifier == 'edit-custom' OR label BEGINSWITH 'Edit Custom Instructions'")).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 3))
+        item.tap()
     }
     /// Flips the switch itself (the row is the element; the switch sits at its trailing end).
     /// Waits for the controls to be back (they step aside until a dictation has gone out), then taps.
@@ -213,31 +228,29 @@ final class MacrophoneUITests: XCTestCase {
         // The status line first: it says what changed for a few seconds only.
         XCTAssertTrue(statusContains(app, "Pastes into Messages, then sends", timeout: 3))
         XCTAssertTrue(["On", "1"].contains("\(send.value ?? "")"), "\(send.value ?? "nil")")
-        // Cleanup: Light, one tap on its segment.
-        level(app, "Light").tap()
-        XCTAssertTrue(level(app, "Light").isSelected)
+        // Cleanup: Light, from its menu.
+        pickLevel(app, "Light")
+        XCTAssertTrue(isLevel(app, "Light"))
         XCTAssertTrue(statusContains(app, "Light cleanup — Removes filler", timeout: 3))
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Light — removes filler'")).firstMatch.waitForExistence(timeout: 3),
-                      "the panel says what the level does")
         dictate(app)
         XCTAssertTrue(probe(app, contains: "target=app:com.apple.MobileSMS# send=1 cleanup=light said=0"))
         // Back to paste only, Heavy cleanup: the next one follows.
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: sendSwitch(app))
         waitForExpectations(timeout: 15)
         flip(sendSwitch(app))
-        level(app, "Heavy").tap()
+        pickLevel(app, "Heavy")
         dictate(app)
         XCTAssertTrue(probe(app, contains: "target=app:com.apple.MobileSMS# send=0 cleanup=heavy"))
         // Custom: unedited, the cleaner is told Medium's instructions.
         XCTAssertFalse(app.buttons["edit-custom"].exists, "Edit instructions only with Custom")
-        tapWhenBack(level(app, "Custom"))
-        XCTAssertTrue(level(app, "Custom").isSelected)
+        pickLevel(app, "Custom")
+        XCTAssertTrue(isLevel(app, "Custom"))
         XCTAssertTrue(statusContains(app, "Custom cleanup — Medium's instructions", timeout: 3))
         dictate(app)
         XCTAssertTrue(probe(app, contains: "cleanup=custom said=0"))
         XCTAssertTrue(probe(app, contains: "instructions=You clean up speech-to-text transcripts."))
         // Edited (Edit instructions): the next dictation follows his words.
-        tapWhenBack(app.buttons["edit-custom"])
+        editCustom(app)
         let editor = app.textViews["custom-instructions"]
         XCTAssertTrue(editor.waitForExistence(timeout: 3), "Edit instructions opens them")
         replaceText(editor, with: "Write it all in capital letters.")
@@ -247,7 +260,7 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(probe(app, contains: "cleanup=custom said=0"))
         XCTAssertTrue(probe(app, contains: "instructions=Write it all in capital letters."))
         // Emptied, it falls back to the default.
-        tapWhenBack(app.buttons["edit-custom"])
+        editCustom(app)
         XCTAssertTrue(editor.waitForExistence(timeout: 3))
         XCTAssertEqual(editor.value as? String, "Write it all in capital letters.", "saved as typed")
         replaceText(editor, with: "")
@@ -263,7 +276,8 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(sendTo(app).label.contains("Messages"), "the pick is remembered")
         dictate(app)
         XCTAssertTrue(probe(app, contains: "target=app:com.anthropic.claudefordesktop# send=0 cleanup=off said=1 text=Tell Sam I'm late"))
-        XCTAssertTrue(statusContains(app, "Copied on iPhone") || statusContains(app, "Claude", timeout: 1))
+        // No Mac in this run: copied here, or queued for the Mac (the mic pass's words), naming Claude or not.
+        XCTAssertTrue(statusContains(app, "Copied on iPhone") || statusContains(app, "queued", timeout: 1) || statusContains(app, "Claude", timeout: 1))
         XCTAssertTrue(sendTo(app).label.contains("Messages"), "a spoken name is for that one dictation")
     }
 
@@ -342,16 +356,18 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 8))
         XCTAssertFalse(send.isEnabled)
         XCTAssertTrue(send.label.contains("Clipboard only copies — pick an app to send"), send.label)
-        level(app, "Heavy").tap()
+        pickLevel(app, "Heavy")
         XCTAssertTrue(statusContains(app, "Heavy cleanup — Rewrites rambling speech", timeout: 3))
-        XCTAssertTrue(level(app, "Heavy").isSelected)
+        XCTAssertTrue(isLevel(app, "Heavy"))
         app.buttons["Where I'm typing"].tap()
         XCTAssertTrue(statusContains(app, "Pastes where you're typing on your Mac", timeout: 3))
         XCTAssertTrue(send.isEnabled)
         XCTAssertTrue(send.label.contains("Presses Return where you're typing"), send.label)
-        level(app, "Custom").tap()
+        pickLevel(app, "Custom")
         XCTAssertTrue(statusContains(app, "Custom cleanup — Medium's instructions", timeout: 3))
-        XCTAssertTrue(app.buttons["edit-custom"].waitForExistence(timeout: 3), "Edit instructions beside Custom's line")
+        cleanupMenu(app).tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == 'edit-custom' OR label BEGINSWITH 'Edit Custom Instructions'")).firstMatch.waitForExistence(timeout: 3),
+                      "Edit Custom Instructions in Custom's menu")
     }
 
     func testScreensOpen() {
