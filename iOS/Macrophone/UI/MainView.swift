@@ -15,7 +15,15 @@ struct MainView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
     @ObservedObject var watcher: Watcher
+    /// The three ways in while a window shows (Oct 19 2026): which page is up.
+    @ObservedObject private var input: MacInput
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(recorder: Recorder, watcher: Watcher) {
+        self.recorder = recorder
+        self.watcher = watcher
+        _input = ObservedObject(wrappedValue: watcher.input)
+    }
     @Environment(\.dynamicTypeSize) private var typeSize
 
     @State private var startedByPress = false
@@ -55,6 +63,10 @@ struct MainView: View {
 
     /// The top bar, header and controls: at rest, when nothing else has the area.
     private var showSettings: Bool { !showLiveWords && !watcher.isOpen }
+
+    /// The keyboard page is up in the window view: the iOS keyboard has the foot of the screen,
+    /// and the Thread steps aside so the window keeps its room.
+    private var keyboardUp: Bool { watcher.isOpen && !showLiveWords && input.page == .keyboard }
 
     var body: some View {
         GeometryReader { geo in
@@ -109,21 +121,35 @@ struct MainView: View {
                 .clipped()
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isOpen)
-                // The Thread: one band, the same place in every state.
+                // The Thread: one band, the same place in every state — folded away only while
+                // the keyboard page has the foot of the screen.
                 threadBand
-                // Room between the Thread and the mic.
-                Color.clear.frame(height: compact ? 14 : 30)
-                MicButton(recording: isRecording,
-                          finishing: isFinishing,
-                          mode: filamentMode,
-                          disabled: micOff,
-                          meter: recorder.meter,
-                          onDown: pressDown,
-                          onUp: pressUp,
-                          onAccessibilityToggle: { model.toggleRecording() })
-                statusSlot
-                    .padding(.bottom, compact ? 6 : 18)
+                    .frame(height: keyboardUp ? 0 : filamentSlot)
+                    .opacity(keyboardUp ? 0 : 1)
+                    .clipped()
+                // The mic — and, while a window shows, the keyboard and the trackpad beside it.
+                // The mic page is the same view on every page, so a hold on it is never lost.
+                InputCarousel(input: input, watcher: watcher, compact: compact) {
+                    VStack(spacing: 0) {
+                        // Room between the Thread and the mic (the page row takes some of it).
+                        Color.clear.frame(height: input.pages.count > 1 ? max(8, (compact ? 14 : 30) - InputCarouselLook.row) : (compact ? 14 : 30))
+                        MicButton(recording: isRecording,
+                                  finishing: isFinishing,
+                                  mode: filamentMode,
+                                  disabled: micOff,
+                                  meter: recorder.meter,
+                                  onDown: pressDown,
+                                  onUp: pressUp,
+                                  onAccessibilityToggle: { model.toggleRecording() })
+                        statusSlot
+                            .padding(.bottom, compact ? 6 : 18)
+                    }
+                }
+                .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: keyboardUp)
             }
+            // The keyboard and the trackpad are the window's: while the mic is open, the mic
+            // stands alone.
+            .onChange(of: showLiveWords) { _, live in if live, input.page != .mic { input.show(.mic, quiet: true) } }
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }

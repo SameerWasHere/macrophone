@@ -40,6 +40,9 @@ import MacrophoneKit
 //   mpctl serve --busy                        # the demo window changes every frame (output streaming past)
 //   mpctl serve --no-lane / any phone command --no-lane   # a Mac / a phone from before the video lane
 //   mpctl serve --permissions accessibility=off,screen=off # what this "Mac" says it's allowed to do
+//   mpctl watch --double-click 0.5,0.5 | --drag 0.2,0.5,0.6,0.5 | --hover 0.5,0.5 | --type "words" | --key cmd+shift+f5
+//              | --hold command | --app-switch   # the pointer, typing and held keys as the phone sends them (Oct 19 2026)
+//   mpctl serve --no-input                     # a Mac from before them: the phone shows no trackpad or keyboard page
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -379,6 +382,57 @@ final class ServeDelegate: LinkServerDelegate {
         stdout("WATCH CLICK \(String(format: "%.3f, %.3f", point.x, point.y))")
         lock.sync { watched[peerID] }?.click(point)
     }
+
+    // The pointer, typing and held keys (Oct 19 2026). Moves and drags are counted, not printed one
+    // by one (sixty a second); typing is a count of characters, never the words.
+    var pointerMoves = 0
+    var dragStart: CGPoint?
+    func linkServer(_ server: LinkServer, watchMouse e: WatchMouseEvent, from peerID: UUID) {
+        let demo = lock.sync { watched[peerID] }
+        let mods = e.heldModifiers.map(\.glyph).joined()
+        let at = String(format: "%.3f, %.3f", e.x, e.y)
+        switch e.kindValue {
+        case .move:
+            pointerMoves += 1
+            demo?.pointer(e.point)
+        case .click:
+            stdout("WATCH MOUSE click ×\(e.clickCount)\(e.isRight ? " right" : "")\(mods.isEmpty ? "" : " " + mods) at \(at) after \(pointerMoves) moves")
+            pointerMoves = 0
+            demo?.pointer(e.point)
+            demo?.click(e.point)
+        case .down:
+            stdout("WATCH MOUSE down\(mods.isEmpty ? "" : " " + mods) at \(at) after \(pointerMoves) moves")
+            pointerMoves = 0
+            dragStart = e.point
+            demo?.drag(from: e.point, to: e.point)
+        case .drag:
+            pointerMoves += 1
+            demo?.drag(from: dragStart, to: e.point)
+        case .up:
+            stdout("WATCH MOUSE up at \(at) after \(pointerMoves) drag moves")
+            pointerMoves = 0
+            demo?.drag(from: nil, to: e.point)
+            dragStart = nil
+        case .show, .hide:
+            stdout("WATCH MOUSE pointer \(e.kindValue == .show ? "shown" : "hidden")")
+            demo?.pointer(e.point, shown: e.kindValue == .show)
+        case nil: break
+        }
+    }
+
+    func linkServer(_ server: LinkServer, watchType t: WatchTyping, from peerID: UUID) {
+        stdout("WATCH TYPE \(t.text.count) characters, \(t.delete) deleted\(t.text.contains("\n") ? ", a return" : "")")
+        lock.sync { watched[peerID] }?.typed(t)
+    }
+
+    func linkServer(_ server: LinkServer, watchKey k: WatchKey, from peerID: UUID) {
+        stdout("WATCH KEY \(k.glyph) pressed")
+    }
+
+    func linkServer(_ server: LinkServer, watchKeyState k: WatchKey, down: Bool, from peerID: UUID) {
+        stdout("WATCH KEY \(k.glyph) \(down ? "down" : "up")")
+        lock.sync { watched[peerID] }?.held(k.glyph, down: down)
+    }
 }
 
 /// A count given out in order from any thread.
@@ -587,12 +641,15 @@ func run() async -> Int32 {
         }
         // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
         server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, WatchRightClick.feature, WatchKey.feature, WatchShape.feature, WatchWindowCommand.feature,
-                                                         ClipboardItem.feature, AttachmentChunk.feature, SaveToDownloads.feature, MacSound.feature]
+                                                         ClipboardItem.feature, AttachmentChunk.feature, SaveToDownloads.feature, MacSound.feature,
+                                                         WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature]
         // The video lane (pictures on their own connection away from home): --no-lane is a Mac from before.
         if has("--no-lane") { server.laneEnabled = false }
         server.macFeatures.append(MacPermissions.feature)
         if !has("--jpeg") { server.macFeatures += MacReachDemo.features }
         if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }
+        // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).
+        if has("--no-input") { server.macFeatures.removeAll { [WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature].contains($0) } }
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -856,6 +913,59 @@ func run() async -> Int32 {
             d.lastAction = Date()
             client.watchAction(a)
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
+        } else if has("--double-click") || has("--drag") || has("--type") || has("--key") || has("--hold") || has("--app-switch") || has("--hover") {
+            // The pointer, typing and held keys as the phone sends them (Oct 19 2026) — against
+            // `mpctl serve` or the real Mac app, to prove each on a real window.
+            func point(_ s: String?) -> CGPoint? {
+                let v = (s ?? "").split(separator: ",").compactMap { Double($0) }
+                return v.count >= 2 ? CGPoint(x: v[0], y: v[1]) : nil
+            }
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 3 * 1e9))
+            d.lastAction = Date()
+            if let p = point(flag("--double-click")) {
+                stdout("MOUSE double-click at \(p.x), \(p.y): \(client.watchMouse(WatchMouseEvent(.click, at: p, count: 1)))")
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                client.watchMouse(WatchMouseEvent(.click, at: p, count: 2))
+            }
+            if let p = point(flag("--hover")) {
+                stdout("MOUSE pointer shown, hover to \(p.x), \(p.y)")
+                client.watchMouse(WatchMouseEvent(.show, at: p))
+                client.watchMouse(WatchMouseEvent(.move, at: p))
+            }
+            if let v = flag("--drag").map({ $0.split(separator: ",").compactMap { Double($0) } }), v.count == 4 {
+                let from = CGPoint(x: v[0], y: v[1]), to = CGPoint(x: v[2], y: v[3])
+                stdout("MOUSE drag \(from.x), \(from.y) → \(to.x), \(to.y)")
+                client.watchMouse(WatchMouseEvent(.down, at: from))
+                for i in 1...20 {
+                    let k = Double(i) / 20
+                    client.watchMouse(WatchMouseEvent(.drag, at: CGPoint(x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k)))
+                    try? await Task.sleep(nanoseconds: 16_000_000)
+                }
+                client.watchMouse(WatchMouseEvent(.up, at: to))
+            }
+            if let text = flag("--type") {
+                stdout("TYPE \(text.count) characters: \(client.watchType(WatchTyping(delete: 0, text: text)))")
+            }
+            if let name = flag("--key") {
+                // --key cmd+shift+f5 : the names of the keyboard's bar.
+                let parts = name.split(separator: "+").map(String.init)
+                let k = WatchKey(parts.last ?? "", command: parts.contains("cmd"), shift: parts.contains("shift"), control: parts.contains("ctrl"), option: parts.contains("opt"))
+                stdout("KEY \(k.glyph): \(client.watchKey(k))")
+            }
+            if let name = flag("--hold") {
+                stdout("HOLD \(name) for a second: \(client.watchKeyState(WatchKey(name), down: true))")
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                client.watchKeyState(WatchKey(name), down: false)
+            }
+            if has("--app-switch") {
+                stdout("APP SWITCH: ⌘ held, Tab, ⌘ let go after a second")
+                client.watchKeyState(WatchKey("command"), down: true)
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                client.watchKey(WatchKey("tab"))
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                client.watchKeyState(WatchKey("command"), down: false)
+            }
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 2 / 3 * 1e9))
         } else {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
         }

@@ -183,10 +183,12 @@ public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
         public var id: String { title }
     }
 
-    /// The phone's menu, by what you're doing; the digits last, as one row.
+    /// The phone's menu, by what you're doing; the digits last, as one row. (Oct 19 2026: Space and
+    /// Delete left — they're the keyboard page's own; the Mac section, `WatchKey.macSection`, is
+    /// appended by `menuSections` for a Mac that can hold keys.)
     public static let sections: [Section] = [
         Section(title: "Agents & Terminal", keys: [.controlC, .shiftTab, .tab, WatchKey("l", control: true)]),
-        Section(title: "Typing", keys: [.commandReturn, WatchKey("return", shift: true), .space, .delete, WatchKey("delete", option: true)]),
+        Section(title: "Typing", keys: [.commandReturn, WatchKey("return", shift: true), WatchKey("delete", option: true)]),
         Section(title: "Edit", keys: [.commandZ, WatchKey("z", command: true, shift: true), WatchKey("a", command: true),
                                       WatchKey("c", command: true), WatchKey("v", command: true)]),
         Section(title: "Move", keys: [WatchKey("left"), WatchKey("right"), WatchKey("pageup"), WatchKey("pagedown"),
@@ -197,6 +199,13 @@ public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
     /// What it does, in a word or two — the menu's line.
     public var title: String {
         switch (key, command, shift, control, option) {
+        case ("space", true, false, false, false): return "Spotlight"
+        case ("tab", true, false, false, false): return "Switch App"
+        case ("grave", true, false, false, false): return "Next Window"
+        case ("up", false, false, true, false): return "Mission Control"
+        case ("f11", false, false, false, false): return "Show Desktop"
+        case ("left", false, false, true, false): return "Desktop to the Left"
+        case ("right", false, false, true, false): return "Desktop to the Right"
         case ("c", false, false, true, false): return "Interrupt"
         case ("tab", false, true, false, false): return "Switch Mode"
         case ("tab", false, false, false, false): return "Tab"
@@ -237,7 +246,21 @@ public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
         case "down": k = "↓\u{FE0E}"
         case "pageup": k = "⇞"
         case "pagedown": k = "⇟"
-        default: k = key.uppercased()
+        case "escape": k = "esc"
+        case "forwarddelete": k = "⌦"
+        case "home": k = "↖\u{FE0E}"
+        case "end": k = "↘\u{FE0E}"
+        case "enter": k = "⌤"
+        case "help": k = "?⃝"
+        case "capslock": k = "⇪"
+        case "fn": k = "fn"
+        case "command", "rightcommand": k = "⌘"
+        case "shift", "rightshift": k = "⇧"
+        case "option", "rightoption": k = "⌥"
+        case "control", "rightcontrol": k = "⌃"
+        default:
+            if let sign = MacKeys.signs.first(where: { $0.name == key }) { k = sign.glyph }
+            else { k = key.uppercased() }
         }
         return mods + k
     }
@@ -261,6 +284,29 @@ public struct WatchKey: Codable, Sendable, Hashable, Identifiable {
         case "down": k = "Down Arrow"
         case "pageup": k = "Page Up"
         case "pagedown": k = "Page Down"
+        case "escape": k = "Escape"
+        case "forwarddelete": k = "Forward Delete"
+        case "home": k = "Home"
+        case "end": k = "End"
+        case "enter": k = "Enter"
+        case "help": k = "Help"
+        case "capslock": k = "Caps Lock"
+        case "fn": k = "Function"
+        case "command", "rightcommand": k = "Command"
+        case "shift", "rightshift": k = "Shift"
+        case "option", "rightoption": k = "Option"
+        case "control", "rightcontrol": k = "Control"
+        case "grave": k = "Backtick"
+        case "minus": k = "Minus"
+        case "equal": k = "Equals"
+        case "leftbracket": k = "Left Bracket"
+        case "rightbracket": k = "Right Bracket"
+        case "backslash": k = "Backslash"
+        case "semicolon": k = "Semicolon"
+        case "quote": k = "Quote"
+        case "comma": k = "Comma"
+        case "period": k = "Period"
+        case "slash": k = "Slash"
         default: k = key.uppercased()
         }
         parts.append(k)

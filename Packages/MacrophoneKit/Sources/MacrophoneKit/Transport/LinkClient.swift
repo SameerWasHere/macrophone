@@ -727,7 +727,7 @@ public final class LinkClient: @unchecked Sendable {
         case .showPermissions:
             break
         case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
-             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl:
+             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState:
             break
         }
     }
@@ -997,6 +997,40 @@ public final class LinkClient: @unchecked Sendable {
     public func watchRightClick(_ p: CGPoint) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchRightClick.feature) ? session : nil }) else { return false }
         Task { try? await s.send(.watchRightClick(x: Double(p.x), y: Double(p.y))) }
+        return true
+    }
+
+    /// The connected Mac takes the pointer: clicks with a count and modifiers, drags, hover.
+    public var canMouse: Bool { lock.sync { session != nil && macFeatures.contains(WatchMouse.feature) } }
+
+    /// The pointer on the watched window (only to a Mac that can). False when it wasn't sent.
+    @discardableResult
+    public func watchMouse(_ e: WatchMouseEvent) -> Bool {
+        guard e.isValid, let s = lock.sync({ macFeatures.contains(WatchMouse.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchMouse(e)) }
+        return true
+    }
+
+    /// The connected Mac types what the phone's keyboard does.
+    public var canType: Bool { lock.sync { session != nil && macFeatures.contains(WatchTyping.feature) } }
+
+    /// Characters to delete, then type, in the watched window (only to a Mac that can). False
+    /// when it wasn't sent.
+    @discardableResult
+    public func watchType(_ t: WatchTyping) -> Bool {
+        guard t.isValid, !t.isEmpty, let s = lock.sync({ macFeatures.contains(WatchTyping.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchType(t)) }
+        return true
+    }
+
+    /// The connected Mac holds keys down and knows every key by name.
+    public var canHoldKeys: Bool { lock.sync { session != nil && macFeatures.contains(WatchKeyHold.feature) } }
+
+    /// Press a key down and hold it, or release it (only to a Mac that can). False when it wasn't sent.
+    @discardableResult
+    public func watchKeyState(_ k: WatchKey, down: Bool) -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(WatchKeyHold.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.watchKeyState(k, down: down)) }
         return true
     }
 

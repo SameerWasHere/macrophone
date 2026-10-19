@@ -18,7 +18,7 @@ replaces are marked **superseded**); the sections below keep the mechanics and t
 | Feature | iPhone | Mac |
 | --- | --- | --- |
 | **Send to** (the shared choice, "Send to" everywhere — never "Send To") | The controls panel by the mic: `SEND TO` kicker, the pick's name, a row of app icons only (a long press lists an app's windows), **+** at the end = Open an App (the only way to open one that isn't open), **⋯** = Send a Photo… · Send a File… · Copy Mac's Clipboard · Send Clipboard to Mac · Refresh Open Apps. Settings › Send to is the full list. `UI/QuickControls.swift`, `UI/SendTo.swift`, `UI/SendToMac.swift` | The menu bar menu's Send to section (a check on the current, the first six apps, More Apps, Send after pasting as its own toggle); the `SendToCard` above every window pane; the first-run step. `UI/StatusItemController.swift`, `UI/Components/SendTo.swift` |
-| **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons. `UI/WatchPanel.swift`, `Model/Watcher.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, keys and trackpad-style scrolls; the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
+| **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, tap twice = double-click, tap then hold-and-move = drag, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons; under the Thread the **KEYBOARD · MIC · TRACKPAD** pages (Oct 19 2026). `UI/WatchPanel.swift`, `Model/Watcher.swift`, `UI/InputCarousel.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, drags, the pointer, typing, keys and trackpad-style scrolls (`InputService.swift`, `ScrollPoster.swift`); the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
 | **The header cluster** by Done: **zoom out** (`arrow.down.right.and.arrow.up.left`, the whole window and back), **Window** (`macwindow`) | One piece of glass; each only when the connected Mac names its feature. `UI/WatchReader.swift` is Text: your text size, selectable, Copy All, follows the newest line, asked every 2.5 s | Reader: a terminal's own text, else recognition over the column you type in (`WindowReader.swift`); `mpctl reader` |
 | **The Window menu** (in order of use) | Fit to iPhone · Text size on this iPhone (Normal · Larger · Largest, per app) · Size on your Mac (Fill the Screen `rectangle.inset.filled` · Left Half · Right Half · Middle · Back to How It Was) · Minimize · Close Window (asked first) · the photo / file / clipboard items (the same as Send to's ⋯, here because the panel is away) · Show Tips Again | `WindowFit.swift` resizes through Accessibility and restores on Done / Quit |
 | **First-use tips** (`UI/WatchTips.swift`) | Five at most, one card at a time over the window's top, each only when it works with this Mac: Tap to click / hold to right-click · Pinch to zoom, or Fit to iPhone · Swipe in from the side (two windows or more) · Pan or Scroll (auto-Scroll named)· More keys. `watch.tips.seen`; Window › Show Tips Again | — |
@@ -61,6 +61,81 @@ files from Mac to phone. Sending clipboard is good for now.") — don't build th
   `mpctl put-file <path> [--downloads] [--target …]`; `mpctl serve --save-to DIR` writes what
   arrives. UI test `testSaveToDownloadsItems` (with `TEST_RUNNER_MACROPHONE_LIVE=1` and a paired
   `mpctl serve`).
+
+## The Mac in hand: a real mouse, a trackpad and a keyboard (Oct 19 2026)
+
+Sameer: "for trackpads a keyboard we should make that available in window view with the mic as the
+default. Swiping right to left should show the trackpad and swiping left to right should open a
+full iOS keyboard that types in the Mac. They should essentially be a 3 input method carousel."
+
+- **The carousel** (`UI/InputCarousel.swift`, `Model/MacInput.swift`): the area under the Thread,
+  where the mic sits, is three pages — KEYBOARD · MIC · TRACKPAD — with a mono row above saying
+  where you are (a tap goes there; one VoiceOver element, adjustable). The mic is the default every
+  time the window view opens. A swipe **beside** the mic (never on it — a hold there is a dictation)
+  slides right-to-left to the trackpad, left-to-right to the keyboard; the trackpad takes every
+  finger for the pointer, so its way back is the row or a swipe in from its left edge; the
+  keyboard page is a 44pt strip above the iOS keyboard, and the Thread folds away meanwhile so the
+  window keeps its room. The mic page is the same view on every page (a hold on it is never lost to
+  a page change); recording forces the mic page. A page shows only when the Mac named its
+  feature in the welcome — a Mac from before has the mic alone and no row.
+- **Gestures on the window** (`ViewerScrollView`, `WatchPanel.swift`) — chosen so today's stay:
+  tap = click, hold = right-click, two fingers = right-click, pinch = zoom, swipe = pan/scroll.
+  **A second tap within 0.35 s near the first is sent as click 2** (a third as 3) — the first
+  tap still goes at once, nothing waits to see whether a second comes; the Mac posts it with
+  `clickState` 2, which is how a real double-click is counted. **A tap, then a hold that moves =
+  drag** (press at the hold, moves follow, release on lift — select text, move a window, a slider, a
+  file); a hold with no tap before it is the right-click, as before. The keyboard page's sticky
+  ⌘ ⌥ ⌃ ⇧ go on the next key *or the next click/tap* (⌘-click, ⇧-click).
+- **The trackpad** (`UI/TrackpadView.swift`, raw touches): one finger moves a pointer drawn in the
+  window as a cyan ring (faster when the finger is — `TrackpadMotion`, 1× slow to 3.4× flicking);
+  tap = click, tap-tap = double, tap then hold-and-move = drag (a plain hold that stays also
+  starts one), two-finger tap = right-click, two fingers moving = scroll under the pointer (the
+  window's `ScrollPoster` path, with the coast). The pointer is the phone's (`TrackpadPointer`, a
+  fraction of the window; the Mac is told the place, never a delta, so they never drift), kept in
+  view when zoomed in, and the Mac draws its own cursor into the stream while the page is up
+  (`WindowStream.setCursor`, `watchMouse` show/hide) and never puts it back after a click there —
+  which is what makes hover work.
+- **The keyboard** (`UI/MacKeyboardView.swift`): a hidden `UITextView` takes what iOS inserts and
+  deletes; the difference from what it held goes as `watchType(delete: N, text:)` (`TypingDiff` —
+  autocorrect's "teh " → "the " is 2 deletes and "he "; a delete on an empty field still sends one;
+  marked text waits for the composition). The Mac types it as unicode events (`TypingPlan`: ≤20
+  UTF-16 units each, never splitting a character; Return and Tab as the keys). No clipboard. The
+  bar above the keys (`inputAccessoryView`): esc · ⇥ | ⌘ ⌥ ⌃ ⇧ (sticky, one-shot) | arrows (hold
+  to repeat) | **fn** (F1–F20, Home/End/Page/Forward Delete/Help, and the Mac's own moves) | hide.
+  Smart quotes and dashes off, no auto-capitals (a terminal), autocorrect on.
+- **Every key, and keys held** (`WatchKeyHold`, `watchKeyState`): the Mac maps the whole keyboard
+  by name (`KeyCodes` in `Mac/App/Watch/InputService.swift` — letters, digits and signs found on
+  the current layout, F1–F20, fn, caps lock, both of every modifier) and holds a key down until
+  released (`HeldKeys`; let go by itself after 30 s, on stop, on disconnect). **Switch App** is ⌘
+  held, Tab, and ⌘ let go 1.1 s after the last tap (tap again to step on). Spotlight ⌘Space,
+  Mission Control ⌃↑, Show Desktop F11, Desktop ←/→ ⌃←/→, Next Window ⌘` are
+  `WatchKey.macSection` — in the keyboard's fn menu and the window's ··· menu (last section, only
+  with a Mac that holds keys). The ··· menu lost Space and Delete (the keyboard's own).
+- **The wire** (`Packages/MacrophoneKit/Core/Input.swift`, tests in `InputTests.swift`): three
+  messages, three Mac features — `"mouse"` `watchMouse(WatchMouseEvent)` (kind as words: move ·
+  click · down · drag · up · show · hide; count 1–3; modifiers by name; an unknown kind is ignored,
+  never a session's end), `"typing"` `watchType(WatchTyping)`, `"keyHold"` `watchKeyState(key,
+  down)`. Mouse events ride `LinkServer.watchInput` straight from the receive loop (as swipes do)
+  to `InputPoster`, per watch, on its own queue; typing and held keys go through `act` (the window
+  brought forward first). Old phones' `watchClick` / `watchRightClick` now take the same poster.
+- **Speed.** A click is a move, a down and an up 8 ms apart — the old one slept 40 + 50 + 150 ms.
+  The pointer is put back 0.1 s later by a timer, never in the next input's way (and not at all
+  while the trackpad is up). A window not on top at the spot (or not its app in front) is raised
+  first and the click waits for that — the one wait left, only when needed (the whole screen polls
+  the raise up to 0.2 s instead of sleeping 120 ms).
+- **Hooks.** `MACROPHONE_WATCH_ACTIONS=page@trackpad,point@80@40,click@2,rclick,drag@60@0,
+  tap@0.5@0.5@2,page@keyboard,type@words,mod@command,key@cmd+shift+f5,appswitch,page@mic`
+  (env vars reach `simctl launch` as `SIMCTL_CHILD_…`). `mpctl serve` names the features
+  (`--no-input` is a Mac from before), prints `WATCH MOUSE click ×2 ⌘ at x, y after N moves`,
+  `WATCH TYPE N characters, M deleted` (counts, never the words), `WATCH KEY ⌘ down`, and draws
+  the pointer, a drag's line and "typed N" in its demo window. `mpctl watch --double-click x,y |
+  --drag x1,y1,x2,y2 | --hover x,y | --type "words" | --key cmd+shift+f5 | --hold command |
+  --app-switch` sends each as the phone does — to `serve` or the real Mac app. The UI test
+  `InputCarouselUITests` swipes the real pages on the simulator (needs a paired `mpctl serve`).
+- **Needs a real-Mac check:** a double-click opening a file in Finder and selecting a word in
+  TextEdit; a drag moving a window by its title bar; the trackpad's pointer hovering a toolbar
+  tooltip; typing an emoji and an autocorrected word into TextEdit and into Terminal; ⌘Tab
+  switching apps; a sticky ⌘ with a tap (⌘-click).
 
 ## The window in hand (Oct 18 2026, the third polish pass — iOS only)
 

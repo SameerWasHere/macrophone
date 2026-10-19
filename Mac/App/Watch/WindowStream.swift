@@ -33,31 +33,44 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     static let videoRate = 60
     static let remoteVideoRate = 24
     private let maxRate: Int
+    private var maxWidth: CGFloat
     /// Frames for a video encoder come as the chip takes them (Y′CbCr planes, full range): no
     /// conversion before the encode, and the change sample reads the brightness plane. Pictures
     /// come as BGRA, which a JPEG is made from.
     let video: Bool
+    /// The pointer drawn in the picture (Oct 19 2026): while the phone's trackpad is in use.
+    private(set) var showsCursor: Bool
 
-    init(window: SCWindow, maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false) {
+    init(window: SCWindow, maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false, showsCursor: Bool = false) {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         scale = CGFloat(filter.pointPixelScale)
         self.maxRate = maxRate
         self.video = video
-        let (cfg, size) = Self.configuration(for: window.frame.size, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video)
+        self.showsCursor = showsCursor
+        self.maxWidth = maxWidth
+        let (cfg, size) = Self.configuration(for: window.frame.size, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
         self.size = size
         windowSize = window.frame.size
         stream = SCStream(filter: filter, configuration: cfg, delegate: nil)
         super.init()
     }
 
-    private static func configuration(for window: CGSize, scale: CGFloat, maxWidth: CGFloat, maxRate: Int, video: Bool) -> (SCStreamConfiguration, (Int, Int)) {
+    /// The pointer shown in the picture, or not (the phone's trackpad came or went).
+    func setCursor(shown: Bool) async {
+        guard shown != showsCursor else { return }
+        showsCursor = shown
+        let (cfg, _) = Self.configuration(for: windowSize, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: shown)
+        try? await stream.updateConfiguration(cfg)
+    }
+
+    private static func configuration(for window: CGSize, scale: CGFloat, maxWidth: CGFloat, maxRate: Int, video: Bool, cursor: Bool = false) -> (SCStreamConfiguration, (Int, Int)) {
         let cfg = SCStreamConfiguration()
         let pxW = max(1, window.width * scale), pxH = max(1, window.height * scale)
         let k = min(1, maxWidth / pxW)
         // Even sizes: what a video encoder takes whole.
         cfg.width = max(2, Int(pxW * k) & ~1)
         cfg.height = max(2, Int(pxH * k) & ~1)
-        cfg.showsCursor = false
+        cfg.showsCursor = cursor
         cfg.ignoreShadowsSingleWindow = true
         cfg.pixelFormat = video ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_32BGRA
         if video { cfg.colorSpaceName = CGColorSpace.sRGB }
@@ -78,13 +91,15 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     /// The whole main display (DesktopWatch), leaving out `excluding` (Macrophone's own popup).
-    init(display: SCDisplay, excluding: [SCWindow], maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false) {
+    init(display: SCDisplay, excluding: [SCWindow], maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false, showsCursor: Bool = false) {
         let filter = SCContentFilter(display: display, excludingWindows: excluding)
         scale = CGFloat(filter.pointPixelScale)
         self.maxRate = maxRate
         self.video = video
+        self.showsCursor = showsCursor
+        self.maxWidth = maxWidth
         let points = CGSize(width: display.width, height: display.height)
-        let (cfg, size) = Self.configuration(for: points, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video)
+        let (cfg, size) = Self.configuration(for: points, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
         self.size = size
         windowSize = points
         stream = SCStream(filter: filter, configuration: cfg, delegate: nil)
@@ -94,7 +109,8 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// The window was resized: pictures follow its new shape.
     func resize(to window: CGSize, maxWidth: CGFloat) async {
         guard window != windowSize else { return }
-        let (cfg, size) = Self.configuration(for: window, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video)
+        self.maxWidth = maxWidth
+        let (cfg, size) = Self.configuration(for: window, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
         windowSize = window
         self.size = size
         try? await stream.updateConfiguration(cfg)

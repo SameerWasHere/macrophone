@@ -217,6 +217,16 @@ public enum Message: Codable, Sendable {
     case macControl(MacControl)
     /// Mac → phone: what that key did (the volume it reads back), in a plain line.
     case macControlDone(MacControlResult)
+    /// Phone → Mac: the pointer on the watched window — moved, clicked (with a count and
+    /// modifiers), pressed, dragged, released, shown or hidden (only to a Mac naming
+    /// WatchMouse.feature).
+    case watchMouse(WatchMouseEvent)
+    /// Phone → Mac: what the iPhone's keyboard did — characters deleted, then typed (only to a
+    /// Mac naming WatchTyping.feature).
+    case watchType(WatchTyping)
+    /// Phone → Mac: a key or a modifier pressed down and held, or released (only to a Mac naming
+    /// WatchKeyHold.feature).
+    case watchKeyState(WatchKey, down: Bool)
     // Either way
     case ping
     case pong

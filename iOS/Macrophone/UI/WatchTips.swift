@@ -43,6 +43,14 @@ struct WatchTip: Identifiable, Equatable {
     static let keys = WatchTip(id: "keys", symbol: "ellipsis",
                                title: "More keys",
                                detail: "Interrupt, Undo, Send, the arrows and more are behind ··· beside Return.")
+    /// With a Mac that takes the pointer: the same first tip names the double-click and the drag.
+    static let mouse = WatchTip(id: "click", symbol: "hand.tap",
+                                title: "Tap to click, hold to right-click",
+                                detail: "Tap twice for a double-click. Tap, then hold and move, to drag. Hold — or tap with two fingers — for a right-click.")
+    /// The keyboard and the trackpad beside the mic (Oct 19 2026).
+    static let input = WatchTip(id: "input", symbol: "rectangle.and.hand.point.up.left",
+                                title: "Swipe the mic for a trackpad or keyboard",
+                                detail: "Swipe right to left beside the mic for a trackpad; left to right for the keyboard, typing straight into your Mac. Or tap the words above the mic.")
 }
 
 enum WatchTips {
@@ -73,12 +81,13 @@ struct WatchTipCard: View {
     /// In the order they're met: the first tap, the picture, the other windows, the switch under
     /// the thumb, the ··· — each only when it works with this Mac.
     private var tips: [WatchTip] {
-        var out: [WatchTip] = [watcher.canRightClick ? .click : WatchTip(id: "click", symbol: "hand.tap", title: "Tap to click",
-                                                                       detail: "A tap is a click there on your Mac.")]
+        var out: [WatchTip] = [watcher.canMouse ? .mouse : watcher.canRightClick ? .click : WatchTip(id: "click", symbol: "hand.tap", title: "Tap to click",
+                                                                                                  detail: "A tap is a click there on your Mac.")]
         out.append(watcher.canFitToPhone ? .zoomAndFit : .zoom)
         if sessions > 1 { out.append(.swipe) }
         if watcher.macCanScroll { out.append(.scroll) }
         if watcher.canPressKeys { out.append(.keys) }
+        if watcher.input.pages.count > 1 { out.append(.input) }
         return out
     }
 

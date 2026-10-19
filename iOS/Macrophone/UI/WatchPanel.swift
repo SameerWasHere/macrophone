@@ -405,7 +405,15 @@ struct WatchKicker: View {
 /// The window itself — a screen set in a bezel, with what's going on laid over it when it isn't live.
 struct WatchWindow: View {
     @ObservedObject var watcher: Watcher
+    /// The pointer and the modifiers (Oct 19 2026): the viewer draws the pointer and keeps it in view.
+    @ObservedObject private var input: MacInput
     var interactive: Bool
+
+    init(watcher: Watcher, interactive: Bool) {
+        self.watcher = watcher
+        self.interactive = interactive
+        _input = ObservedObject(wrappedValue: watcher.input)
+    }
     /// A moment of words after the Pan | Scroll switch flips or Aa changes: what happens now.
     @State private var dragNote: String?
     @State private var dragNoteTask: Task<Void, Never>?
@@ -427,8 +435,11 @@ struct WatchWindow: View {
                              interactive: interactive && watcher.phase == .live,
                              drag: watcher.drag, phased: watcher.macCanScroll,
                              viewKey: interactive ? watcher.viewKey : nil,
+                             pointer: interactive && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
+                             canDrag: interactive && watcher.canMouse,
                              onTouch: { watcher.touch() },
-                             onTap: { watcher.click($0) }, onRightClick: { watcher.rightClick($0) }, whole: watcher.wholeWindow,
+                             onTap: { watcher.click($0, count: $1) }, onRightClick: { watcher.rightClick($0) },
+                             onDrag: { watcher.windowDrag($0, at: $1) }, whole: watcher.wholeWindow,
                              onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
                              onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } },
@@ -437,7 +448,8 @@ struct WatchWindow: View {
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
-                        : "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Swipe to scroll the window on your Mac; two fingers move the picture.") : "")
+                        : "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Swipe to scroll the window on your Mac; two fingers move the picture.")
+                        + (watcher.canMouse ? " Tap twice for a double-click; tap, then hold and move, to drag." : "") : "")
                     .accessibilityAddTraits(.isImage)
             }
             // A switch: the last window's picture stays, dimmed, until the new one's first frame.
@@ -938,10 +950,13 @@ struct WatchActions: View {
             // Volume, brightness and media keys (Oct 19 2026): a section of their own, first — the
             // menu opens upward, so it sits by the thumb instead of past the end of a long list.
             MacControlsMenu()
-            ForEach(WatchKey.sections) { section in
+            ForEach(watcher.input.canHoldKeys ? WatchKey.menuSections : WatchKey.sections) { section in
                 Section(section.title) {
                     ForEach(section.keys) { k in
-                        Button { watcher.press(k) } label: {
+                        Button {
+                            // The app switcher holds ⌘ (the Mac names "keyHold"); every other key is a press.
+                            if k == .appSwitcher { watcher.input.switchApp() } else { watcher.press(k) }
+                        } label: {
                             Text(k.title)
                             Text(k.glyph)
                         }
@@ -1052,10 +1067,19 @@ struct WindowViewer: UIViewRepresentable {
     var phased: Bool
     /// Where this viewer remembers the zoom you left it at (the window's, per app); nil: the strip.
     var viewKey: String? = nil
+    /// The pointer the trackpad moves (a fraction of the window), drawn over the picture; nil = none.
+    var pointer: CGPoint? = nil
+    /// Bumped with each move: the view keeps the pointer in sight.
+    var pointerSeq = 0
+    /// The Mac takes drags (a tap, then a hold that moves).
+    var canDrag = false
     var onTouch: () -> Void
-    var onTap: (CGPoint) -> Void
+    /// A tap, with its count (2 = a double-click's second click, 3 a triple's).
+    var onTap: (CGPoint, Int) -> Void
     /// A press and hold or a two-finger tap; returns whether the Mac takes right-clicks.
     var onRightClick: (CGPoint) -> Bool = { _ in false }
+    /// A drag: the button pressed, moved, released — at fractions of the window.
+    var onDrag: (WatchMouseEvent.Kind, CGPoint) -> Void = { _, _ in }
     /// The whole window on screen (the zoom-out button).
     var whole = false
     var onScroll: (CGPoint, CGVector) -> Void
@@ -1073,14 +1097,17 @@ struct WindowViewer: UIViewRepresentable {
     func updateUIView(_ v: ViewerScrollView, context: Context) {
         wire(v)
         v.viewKey = viewKey
+        v.canDrag = canDrag
         v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, generation: generation, interactive: interactive, drag: drag, phased: phased)
         v.showWhole(whole)
+        v.setPointer(pointer, seq: pointerSeq)
     }
 
     private func wire(_ v: ViewerScrollView) {
         v.onTouch = onTouch
         v.onTap = onTap
         v.onRightClick = onRightClick
+        v.onDrag = onDrag
         v.onScroll = onScroll
         v.onScrollPhase = onScrollPhase
         v.onAdjusted = onAdjusted
@@ -1108,8 +1135,21 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     private var hadPicture = false
     private var lastBounds: CGSize = .zero
     var onTouch: () -> Void = {}
-    var onTap: (CGPoint) -> Void = { _ in }
+    var onTap: (CGPoint, Int) -> Void = { _, _ in }
     var onRightClick: (CGPoint) -> Bool = { _ in false }
+    var onDrag: (WatchMouseEvent.Kind, CGPoint) -> Void = { _, _ in }
+    /// The Mac takes drags: a hold right after a tap presses the button and moves with the finger.
+    var canDrag = false
+    /// A drag is under way (the hold that began it is still down).
+    private var dragUnderWay = false
+    /// The last tap, for a double-click's count: when and where.
+    private var lastTapAt = Date.distantPast
+    private var lastTapPoint = CGPoint.zero
+    private var lastTapCount = 0
+    /// The pointer the trackpad moves, drawn as a ring on the Mac's own pointer.
+    private var pointerLayer: CAShapeLayer?
+    private var pointerSpot: CGPoint?
+    private var pointerSeq = 0
     private var holder: UILongPressGestureRecognizer!
     private var twoTapper: UITapGestureRecognizer!
     /// When a hold last right-clicked: the lift that ends it isn't also a click.
@@ -1153,7 +1193,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         // Right-click, as remote-desktop apps do it: a press and hold, or a two-finger tap.
         holder = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
         holder.minimumPressDuration = 0.45
-        holder.allowableMovement = 10
+        // A hold may move on: a drag follows the finger (a right-click's hold ignores the moves).
+        holder.allowableMovement = .greatestFiniteMagnitude
         addGestureRecognizer(holder)
         twoTapper = UITapGestureRecognizer(target: self, action: #selector(twoTapped(_:)))
         twoTapper.numberOfTouchesRequired = 2
@@ -1438,10 +1479,100 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         return (0...1).contains(n.x) && (0...1).contains(n.y) ? n : nil
     }
 
+    /// A hold: a right-click — or, right after a tap (within 0.5 s, near it), a drag: the button
+    /// pressed where the finger is, moved with it, released when it lifts.
     @objc private func held(_ g: UILongPressGestureRecognizer) {
-        guard g.state == .began, let n = spot(g) else { return }
-        heldAt = Date()
-        if onRightClick(n) { ring(at: g.location(in: self), right: true) }
+        switch g.state {
+        case .began:
+            guard let n = spot(g) else { return }
+            let p = g.location(in: self)
+            if canDrag, Date().timeIntervalSince(lastTapAt) < 0.5, abs(p.x - lastTapPoint.x) + abs(p.y - lastTapPoint.y) < 30 {
+                dragUnderWay = true
+                hidePressMark()
+                onDrag(.down, n)
+                return
+            }
+            heldAt = Date()
+            if onRightClick(n) { ring(at: p, right: true) }
+        case .changed:
+            guard dragUnderWay else { return }
+            onDrag(.drag, clampedSpot(g))
+        case .ended, .cancelled, .failed:
+            guard dragUnderWay else { return }
+            dragUnderWay = false
+            onDrag(.up, clampedSpot(g))
+            ring(at: g.location(in: self))
+        default: break
+        }
+    }
+
+    /// Where a gesture is, as fractions of the window, held inside it (a drag may leave the picture).
+    private func clampedSpot(_ g: UIGestureRecognizer) -> CGPoint {
+        guard imageSize.width > 0 else { return .zero }
+        let p = g.location(in: canvas)
+        return CGPoint(x: min(max(p.x / imageSize.width, 0), 1), y: min(max(p.y / imageSize.height, 0), 1))
+    }
+
+    // MARK: The pointer (the trackpad's)
+
+    /// The pointer, as a fraction of the window: a ring drawn on it; a move (a new `seq`) keeps it
+    /// in sight, scrolling the view as little as needed. Nil takes the ring away.
+    func setPointer(_ p: CGPoint?, seq: Int) {
+        pointerSpot = p
+        guard let p, imageSize.width > 0 else {
+            pointerLayer?.removeFromSuperlayer()
+            pointerLayer = nil
+            return
+        }
+        if pointerLayer == nil {
+            let r: CGFloat = 11
+            let l = CAShapeLayer()
+            l.path = UIBezierPath(ovalIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)).cgPath
+            l.fillColor = UIColor(Light.cyan).withAlphaComponent(0.12).cgColor
+            l.strokeColor = UIColor(Light.cyan).cgColor
+            l.lineWidth = 1.5
+            l.shadowColor = UIColor.black.cgColor
+            l.shadowOpacity = 0.5
+            l.shadowRadius = 2
+            l.shadowOffset = .zero
+            layer.addSublayer(l)
+            pointerLayer = l
+        }
+        placePointer()
+        if seq != pointerSeq {
+            pointerSeq = seq
+            keepPointerInView(CGPoint(x: p.x * imageSize.width, y: p.y * imageSize.height))
+        }
+    }
+
+    /// The ring where the pointer is, in this view's (scrolling) coordinates — again on every
+    /// scroll and zoom.
+    private func placePointer() {
+        guard let l = pointerLayer, let p = pointerSpot, imageSize.width > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        l.position = convert(CGPoint(x: p.x * imageSize.width, y: p.y * imageSize.height), from: canvas)
+        CATransaction.commit()
+    }
+
+    /// Zoomed in, the pointer stays on screen: when it nears an edge the view moves with it.
+    private func keepPointerInView(_ canvasPoint: CGPoint) {
+        guard zoomScale > 0, bounds.width > 0 else { return }
+        let p = CGPoint(x: canvasPoint.x * zoomScale, y: canvasPoint.y * zoomScale)
+        let margin: CGFloat = 28
+        var offset = contentOffset
+        let visible = CGRect(origin: CGPoint(x: contentOffset.x + contentInset.left, y: contentOffset.y + contentInset.top), size: bounds.size)
+        if p.x < visible.minX + margin { offset.x = p.x - margin - contentInset.left }
+        if p.x > visible.maxX - margin { offset.x = p.x + margin - bounds.width - contentInset.left }
+        if p.y < visible.minY + margin { offset.y = p.y - margin - contentInset.top }
+        if p.y > visible.maxY - margin { offset.y = p.y + margin - bounds.height - contentInset.top }
+        let maxX = max(-contentInset.left, contentSize.width - bounds.width + contentInset.right)
+        let maxY = max(-contentInset.top, contentSize.height - bounds.height + contentInset.bottom)
+        offset.x = min(max(offset.x, -contentInset.left), maxX)
+        offset.y = min(max(offset.y, -contentInset.top), maxY)
+        guard offset != contentOffset else { return }
+        adjusted = true
+        setContentOffset(offset, animated: false)
     }
 
     @objc private func twoTapped(_ g: UITapGestureRecognizer) {
@@ -1450,7 +1581,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     }
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
-        guard Date().timeIntervalSince(heldAt) > 1 else { return }
+        guard Date().timeIntervalSince(heldAt) > 0.3, !dragUnderWay else { return }
         guard imageSize.width > 0 else { return }
         let p = g.location(in: canvas)
         let n = CGPoint(x: p.x / imageSize.width, y: p.y / imageSize.height)
@@ -1459,8 +1590,17 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         pressMarkTask?.cancel()
         pressMark?.removeFromSuperlayer()
         pressMark = nil
-        ring(at: g.location(in: self))
-        onTap(n)
+        let here = g.location(in: self)
+        // A tap right after another, near it, is the next click of a double (then a triple):
+        // sent as its count, the way the Mac counts them — the first tap went at once, so a
+        // single click never waits to see whether a second comes.
+        let again = Date().timeIntervalSince(lastTapAt) < 0.35 && abs(here.x - lastTapPoint.x) + abs(here.y - lastTapPoint.y) < 30
+        let count = again ? min(lastTapCount + 1, 3) : 1
+        lastTapAt = Date()
+        lastTapPoint = here
+        lastTapCount = count
+        ring(at: here, right: count > 1)
+        onTap(n, count)
     }
 
     @objc private func swiped(_ g: UIPanGestureRecognizer) {
@@ -1593,7 +1733,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { adjusted = true; onTouch() }
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) { adjusted = true; onTouch() }
-    func scrollViewDidZoom(_ scrollView: UIScrollView) { centerIfSmall() }
+    func scrollViewDidZoom(_ scrollView: UIScrollView) { centerIfSmall(); placePointer() }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { placePointer() }
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { keepView(); reportWhole() }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { keepView() } }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { keepView() }

@@ -24,6 +24,8 @@ public enum WatchInput: Sendable, Equatable {
     /// Scroll at a point (fractions of the window) by a delta (fractions).
     case scroll(at: CGPoint, by: CGVector)
     case phase(WatchScrollPhase, at: CGPoint)
+    /// The pointer (Oct 19 2026): a move, a click, a drag — posted off the main actor too.
+    case mouse(WatchMouseEvent)
 }
 
 /// Where a swipe is: the finger landed, lifted; the coast after a flick began, ended.

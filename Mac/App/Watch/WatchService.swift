@@ -73,6 +73,12 @@ final class WatchService {
         var reading: Task<Void, Never>?
         /// Swipes, off the main thread.
         let poster: ScrollPoster
+        /// The pointer, typing and held keys (Oct 19 2026), off the main thread.
+        let input = InputPoster()
+        /// The phone's trackpad is in use: the stream draws the pointer.
+        var pointerShown = false
+        /// When typing was last logged (a line per sentence, not per keystroke).
+        var typedLogAt = Date.distantPast
         /// The whole screen: the app in front, as last told.
         var lastFront: FrontApp?
         /// The whole screen: the display its stream shows (Pick a display, Oct 19 2026).
@@ -152,6 +158,7 @@ final class WatchService {
     /// by the lock, not the actor.
     private nonisolated let postersLock = NSLock()
     private nonisolated(unsafe) var posters: [UUID: ScrollPoster] = [:]
+    private nonisolated(unsafe) var inputs: [UUID: InputPoster] = [:]
     private var content: SCShareableContent?
     private var contentAt = Date.distantPast
     private var askedForPermission = false
@@ -213,7 +220,42 @@ final class WatchService {
                 self.act(on: w.peer, what: "scroll", quiet: true) { _ in }
             }
         }
-        postersLock.lock(); posters[peer] = w.poster; postersLock.unlock()
+        // The pointer, typing and held keys: posted from the input's own queue. A click on a window
+        // that isn't on top (or the whole screen) first asks here to bring what's there forward.
+        w.input.onRaise = { [weak w] spot, done in
+            Task { @MainActor in
+                defer { done() }
+                guard let w, let wid = w.windowID else { return }
+                if wid == WindowServer.desktopID { await Self.raiseWindow(at: spot); return }
+                guard let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
+                _ = try? await Paster.bringToFront(running, windowID: wid, required: true, name: w.appName)
+                w.inFrontAt = Date()
+            }
+        }
+        w.input.onInput = { [weak self, weak w] what in
+            Task { @MainActor in
+                guard let self, let w else { return }
+                w.hurry()
+                if what == "key-return", let wid = w.windowID, wid != WindowServer.desktopID { self.app.replies.engaged(windowID: wid, bundleID: w.bundleID) }
+                if what == "type" {
+                    // A line per burst of typing, not per keystroke (never the words).
+                    guard Date().timeIntervalSince(w.typedLogAt) > 10 else { return }
+                    w.typedLogAt = Date()
+                }
+                self.app.log.add("watch \(what)\(w.windowID == WindowServer.desktopID ? " (whole screen)" : "")")
+                w.wake()
+            }
+        }
+        w.input.onMotion = { [weak w] in w?.pipe?.swiped() }
+        w.input.onPointerShown = { [weak self, weak w] shown in
+            Task { @MainActor in
+                guard let self, let w else { return }
+                w.pointerShown = shown
+                if let s = w.stream { await s.setCursor(shown: shown) }
+                self.app.log.add("watch pointer \(shown ? "shown" : "hidden")")
+            }
+        }
+        postersLock.lock(); posters[peer] = w.poster; inputs[peer] = w.input; postersLock.unlock()
         watches[peer] = w
         app.log.add("watching started (\(AppModel.kind(SendSelection(target: target))), \(w.wantsVideo ? "video" : "pictures"))")
         w.task = Task { [weak self] in await self?.run(w) }
@@ -224,8 +266,12 @@ final class WatchService {
         w.task?.cancel()
         w.sendTask?.cancel()
         w.reading?.cancel()
-        postersLock.lock(); posters[peer] = nil; postersLock.unlock()
+        postersLock.lock(); posters[peer] = nil; inputs[peer] = nil; postersLock.unlock()
         w.poster.stop()
+        w.input.stop()
+        if w.input.clicks + w.input.moves + w.input.typed > 0 {
+            app.log.add("watch input: \(w.input.clicks) clicks, \(w.input.moves) pointer moves, \(w.input.typed) characters typed")
+        }
         if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
         let v = w.pipe?.snapshot() ?? VideoPipe.Stats()
         let ms = (w.frameMs + v.frameMs).sorted()
@@ -308,7 +354,7 @@ final class WatchService {
             if wid == WindowServer.desktopID {
                 made = await desktopStream(w)
             } else if let scw = await scWindow(wid) {
-                made = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
+                made = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo, showsCursor: w.pointerShown)
             } else {
                 made = nil
             }
@@ -375,7 +421,7 @@ final class WatchService {
             w.focus = await Task.detached(priority: .utility) { Self.focusRect(pid: pid, windowID: wid, bundleID: bid) }.value ?? w.focus
             tellPipe(w)
         }
-        if w.poster.window != wid { w.poster.window = wid }
+        if w.poster.window != wid { w.poster.window = wid; w.input.set(window: wid, pid: w.pid) }
         return .live(appName: w.appName)
     }
 
@@ -594,7 +640,7 @@ final class WatchService {
               let display = c.displays.first(where: { $0.displayID == wanted }) ?? c.displays.first else { return nil }
         w.desktopDisplay = display.displayID
         let mine = c.windows.filter { $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier }
-        return WindowStream(display: display, excluding: mine, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
+        return WindowStream(display: display, excluding: mine, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo, showsCursor: w.pointerShown)
     }
 
     private func scWindow(_ id: CGWindowID) async -> SCWindow? {
@@ -654,53 +700,26 @@ final class WatchService {
         }
     }
 
-    /// A key beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return…), in the watched window. A key
-    /// it doesn't know is ignored.
+    /// A key beyond Esc, the arrows and Return (⌃C, Tab, ⌘Return, F5, Home…), in the watched
+    /// window — every key by name (`KeyCodes`, Oct 19 2026), with any modifier the phone holds.
+    /// A key it doesn't know is ignored.
     func press(_ k: WatchKey, for peer: UUID) {
-        guard let code = Self.keyCode(k.key) else { return }
-        var flags: CGEventFlags = []
-        if k.command { flags.insert(.maskCommand) }
-        if k.shift { flags.insert(.maskShift) }
-        if k.control { flags.insert(.maskControl) }
-        if k.option { flags.insert(.maskAlternate) }
-        // Arrows and the page keys carry the flags a real keyboard gives them.
-        if ["left", "right", "up", "down"].contains(k.key) { flags.formUnion([.maskNumericPad, .maskSecondaryFn]) }
-        if ["pageup", "pagedown", "home", "end", "forwarddelete"].contains(k.key) { flags.insert(.maskSecondaryFn) }
-        act(on: peer, what: k.key == "return" ? "key-return" : "key") { _ in Keys.press(code, flags: flags) }
+        guard KeyCodes.code(for: k.key) != nil else { return }
+        // The poster logs and hurries the next frame itself (`onInput`); `act` only brings the
+        // window forward.
+        act(on: peer, what: "key", quiet: true) { [weak self] _ in self?.watches[peer]?.input.press(k) }
     }
 
-    private static func keyCode(_ key: String) -> CGKeyCode? {
-        switch key {
-        case "tab": return CGKeyCode(kVK_Tab)
-        case "return": return CGKeyCode(kVK_Return)
-        case "space": return CGKeyCode(kVK_Space)
-        case "delete": return CGKeyCode(kVK_Delete)
-        case "escape": return CGKeyCode(kVK_Escape)
-        case "forwarddelete": return CGKeyCode(kVK_ForwardDelete)
-        case "left": return CGKeyCode(kVK_LeftArrow)
-        case "right": return CGKeyCode(kVK_RightArrow)
-        case "up": return CGKeyCode(kVK_UpArrow)
-        case "down": return CGKeyCode(kVK_DownArrow)
-        case "pageup": return CGKeyCode(kVK_PageUp)
-        case "pagedown": return CGKeyCode(kVK_PageDown)
-        case "home": return CGKeyCode(kVK_Home)
-        case "end": return CGKeyCode(kVK_End)
-        case "a": return CGKeyCode(kVK_ANSI_A)
-        case "c": return CGKeyCode(kVK_ANSI_C)
-        case "l": return CGKeyCode(kVK_ANSI_L)
-        case "v": return CGKeyCode(kVK_ANSI_V)
-        case "z": return CGKeyCode(kVK_ANSI_Z)
-        case "1": return CGKeyCode(kVK_ANSI_1)
-        case "2": return CGKeyCode(kVK_ANSI_2)
-        case "3": return CGKeyCode(kVK_ANSI_3)
-        case "4": return CGKeyCode(kVK_ANSI_4)
-        case "5": return CGKeyCode(kVK_ANSI_5)
-        case "6": return CGKeyCode(kVK_ANSI_6)
-        case "7": return CGKeyCode(kVK_ANSI_7)
-        case "8": return CGKeyCode(kVK_ANSI_8)
-        case "9": return CGKeyCode(kVK_ANSI_9)
-        default: return nil
-        }
+    /// A key pressed down and held, or released (the app switcher: ⌘ held, Tab, ⌘ let go).
+    func keyState(_ k: WatchKey, down: Bool, for peer: UUID) {
+        guard KeyCodes.code(for: k.key) != nil else { return }
+        act(on: peer, what: "key", quiet: true) { [weak self] _ in self?.watches[peer]?.input.keyState(k, down: down) }
+    }
+
+    /// What the phone's keyboard did, typed into the watched window (brought forward first, so
+    /// the characters land where he's looking).
+    func type(_ t: WatchTyping, for peer: UUID) {
+        act(on: peer, what: "type", quiet: true) { [weak self] _ in self?.watches[peer]?.input.type(t) }
     }
 
     /// Readable text (Aa): size the watched window for the phone, or put it back. The next picture
@@ -734,13 +753,17 @@ final class WatchService {
         w.wake()
     }
 
-    /// A swipe's steps and phases, straight from the link's receive loop (no main actor): to the
-    /// watch's poster, which posts them from its own queue.
-    nonisolated func scrollInput(_ peer: UUID, _ input: WatchInput) {
-        postersLock.lock(); let poster = posters[peer]; postersLock.unlock()
+    /// A swipe's steps and phases, and the pointer's moves, clicks and drags, straight from the
+    /// link's receive loop (no main actor): to the watch's posters, which post them from their own
+    /// queues. Accessibility and the lock are checked here, cheaply, as `act` does.
+    nonisolated func directInput(_ peer: UUID, _ input: WatchInput) {
+        postersLock.lock(); let poster = posters[peer]; let mouse = inputs[peer]; postersLock.unlock()
         switch input {
         case let .scroll(p, d): poster?.scroll(at: p, by: d)
         case let .phase(phase, p): poster?.phase(phase, at: p)
+        case let .mouse(e):
+            guard let mouse, InputGate.allowed else { return }
+            mouse.mouse(e)
         }
     }
 
@@ -833,33 +856,32 @@ final class WatchService {
         w.wake()
     }
 
-    /// A press and hold (or a two-finger tap) on the phone's picture: a right-click there.
+    /// A press and hold (or a two-finger tap) on the phone's picture: a right-click there. (A
+    /// phone from before "mouse"; a newer one sends `watchMouse` straight to the poster.)
     func rightClick(_ p: CGPoint, for peer: UUID) {
-        act(on: peer, what: "right click") { wid in
-            guard let b = WindowServer.bounds(of: wid) else { return }
-            await Self.click(at: CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height), right: true)
-        }
+        mouse(WatchMouseEvent(.click, at: p, right: true), for: peer)
     }
 
+    /// A tap on the phone's picture: a click there (a phone from before "mouse").
     func click(_ p: CGPoint, for peer: UUID) {
-        act(on: peer, what: "click") { [weak self] wid in
-            if wid == WindowServer.desktopID, let b = WindowServer.bounds(of: wid) {
-                // The whole screen: the window under the finger comes forward first (some apps take
-                // a first click only to activate), then the click.
-                let pt = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
-                await Self.raiseWindow(at: pt)
-                await Self.click(at: pt)
-                if let self, let w = self.watches[peer] { self.tellPipe(w); w.pipe?.sendWords() }
-                return
-            }
-            await Self.click(window: wid, at: p)
-        }
+        mouse(WatchMouseEvent(.click, at: p), for: peer)
+    }
+
+    /// The old click and right-click messages, onto the poster — the same quick path a newer
+    /// phone's `watchMouse` takes from the receive loop.
+    private func mouse(_ e: WatchMouseEvent, for peer: UUID) {
+        guard let w = watches[peer], w.windowID != nil else { return }
+        guard Paster.isTrusted else { app.log.add("watch click skipped: Accessibility not granted"); return }
+        guard !StayAwake.isLocked else { app.log.add("watch click skipped: the Mac is locked"); return }
+        w.input.mouse(e)
+        if w.windowID == WindowServer.desktopID { tellPipe(w); w.pipe?.sendWords() }
     }
 
     /// What's on top at a point on screen, brought forward when it's an app's window (with its app);
     /// the menu bar, the Dock, the desktop's icons, a menu or any other part of the system is left
     /// as it is — the click goes straight to it (Sameer: "interact with any part of the Mac. The
-    /// tool bar, icons, things on desktop. Everything").
+    /// tool bar, icons, things on desktop. Everything"). Waits only when something was raised, and
+    /// only until it's in front (at most 0.2 s).
     private static func raiseWindow(at p: CGPoint) async {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return }
         let me = ProcessInfo.processInfo.processIdentifier
@@ -876,7 +898,9 @@ final class WatchService {
             let ax = AX.app(pid)
             if let win = AX.window(in: ax, id: id) { AX.raise(win, app: ax) }
             AX.bringToFront(app)
-            try? await Task.sleep(nanoseconds: 120_000_000)
+            for _ in 0..<10 where NSWorkspace.shared.frontmostApplication?.processIdentifier != pid {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            }
             return
         }
     }
@@ -928,28 +952,23 @@ final class WatchService {
         }
     }
 
-    /// A left click at a fraction of the window. The pointer goes there for the click and is put back.
-    private static func click(window id: CGWindowID, at p: CGPoint) async {
-        guard let b = WindowServer.bounds(of: id) else { return }
-        await click(at: CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height))
-    }
-
-    /// A click at a point on screen (the right button for a right-click); the pointer goes back
-    /// where it was.
-    private static func click(at pt: CGPoint, right: Bool = false) async {
+    /// A click at a point on screen (a question card's control): a move, a down and an up, eight
+    /// milliseconds apart; the pointer goes back where it was a tenth of a second later, by a
+    /// timer — nothing waits on it.
+    private static func click(at pt: CGPoint) async {
         let original = CGEvent(source: nil)?.location
         let src = CGEventSource(stateID: .hidSystemState)
         CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
-        try? await Task.sleep(nanoseconds: 40_000_000)
-        let down = CGEvent(mouseEventSource: src, mouseType: right ? .rightMouseDown : .leftMouseDown, mouseCursorPosition: pt, mouseButton: right ? .right : .left)
+        let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)
         down?.setIntegerValueField(.mouseEventClickState, value: 1)
         down?.post(tap: .cghidEventTap)
-        try? await Task.sleep(nanoseconds: 50_000_000)
-        let up = CGEvent(mouseEventSource: src, mouseType: right ? .rightMouseUp : .leftMouseUp, mouseCursorPosition: pt, mouseButton: right ? .right : .left)
+        try? await Task.sleep(nanoseconds: 8_000_000)
+        let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)
         up?.setIntegerValueField(.mouseEventClickState, value: 1)
         up?.post(tap: .cghidEventTap)
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        if let original { CGWarpMouseCursorPosition(original) }
+        if let original {
+            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.1) { CGWarpMouseCursorPosition(original) }
+        }
     }
 
     /// A page of scrolling over the window's middle, as a few smooth steps. The pointer is moved

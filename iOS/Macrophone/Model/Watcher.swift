@@ -42,6 +42,14 @@ final class Watcher: ObservableObject {
 
     @Published private(set) var isOpen = false
     @Published private(set) var phase: Phase = .starting
+    /// The three ways in (Oct 19 2026): the keyboard, the mic, the trackpad — the page, the sticky
+    /// modifiers, the pointer.
+    let input = MacInput()
+
+    init() {
+        input.watcher = self
+        input.macFeatures = { [weak self] in self?.macFeatures() ?? [] }
+    }
     /// The last picture (a JPEG): the first of a video watch, and every one from a Mac that sends
     /// pictures.
     @Published private(set) var image: UIImage?
@@ -174,14 +182,18 @@ final class Watcher: ObservableObject {
             keysInstead = false
             fit = Self.rememberedFit(for: target)
         }
+        let opening = !isOpen
         isOpen = true
         start()
+        // The mic, every time the window view opens (a switch keeps the page).
+        if opening { input.opened() }
         log?.add("watching opened")
     }
 
     func close() {
         guard isOpen else { return }
         isOpen = false
+        input.closed()
         idleTask?.cancel()
         _ = sendWatch(nil)
         if videoFrames > 0 {
@@ -260,21 +272,43 @@ final class Watcher: ObservableObject {
         recenter &+= 1
     }
 
-    /// A tap on the picture: click there on the Mac.
-    func click(_ p: CGPoint) {
+    /// A tap on the picture: click there on the Mac — the second tap within a moment is a
+    /// double-click's second click (`count` 2), the third a triple's; any modifier waiting on the
+    /// keyboard page goes with it. A Mac from before "mouse" gets the plain click.
+    func click(_ p: CGPoint, count: Int = 1) {
         touch()
         Haptics.tick()
-        sendClick(p)
+        if !input.windowClick(p, count: count, right: false) { sendClick(p) }
+        if count > 1 { log?.add("watching: click ×\(count)") }
     }
 
     /// A press and hold (or a two-finger tap): a right-click there. False when the Mac can't.
     @discardableResult
     func rightClick(_ p: CGPoint) -> Bool {
         touch()
-        guard sendRightClick(p) else { return false }
+        if !input.windowClick(p, count: 1, right: true) {
+            guard sendRightClick(p) else { return false }
+        }
         Haptics.success()
         log?.add("watching: right-click")
         return true
+    }
+
+    /// A drag on the picture — a tap, then a hold that moves (Oct 19 2026): the button pressed
+    /// there, moved, released. Only a Mac naming "mouse" takes it.
+    func windowDrag(_ kind: WatchMouseEvent.Kind, at p: CGPoint) {
+        touch()
+        input.windowDrag(kind, at: p)
+    }
+
+    /// The Mac takes drags, double-clicks and the pointer (it named "mouse").
+    var canMouse: Bool { input.canMouse }
+
+    /// Something went to the Mac with no mark of its own on the picture (a key, typing, a drag's
+    /// end): the bezel's rim answers; `recenter` goes to the newest output too.
+    func inputSent(recenter: Bool = false) {
+        inputSeq &+= 1
+        if recenter { self.recenter &+= 1 }
     }
 
     /// The Mac takes Window menu commands (sizes, minimize, close).
@@ -538,7 +572,7 @@ final class Watcher: ObservableObject {
         // The first frame of a new window (a switch, a resize): the stale picture goes, the
         // picture under the video with it.
         if stale { stale = false; image = nil }
-        if videoSize != video.frameSize { videoSize = video.frameSize }
+        if videoSize != video.frameSize { videoSize = video.frameSize; notePictureSize(video.frameSize) }
         words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt)
         if phase != .live { phase = .live }
         #if DEBUG
@@ -577,6 +611,7 @@ final class Watcher: ObservableObject {
 
     /// Each published change re-renders every view watching this; only what changed is set.
     private func show(_ img: UIImage, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, bytes: Int, how: String) {
+        if image?.size != img.size { notePictureSize(img.size) }
         image = img
         if stale { stale = false }
         countFrame()
@@ -602,9 +637,17 @@ final class Watcher: ObservableObject {
         if self.prompt != prompt { self.prompt = prompt }
     }
 
+    /// The picture's size in pixels: the trackpad moves the pointer in the window's points, which
+    /// the phone takes as half of that (a Retina Mac).
+    private func notePictureSize(_ s: CGSize) {
+        guard s.width > 0, s.height > 0 else { return }
+        input.windowPoints = CGSize(width: s.width / 2, height: s.height / 2)
+    }
+
     /// The link came or went.
     func linkChanged(connected: Bool) {
         guard isOpen else { return }
+        input.linkChanged(connected: connected)
         if connected {
             if phase == .offline { start() }
         } else if !phase.isPaused {

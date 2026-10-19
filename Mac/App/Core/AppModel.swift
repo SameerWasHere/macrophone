@@ -122,14 +122,16 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         // What this Mac can do beyond the first version, for phones that can too.
         server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature,
                               ClipboardItem.feature, AttachmentChunk.feature, DictationPrepare.feature, DesktopWatch.feature,
-                              SaveToDownloads.feature, MacSound.feature]
+                              SaveToDownloads.feature, MacSound.feature,
+                              WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature]
         server.macFeatures.append(MacPermissions.feature)
         watchPermissions()
         // The displays, Mac Controls, Wake the Mac (Oct 19 2026, Core/MacReach.swift).
         server.macFeatures += [Displays.feature, MacControl.feature, WakeInfo.feature]
-        // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
+        // Swipes and the pointer skip the main actor: the receive loop hands each step to the
+        // watch's posters.
         let watchService = watch!
-        server.watchInput = { peer, input in watchService.scrollInput(peer, input) }
+        server.watchInput = { peer, input in watchService.directInput(peer, input) }
         startMacReach()
         history = historyStore.all
         peers = server.store.peers()
@@ -673,6 +675,14 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID) {
         watch.press(key, for: peerID)
+    }
+
+    func linkServer(_ server: LinkServer, watchType typing: WatchTyping, from peerID: UUID) {
+        watch.type(typing, for: peerID)
+    }
+
+    func linkServer(_ server: LinkServer, watchKeyState key: WatchKey, down: Bool, from peerID: UUID) {
+        watch.keyState(key, down: down, for: peerID)
     }
 
     func liveNeeds(_ server: LinkServer) -> [NeedsYou] { replies.needs }

@@ -108,6 +108,29 @@ final class DemoWindow: @unchecked Sendable {
     /// past — a window that changes all the time, for the lossy-link proof.
     private var drift = 0
     func driftStep(_ px: Int = 6) { lock.sync { drift += px; version += 1 } }
+    /// The pointer (Oct 19 2026): where the phone's trackpad put it, drawn as an arrow while it's
+    /// shown; a drag's path as a line; typed characters as a count in the title bar (never the
+    /// words); a held key as a chip.
+    private var pointerAt: CGPoint?
+    private var pointerShown = false
+    private var dragFrom: CGPoint?
+    private var typedCount = 0
+    private var heldKeys: [String] = []
+    func pointer(_ p: CGPoint, shown: Bool? = nil) {
+        lock.sync {
+            pointerAt = p
+            if let shown { pointerShown = shown }
+            version += 1
+        }
+    }
+    func drag(from: CGPoint?, to: CGPoint?) { lock.sync { dragFrom = from; if let to { pointerAt = to }; version += 1 } }
+    func typed(_ t: WatchTyping) { lock.sync { typedCount = max(0, typedCount - t.delete) + t.text.count; version += 1; wordsVersion += 1 } }
+    func held(_ key: String, down: Bool) {
+        lock.sync {
+            if down { if !heldKeys.contains(key) { heldKeys.append(key) } } else { heldKeys.removeAll { $0 == key } }
+            version += 1
+        }
+    }
 
     /// A swipe: content follows the finger (dy > 0 shows earlier lines), a line at a time with the
     /// rest carried into the next step.
@@ -144,6 +167,7 @@ final class DemoWindow: @unchecked Sendable {
             if drift > 0 { l = script + l }
             return (l, scroll, lastClick, self.app, self.title, width, self.drift)
         }
+        let (pointer, pointerOn, dragStart, typedN, heldNames) = lock.sync { (pointerAt, pointerShown, dragFrom, typedCount, heldKeys) }
         let h = height
         // The columns that fit (Menlo 24 is ~14.5 px a character); a longer line wraps.
         let columns = max(10, Int((Double(w) - focus.minX * Double(w) - 34) / 14.5))
@@ -210,6 +234,31 @@ final class DemoWindow: @unchecked Sendable {
             ctx.setStrokeColor(CGColor(red: 0.35, green: 0.73, blue: 0.87, alpha: 1))
             ctx.setLineWidth(4)
             ctx.strokeEllipse(in: CGRect(x: c.x * Double(w) - 18, y: Double(h) - c.y * Double(h) - 18, width: 36, height: 36))
+        }
+        if typedN > 0 { text("typed \(typedN)", w - 220, 36, size: 20, CGColor(gray: 0.7, alpha: 1), mono: false) }
+        if !heldNames.isEmpty { text("held: " + heldNames.joined(separator: " "), w - 420, 36, size: 20, CGColor(red: 0.91, green: 0.75, blue: 0.42, alpha: 1), mono: false) }
+        if let from = dragStart, let to = pointer {
+            ctx.setStrokeColor(CGColor(red: 0.37, green: 0.84, blue: 0.64, alpha: 1))
+            ctx.setLineWidth(3)
+            ctx.move(to: CGPoint(x: from.x * Double(w), y: Double(h) - from.y * Double(h)))
+            ctx.addLine(to: CGPoint(x: to.x * Double(w), y: Double(h) - to.y * Double(h)))
+            ctx.strokePath()
+        }
+        if pointerOn, let p = pointer {
+            // An arrow, as the Mac's own pointer would be drawn into the picture.
+            let x = p.x * Double(w), y = Double(h) - p.y * Double(h)
+            ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+            ctx.setStrokeColor(CGColor(gray: 0, alpha: 1))
+            ctx.setLineWidth(2)
+            ctx.move(to: CGPoint(x: x, y: y))
+            ctx.addLine(to: CGPoint(x: x, y: y - 28))
+            ctx.addLine(to: CGPoint(x: x + 7, y: y - 21))
+            ctx.addLine(to: CGPoint(x: x + 12, y: y - 32))
+            ctx.addLine(to: CGPoint(x: x + 16, y: y - 30))
+            ctx.addLine(to: CGPoint(x: x + 11, y: y - 19))
+            ctx.addLine(to: CGPoint(x: x + 20, y: y - 19))
+            ctx.closePath()
+            ctx.drawPath(using: .fillStroke)
         }
         return ctx.makeImage()
     }

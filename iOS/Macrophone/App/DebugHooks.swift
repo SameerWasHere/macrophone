@@ -56,6 +56,11 @@ import UIKit
 ///                                            sound (the Sound button's tap), mic (the mic opening, for the sound)
 /// MACROPHONE_SOUND=1                         Sound held on for this run (nothing stored; a real launch reads off)
 /// MACROPHONE_SOUND_TIMING=1                  a line each second of the Mac's sound: held, latency, underruns
+///                                            page@keyboard|mic|trackpad, point@dx@dy (the trackpad's pointer, phone
+///                                            points), click@2 (a click at the pointer, with its count), rclick,
+///                                            drag@dx@dy (press, move, release), tap@0.2@0.5@2 (a double-click there),
+///                                            type@<words> (as the keyboard would), mod@command (a sticky modifier),
+///                                            key@cmd+shift+f5, appswitch (⌘ held, Tab)
 /// MACROPHONE_VIDEO=0                         a phone from before video: the Mac sends pictures (to compare the two)
 /// MACROPHONE_FRAME=375x667                   the mic screen in a smaller phone's frame (an SE: compact < 700pt) on this simulator
 /// MACROPHONE_MIC_LOOK=pressed|holding|starting|finishing|sending|sent|queued|error|disabled
@@ -309,7 +314,32 @@ enum DebugHooks {
                         model.watcher.setDrag(a == "pan" ? .pan : .scroll)
                     } else if a.hasPrefix("tap@") {
                         let xy = a.split(separator: "@").dropFirst().compactMap { Double($0) }
-                        if xy.count == 2 { model.watcher.click(CGPoint(x: xy[0], y: xy[1])) }
+                        if xy.count >= 2 { model.watcher.click(CGPoint(x: xy[0], y: xy[1]), count: xy.count > 2 ? Int(xy[2]) : 1) }
+                    } else if a.hasPrefix("page@"), let p = MacInput.Page(rawValue: String(a.dropFirst(5))) {
+                        model.watcher.input.show(p)
+                    } else if a.hasPrefix("point@") {
+                        let d = a.split(separator: "@").dropFirst().compactMap { Double($0) }
+                        if d.count == 2 { for _ in 0..<10 { model.watcher.input.pointerMoved(by: CGVector(dx: d[0] / 10, dy: d[1] / 10), dt: 1.0 / 60) } }
+                    } else if a.hasPrefix("click@"), let n = Int(a.dropFirst(6)) {
+                        model.watcher.input.tap(count: n)
+                    } else if a == "rclick" {
+                        model.watcher.input.rightTap()
+                    } else if a.hasPrefix("drag@") {
+                        let d = a.split(separator: "@").dropFirst().compactMap { Double($0) }
+                        if d.count == 2 {
+                            model.watcher.input.dragBegan()
+                            for _ in 0..<10 { model.watcher.input.dragMoved(by: CGVector(dx: d[0] / 10, dy: d[1] / 10), dt: 1.0 / 60) }
+                            model.watcher.input.dragEnded()
+                        }
+                    } else if a.hasPrefix("type@") {
+                        model.watcher.input.typed(WatchTyping(delete: 0, text: String(a.dropFirst(5))))
+                    } else if a.hasPrefix("mod@"), let m = WatchModifier(rawValue: String(a.dropFirst(4))) {
+                        model.watcher.input.toggle(m)
+                    } else if a.hasPrefix("key@") {
+                        let parts = a.dropFirst(4).split(separator: "+").map(String.init)
+                        model.watcher.input.press(WatchKey(parts.last ?? "", command: parts.contains("cmd"), shift: parts.contains("shift"), control: parts.contains("ctrl"), option: parts.contains("opt")))
+                    } else if a == "appswitch" {
+                        model.watcher.input.switchApp()
                     } else if let action = WatchAction(rawValue: a) {
                         model.watcher.perform(action)
                     }

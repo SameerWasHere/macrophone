@@ -74,9 +74,19 @@ public protocol LinkServerDelegate: AnyObject {
     /// Mac Controls: a phone pressed a key of the Mac's top row (only from a phone, to a Mac
     /// naming MacControl.feature). The delegate answers with `.macControlDone`.
     func linkServer(_ server: LinkServer, macControl control: MacControl, from peerID: UUID)
+    /// The pointer on the watched window (a move, a click, a drag…) — only when `watchInput`
+    /// isn't set; else the receive loop hands it straight on.
+    func linkServer(_ server: LinkServer, watchMouse event: WatchMouseEvent, from peerID: UUID)
+    /// What the phone's keyboard did: characters to delete, then type, in the watched window.
+    func linkServer(_ server: LinkServer, watchType typing: WatchTyping, from peerID: UUID)
+    /// A key pressed down and held (`down`), or released, in the watched window.
+    func linkServer(_ server: LinkServer, watchKeyState key: WatchKey, down: Bool, from peerID: UUID)
 }
 
 public extension LinkServerDelegate {
+    func linkServer(_ server: LinkServer, watchMouse event: WatchMouseEvent, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchType typing: WatchTyping, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchKeyState key: WatchKey, down: Bool, from peerID: UUID) {}
     func linkServerCodePairingEnded(_ server: LinkServer) {}
     func linkServer(_ server: LinkServer, selectionChanged selection: SendSelection, from peer: PairedPeer) {}
     func linkServerRefreshTargets(_ server: LinkServer) {}
@@ -694,6 +704,17 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
+            case let .watchMouse(event):
+                // A kind this Mac doesn't know is ignored, never a session's end.
+                guard event.isValid else { break }
+                if let direct = watchInput { direct(phoneID, .mouse(event)); break }
+                notify { $0.linkServer(self, watchMouse: event, from: phoneID) }
+            case let .watchType(typing):
+                guard typing.isValid, !typing.isEmpty else { break }
+                notify { $0.linkServer(self, watchType: typing, from: phoneID) }
+            case let .watchKeyState(key, down):
+                guard key.key.count <= 16 else { break }
+                notify { $0.linkServer(self, watchKeyState: key, down: down, from: phoneID) }
             case let .macControl(control):
                 notify { $0.linkServer(self, macControl: control, from: phoneID) }
             case let .watchSound(on):

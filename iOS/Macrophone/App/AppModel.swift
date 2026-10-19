@@ -172,6 +172,11 @@ final class AppModel: ObservableObject {
                       link: $linkState.eraseToAnyPublisher())
         MacPermissionsState.shared.showOnMac = { [weak self] in self?.client.showPermissionsOnMac() ?? false }
         MacPermissionsState.shared.canShowOnMac = { [weak self] in self?.client.canShowMacPermissions ?? false }
+        // The keyboard, the trackpad and held keys (Oct 19 2026), each only to a Mac that named it.
+        watcher.input.sendMouse = { [weak self] e in self?.client.watchMouse(e) ?? false }
+        watcher.input.sendType = { [weak self] t in self?.client.watchType(t) ?? false }
+        watcher.input.sendKeyState = { [weak self] k, down in self?.client.watchKeyState(k, down: down) ?? false }
+        watcher.input.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
         AgentAlerts.shared.install(self)
         // Looking at a chat that answered settles its mark.
         watcher.$target.compactMap { $0 }.sink { [weak self] t in self?.clearNeeds(for: t) }.store(in: &bag)
