@@ -196,6 +196,37 @@ struct WholeScreenItems: View {
     }
 }
 
+/// The whole screen, one tap from the Send to panel (Oct 19 2026, Sameer: "put the whole screen
+/// logo next to the Mac controls button"): the round glass of ⋯ and Mac Controls; with several
+/// displays, a menu of them.
+struct WholeScreenButton: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var watcher: Watcher
+    @ObservedObject private var reach = MacReach.shared
+
+    var body: some View {
+        Group {
+            if reach.several {
+                Menu {
+                    WholeScreenItems(watcher: watcher)
+                } label: { icon }
+            } else {
+                Button { model.watchWholeScreen() } label: { icon }
+            }
+        }
+        .nativeGlassButton()
+        .buttonBorderShape(.circle)
+        .controlSize(.small)
+        .accessibilityLabel("Whole Screen")
+        .accessibilityHint(reach.several ? "Pick a display to see and use, live." : "See and use your Mac's whole screen, live.")
+        .accessibilityIdentifier("whole-screen")
+    }
+
+    private var icon: some View {
+        Image(systemName: reach.several ? "display.2" : "display").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+    }
+}
+
 /// Wake Your Mac, beside the Mac's name while it isn't found: only on a network the Mac was on,
 /// with what waking it takes kept from a time it was connected.
 struct WakeMacButton: View {

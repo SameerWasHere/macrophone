@@ -149,6 +149,7 @@ struct PlacesRow: View {
     /// The ⋯ menu's photo and file pickers.
     @State private var pickingPhoto = false
     @State private var pickingFile = false
+    @State private var refreshTurns = 0
     var current: TargetRef
     var compact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -249,22 +250,35 @@ struct PlacesRow: View {
     @ViewBuilder private func buttons(_ current: TargetRef, notOpen: Bool) -> some View {
         // Watching is the eye on the picked icon, tapped again (Oct 19 2026, Sameer: "get rid of the
         // dedicated watch button and instead put the eye logo as an overlay of the selected app").
-        // Volume, brightness and media keys, one tap: its own round button, the icon alone.
+        // The whole screen, then volume, brightness and media keys: round icons, one tap each.
+        if model.isConnected, model.watcher.canWatchDesktop {
+            WholeScreenButton(watcher: model.watcher).transition(.opacity)
+        }
         if model.canMacControls {
             MacControlsButton(style: .round).transition(.opacity)
+        }
+        // A fresh look at the open apps: its own round icon too (Oct 19 2026, Sameer).
+        if model.isConnected {
+            Button {
+                model.refreshTargets()
+                Haptics.tick()
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.6)) { refreshTurns += 1 }
+            } label: {
+                Image(systemName: "arrow.clockwise").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+                    .rotationEffect(.degrees(Double(refreshTurns) * 360))
+            }
+            .nativeGlassButton()
+            .buttonBorderShape(.circle)
+            .controlSize(.small)
+            .accessibilityLabel("Refresh Open Apps")
+            .accessibilityHint("Looks again at the apps open on your Mac.")
+            .accessibilityIdentifier("refresh-apps")
+            .transition(.opacity)
         }
         // ⋯: a photo, a file or the clipboard into the chat you send to, and a fresh look at the
         // open apps. Opening an app that isn't open is the + at the end of the row, and only there.
         Menu {
-            if model.isConnected, model.watcher.canWatchDesktop {
-                Section {
-                    WholeScreenItems(watcher: model.watcher, verb: true)
-                }
-            }
             MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
-            Section {
-                Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
-            }
         } label: {
             Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
         }
@@ -272,7 +286,7 @@ struct PlacesRow: View {
         .buttonBorderShape(.circle)
         .controlSize(.small)
         .accessibilityLabel("More")
-        .accessibilityHint("Send a photo or file into \(Places.appName(current, in: model)), move the clipboard, or look again at the open apps.")
+        .accessibilityHint("Send a photo or file into \(Places.appName(current, in: model)), or move the clipboard.")
         .accessibilityIdentifier("send-to-more")
         .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
     }
