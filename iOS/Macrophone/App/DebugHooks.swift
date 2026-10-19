@@ -65,6 +65,11 @@ import UIKit
 ///                                            Contrast (the simulator can't flip those live; the button alone honours this)
 /// MACROPHONE_TYPE=xxxLarge|accessibility1…5  the whole app at that Dynamic Type size
 /// MACROPHONE_MIC_TIMING=1                    prints the mic light's main-thread cost per frame when the mic closes
+/// MACROPHONE_FAKE_DISPLAYS=1                two displays, without a Mac that has them (the menus' Whole Screen entries)
+/// MACROPHONE_REACH=a,b,c                     once connected, 2 s apart: whole@<display id> (that display's whole screen),
+///                                            whole (the last one picked), control@volumeUp|mute|playPause|…, wake
+///                                            (Wake Your Mac, connected or not), controls (the window view's Mac Controls)
+/// MACROPHONE_WAKE_PORT=<n>                   Wake Your Mac also sends to this UDP port (mpctl serve --wake-port counts them)
 enum DebugHooks {
     /// `MACROPHONE_TYPE`, as a Dynamic Type size.
     static var typeSize: DynamicTypeSize? {
@@ -205,6 +210,7 @@ enum DebugHooks {
         default: break
         }
         if env["MACROPHONE_FAKE_NEEDS"] == "1" { model.debugFakeNeeds() }
+        MacReach.debugHooks(model)
         if let dir = env["MACROPHONE_WIDGET_SHOT"] {
             Task { try? await Task.sleep(nanoseconds: 1_500_000_000); DebugWidgetShot.run(to: dir) }
         }

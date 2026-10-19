@@ -125,9 +125,12 @@ final class AppModel: ObservableObject, LinkServerDelegate {
                               SaveToDownloads.feature, MacSound.feature]
         server.macFeatures.append(MacPermissions.feature)
         watchPermissions()
+        // The displays, Mac Controls, Wake the Mac (Oct 19 2026, Core/MacReach.swift).
+        server.macFeatures += [Displays.feature, MacControl.feature, WakeInfo.feature]
         // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
         let watchService = watch!
         server.watchInput = { peer, input in watchService.scrollInput(peer, input) }
+        startMacReach()
         history = historyStore.all
         peers = server.store.peers()
         lastReceived = historyStore.latest?.receivedAt
@@ -595,6 +598,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         attention.update()
         stayAwake.update(phonesConnected: true, watching: !watch.watching.isEmpty)
         followEveryWindow()
+        tellMacReach(peer.id)
     }
 
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) {

@@ -60,6 +60,12 @@ public protocol LinkClientDelegate: AnyObject {
     /// The link moved between the local path (Bonjour) and a remote one while staying connected
     /// — back home, it moves to the local path by itself.
     func linkClient(_ client: LinkClient, pathChanged remote: Bool)
+    /// The Mac's displays (a Mac that names none never sends them).
+    func linkClient(_ client: LinkClient, displays: [MacDisplay])
+    /// What waking the Mac takes (keep it with the pairing).
+    func linkClient(_ client: LinkClient, wakeInfo: WakeInfo, macID: UUID)
+    /// What a Mac Controls key did.
+    func linkClient(_ client: LinkClient, macControlDone: MacControlResult)
 }
 
 public extension LinkClientDelegate {
@@ -80,6 +86,9 @@ public extension LinkClientDelegate {
     func linkClient(_ client: LinkClient, appQuit bundleID: String, ok: Bool, detail: String) {}
     func linkClient(_ client: LinkClient, remoteAddresses: [RemoteAddress], macID: UUID) {}
     func linkClient(_ client: LinkClient, pathChanged remote: Bool) {}
+    func linkClient(_ client: LinkClient, displays: [MacDisplay]) {}
+    func linkClient(_ client: LinkClient, wakeInfo: WakeInfo, macID: UUID) {}
+    func linkClient(_ client: LinkClient, macControlDone: MacControlResult) {}
 }
 
 /// The iPhone end of the link: browses for Macs, pairs, and keeps one encrypted session to
@@ -694,6 +703,23 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
+        case let .displays(list):
+            let clean = Displays.clean(list)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, displays: clean)
+            }
+        case let .wakeInfo(info):
+            let clean = info.cleaned()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, wakeInfo: clean, macID: macID)
+            }
+        case let .macControlDone(result):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.delegate?.linkClient(self, macControlDone: result)
+            }
         case let .macPermissions(p):
             deliverPermissions(p)
         case .pong:
@@ -701,7 +727,7 @@ public final class LinkClient: @unchecked Sendable {
         case .showPermissions:
             break
         case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
-             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound:
+             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl:
             break
         }
     }
@@ -949,6 +975,17 @@ public final class LinkClient: @unchecked Sendable {
     public func watchKey(_ k: WatchKey) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchKey.feature) ? session : nil }) else { return false }
         Task { try? await s.send(.watchKey(k)) }
+        return true
+    }
+
+    /// The connected Mac presses its top-row keys (Mac Controls).
+    public var canMacControls: Bool { lock.sync { session != nil && macFeatures.contains(MacControl.feature) } }
+
+    /// Press a key of the Mac's top row (only a Mac that can). False when it wasn't sent.
+    @discardableResult
+    public func macControl(_ c: MacControl) -> Bool {
+        guard let s = lock.sync({ macFeatures.contains(MacControl.feature) ? session : nil }) else { return false }
+        Task { try? await s.send(.macControl(c)) }
         return true
     }
 

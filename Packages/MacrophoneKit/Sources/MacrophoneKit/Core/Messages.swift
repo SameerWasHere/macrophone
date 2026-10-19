@@ -206,6 +206,17 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac (only to a Mac naming MacPermissions.feature): bring Macrophone's permissions
     /// page forward on the Mac, so the person can turn them on there.
     case showPermissions
+    /// Mac → phone: the Mac's displays (only to a phone naming Displays.feature), after welcome
+    /// and whenever one is plugged in, moved or unplugged.
+    case displays([MacDisplay])
+    /// Mac → phone: what the phone needs to wake this Mac from sleep (only to a phone naming
+    /// WakeInfo.feature), after welcome and when the network changes. Kept with the pairing.
+    case wakeInfo(WakeInfo)
+    /// Phone → Mac: press a key of the Mac's top row — volume, brightness, media (only to a Mac
+    /// naming MacControl.feature).
+    case macControl(MacControl)
+    /// Mac → phone: what that key did (the volume it reads back), in a plain line.
+    case macControlDone(MacControlResult)
     // Either way
     case ping
     case pong

@@ -160,10 +160,8 @@ struct WatchPanel: View {
             // The whole screen first: for a pop-up that isn't in any one window.
             if watcher.canWatchDesktop {
                 Section {
-                    Button { model.watchWholeScreen() } label: {
-                        Label("Whole Screen", systemImage: watcher.isDesktop ? "checkmark" : "display")
-                        Text("Everything on your Mac, live")
-                    }
+                    // One per display when the Mac has two or more (Oct 19 2026).
+                    WholeScreenItems(watcher: watcher, subtitle: "Everything on your Mac, live")
                 }
             }
             if !otherWindows.isEmpty {
@@ -937,6 +935,9 @@ struct WatchActions: View {
     /// the digits as one row at the foot.
     private var moreKeys: some View {
         Menu {
+            // Volume, brightness and media keys (Oct 19 2026): a section of their own, first — the
+            // menu opens upward, so it sits by the thumb instead of past the end of a long list.
+            MacControlsMenu()
             ForEach(WatchKey.sections) { section in
                 Section(section.title) {
                     ForEach(section.keys) { k in

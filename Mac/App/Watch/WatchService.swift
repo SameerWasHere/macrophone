@@ -75,6 +75,8 @@ final class WatchService {
         let poster: ScrollPoster
         /// The whole screen: the app in front, as last told.
         var lastFront: FrontApp?
+        /// The whole screen: the display its stream shows (Pick a display, Oct 19 2026).
+        var desktopDisplay: CGDirectDisplayID?
         /// When the window was last seen in front: a swipe's steps skip the check for a moment
         /// (each one listed every window on the Mac, thirty times a second, on the thread that
         /// sends the pictures).
@@ -297,6 +299,8 @@ final class WatchService {
         // The size the phone asked for before the window was found (Aa).
         if w.wantedFit != .normal, w.fit == nil { applyFit(w) }
 
+        // The whole screen moved to another display (picked on the phone, or this one unplugged).
+        if wid == WindowServer.desktopID, w.stream != nil, w.desktopDisplay != MacDisplays.watched { w.dropStream() }
         if let s = w.stream {
             await s.resize(to: place.bounds.size, maxWidth: maxWidth(for: w))
         } else {
@@ -503,10 +507,13 @@ final class WatchService {
     private func resolve(_ w: Watch) async -> WatchState? {
         // The whole screen: no app, no window to find.
         if DesktopWatch.isDesktop(w.target) {
+            // Which display: the one the phone picked (its key), else the main one.
+            MacDisplays.watch(key: Displays.key(of: w.target))
             w.windowID = WindowServer.desktopID
             w.pid = 0
             w.bundleID = nil
-            w.appName = "Whole Screen"
+            // "Whole Screen — Studio Display" when the phone picked one of two or more.
+            w.appName = Displays.key(of: w.target) != nil ? String(w.target.displayName.prefix(80)) : "Whole Screen"
             return nil
         }
         if let id = w.windowID, WindowServer.exists(id),
@@ -579,10 +586,13 @@ final class WatchService {
         return c
     }
 
-    /// The main display, without Macrophone's own windows (its popup would show in the picture).
+    /// The picked display (the main one unless the phone picked another), without Macrophone's own
+    /// windows (its popup would show in the picture).
     private func desktopStream(_ w: Watch) async -> WindowStream? {
+        let wanted = MacDisplays.watched
         guard let c = try? await refreshContent(),
-              let display = c.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? c.displays.first else { return nil }
+              let display = c.displays.first(where: { $0.displayID == wanted }) ?? c.displays.first else { return nil }
+        w.desktopDisplay = display.displayID
         let mine = c.windows.filter { $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier }
         return WindowStream(display: display, excluding: mine, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
     }

@@ -59,6 +59,7 @@ struct DevicesPane: View {
             }
 
             awayFromHome
+            WakeForNetworkNote()
         }
         .onAppear { portDraft = String(model.settings.remotePort) }
         .confirmationDialog("Forget \(forgetting.map(model.displayName) ?? "this iPhone")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })) {

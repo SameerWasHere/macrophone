@@ -185,6 +185,42 @@ ms in series before) is now beside the mic and mostly ahead of the tap. Needs a 
 check: the analyzer's "made ahead" line, the held seconds, the first-words time and the gap
 between volatile results.
 
+## The whole Mac from the phone — displays, Mac Controls, Wake (Oct 19 2026)
+
+Part of "control the Mac entirely from the iPhone". Three features, each named in hello / welcome:
+- **Pick a display** (`Displays.feature` "displays", `Core/Displays.swift`): the Mac sends `.displays([MacDisplay])`
+  (name from NSScreen, global top-left bounds — negative left of / above main — the display's UUID as `id`,
+  `isMain`; mirrors left out) after welcome and on `didChangeScreenParameters` (`Mac/App/Watch/Displays.swift`,
+  `Core/MacReach.swift`). With 2+ displays the phone's switcher and Send to's ⋯ list "Whole Screen — Studio
+  Display" per display (`WholeScreenItems`, `UI/MacControls.swift`); the place is still DesktopWatch with
+  `windowKey` "display:<UUID>" (`Displays.target/key`). The Mac's `resolve` sets `MacDisplays.watch(key:)`;
+  `WindowServer.desktopBounds` (stream, clicks, scrolls) follows `MacDisplays.watched` — the picked display while
+  connected, else main; a change drops and remakes the stream. The last pick is `watch.display` on the phone. One
+  display → unchanged UI; an older Mac ignores the key (main display). Two phones on two displays share the last pick.
+- **Mac Controls** (`MacControl.feature` "macControls", `Core/MacControls.swift`): volume down / mute / up,
+  dimmer / brighter, previous / play-pause / next. Phone → `.macControl`, Mac posts the NX_SYSDEFINED event
+  (subtype 8, data1 = key << 16 | 0xA/0xB << 8; `Mac/App/Core/MediaKeys.swift`), reads the output volume / mute
+  back from Core Audio 120 ms later and answers `.macControlDone` ("Volume 56%", "Muted"); brightness on a Mac
+  with no built-in or Apple (vendor 0x610) display answers that it can't. Phone: `MacControlsMenu` — a submenu in
+  the window view's ··· keys menu (its own section, first — the menu opens upward, so it sits by the thumb) and in Send to's ⋯; a press ticks and keeps the
+  menu open (`menuActionDismissBehavior(.disabled)`); the answer shows in the status line.
+- **Wake Your Mac** (`WakeInfo.feature` "wake", `Core/Wake.swift`): the Mac sends each `en*` interface's hardware
+  address, IPv4 address, mask and broadcast, and `pmset -g` womp (`Mac/App/Core/WakeInfo.swift`, `MacWake`, re-read
+  on NWPathMonitor changes). The phone keeps it by Mac id (`Model/WakeOnLAN.swift`, UserDefaults
+  `wake.info.<id>`, forgotten on unpair). Paired, not connected/connecting, and on a network the Mac was on →
+  **Wake Your Mac** beside the Mac pill (`WakeMacButton`): the 102-byte magic packet to the subnet broadcast,
+  255.255.255.255 and the Mac's last address, UDP 9 and 7, three times 0.4 s apart, then `ensureConnected` every
+  2.5 s for 30 s; the words say same Wi-Fi only and a closed laptop on battery may not wake. Devices on the Mac shows
+  one line ("Wake for network access is off" + where to turn it on) only when womp is 0 — never changes it.
+  **iOS sends broadcast only with the multicast entitlement** (com.apple.developer.networking.multicast, requested
+  from Apple); without it the broadcasts fail on a device and only the unicast to the Mac's last address goes
+  (works while the router still knows the Mac, or with a sleep proxy). The simulator isn't restricted.
+- Hooks: phone `MACROPHONE_FAKE_DISPLAYS=1`, `MACROPHONE_REACH=whole@<id>,whole,control@volumeUp,wake`,
+  `MACROPHONE_WAKE_PORT=<n>`; Mac `MACROPHONE_FAKE_DISPLAYS=1`, `MACROPHONE_FAKE_MEDIA_KEYS=1` (DEBUG, answers
+  without pressing). `mpctl serve [--displays N] [--wake-port N] [--womp 0] [--no-brightness]` (two demo
+  displays, counts keys and magic packets, presses nothing); `mpctl control <volumeUp|mute|…>`.
+  UI test `MacReachUITests` (`TEST_RUNNER_MACROPHONE_REACH_TEST=1`, a simulator paired with `mpctl serve`).
+
 ## Watching, one-handed (Oct 16 2026)
 
 - **Pan | Scroll** ends the key row (under the thumb): one finger moves the picture (the default,

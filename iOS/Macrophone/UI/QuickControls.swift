@@ -263,10 +263,11 @@ struct PlacesRow: View {
         Menu {
             if model.isConnected, model.watcher.canWatchDesktop {
                 Section {
-                    Button { model.watchWholeScreen() } label: { Label("See the Whole Screen", systemImage: "display") }
+                    WholeScreenItems(watcher: model.watcher, verb: true)
                 }
             }
             MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
+            MacControlsMenu()
             Section {
                 Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
             }

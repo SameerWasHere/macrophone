@@ -71,6 +71,9 @@ public protocol LinkServerDelegate: AnyObject {
     /// Where this Mac can be reached from away (remote access on), sent to a phone that asked
     /// for them right after its welcome. Empty with remote access off.
     func remoteAddresses(_ server: LinkServer) -> [RemoteAddress]
+    /// Mac Controls: a phone pressed a key of the Mac's top row (only from a phone, to a Mac
+    /// naming MacControl.feature). The delegate answers with `.macControlDone`.
+    func linkServer(_ server: LinkServer, macControl control: MacControl, from peerID: UUID)
 }
 
 public extension LinkServerDelegate {
@@ -100,6 +103,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, openApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't open apps") }
     func linkServer(_ server: LinkServer, quitApp bundleID: String, from peerID: UUID) async -> (Bool, String) { (false, "This Mac can't quit apps") }
     func remoteAddresses(_ server: LinkServer) -> [RemoteAddress] { [] }
+    func linkServer(_ server: LinkServer, macControl control: MacControl, from peerID: UUID) {}
 }
 
 /// True for exactly one caller.
@@ -690,6 +694,8 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchRightClick(x, y):
                 guard (0...1).contains(x), (0...1).contains(y) else { break }
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
+            case let .macControl(control):
+                notify { $0.linkServer(self, macControl: control, from: phoneID) }
             case let .watchSound(on):
                 notify { $0.linkServer(self, watchSound: on, from: phoneID) }
             case .showPermissions:
@@ -697,6 +703,8 @@ public final class LinkServer: @unchecked Sendable {
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
             case .macPermissions:
+                break
+            case .displays, .wakeInfo, .macControlDone:
                 break
             }
         }

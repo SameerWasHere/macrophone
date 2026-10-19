@@ -218,6 +218,8 @@ final class AppModel: ObservableObject {
                       ClipboardItem.feature, AttachmentChunk.feature, AllWindows.feature, EveryApp.feature, SaveToDownloads.feature, MacSound.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         // The Mac says what it's allowed to do (MacPermissionNote.swift).
         c.features.append(MacPermissions.feature)
+        // The Mac's displays, Wake Your Mac, Mac Controls (Oct 19 2026, Model/MacReach.swift).
+        c.features += [Displays.feature, WakeInfo.feature, MacControl.feature]
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -871,6 +873,7 @@ final class AppModel: ObservableObject {
     func unpair() async {
         guard let mac = client.activeMac else { return }
         await client.unpair(mac.id)
+        WakeOnLAN.forget(mac.id)
         forgetMac()
     }
 
@@ -1386,7 +1389,7 @@ extension AppModel: LinkClientDelegate {
         Haptics.tick()
         // The whole screen's words go where you tap into a text box (Oct 18 2026).
         if settings.selection.target != .frontApp { pick(.frontApp) }
-        watcher.open(DesktopWatch.target)
+        watcher.open(reach.wholeScreenTarget)
     }
 
     /// From the whole screen to the app in front's own window (and Send to with it).
@@ -1556,6 +1559,7 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) {
         guard client === self.client else { return }
         log.add("the Mac forgot this iPhone")
+        WakeOnLAN.forget(macID)
         forgetMac()
         status = .notice("Your Mac forgot this iPhone. Pair again to send to it.")
     }

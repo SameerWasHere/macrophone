@@ -151,6 +151,7 @@ struct MainView: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
                 MacPill().fixedSize()
+                WakeMacButton()
                 Spacer(minLength: 8)
                 topButtons
             }
@@ -158,6 +159,7 @@ struct MainView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack { Spacer(); topButtons }
                 MacPill()
+                WakeMacButton()
             }
         }
         .padding(.horizontal, Space.margin)

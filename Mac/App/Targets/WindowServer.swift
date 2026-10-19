@@ -72,9 +72,11 @@ enum WindowServer {
         return out
     }
 
-    /// The whole screen, watched like a window (DesktopWatch): its place is the main display's.
+    /// The whole screen, watched like a window (DesktopWatch): its place is the picked display's
+    /// (Oct 19 2026, `MacDisplays` — the main one unless a phone picked another), in global
+    /// coordinates: a display left of or above the main one has a negative origin.
     static let desktopID: CGWindowID = 0x7FFF_FFF0
-    static var desktopBounds: CGRect { CGDisplayBounds(CGMainDisplayID()) }
+    static var desktopBounds: CGRect { CGDisplayBounds(MacDisplays.watched) }
 
     static func bounds(of id: CGWindowID) -> CGRect? {
         if id == desktopID { return desktopBounds }

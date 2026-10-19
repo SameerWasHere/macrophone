@@ -125,6 +125,7 @@ final class ServeDelegate: LinkServerDelegate {
             }
         }
         stdout("CONNECTED \(peer.name) (\(os), v\(appVersion))\(server.isRemote(peer.id) ? " from away" : "")")
+        MacReachDemo.tell(server, peer.id)
     }
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) { stdout("DISCONNECTED") }
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {
@@ -590,6 +591,8 @@ func run() async -> Int32 {
         // The video lane (pictures on their own connection away from home): --no-lane is a Mac from before.
         if has("--no-lane") { server.laneEnabled = false }
         server.macFeatures.append(MacPermissions.feature)
+        if !has("--jpeg") { server.macFeatures += MacReachDemo.features }
+        if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -760,6 +763,19 @@ func run() async -> Int32 {
         guard let data = demo.png() else { return 1 }
         try? data.write(to: URL(fileURLWithPath: args[1]))
         stdout("wrote \(args[1])")
+        return 0
+
+    case "control":
+        // mpctl control volumeUp|mute|playPause|… — a Mac Controls key, and the Mac's answer.
+        let (client, _) = makeClient()
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        guard let c = args.dropFirst().first.flatMap(MacControl.init(rawValue:)) else {
+            stdout("usage: mpctl control " + MacControl.allCases.map(\.rawValue).joined(separator: "|")); return 2
+        }
+        if !client.macControl(c) { stdout("this Mac doesn't name \(MacControl.feature)"); return 1 }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        client.stop()
         return 0
 
     case "apps", "open":
