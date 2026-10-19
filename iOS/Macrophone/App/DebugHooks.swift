@@ -207,6 +207,18 @@ enum DebugHooks {
         }
         if let to = env["MACROPHONE_SEND_TO"], let t = target(named: to, in: model) { model.pick(t) }
         if let send = env["MACROPHONE_SEND"] { model.setSend(send == "1") }
+        // MACROPHONE_SEND_FILE=<name in the app's Documents>[@downloads]: sends it once the Mac is
+        // connected, as Send a File… does (@downloads: as Save to Mac's Downloads does).
+        if let spec = env["MACROPHONE_SEND_FILE"] {
+            let parts = spec.components(separatedBy: "@")
+            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(parts[0])
+            Task {
+                for _ in 0..<60 where !model.canAttach { try? await Task.sleep(nanoseconds: 250_000_000) }
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                model.attachToDownloads = parts.dropFirst().first == "downloads"
+                model.sendFile(url)
+            }
+        }
         if let level = env["MACROPHONE_CLEANUP"].flatMap(CleanupLevel.init(rawValue:)) { model.setCleanupLevel(level) }
         if env["MACROPHONE_FAKE_HISTORY"] == "1" { model.debugSeedHistory() }
         if env["MACROPHONE_UNPAIR"] == "1" { Task { await model.unpair() } }

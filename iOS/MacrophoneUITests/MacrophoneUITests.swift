@@ -484,6 +484,31 @@ final class MacrophoneUITests: XCTestCase {
         print("LIVE chip now: \(sendTo(app).label)")
     }
 
+    /// Save to Mac's Downloads (Oct 19 2026): with Send to on the clipboard the ⋯ items save to
+    /// Downloads; on a chat they send into it, with Save to Mac's Downloads one more choice.
+    func testSaveToDownloadsItems() throws {
+        guard ProcessInfo.processInfo.environment["MACROPHONE_LIVE"] == "1" else { throw XCTSkip("needs mpctl serve") }
+        for (pick, expect) in [("clipboard", "Save a File to Mac's Downloads…"), ("Claude", "Send a File…")] {
+            let app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": pick])
+            XCTAssertTrue(statusContains(app, "Ready", timeout: 20), "connected")
+            let more = app.buttons["send-to-more"]
+            XCTAssertTrue(more.waitForExistence(timeout: 5))
+            more.tap()
+            XCTAssertTrue(app.buttons[expect].waitForExistence(timeout: 5), "\(pick): \(expect)")
+            if pick != "clipboard" {
+                let save = app.buttons["Save to Mac's Downloads"]
+                XCTAssertTrue(save.exists, "the choice under Send a File…")
+                save.tap()
+                XCTAssertTrue(app.buttons["A File…"].waitForExistence(timeout: 3))
+            }
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "downloads-\(pick)"
+            shot.lifetime = .keepAlways
+            add(shot)
+            app.terminate()
+        }
+    }
+
     /// Where it landed, in the status line's words (the debug statuses, no Mac needed). The ✓ only
     /// for a landing where it was meant to go; a miss says what happened and what to do.
     func testLandingWords() {

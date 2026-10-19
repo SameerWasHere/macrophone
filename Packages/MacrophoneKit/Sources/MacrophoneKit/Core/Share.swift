@@ -37,8 +37,11 @@ public struct AttachmentChunk: Codable, Sendable {
     public var kind: String
     public var target: TargetRef
     public var data: Data
+    /// Save it to the Mac's Downloads and show it in Finder, instead of into the chat (only to a
+    /// Mac naming SaveToDownloads.feature; nil from a phone from before).
+    public var downloads: Bool?
 
-    public init(id: UUID, index: Int, count: Int, filename: String, kind: String, target: TargetRef, data: Data) {
+    public init(id: UUID, index: Int, count: Int, filename: String, kind: String, target: TargetRef, data: Data, downloads: Bool? = nil) {
         self.id = id
         self.index = index
         self.count = count
@@ -46,6 +49,7 @@ public struct AttachmentChunk: Codable, Sendable {
         self.kind = kind
         self.target = target
         self.data = data
+        self.downloads = downloads
     }
 
     public static let feature = "attachments"
@@ -53,12 +57,12 @@ public struct AttachmentChunk: Codable, Sendable {
     public static let maxChunks = 20
 
     /// A file's bytes as the pieces that carry it.
-    public static func chunks(of data: Data, filename: String, kind: String, target: TargetRef, id: UUID = UUID()) -> [AttachmentChunk] {
+    public static func chunks(of data: Data, filename: String, kind: String, target: TargetRef, id: UUID = UUID(), downloads: Bool? = nil) -> [AttachmentChunk] {
         let n = max(1, (data.count + chunkSize - 1) / chunkSize)
         return (0..<n).map { i in
             let lo = data.startIndex + i * chunkSize
             let hi = min(data.endIndex, lo + chunkSize)
-            return AttachmentChunk(id: id, index: i, count: n, filename: filename, kind: kind, target: target, data: data[lo..<hi])
+            return AttachmentChunk(id: id, index: i, count: n, filename: filename, kind: kind, target: target, data: data[lo..<hi], downloads: downloads)
         }
     }
 

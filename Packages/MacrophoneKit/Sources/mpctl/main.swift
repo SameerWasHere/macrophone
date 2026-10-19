@@ -29,6 +29,7 @@ import MacrophoneKit
 //   mpctl serve --jpeg                        # pictures to every phone, even one that named video (a Mac from before)
 //   mpctl serve --software                    # encode in software from the start (the hardware encoder is busy elsewhere)
 //   mpctl watch --swipe 0.3 [--flick 1500]    # a swipe as the phone sends it: a gesture, then the coast after a flick
+//   mpctl put-file <path> [--downloads] [--target …]   # a photo or file as the phone sends it (serve --save-to DIR writes it there)
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -70,9 +71,23 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, setClipboard item: ClipboardItem, from peerID: UUID) async -> String {
         stdout("CLIPBOARD SET \(item.text?.count ?? 0) chars"); return "On your Mac's clipboard — press ⌘V to paste"
     }
+    /// Pieces of a photo or file, by its id (put back together for --save-to).
+    var pieces: [UUID: [Int: Data]] = [:]
     func linkServer(_ server: LinkServer, attachment chunk: AttachmentChunk, from peerID: UUID) async -> (Bool, String)? {
-        stdout("ATTACHMENT piece \(chunk.index + 1)/\(chunk.count)")
-        return chunk.index + 1 == chunk.count ? (true, "Added to Claude — say what it's for") : nil
+        let downloads = chunk.downloads == true
+        stdout("ATTACHMENT piece \(chunk.index + 1)/\(chunk.count) \(chunk.data.count) bytes\(downloads ? " → Downloads" : " → \(chunk.target.displayName)")")
+        pieces[chunk.id, default: [:]][chunk.index] = chunk.data
+        guard pieces[chunk.id]?.count == chunk.count, let parts = pieces.removeValue(forKey: chunk.id) else { return nil }
+        // --save-to DIR: the whole file there, named as the Mac would (never replacing one).
+        if let dir = flag("--save-to") {
+            let folder = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = SaveToDownloads.freeURL(in: folder, for: chunk.filename)
+            let data = (0..<chunk.count).reduce(into: Data()) { $0.append(parts[$1] ?? Data()) }
+            try? data.write(to: url)
+            stdout("ATTACHMENT saved \(data.count) bytes as \(url.lastPathComponent)")
+        }
+        return downloads ? (true, "Saved to Downloads on your Mac — shown in Finder") : (true, "Added to Claude — say what it's for")
     }
     var received = 0
     func linkServer(_ server: LinkServer, approveCode code: String, phoneName: String) async -> Bool {
@@ -378,7 +393,9 @@ final class PhoneDelegate: LinkClientDelegate {
         if let t = clipboard?.text { what = "text \(t.count) chars" } else if let i = clipboard?.image { what = "image \(i.count) bytes" }
         stdout("CLIPBOARD \(what) — \(detail)")
     }
+    var attachmentsHeard = 0
     func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {
+        attachmentsHeard += 1
         stdout("ATTACHMENT \(ok ? "ok" : "failed") — \(detail)")
     }
     func linkClient(_ client: LinkClient, needsYou: [NeedsYou]) {
@@ -545,7 +562,7 @@ func run() async -> Int32 {
         }
         // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
         server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, WatchRightClick.feature, WatchKey.feature, WatchShape.feature, WatchWindowCommand.feature,
-                                                         ClipboardItem.feature, AttachmentChunk.feature]
+                                                         ClipboardItem.feature, AttachmentChunk.feature, SaveToDownloads.feature]
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -670,6 +687,33 @@ func run() async -> Int32 {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         client.stop()
         return 0
+
+    case "put-file":
+        // mpctl put-file <path> [--downloads] [--target <bundleID|clipboard|front>]: a photo or file
+        // as the phone sends it — into that place's chat, or (--downloads, or a place with no chat:
+        // the clipboard, Finder, the whole screen) into the Mac's Downloads.
+        guard args.count > 1, let data = try? Data(contentsOf: URL(fileURLWithPath: (args[1] as NSString).expandingTildeInPath)) else {
+            stdout("usage: mpctl put-file <path> [--downloads] [--target …]"); return 2
+        }
+        let (client, d) = makeClient()
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        let target: TargetRef
+        switch flag("--target") ?? "clipboard" {
+        case "clipboard": target = .clipboard
+        case "front": target = .frontApp
+        case let bid: target = .app(bundleID: bid, windowKey: nil, name: bid)
+        }
+        let downloads = client.canSaveToDownloads && (has("--downloads") || SaveToDownloads.isDefault(for: target))
+        let name = (args[1] as NSString).lastPathComponent
+        let kind = ["png", "jpg", "jpeg", "heic", "gif"].contains((name as NSString).pathExtension.lowercased()) ? "image" : "file"
+        guard client.sendAttachment(data, filename: name, kind: kind, target: target, downloads: downloads) != nil else {
+            stdout("PUT FAILED: too big, or the Mac doesn't take files"); client.stop(); return 1
+        }
+        stdout("PUT \(data.count) bytes\(downloads ? " → Downloads" : " → \(target.displayName)")")
+        for _ in 0..<40 where d.attachmentsHeard == 0 { try? await Task.sleep(nanoseconds: 250_000_000) }
+        client.stop()
+        return d.attachmentsHeard > 0 ? 0 : 1
 
     case "listen":
         // mpctl listen [--seconds 60] --features needsYou,attention: stay connected, print what comes.

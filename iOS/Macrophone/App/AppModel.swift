@@ -103,6 +103,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var liveTargets: [LiveTarget] = []
     /// A photo or file on its way (its words for the status line).
     @Published private(set) var sendingAttachment: String?
+    /// The next photo or file picked goes to the Mac's Downloads (the menu's Save to Mac's Downloads).
+    var attachToDownloads = false
 
     /// Every window on the Mac's screen (AllWindows): the window switcher lists them all.
     @Published private(set) var everyWindow: [LiveTarget] = []
@@ -205,7 +207,7 @@ final class AppModel: ObservableObject {
         // one with remote access on tells it where it can be reached from away; one that can sends
         // the watched window as video (Watcher decodes it).
         c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, NeedsYou.feature,
-                      ClipboardItem.feature, AttachmentChunk.feature, AllWindows.feature, EveryApp.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+                      ClipboardItem.feature, AttachmentChunk.feature, AllWindows.feature, EveryApp.feature, SaveToDownloads.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -1389,6 +1391,8 @@ extension AppModel: LinkClientDelegate {
 
     var canShareClipboard: Bool { client.canShareClipboard }
     var canAttach: Bool { client.canAttach }
+    /// The Mac saves a photo or file to its Downloads (and shows it in Finder) when asked.
+    var canSaveToDownloads: Bool { client.canSaveToDownloads }
 
     /// The Mac's clipboard onto this iPhone's.
     func copyMacClipboard() {
@@ -1438,18 +1442,26 @@ extension AppModel: LinkClientDelegate {
         sendAttachment(data, filename: url.lastPathComponent, kind: image ? "image" : "file")
     }
 
+    /// Where a photo or file goes: the window you watch, else the Send to pick.
+    var attachTarget: TargetRef { watcher.isOpen ? (watcher.target ?? selection.target) : selection.target }
+
     private func sendAttachment(_ data: Data, filename: String, kind: String) {
+        // Save to Mac's Downloads (Oct 19 2026, UI/SendToMac.swift): asked for in the menu, or
+        // where the place has no chat to paste into (the clipboard, Finder, the whole screen).
+        let target = attachTarget
+        let asked = attachToDownloads
+        attachToDownloads = false
+        let downloads = canSaveToDownloads && (asked || SaveToDownloads.isDefault(for: target))
         guard data.count <= AttachmentChunk.chunkSize * AttachmentChunk.maxChunks else { explain("That's over 20 MB — too big to send"); return }
-        let target = watcher.isOpen ? (watcher.target ?? selection.target) : selection.target
-        guard client.sendAttachment(data, filename: filename, kind: kind, target: target) != nil else {
+        guard client.sendAttachment(data, filename: filename, kind: kind, target: target, downloads: downloads) != nil else {
             explain(isConnected ? "Update Macrophone on your Mac to send photos and files" : "Your Mac isn't connected")
             return
         }
         Haptics.tick()
         let what = kind == "image" ? "the photo" : "the file"
-        sendingAttachment = "Sending \(what) to \(Places.appName(target, in: self))…"
+        sendingAttachment = downloads ? "Saving \(what) to your Mac's Downloads…" : "Sending \(what) to \(Places.appName(target, in: self))…"
         explain(sendingAttachment ?? "", for: 30)
-        log.add("attachment: sending (\(kind))")
+        log.add("attachment: sending (\(kind))\(downloads ? " to Downloads" : "")")
     }
 
     func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {

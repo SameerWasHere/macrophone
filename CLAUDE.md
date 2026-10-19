@@ -40,6 +40,28 @@ Feature flags: a message goes only to a peer that named its feature in hello / w
 (`LinkClient.features`, `LinkServer.macFeatures`; `mpctl serve` names them all) — App Store
 iPhone 1.0 and an older Mac keep working.
 
+## Save to Mac's Downloads (Oct 19 2026)
+
+A photo or file from the phone can go into the Mac's Downloads and show selected in Finder, not
+only into a chat. Mac → iPhone files were set aside the same day (Sameer: "Deprioritize sending
+files from Mac to phone. Sending clipboard is good for now.") — don't build them unasked.
+- **Wire:** the same `AttachmentChunk` pieces (1 MB, 20 at most) with `downloads: true`, sent that
+  way only to a Mac whose welcome names `SaveToDownloads.feature` ("downloads",
+  `Core/FileTransfer.swift`); an older Mac never sees the flag. Tests: `SaveToDownloadsTests`.
+- **Phone** (`UI/SendToMac.swift`, `AppModel.sendAttachment` / `attachTarget`): where Send to (or
+  the watched window) has no chat to paste into — Clipboard, Finder, the Whole Screen
+  (`SaveToDownloads.isDefault`) — the ⋯ items read "Save a Photo / File to Mac's Downloads…";
+  on a chat they stay Send a Photo… / Send a File… (into the chat, as before) with a **Save to
+  Mac's Downloads** submenu (A Photo… · A File…). Status: "Saving the file to your Mac's Downloads…".
+- **Mac** (`Delivery/FileTransfer.swift`, `DownloadsSaver`, called from `AttachmentInbox`): moved
+  from From iPhone into ~/Downloads as "name", "name 2", …; Finder shows it selected (not while the
+  Mac is locked); "Saved to Downloads on your Mac — shown in Finder". macOS asks once whether
+  Macrophone may use Downloads; if refused, it stays in From iPhone and Finder shows it there.
+- Hooks: `MACROPHONE_SEND_FILE=<name in the app's Documents>[@downloads]` (sends once connected);
+  `mpctl put-file <path> [--downloads] [--target …]`; `mpctl serve --save-to DIR` writes what
+  arrives. UI test `testSaveToDownloadsItems` (with `TEST_RUNNER_MACROPHONE_LIVE=1` and a paired
+  `mpctl serve`).
+
 ## The window in hand (Oct 18 2026, the third polish pass — iOS only)
 
 Sameer: "make the app exceptional … it should almost feel like the Mac is running in real time

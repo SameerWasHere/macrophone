@@ -864,12 +864,19 @@ public final class LinkClient: @unchecked Sendable {
     /// The connected Mac takes photos and files for the chat.
     public var canAttach: Bool { lock.sync { session != nil && macFeatures.contains(AttachmentChunk.feature) } }
 
+    /// The connected Mac saves a photo or file to its Downloads when asked.
+    public var canSaveToDownloads: Bool {
+        lock.sync { session != nil && macFeatures.contains(AttachmentChunk.feature) && macFeatures.contains(SaveToDownloads.feature) }
+    }
+
     /// Send a photo or file to the chat at `target`, in pieces. Nil when it can't (too big, no Mac
     /// that can); else its id, which `attachmentLanded` answers.
-    public func sendAttachment(_ data: Data, filename: String, kind: String, target: TargetRef) -> UUID? {
-        let chunks = AttachmentChunk.chunks(of: data, filename: filename, kind: kind, target: target)
+    /// `downloads`: into the Mac's Downloads instead (only a Mac naming SaveToDownloads.feature).
+    public func sendAttachment(_ data: Data, filename: String, kind: String, target: TargetRef, downloads: Bool = false) -> UUID? {
+        let chunks = AttachmentChunk.chunks(of: data, filename: filename, kind: kind, target: target, downloads: downloads ? true : nil)
         guard chunks.count <= AttachmentChunk.maxChunks,
-              let s = lock.sync({ macFeatures.contains(AttachmentChunk.feature) ? session : nil }) else { return nil }
+              let s = lock.sync({ macFeatures.contains(AttachmentChunk.feature) && (!downloads || macFeatures.contains(SaveToDownloads.feature)) ? session : nil })
+        else { return nil }
         Task { for c in chunks { try? await s.send(.attachment(c)) } }
         return chunks.first?.id
     }

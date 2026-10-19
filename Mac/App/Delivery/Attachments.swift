@@ -19,6 +19,7 @@ final class AttachmentInbox {
         var filename: String
         var kind: String
         var target: TargetRef
+        var downloads = false
         var started = Date()
     }
 
@@ -30,7 +31,8 @@ final class AttachmentInbox {
     func receive(_ c: AttachmentChunk) async -> (Bool, String)? {
         // Pieces of a send that stalled a minute ago are let go.
         pending = pending.filter { Date().timeIntervalSince($0.value.started) < 60 }
-        var p = pending[c.id] ?? Pending(count: c.count, filename: AttachmentChunk.safeName(c.filename), kind: c.kind, target: c.target)
+        var p = pending[c.id] ?? Pending(count: c.count, filename: AttachmentChunk.safeName(c.filename), kind: c.kind, target: c.target,
+                                         downloads: c.downloads == true)
         guard c.count == p.count else { return nil }
         p.parts[c.index] = c.data
         guard p.parts.count == p.count else { pending[c.id] = p; return nil }
@@ -39,6 +41,8 @@ final class AttachmentInbox {
         for i in 0..<p.count { guard let d = p.parts[i] else { return (false, "Part of it didn't arrive — send it again") }; data.append(d) }
         guard let url = save(data, name: p.filename) else { return (false, "Couldn't save it on your Mac") }
         app.log.add("attachment received (\(p.kind))")
+        // Save to Mac's Downloads (FileTransfer.swift): into Downloads and shown, not pasted.
+        if p.downloads { return DownloadsSaver.save(url, isImage: p.kind == "image", log: app.log) }
         return await deliver(url, image: p.kind == "image" ? NSImage(contentsOf: url) : nil, to: p.target)
     }
 

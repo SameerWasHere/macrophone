@@ -15,9 +15,27 @@ struct MacShareItems: View {
 
     var body: some View {
         if model.canAttach {
-            Section {
-                Button { pickingPhoto = true } label: { Label("Send a Photo…", systemImage: "photo") }
-                Button { pickingFile = true } label: { Label("Send a File…", systemImage: "doc") }
+            // Save to Mac's Downloads (Oct 19 2026): where the place has no chat to paste into
+            // (the clipboard, Finder, the whole screen) that's what a photo or file does, and the
+            // items say so; everywhere else it's one more choice under them.
+            if model.canSaveToDownloads, SaveToDownloads.isDefault(for: model.attachTarget) {
+                Section {
+                    Button { pick(photo: true, downloads: true) } label: { Label("Save a Photo to Mac's Downloads…", systemImage: "photo") }
+                    Button { pick(photo: false, downloads: true) } label: { Label("Save a File to Mac's Downloads…", systemImage: "doc") }
+                }
+            } else {
+                Section {
+                    Button { pick(photo: true, downloads: false) } label: { Label("Send a Photo…", systemImage: "photo") }
+                    Button { pick(photo: false, downloads: false) } label: { Label("Send a File…", systemImage: "doc") }
+                    if model.canSaveToDownloads {
+                        Menu {
+                            Button { pick(photo: true, downloads: true) } label: { Label("A Photo…", systemImage: "photo") }
+                            Button { pick(photo: false, downloads: true) } label: { Label("A File…", systemImage: "doc") }
+                        } label: {
+                            Label("Save to Mac's Downloads", systemImage: "square.and.arrow.down")
+                        }
+                    }
+                }
             }
         }
         if model.canShareClipboard {
@@ -30,6 +48,11 @@ struct MacShareItems: View {
                 }
             }
         }
+    }
+
+    private func pick(photo: Bool, downloads: Bool) {
+        model.attachToDownloads = downloads
+        if photo { pickingPhoto = true } else { pickingFile = true }
     }
 }
 
