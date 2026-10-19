@@ -19,12 +19,18 @@ enum WindowServer {
     private static let handle = UnsafeMutableRawPointer(bitPattern: -2) // RTLD_DEFAULT
     private static let mainConnection: MainConnectionFn? = dlsym(handle, "CGSMainConnectionID").map { unsafeBitCast($0, to: MainConnectionFn.self) }
     private static let copySpaces: CopySpacesFn? = dlsym(handle, "CGSCopySpacesForWindows").map { unsafeBitCast($0, to: CopySpacesFn.self) }
+    private typealias ActiveSpaceFn = @convention(c) (Int32) -> UInt64
+    private static let activeSpace: ActiveSpaceFn? = dlsym(handle, "CGSGetActiveSpace").map { unsafeBitCast($0, to: ActiveSpaceFn.self) }
 
     /// Real app windows on some desktop: layer 0, a usable size, and placed on a Space (a window
-    /// an app has ordered out — a closed Messages window, a hidden login sheet — is on none).
+    /// an app has ordered out — a closed Messages window, a hidden login sheet — is on none). A
+    /// window off screen but on the desktop in front is closed too (Tailscale keeps its closed
+    /// window on the current desktop, undrawn — Oct 19 2026), or minimized: only a window on
+    /// another desktop counts while it isn't drawn.
     static func appWindows() -> [Window] {
         guard let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
         let cid = mainConnection?()
+        let current = cid.flatMap { c in activeSpace?(c) }
         var out: [Window] = []
         var z = 0
         for w in list {
@@ -39,7 +45,8 @@ enum WindowServer {
             if !onscreen {
                 // Off this desktop: keep it only if it lives on another one.
                 guard let cid, let copySpaces,
-                      let spaces = copySpaces(cid, 0x7, [id] as CFArray)?.takeRetainedValue() as? [Any], !spaces.isEmpty else { continue }
+                      let spaces = copySpaces(cid, 0x7, [id] as CFArray)?.takeRetainedValue() as? [NSNumber], !spaces.isEmpty else { continue }
+                if let current, current != 0, spaces.contains(where: { $0.uint64Value == current }) { continue }
             }
             out.append(Window(id: id, pid: pid, bounds: rect, z: z))
             z += 1
