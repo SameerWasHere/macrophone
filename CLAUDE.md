@@ -62,6 +62,39 @@ files from Mac to phone. Sending clipboard is good for now.") — don't build th
   arrives. UI test `testSaveToDownloadsItems` (with `TEST_RUNNER_MACROPHONE_LIVE=1` and a paired
   `mpctl serve`).
 
+## The polish pass over the five Oct 19 features (Oct 19 2026)
+
+Sameer: "do a polish agent to make sure everything works well together and looks fantastic."
+Walked on the simulators against `mpctl serve`; the contact sheet is `docs/screens/polish-oct19/`.
+What changed (the mechanics below still hold where not named here):
+- **The keyboard's keys fit every phone, in two rows** (`MacKeyboardStrip` + `MacKeyboardBar`,
+  `UI/MacKeyboardView.swift`): the carousel's keyboard page is now **esc · ⇥ | ← ↑ ↓ →** with
+  "Typing in Claude" / "⌘ next key" / "Tap for next app" beside them when there's room (the
+  one-row bar of twelve cells was cut mid-arrow even on a Pro); the keyboard's own accessory bar
+  carries **⌘ ⌥ ⌃ ⇧ | fn · hide**. Nothing scrolls. The strip's open room takes the swipe
+  right-to-left back to the mic; a held arrow stops repeating if its page slides away.
+- **While the keyboard page is up the window's key row steps aside** (`WatchActions.keyboardUp`):
+  Esc · ↑ · ↓ · ⏎ · ··· and Pan | Scroll are the bar's keys now, so the window keeps ~46pt; a
+  question's answers still show (without the Esc · Keys row).
+- **One "Your Mac" list**: the keyboard's fn menu and the window's ··· menu both draw
+  `WatchKey.macSection`, same order, same Switch App handling.
+- **A sticky modifier never travels unseen**: leaving the keyboard page drops ⌘ ⌥ ⌃ ⇧ (they're
+  lit only on its bar); the app switcher's held ⌘ says so over the window on the other pages
+  (`Watcher.say`, now internal). Reconnecting with the trackpad page up shows the pointer again.
+- **The trackpad moves at the right speed everywhere**: the Mac sends the window's size in
+  points (`WatchVideoFrame.points` / `WatchFrame.points`, optional — `VideoPipe.Words.points`
+  from `WindowStream.windowSize`) and the phone's `MacInput.windowPoints` takes it, so a 1×
+  display or a picture narrowed for a remote link isn't taken for a Retina window at full size;
+  a Mac from before still gets pixels ÷ 2.
+- Words and glyphs: the Sound button off is a plain `speaker` (a slash read as something wrong);
+  the tip is "Swipe beside the mic for a trackpad or keyboard"; with two displays the Whole
+  Screen rows say "With the menu bar, live" / "Everything on it, live"; the page row keeps a
+  kicker's size at accessibility text sizes. Mac: `MACROPHONE_SHOW=setup-permissions`.
+- Left as is, noted: two phones on two displays share the last pick; the Accessibility banner
+  sits over the Newest button while it shows (× puts it away); on the simulator Wake Your Mac
+  never offers itself (`WakeRule.sameNetwork` skips an address equal to the Mac's own — the
+  simulator is the Mac), `MACROPHONE_REACH=wake` shows the button's Waking… state.
+
 ## The Mac in hand: a real mouse, a trackpad and a keyboard (Oct 19 2026)
 
 Sameer: "for trackpads a keyboard we should make that available in window view with the mic as the
@@ -100,8 +133,9 @@ full iOS keyboard that types in the Mac. They should essentially be a 3 input me
   autocorrect's "teh " → "the " is 2 deletes and "he "; a delete on an empty field still sends one;
   marked text waits for the composition). The Mac types it as unicode events (`TypingPlan`: ≤20
   UTF-16 units each, never splitting a character; Return and Tab as the keys). No clipboard. The
-  bar above the keys (`inputAccessoryView`): esc · ⇥ | ⌘ ⌥ ⌃ ⇧ (sticky, one-shot) | arrows (hold
-  to repeat) | **fn** (F1–F20, Home/End/Page/Forward Delete/Help, and the Mac's own moves) | hide.
+  keys above the keyboard **[superseded by the polish pass, Oct 19 2026: two rows — the page's
+  strip esc · ⇥ | arrows (hold to repeat), the accessory bar ⌘ ⌥ ⌃ ⇧ (sticky, one-shot) | fn
+  (F1–F20, Home/End/Page/Forward Delete/Help, and the Mac's own moves) · hide]**.
   Smart quotes and dashes off, no auto-capitals (a terminal), autocorrect on.
 - **Every key, and keys held** (`WatchKeyHold`, `watchKeyState`): the Mac maps the whole keyboard
   by name (`KeyCodes` in `Mac/App/Watch/InputService.swift` — letters, digits and signs found on
@@ -564,7 +598,7 @@ Debug: `MACROPHONE_FAKE_NEEDS=1` (with `MACROPHONE_FAKE_PAIRED`).
 
 Part of "control the Mac entirely from the iPhone": the Mac's sound plays on the phone while a
 window shows. **Off by default — on a fresh install, after an update, whenever it isn't explicitly
-on** (Sameer's rule): only a tap on **Sound** (`speaker.slash` / `speaker.wave.2.fill`, its own
+on** (Sameer's rule): only a tap on **Sound** (`speaker` / `speaker.wave.2.fill`, its own
 glass beside the zoom-out | Window cluster, shown only when the Mac names `sound`) turns it on,
 remembered in `watch.sound.on` (`SoundSetting`: anything but a stored true is off; pinned by
 `SoundDefaultTests`). The Mac sends nothing to a phone that didn't name `sound` AND send
