@@ -5,7 +5,8 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
     @Environment(\.dismiss) private var dismiss
-    @State private var confirmUnpair = false
+    /// The Mac an Unpair tap is asking about.
+    @State private var unpairing: PairedPeer?
     @State private var confirmClear = false
     @State private var name = ""
     @FocusState private var nameFocused: Bool
@@ -195,25 +196,24 @@ struct SettingsView: View {
 
     private var macSection: some View {
         Section {
-            if let mac = model.pairedMac {
-                LabeledContent {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(mac.name).foregroundStyle(Ink.ink)
-                        Text(connectionWord).font(.caption).foregroundStyle(connectionColor)
+            // Every paired Mac (Oct 19 2026): a tap makes one active, Unpair beside each.
+            ForEach(model.pairedMacs) { mac in
+                HStack(spacing: 8) {
+                    MacRow(mac: mac, active: mac.id == model.pairedMac?.id, standing: model.standing(of: mac)) {
+                        model.switchMac(to: mac.id)
                     }
-                } label: {
-                    row("Paired Mac", symbol: "laptopcomputer", tint: connectionColor == Ink.tertiary ? Light.cyan : connectionColor)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Paired Mac")
-                .accessibilityValue("\(mac.name), \(connectionWord.lowercased())")
-                Button("Unpair This Mac", role: .destructive) { confirmUnpair = true }
-                    .foregroundStyle(Light.rose)
-            } else {
-                NavigationLink(value: SettingsRoute.pairing) {
-                    row("Pair Your Mac", symbol: "qrcode.viewfinder", tint: Light.cyan)
+                    Button("Unpair") { unpairing = mac }
+                        .buttonStyle(.borderless)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Light.rose)
+                        .accessibilityLabel("Unpair \(mac.name)")
+                        .accessibilityIdentifier("unpair-\(mac.name)")
                 }
             }
+            NavigationLink(value: SettingsRoute.pairing) {
+                row(model.isPaired ? "Pair Another Mac" : "Pair Your Mac", symbol: "qrcode.viewfinder", tint: Light.cyan)
+            }
+            .accessibilityIdentifier("pair-another-mac")
             let field = TextField("iPhone", text: $name)
                 .foregroundStyle(Ink.secondary)
                 .focused($nameFocused)
@@ -239,33 +239,21 @@ struct SettingsView: View {
                     .foregroundStyle(Light.cyan)
             }
         } header: {
-            Kicker("Mac")
+            Kicker(model.pairedMacs.count > 1 ? "Macs" : "Mac")
         } footer: {
-            Text("What your Mac calls this iPhone. It shows next to each dictation, and your Mac picks up a new name the next time this iPhone connects.")
+            Text((model.pairedMacs.count > 1 ? "What you say goes to the active Mac. Tap another to switch, or swipe up or down on the Mac's name at the top. " : "")
+                 + "What your Mac calls this iPhone shows next to each dictation; your Mac picks up a new name the next time this iPhone connects.")
         }
         .listRowBackground(Ink.raised)
-        .confirmationDialog("Unpair \(model.macName)?", isPresented: $confirmUnpair, titleVisibility: .visible) {
-            Button("Unpair", role: .destructive) { Task { await model.unpair() } }
-        } message: {
-            Text("This iPhone stops sending to it. To send again, pair with the QR code on your Mac.")
+        .confirmationDialog("Unpair \(unpairing?.name ?? model.macName)?", isPresented: Binding(get: { unpairing != nil }, set: { if !$0 { unpairing = nil } }),
+                            titleVisibility: .visible, presenting: unpairing) { mac in
+            Button("Unpair", role: .destructive) { Task { await model.unpair(mac.id) } }
+        } message: { mac in
+            Text(model.pairedMacs.count > 1 && mac.id == model.pairedMac?.id
+                 ? "This iPhone stops sending to it and switches to your other Mac. To send to it again, pair with the QR code on it."
+                 : "This iPhone stops sending to it. To send again, pair with the QR code on your Mac.")
         }
         .onChange(of: nameFocused) { _, focused in if !focused { commitName() } }
-    }
-
-    private var connectionWord: String {
-        switch model.linkState {
-        case .connected: return model.linkRoute.map { "Connected · \($0.short)" } ?? "Connected"
-        case .connecting: return "Connecting"
-        case .unreachable: return "Not found right now"
-        case .searching: return "Looking for it"
-        case .notPaired: return "Not paired"
-        }
-    }
-
-    private var connectionColor: Color {
-        if case .connected = model.linkState { return Light.cyan }
-        if case .unreachable = model.linkState { return Light.ochre }
-        return Ink.tertiary
     }
 
     private func commitName() {

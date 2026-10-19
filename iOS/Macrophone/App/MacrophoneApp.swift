@@ -56,6 +56,7 @@ struct RootView: View {
                 case .settings: SettingsView(settings: model.settings, initialPath: settingsPath)
                         .onDisappear { settingsPath = [] }
                 case .pairing: PairingView()
+                case .macs: MacsSheet()
                 case .customCleanup: CustomCleanupSheet()
                 case .openApp: OpenAppSheet()
                 case .macControls:

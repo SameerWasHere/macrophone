@@ -51,8 +51,27 @@ struct Route: Equatable {
 }
 
 enum AppSheet: String, Identifiable {
-    case history, settings, pairing, customCleanup, openApp, macControls
+    case history, settings, pairing, customCleanup, openApp, macControls, macs
     var id: String { rawValue }
+}
+
+/// How a paired Mac stands, for the Macs list and the pill's menu.
+enum MacStanding: Equatable {
+    case connected(LinkRoute?)
+    case looking
+    case notFound
+    /// Not the active Mac: on this network (Bonjour sees it) or not.
+    case nearby(Bool)
+
+    var words: String {
+        switch self {
+        case .connected(let r): return r.map { "Connected · \($0.short)" } ?? "Connected"
+        case .looking: return "Looking for it"
+        case .notFound: return "Not found right now"
+        case .nearby(true): return "On this network"
+        case .nearby(false): return "Not nearby"
+        }
+    }
 }
 
 enum PairingPhase: Equatable {
@@ -115,7 +134,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var needsYou: [NeedsYou] = []
     /// The Mac sent its list since the link last connected (so "Not open on your Mac" is current).
     @Published private(set) var targetsCurrent = false
+    /// The active Mac: the one the mic sends to, the window view shows and the pill names.
     @Published private(set) var pairedMac: PairedPeer?
+    /// Every Mac this iPhone is paired with, in the order they were paired (Oct 19 2026).
+    @Published private(set) var pairedMacs: [PairedPeer] = []
     @Published var pairing: PairingPhase = .idle
     @Published var sheet: AppSheet?
     @Published private(set) var cleanupAvailability: CleanupAvailability = .osTooOld
@@ -149,7 +171,9 @@ final class AppModel: ObservableObject {
         showOnboarding = !UserDefaults.standard.bool(forKey: "onboarding.done")
         client.delegate = self
         linkState = client.state
-        pairedMac = client.activeMac
+        refreshMacs()
+        // The active Mac's own Send to pick (a phone from before several Macs: its one set).
+        settings.useMac(pairedMac?.id)
         remoteAddresses = client.remoteAddresses
         recorder.log = log
         watcher.log = log
@@ -202,7 +226,7 @@ final class AppModel: ObservableObject {
             Haptics.warning()
             self?.objectWillChange.send()
         }.store(in: &bag)
-        if pairedMac != nil { liveTargets = Self.loadTargets() }
+        if let mac = pairedMac { liveTargets = Self.loadTargets(for: mac.id) }
         refreshHistory()
         refreshAvailability()
         // One line (each write rewrites the log file) and no keychain read: launch stays light.
@@ -215,8 +239,8 @@ final class AppModel: ObservableObject {
         let c = LinkClient(identity: DeviceIdentity.load(name: name), store: store,
                            appVersion: Bundle.main.shortVersion, osDescription: "iOS \(UIDevice.current.systemVersion)")
         c.log = log
-        // The phone's choice goes to the Mac after every welcome, so on reconnect the phone's wins.
-        c.selectionProvider = { Settings.storedSelection() }
+        // The phone's choice (for that Mac) goes to it after every welcome, so on reconnect the phone's wins.
+        c.selectionProvider = { [weak c] in Settings.storedSelection(mac: c?.activeMac?.id) }
         // A Mac that reads questions off windows tells this phone when one asks (AgentAlerts);
         // one with remote access on tells it where it can be reached from away; one that can sends
         // the watched window as video (Watcher decodes it).
@@ -233,13 +257,20 @@ final class AppModel: ObservableObject {
         return c
     }
 
-    private static func loadTargets() -> [LiveTarget] {
-        guard let d = try? Data(contentsOf: AppFiles.targets) else { return [] }
+    /// A Mac's open apps as last heard. The one file from before several Macs becomes the first
+    /// Mac's, once.
+    private static func loadTargets(for mac: UUID) -> [LiveTarget] {
+        let url = AppFiles.targets(for: mac)
+        if !FileManager.default.fileExists(atPath: url.path), FileManager.default.fileExists(atPath: AppFiles.legacyTargets.path) {
+            try? FileManager.default.moveItem(at: AppFiles.legacyTargets, to: url)
+        }
+        guard let d = try? Data(contentsOf: url) else { return [] }
         return (try? JSONDecoder().decode([LiveTarget].self, from: d)) ?? []
     }
 
     private func saveTargets(_ list: [LiveTarget]) {
-        if let d = try? JSONEncoder().encode(list) { try? d.write(to: AppFiles.targets, options: .atomic) }
+        if let mac = pairedMac, let d = try? JSONEncoder().encode(list) { try? d.write(to: AppFiles.targets(for: mac.id), options: .atomic) }
+        // The control's and the widget's lists follow the active Mac.
         CachedTarget.save(list.map { CachedTarget(id: "app:\($0.bundleID)#\($0.windowKey ?? "")", name: $0.title) })
         publishWidget()
     }
@@ -254,6 +285,86 @@ final class AppModel: ObservableObject {
                       needsYou: needsYou.contains { $0.bundleID == t.bundleID })
         }
         if WidgetApp.save(Array(apps)) { WidgetCenter.shared.reloadTimelines(ofKind: WidgetApp.kind) }
+    }
+
+    // MARK: Several Macs
+
+    private func refreshMacs() {
+        #if DEBUG
+        if debugPairingLocked { return }   // the fake Macs stay (a real Mac's addresses would refresh them)
+        #endif
+        pairedMacs = client.pairedMacs
+        pairedMac = client.activeMac
+    }
+
+    /// Another paired Mac becomes the active one: the link moves to it, and everything the
+    /// screens show of a Mac — its open apps, its Send to pick, its marks, its displays — is
+    /// that Mac's. A dictation still on its way to the Mac before stays queued for it.
+    func switchMac(to id: UUID, direction: Int? = nil, haptic: Bool = true) {
+        guard id != pairedMac?.id, let mac = pairedMacs.first(where: { $0.id == id }) else { return }
+        macRollUp = Self.rollsUp(from: pairedMac?.id, to: id, direction: direction, in: pairedMacs)
+        log.add("switching to another Mac")
+        if watcher.isOpen { watcher.close() }
+        client.setActiveMac(id)
+        adoptMac(mac)
+        if haptic { Haptics.tick() }
+    }
+
+    /// The next (1, a swipe up) or previous (−1, a swipe down) Mac, round the list.
+    @discardableResult
+    func stepMac(_ step: Int) -> PairedPeer? {
+        guard let next = MacRoster.step(step, from: pairedMac?.id, in: pairedMacs) else { return nil }
+        switchMac(to: next.id, direction: step)
+        return next
+    }
+
+    /// Which way the pill's name rolls on the switch under way: up for the next Mac (a swipe
+    /// up), down for the one before. Picked from the list when it wasn't a swipe.
+    @Published private(set) var macRollUp = true
+
+    static func rollsUp(from old: UUID?, to new: UUID, direction: Int?, in macs: [PairedPeer]) -> Bool {
+        if let direction { return direction > 0 }
+        guard let i = macs.firstIndex(where: { $0.id == old }), let j = macs.firstIndex(where: { $0.id == new }) else { return true }
+        return j > i
+    }
+
+    /// The screens take on a Mac (the one just made active, just paired, or the one left after
+    /// another was forgotten); nil when none is paired.
+    private func adoptMac(_ mac: PairedPeer?) {
+        recordingOverride = nil
+        settings.useMac(mac?.id)
+        liveTargets = mac.map { Self.loadTargets(for: $0.id) } ?? []
+        targetsCurrent = false
+        needsYou = []
+        everyWindow = []
+        macApps = []
+        macAppsLoaded = false
+        reach.set([])
+        refreshMacs()
+        remoteAddresses = client.remoteAddresses
+        isRemote = client.isRemote
+        linkRoute = client.route
+        linkState = client.state
+        // The control's and the widget's lists follow the active Mac.
+        CachedTarget.save(liveTargets.map { CachedTarget(id: "app:\($0.bundleID)#\($0.windowKey ?? "")", name: $0.title) })
+        publishWidget()
+        MacrophoneShortcuts.updateAppShortcutParameters()
+        if queue.isEmpty || mac == nil { if case .queued = status { status = .ready } }
+        else if let mac, queue.hasEntries(for: mac.id) { status = .queued }
+    }
+
+    /// How a paired Mac stands right now, for the lists: the active one by the link; another by
+    /// whether Bonjour sees it on this network.
+    func standing(of mac: PairedPeer) -> MacStanding {
+        if mac.id == pairedMac?.id {
+            switch linkState {
+            case .connected: return .connected(linkRoute)
+            case .unreachable: return .notFound
+            case .notPaired: return .nearby(false)
+            default: return .looking
+            }
+        }
+        return .nearby(client.isNearby(mac.id))
     }
 
     // MARK: Derived
@@ -613,9 +724,9 @@ final class AppModel: ObservableObject {
             bumpPulse()
             return
         }
-        if !queue.isEmpty {
-            // Keep the order: anything spoken earlier goes first.
-            queue.append(d, delayed: true)
+        if queue.hasEntries(for: mac.id) {
+            // Keep the order: anything spoken earlier for this Mac goes first.
+            queue.append(d, delayed: true, mac: mac.id)
             updateItem(d.id) { $0.delivery = .queued; $0.wasDelayed = true }
             if isConnected { flushQueue() } else { setQueuedStatus() }
             return
@@ -623,11 +734,11 @@ final class AppModel: ObservableObject {
         status = .sending(mac: mac.name, to: routeNote(d.id))
         updateItem(d.id) { $0.delivery = .sending; $0.macName = mac.name }
         do {
-            let ack = try await client.send(d, delayed: false, timeout: client.isConnected ? 8 : 4)
+            let ack = try await client.send(d, delayed: false, to: mac.id, timeout: client.isConnected ? 8 : 4)
             apply(ack, to: d.id, macName: mac.name, late: false)
         } catch {
             log.add("send failed (\(String(describing: error))), queued")
-            queue.append(d, delayed: true)
+            queue.append(d, delayed: true, mac: mac.id)
             updateItem(d.id) { $0.delivery = .queued; $0.wasDelayed = true }
             setQueuedStatus()
         }
@@ -660,18 +771,19 @@ final class AppModel: ObservableObject {
         bumpPulse()
     }
 
-    /// Sends everything queued, oldest first, marked delayed. Stops at the first failure.
+    /// Sends everything queued for the active Mac, oldest first, marked delayed. Stops at the
+    /// first failure. What's queued for another Mac waits until that one is active again.
     func flushQueue() {
-        guard !flushing, !queue.isEmpty, isConnected, let mac = client.activeMac else { return }
+        guard !flushing, isConnected, let mac = client.activeMac, queue.hasEntries(for: mac.id) else { return }
         flushing = true
         Task {
             defer { flushing = false }
-            log.add("sending \(queue.count) queued")
-            while let e = queue.entries.first {
+            log.add("sending \(queue.entries(for: mac.id).count) queued")
+            while let e = queue.entries(for: mac.id).first {
                 if latest?.id == e.id { status = .sending(mac: mac.name, to: routeNote(e.id)) }
                 updateItem(e.id) { $0.delivery = .sending }
                 do {
-                    let ack = try await client.send(e.dictation, delayed: true, timeout: 8)
+                    let ack = try await client.send(e.dictation, delayed: true, to: mac.id, timeout: 8)
                     queue.remove(e.id)
                     apply(ack, to: e.id, macName: mac.name, late: true)
                 } catch {
@@ -844,7 +956,9 @@ final class AppModel: ObservableObject {
     }
 
     private func pairingSucceeded(_ peer: PairedPeer) {
-        pairedMac = client.activeMac ?? peer
+        // The Mac just paired is the active one (the link made it so).
+        if watcher.isOpen { watcher.close() }
+        adoptMac(client.activeMac ?? peer)
         pairing = .paired(peer.name)
         Haptics.success()
         if !queue.isEmpty { log.add("paired with \(queue.count) waiting") }
@@ -876,11 +990,22 @@ final class AppModel: ObservableObject {
 
     func resetPairing() { pairing = .idle; pairingMayNeedLocalNetwork = false }
 
+    /// Forget the active Mac.
     func unpair() async {
         guard let mac = client.activeMac else { return }
-        await client.unpair(mac.id)
-        WakeOnLAN.forget(mac.id)
-        forgetMac()
+        await unpair(mac.id)
+    }
+
+    /// Forget one paired Mac (telling it, if it's the connected one). Forgetting the active
+    /// one hands over to the most recently paired of the rest.
+    func unpair(_ id: UUID) async {
+        guard pairedMacs.contains(where: { $0.id == id }) else { return }
+        // Decided before the link moves on (its state change refreshes `pairedMac` meanwhile).
+        let wasActive = pairedMac?.id == id
+        if wasActive, watcher.isOpen { watcher.close() }
+        await client.unpair(id)
+        WakeOnLAN.forget(id)
+        forgetMac(id, wasActive: wasActive)
     }
 
     /// Settings › Away from home: keep one typed address for the paired Mac (empty clears it).
@@ -896,7 +1021,7 @@ final class AppModel: ObservableObject {
             client.setTypedAddress(a, for: mac.id)
         }
         remoteAddresses = client.remoteAddresses
-        pairedMac = client.activeMac
+        refreshMacs()
         return true
     }
 
@@ -905,19 +1030,20 @@ final class AppModel: ObservableObject {
     /// What the Mac itself said (its Tailscale address first).
     var macToldAddresses: [RemoteAddress] { remoteAddresses.filter { $0.source == .mac } }
 
-    private func forgetMac() {
-        pairedMac = client.activeMac
-        remoteAddresses = []
-        isRemote = false
-        linkRoute = nil
-        liveTargets = []
-        targetsCurrent = false
-        saveTargets([])
-        settings.selection = .default
-        // Anything still waiting can't reach a Mac now; it stays in history with Copy.
-        for e in queue.entries { updateItem(e.id) { $0.delivery = .failed; $0.detail = "Unpaired before it was sent" } }
-        queue.removeAll()
-        status = .ready
+    /// A Mac is gone from this phone (forgotten here, or it forgot us): what was kept for it
+    /// goes too. If it was the active one, the screens take on the next (or none).
+    private func forgetMac(_ id: UUID, wasActive: Bool) {
+        settings.forget(mac: id)
+        try? FileManager.default.removeItem(at: AppFiles.targets(for: id))
+        // Anything still waiting for it can't reach it now; it stays in history with Copy.
+        for e in queue.entries(for: id) { updateItem(e.id) { $0.delivery = .failed; $0.detail = "Unpaired before it was sent" } }
+        queue.removeAll(for: id)
+        if wasActive {
+            adoptMac(client.activeMac)
+            status = .ready
+        } else {
+            refreshMacs()
+        }
     }
 
     func renameDevice(_ name: String) {
@@ -1276,10 +1402,22 @@ final class AppModel: ObservableObject {
         publishWidget()
     }
 
+    /// "Studio Mac" or "Studio Mac|MacBook Air": the first is active and connected, the rest paired.
     func debugFakePairing(mac: String) {
         debugPairingLocked = true
-        pairedMac = PairedPeer(id: UUID(), name: mac)
-        linkState = .connected(mac)
+        let names = mac.split(separator: "|").map(String.init)
+        pairedMacs = names.enumerated().map { PairedPeer(id: UUID(), name: $1, pairedAt: Date().addingTimeInterval(Double($0) * 60 - 3_600)) }
+        pairedMac = pairedMacs.first
+        linkState = .connected(names.first ?? mac)
+    }
+
+    /// The fake roll: the pill's name moves to the next fake Mac (no link to switch).
+    func debugFakeStep(_ step: Int) {
+        guard let next = MacRoster.step(step, from: pairedMac?.id, in: pairedMacs) else { return }
+        macRollUp = step > 0
+        pairedMac = next
+        linkState = .connected(next.name)
+        Haptics.tick()
     }
     #endif
 }
@@ -1291,7 +1429,7 @@ extension AppModel: LinkClientDelegate {
         if debugPairingLocked { return }
         #endif
         linkState = state
-        pairedMac = client.activeMac
+        refreshMacs()
         isRemote = client.isRemote
         linkRoute = client.route
         if case .connected = state { flushQueue() } else { targetsCurrent = false }
@@ -1312,6 +1450,7 @@ extension AppModel: LinkClientDelegate {
         #if DEBUG
         if debugTargetsLocked { return }
         #endif
+        guard macID == pairedMac?.id else { return }   // a list from the Mac before the switch
         liveTargets = targets
         targetsCurrent = true
         saveTargets(targets)
@@ -1321,7 +1460,7 @@ extension AppModel: LinkClientDelegate {
 
     /// Changed on the Mac: apply it here, and don't send it back.
     func linkClient(_ client: LinkClient, selectionChanged selection: SendSelection, macID: UUID) {
-        guard client === self.client else { return }
+        guard client === self.client, macID == pairedMac?.id else { return }
         recordingOverride = nil
         var selection = selection
         // Show the app the way the phone lists it ("Terminal — claude"), whatever name the Mac sent.
@@ -1572,7 +1711,7 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, remoteAddresses: [RemoteAddress], macID: UUID) {
         guard client === self.client else { return }
         self.remoteAddresses = client.remoteAddresses
-        pairedMac = client.activeMac
+        refreshMacs()
     }
 
     func linkClient(_ client: LinkClient, pathChanged remote: Bool) {
@@ -1585,9 +1724,13 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) {
         guard client === self.client else { return }
         log.add("the Mac forgot this iPhone")
+        let name = pairedMacs.first { $0.id == macID }?.name ?? "Your Mac"
         WakeOnLAN.forget(macID)
-        forgetMac()
-        status = .notice("Your Mac forgot this iPhone. Pair again to send to it.")
+        // Only the active Mac has a session (or a dial) to forget us on.
+        if watcher.isOpen { watcher.close() }
+        forgetMac(macID, wasActive: true)
+        status = .notice(pairedMac == nil ? "\(name) forgot this iPhone. Pair again to send to it."
+                         : "\(name) forgot this iPhone. Sending to \(macName) now.")
     }
 }
 

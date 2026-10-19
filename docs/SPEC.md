@@ -105,7 +105,7 @@ The phone and Mac talk directly over the local network with no account and no se
 
 - **Primary: QR code.** The Mac shows a QR code holding a one-time secret and its network identity. The phone scans it, both devices store a shared key, and all later traffic is encrypted and authenticated with it. Pairing happens once per Mac.
 - **Fallback: confirmation code.** Both screens show the same short code and the user approves on the Mac. The code expires quickly and limits retries.
-- The data model allows multiple phones per Mac and multiple Macs per phone, even if the v1 interface shows one.
+- The data model allows multiple phones per Mac and multiple Macs per phone. Since Oct 19 2026 the iPhone shows them: every pairing is kept (its key in the Keychain, its name, id, remote addresses and wake info with it), one Mac is active at a time (`macrophone.activeMac`; unset, the most recently paired — so a phone from before carries on with nothing to re-pair), each Mac keeps its own Send to pick and remembered send settings, and a dictation queued for one Mac waits for that Mac. The pill at the top switches (a tap lists the Macs; a swipe up or down steps through them); Settings lists them with Unpair beside each. The Mac side is unchanged.
 - Unpairing is available on both sides. The Mac menu has "forget this phone," which also serves as revocation for a lost phone, and the phone has a matching option.
 
 **Offline queue**

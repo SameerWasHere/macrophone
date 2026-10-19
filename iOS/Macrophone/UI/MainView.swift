@@ -455,27 +455,32 @@ extension Image {
     }
 }
 
-/// The paired Mac and its connection, top left: the light, the Mac's name and — when connected —
+/// The active Mac and its connection, top left: the light, the Mac's name and — when connected —
 /// a small sign of how (Oct 17 2026, Sameer: "a little Wi-Fi logo ... over Tailscale ... a little
 /// VPN logo"): Wi-Fi at home, the direct link nearby, a shielded network through Tailscale, a
-/// globe over the internet. Taps through to pairing when unpaired.
+/// globe over the internet. Taps through to pairing when unpaired, to Settings with one Mac, and
+/// with several (Oct 19 2026, Sameer: "pair multiple Macs to my phone and switch easily by swiping
+/// up and down in the top left") to the Macs list; a swipe up or down on it is the shortcut — the
+/// name rolls to the next or previous Mac with a tick. The pill's width follows the name on the
+/// same spring, so the top bar never jumps.
 struct MacPill: View {
     @EnvironmentObject var model: AppModel
     /// One width for every connection sign (Wi-Fi, globe, shield), so none moves the pill.
     @ScaledMetric(relativeTo: .caption) private var iconSlot: CGFloat = 18
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// A drag under way: how far the name has been pulled (a hint of the roll to come).
+    @GestureState private var pull: CGFloat = 0
 
     var body: some View {
+        let several = model.pairedMacs.count > 1
         Button {
-            model.sheet = model.isPaired ? .settings : .pairing
+            model.sheet = several ? .macs : model.isPaired ? .settings : .pairing
         } label: {
             HStack(spacing: 8) {
                 Circle().fill(dot).frame(width: 8, height: 8).shadow(color: dot.opacity(0.8), radius: 4)
                     .accessibilityHidden(true)
-                Text(title)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Ink.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
+                RollingName(name: title, key: model.pairedMac?.id.uuidString ?? "none", reduceMotion: reduceMotion)
+                    .offset(y: several ? pull : 0)
                 // The way it's connected, in a slot that's always there: the pill keeps its width
                 // from launch to connected instead of growing when the sign arrives.
                 if model.isPaired {
@@ -495,9 +500,45 @@ struct MacPill: View {
         }
         .nativeGlassButton()
         .buttonBorderShape(.capsule)
+        // The width follows the name's on the roll's own spring.
+        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: model.pairedMac?.id)
+        .simultaneousGesture(swipe, including: several ? .all : .subviews)
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .accessibilityIdentifier("mac-pill")
         .accessibilityLabel(accessibility)
-        .accessibilityHint(model.isPaired ? "Opens Settings." : "Pairs this iPhone with Macrophone on your Mac.")
+        .accessibilityValue(several ? "\(position) of \(model.pairedMacs.count) Macs" : "")
+        .accessibilityHint(several ? "Opens your Macs. Swipe up or down to switch Macs."
+                           : model.isPaired ? "Opens Settings." : "Pairs this iPhone with Macrophone on your Mac.")
+        .accessibilityAdjustableAction { direction in
+            guard several else { return }
+            switch direction {
+            case .increment: model.stepMac(1)
+            case .decrement: model.stepMac(-1)
+            @unknown default: break
+            }
+        }
+        .accessibilityAction(named: "Choose a Mac") { if several { model.sheet = .macs } }
+    }
+
+    /// A swipe up goes to the next Mac, down to the one before (a sideways drag is ignored, so a
+    /// scroll near the top bar never switches). The tap still works: the gesture only acts on a
+    /// clear vertical pull.
+    private var swipe: some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .local)
+            .updating($pull) { v, state, _ in
+                let dy = v.translation.height
+                guard abs(dy) > abs(v.translation.width) else { state = 0; return }
+                // A hint of the roll: the name follows the finger a little, never far.
+                state = max(-8, min(8, dy / 4))
+            }
+            .onEnded { v in
+                let dy = v.translation.height
+                guard abs(dy) > 24, abs(dy) > abs(v.translation.width) * 1.2 else { return }
+                #if DEBUG
+                if model.debugPairingLocked { model.debugFakeStep(dy < 0 ? 1 : -1); return }
+                #endif
+                model.stepMac(dy < 0 ? 1 : -1)
+            }
     }
 
     static func symbol(_ route: LinkRoute) -> String {
@@ -513,6 +554,8 @@ struct MacPill: View {
         guard let mac = model.pairedMac else { return "Pair your Mac" }
         return mac.name
     }
+
+    private var position: Int { (model.pairedMacs.firstIndex { $0.id == model.pairedMac?.id } ?? 0) + 1 }
 
     private var dot: Color {
         switch model.linkState {
@@ -532,6 +575,90 @@ struct MacPill: View {
         case .searching: return "Looking for \(model.macName)"
         }
     }
+}
+
+/// The Mac's name on the pill. On a switch the old name rolls out (up for the next Mac, down for
+/// the one before) and the new one rolls in behind it on the settle spring; under Reduce Motion
+/// the two cross-fade. The slot is the current name's size, so the pill's width animates with it
+/// and nothing else in the top bar moves. `MACROPHONE_PILL_ROLL=<0…1>` (DEBUG) holds the roll
+/// at that point for a screenshot.
+struct RollingName: View {
+    var name: String
+    /// Changes with the Mac (not the name: two Macs can share one).
+    var key: String
+    var reduceMotion: Bool
+    /// What's drawn as the current name, by Mac.
+    @State private var shown: (key: String, name: String)?
+    /// The name on its way out, and how far the roll has got (0 = just started, 1 = done).
+    @State private var leaving: (name: String, up: Bool)?
+    @State private var progress: CGFloat = 1
+    /// Which way this switch rolls (`AppModel.macRollUp`), and the Macs for the held roll.
+    @EnvironmentObject private var model: AppModel
+
+    /// How far a name travels: its own line and a little more, so it clears the slot.
+    private let travel: CGFloat = 30
+
+    #if DEBUG
+    /// `MACROPHONE_PILL_ROLL=<0…1>`: the roll held at that point (a screenshot of it mid-way).
+    private var held: CGFloat? { DebugHooks.env["MACROPHONE_PILL_ROLL"].flatMap(Double.init).map { CGFloat(max(0, min(1, $0))) } }
+    #endif
+
+    var body: some View {
+        let font = Font.footnote.weight(.semibold)
+        let rolling = leaving != nil && progress < 1
+        Text(shown?.name ?? name)
+            .font(font)
+            .foregroundStyle(Ink.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+            .opacity(rolling ? (reduceMotion ? Double(progress) : Double(0.2 + 0.8 * progress)) : 1)
+            .offset(y: rolling && !reduceMotion ? (1 - progress) * travel * (leaving?.up == true ? 1 : -1) : 0)
+            .overlay(alignment: .leading) {
+                if let leaving, rolling {
+                    Text(leaving.name)
+                        .font(font)
+                        .foregroundStyle(Ink.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .opacity(reduceMotion ? Double(1 - progress) : max(0, 1 - Double(progress) * 1.6))
+                        .offset(y: reduceMotion ? 0 : -progress * travel * (leaving.up ? 1 : -1))
+                        .accessibilityHidden(true)
+                }
+            }
+            // The slot is the pill's height, so a name rolls the whole way in view before it leaves.
+            .padding(.vertical, 9)
+            .clipped()
+            .padding(.vertical, -9)
+            .onAppear {
+                shown = (key, name)
+                #if DEBUG
+                if let held {
+                    // Held mid-roll: the Mac before this one on its way up and out.
+                    let before = MacRoster.step(-1, from: model.pairedMac?.id, in: model.pairedMacs)?.name ?? "Studio Mac"
+                    leaving = (before, true)
+                    progress = held
+                }
+                #endif
+            }
+            .onChange(of: key) { _, new in
+                guard let s = shown, s.key != new else { shown = (new, name); return }
+                leaving = (s.name, model.macRollUp)
+                shown = (new, name)
+                #if DEBUG
+                if let held { progress = held; return }
+                #endif
+                progress = 0
+                // The roll starts on the next pass: a write in this one would animate 1 → 1.
+                Task { @MainActor in
+                    withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { progress = 1 }
+                }
+            }
+            .onChange(of: name) { _, new in
+                // The same Mac under a new name (it was renamed): no roll.
+                if shown?.key == key { shown = (key, new) }
+            }
+    }
+
 }
 
 /// In the controls panel's first row, after the first dictations made without a Mac: the free

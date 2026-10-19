@@ -27,7 +27,7 @@ struct PairingView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(GroundBackground().ignoresSafeArea())
-        .navigationTitle("Pair Your Mac")
+        .navigationTitle(model.isPaired ? "Pair Another Mac" : "Pair Your Mac")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
             if case .paired = model.pairing { model.resetPairing() }
@@ -171,7 +171,9 @@ struct PairingPanel: View {
             DeliveredCheck(visible: true).scaleEffect(1.6).padding(.bottom, 8)
             Text("Paired with \(name)").font(.serif(.title2)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("What you say on this iPhone now lands on that Mac.")
+            Text(model.pairedMacs.count > 1
+                 ? "It's the active Mac now. Swipe up or down on its name at the top to switch between your Macs."
+                 : "What you say on this iPhone now lands on that Mac.")
                 .font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 10) {

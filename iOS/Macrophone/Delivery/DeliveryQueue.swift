@@ -10,7 +10,21 @@ final class DeliveryQueue: ObservableObject {
         /// It missed the Mac at least once — the Mac shows it as delayed and never auto-sends it.
         var delayed: Bool
         var attempts: Int
+        /// The Mac it was meant for (nil: from before several Macs — the one Mac then).
+        var macID: UUID?
         var id: UUID { dictation.id }
+
+        enum CodingKeys: String, CodingKey { case dictation, delayed, attempts, macID }
+        init(dictation: Dictation, delayed: Bool, attempts: Int, macID: UUID?) {
+            self.dictation = dictation; self.delayed = delayed; self.attempts = attempts; self.macID = macID
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            dictation = try c.decode(Dictation.self, forKey: .dictation)
+            delayed = try c.decode(Bool.self, forKey: .delayed)
+            attempts = try c.decode(Int.self, forKey: .attempts)
+            macID = try c.decodeIfPresent(UUID.self, forKey: .macID)
+        }
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -27,13 +41,25 @@ final class DeliveryQueue: ObservableObject {
     var count: Int { entries.count }
     func contains(_ id: UUID) -> Bool { entries.contains { $0.id == id } }
 
-    func append(_ d: Dictation, delayed: Bool) {
+    /// `mac`: the Mac it's for. Nothing here for one Mac goes to another.
+    func append(_ d: Dictation, delayed: Bool, mac: UUID?) {
         if let i = entries.firstIndex(where: { $0.id == d.id }) {
             entries[i].dictation = d
             entries[i].delayed = entries[i].delayed || delayed
+            if entries[i].macID == nil { entries[i].macID = mac }
         } else {
-            entries.append(Entry(dictation: d, delayed: delayed, attempts: 0))
+            entries.append(Entry(dictation: d, delayed: delayed, attempts: 0, macID: mac))
         }
+        persist()
+    }
+
+    /// What's waiting for one Mac (an entry from before several Macs counts for whichever is
+    /// active — there was only one), oldest first.
+    func entries(for mac: UUID) -> [Entry] { entries.filter { $0.macID == nil || $0.macID == mac } }
+    func hasEntries(for mac: UUID) -> Bool { entries.contains { $0.macID == nil || $0.macID == mac } }
+
+    func removeAll(for mac: UUID) {
+        entries.removeAll { $0.macID == nil || $0.macID == mac }
         persist()
     }
 

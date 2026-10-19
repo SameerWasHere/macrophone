@@ -32,13 +32,18 @@ final class Settings: ObservableObject {
     }
     /// What this iPhone calls itself to the Mac. iOS only gives apps "iPhone", so the person can rename it.
     @Published var deviceName: String { didSet { d.set(deviceName, forKey: K.deviceName) } }
-    /// The one shared Send-to choice (synced with the Mac both ways; the phone's wins on connect).
+    /// The Send-to choice on the active Mac (synced with it both ways; the phone's wins on
+    /// connect). Each Mac has its own (Oct 19 2026, `MacPreferences`): `useMac` brings a Mac's
+    /// back when it becomes active.
     @Published var selection: SendSelection {
         didSet {
-            if let data = try? JSONEncoder().encode(selection) { d.set(data, forKey: K.selection) }
+            prefs.setSelection(selection, for: macID)
             if selection.target.canSend { rememberSend(selection.send, for: selection.target) }
         }
     }
+    /// The Mac these per-Mac settings are for (the active one); nil before any is paired.
+    private(set) var macID: UUID?
+    private let prefs: MacPreferences
 
     init(defaults: UserDefaults = .standard) {
         d = defaults
@@ -55,13 +60,29 @@ final class Settings: ObservableObject {
         customInstructions = custom
         CleanupPrompts.setCustomInstructions(custom)
         deviceName = defaults.string(forKey: K.deviceName) ?? UIDevice.current.name
-        selection = Self.storedSelection(defaults)
+        prefs = MacPreferences(defaults: defaults)
+        selection = Self.storedSelection(defaults, mac: nil)
     }
 
     /// Read without the main actor: the link sends it to the Mac right after every welcome.
-    nonisolated static func storedSelection(_ d: UserDefaults = .standard) -> SendSelection {
-        if let data = d.data(forKey: K.selection), let s = try? JSONDecoder().decode(SendSelection.self, from: data) { return s }
-        return .default   // a fresh install copies to the Mac's clipboard
+    nonisolated static func storedSelection(_ d: UserDefaults = .standard, mac: UUID?) -> SendSelection {
+        MacPreferences(defaults: d).selection(for: mac)
+    }
+
+    /// The active Mac changed (or the first one was paired, or the last forgotten): its own
+    /// Send to pick and remembered send settings come back. A Mac from before several Macs
+    /// takes the one set of keys the app kept until now, once.
+    func useMac(_ id: UUID?) {
+        if let id { prefs.adopt(legacyFor: id) }
+        macID = id
+        let s = prefs.selection(for: id)
+        if s != selection { selection = s }
+    }
+
+    /// A Mac forgotten takes what was remembered for it with it.
+    func forget(mac: UUID) {
+        prefs.forget(mac: mac)
+        if macID == mac { macID = nil }
     }
 
     /// Quietly drops what the simplification (Oct 13 2026) took out: automations, the hint toggle,
@@ -81,18 +102,10 @@ final class Settings: ObservableObject {
         for key in [K.oldSendTo, K.oldHoldHint, K.oldProfiles] where d.object(forKey: key) != nil { d.removeObject(forKey: key) }
     }
 
-    /// Paste or Paste & send, remembered for each target the person has used.
-    func rememberedSend(for target: TargetRef) -> Bool {
-        guard target.canSend else { return false }
-        return (d.dictionary(forKey: K.sendByTarget) as? [String: Bool])?[target.storageKey] ?? false
-    }
+    /// Paste or Paste & send, remembered for each place the person has used on the active Mac.
+    func rememberedSend(for target: TargetRef) -> Bool { prefs.rememberedSend(for: target, mac: macID) }
 
-    func rememberSend(_ on: Bool, for target: TargetRef) {
-        guard target.canSend else { return }
-        var all = (d.dictionary(forKey: K.sendByTarget) as? [String: Bool]) ?? [:]
-        all[target.storageKey] = on
-        d.set(all, forKey: K.sendByTarget)
-    }
+    func rememberSend(_ on: Bool, for target: TargetRef) { prefs.rememberSend(on, for: target, mac: macID) }
 
     var isEnglish: Bool { language.lowercased().hasPrefix("en") }
 
@@ -106,16 +119,14 @@ final class Settings: ObservableObject {
         static let watchAfterSending = "settings.watchAfterSending"
         static let agentAlerts = "settings.agentAlerts"
         static let deviceName = "settings.deviceName"
-        static let selection = "settings.selection"
-        static let sendByTarget = "settings.sendByTarget"
+        /// The one Mac's keys from before Oct 19 2026 (now per Mac: MacPreferences.key(_:mac:)).
+        static let selection = MacPreferences.selectionKey
+        static let sendByTarget = MacPreferences.sendByTargetKey
         static let customInstructions = "settings.customInstructions"
         // Gone (Oct 13 2026); removed on launch.
         static let oldSendTo = "settings.sendTo"
         static let oldHoldHint = "settings.showHoldHint"
         static let oldProfiles = "profiles.cache"
-    }
-}
-
     }
 }
 
@@ -130,8 +141,10 @@ enum AppFiles {
     static var history: URL { directory.appendingPathComponent("history.json") }
     static var queue: URL { directory.appendingPathComponent("queue.json") }
     static var log: URL { directory.appendingPathComponent("diagnostics.log") }
-    /// The Mac's open apps as last heard (names, ids and small icons — no text).
-    static var targets: URL { directory.appendingPathComponent("targets.json") }
+    /// The one Mac's open apps as last heard, before several Macs (read once, then moved).
+    static var legacyTargets: URL { directory.appendingPathComponent("targets.json") }
+    /// A Mac's open apps as last heard (names, ids and small icons — no text), one file per Mac.
+    static func targets(for mac: UUID) -> URL { directory.appendingPathComponent("targets-\(mac.uuidString).json") }
 }
 
 extension Bundle {

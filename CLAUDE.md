@@ -40,6 +40,43 @@ Feature flags: a message goes only to a peer that named its feature in hello / w
 (`LinkClient.features`, `LinkServer.macFeatures`; `mpctl serve` names them all) — App Store
 iPhone 1.0 and an older Mac keep working.
 
+## Several Macs on one iPhone (Oct 19 2026)
+
+Sameer: "I should also be able to pair multiple Macs to my phone and switch easily by swiping up
+and down in the top left where it shows what Mac is connected." The phone keeps every pairing
+(`PairingStore` always could); **one Mac is active** — the mic sends to it, the window view shows
+it, the pill names it. The Mac side is unchanged: each Mac pairs with the phone on its own.
+- **Rules** (`Storage/MacRoster.swift`, tested in `MacRosterTests`): the order is the order they
+  were paired; the active Mac is the chosen one (`macrophone.activeMac` in UserDefaults) else the
+  most recently paired — v1's rule, so a phone with one Mac migrates with nothing to re-pair;
+  `step(±1)` goes round the list. `MacPreferences`: each Mac's own Send to pick and remembered
+  Paste / Paste & send (`settings.selection.<macID>`, `settings.sendByTarget.<macID>`); the one
+  Mac's old keys are adopted by the first Mac once (`adopt`). Open apps cache per Mac
+  (`targets-<id>.json`, the old `targets.json` moved once); wake info and landing reports were
+  per Mac already; remote addresses live on the `PairedPeer`.
+- **Link** (`LinkClient.setActiveMac`): the session to the Mac before closes, a dial that
+  finished for it never installs (`switchGeneration`), anything waiting on it fails with
+  `LinkError.anotherMac` and the app queues it **for that Mac** (`DeliveryQueue.Entry.macID`;
+  `flushQueue` sends only the active Mac's; `send(_:delayed:to:)` refuses another Mac's). A Mac
+  that forgets the phone, or is unpaired, hands over to the next (`settleChoice`); none left →
+  not paired. Pairing again with a known Mac keeps its place and addresses.
+- **Phone:** `AppModel.pairedMacs` / `pairedMac` (active), `switchMac(to:direction:)`,
+  `stepMac(±1)`, `adoptMac` (everything on screen becomes that Mac's: apps, pick, marks, displays;
+  the watch closes), `standing(of:)` (connected · looking · not found; another Mac: on this
+  network or not, by Bonjour). **The pill** (`MacPill`, `RollingName`): tap → the Macs list
+  (`UI/MacsSheet.swift`: each Mac's light, standing and sign, a tap switches; Pair Another Mac…;
+  Settings) with several, Settings with one, pairing with none; **swipe up / down = next /
+  previous**, the name rolls on the settle spring with a tick (Reduce Motion: cross-fade), the
+  pill's width follows on the same spring; VoiceOver: adjustable + "Choose a Mac". Settings › Macs
+  lists every Mac (`MacRow`, Unpair beside each, a tap switches) and Pair Another Mac; the pairing
+  flow adds to the list and the new Mac becomes active. Widgets and the control follow the active
+  Mac (`CachedTarget` / `WidgetApp` re-saved on a switch).
+- **Hooks:** `MACROPHONE_FAKE_PAIRED="Studio Mac|MacBook Air"`, `MACROPHONE_PILL_ROLL=0.45`
+  (held mid-roll), `MACROPHONE_SWITCH_MAC=<name>`, `MACROPHONE_UNPAIR=<name>`,
+  `MACROPHONE_SCREEN=macs`. Proven on the simulator against two `mpctl serve --name … --remote
+  --port 47951|47952 --state <dir>` (`MultiMacUITests`, real swipes on the pill; each serve's log
+  says which words it got); frames in `docs/screens/multi-mac/`.
+
 ## Save to Mac's Downloads (Oct 19 2026)
 
 A photo or file from the phone can go into the Mac's Downloads and show selected in Finder, not

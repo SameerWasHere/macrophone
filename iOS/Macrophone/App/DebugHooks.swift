@@ -8,7 +8,7 @@ import UIKit
 /// `SIMCTL_CHILD_<NAME>=… xcrun simctl launch <udid> com.sameer.macrophone`.
 ///
 /// MACROPHONE_RESET=1                         clear settings, history, queue (not pairings)
-/// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto|custom|settings-custom|openapp
+/// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto|custom|settings-custom|openapp|macs
 ///                                            (sendto: Settings › Send to, the full list of places)
 /// MACROPHONE_OPEN_APP=<name>                 with SCREEN=openapp: then open that app from the list
 ///                                            (custom: the Custom cleanup editor from the mic screen; settings-custom: from Settings)
@@ -20,6 +20,9 @@ import UIKit
 /// MACROPHONE_FAKE_RECORDING=<text>           the live recording screen, words appearing
 /// MACROPHONE_FAKE_HISTORY=1                  four sample history items
 /// MACROPHONE_FAKE_PAIRED=<Mac name>          looks paired + connected, with the sample open apps below
+///                                            ("Studio Mac|MacBook Air": several, the first active; a swipe on the pill rolls)
+/// MACROPHONE_PILL_ROLL=<0…1>                 the pill held mid-roll at that point (with several fake Macs)
+/// MACROPHONE_SWITCH_MAC=<Mac name>           once connected, switch to that paired Mac (as a swipe or the list does)
 /// MACROPHONE_FAKE_TARGETS=default|long|none|many  stand-in for the Mac's open apps (long: a very long window name; many: 15)
 /// MACROPHONE_SEND_TO=clipboard|front|<app name>  the Send-to choice (as if picked)
 /// MACROPHONE_SEND=1|0                        Paste & send on / off for it
@@ -42,7 +45,7 @@ import UIKit
 /// MACROPHONE_LANGUAGE=<id>                   recognizer language
 /// MACROPHONE_OPEN_URL=<url>                  handled exactly like onOpenURL (simctl openurl asks "Open in…?" first)
 /// MACROPHONE_PAIR_CODE=<Mac name>            code pairing with the Mac of that name
-/// MACROPHONE_UNPAIR=1                       forget the paired Mac (tells it, if reachable)
+/// MACROPHONE_UNPAIR=1|<Mac name>            forget the active Mac, or the paired Mac of that name (tells it, if reachable)
 /// MACROPHONE_RESEND_LATEST=1                 resend the last dictation (same id) after a few seconds
 /// MACROPHONE_RECORD=<seconds>                really record from the mic for that long, then stop
 /// MACROPHONE_AUDIO_FILE=<path>               record that audio file instead of the mic (real speed), then stop
@@ -235,7 +238,19 @@ enum DebugHooks {
         }
         if let level = env["MACROPHONE_CLEANUP"].flatMap(CleanupLevel.init(rawValue:)) { model.setCleanupLevel(level) }
         if env["MACROPHONE_FAKE_HISTORY"] == "1" { model.debugSeedHistory() }
-        if env["MACROPHONE_UNPAIR"] == "1" { Task { await model.unpair() } }
+        if let which = env["MACROPHONE_UNPAIR"] {
+            Task {
+                if which == "1" { await model.unpair() }
+                else if let mac = model.pairedMacs.first(where: { $0.name == which }) { await model.unpair(mac.id) }
+            }
+        }
+        if let name = env["MACROPHONE_SWITCH_MAC"] {
+            Task {
+                for _ in 0..<40 where !model.isConnected { try? await Task.sleep(nanoseconds: 250_000_000) }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if let mac = model.pairedMacs.first(where: { $0.name == name }) { model.switchMac(to: mac.id) }
+            }
+        }
         if let to = env["MACROPHONE_INTENT_TARGET"] {
             let id: String? = {
                 switch target(named: to, in: model) {
@@ -268,6 +283,7 @@ enum DebugHooks {
                 }
             }
         case "pairing": model.sheet = .pairing
+        case "macs": model.sheet = .macs
         default: break
         }
         if let s = env["MACROPHONE_OPEN_URL"], let url = URL(string: s) {
