@@ -48,16 +48,19 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Mac's pointer is in the frame's words instead.
     private(set) var showsCursor: Bool
 
-    init(window: SCWindow, maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false, showsCursor: Bool = false) {
+    /// `frame`: the window's size now, when it was just resized (ScreenCaptureKit's list can still
+    /// carry the size from before — the first pictures would come in the old shape).
+    init(window: SCWindow, frame: CGSize? = nil, maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false, showsCursor: Bool = false) {
         let filter = SCContentFilter(desktopIndependentWindow: window)
+        let frameSize = frame ?? window.frame.size
         scale = CGFloat(filter.pointPixelScale)
         self.maxRate = maxRate
         self.video = video
         self.showsCursor = showsCursor
         self.maxWidth = maxWidth
-        let (cfg, size) = Self.configuration(for: window.frame.size, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
+        let (cfg, size) = Self.configuration(for: frameSize, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
         self.size = size
-        windowSize = window.frame.size
+        windowSize = frameSize
         stream = SCStream(filter: filter, configuration: cfg, delegate: nil)
         super.init()
     }

@@ -358,7 +358,7 @@ final class WatchService {
         }
         // Where to look.
         if let reason = await resolve(w) { w.dropStream(); return reason }
-        guard let wid = w.windowID, let place = WindowServer.info(wid) else {
+        guard let wid = w.windowID, var place = WindowServer.info(wid) else {
             w.windowID = nil
             w.dropStream()
             return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
@@ -379,8 +379,23 @@ final class WatchService {
         guard place.onScreen else {
             return .unavailable("\(w.appName)'s window is minimized or on another desktop", canReveal: true)
         }
-        // The size the phone asked for before the window was found (Aa).
-        if w.wantedFit != .normal, w.fit == nil { applyFit(w) }
+        // The size the phone asked for before the window was found (Aa). Before the first
+        // picture: the window takes its new size first, so the phone never sees the old shape and
+        // then re-fits to the new one (Oct 19 2026, Sameer: "it seems to show the full window and
+        // then crop down to the zoomed view … every time I go over").
+        if w.wantedFit != .normal, w.fit == nil {
+            applyFit(w)
+            if let target = w.fit?.applied {
+                for _ in 0..<12 {
+                    if let now = WindowServer.info(wid), abs(now.bounds.width - target.width) < 2, abs(now.bounds.height - target.height) < 2 {
+                        place = now
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 25_000_000)
+                }
+                if let now = WindowServer.info(wid) { place = now }
+            }
+        }
 
         // The whole screen moved to another display (picked on the phone, or this one unplugged).
         if wid == WindowServer.desktopID, w.stream != nil, w.desktopDisplay != MacDisplays.watched { w.dropStream() }
@@ -391,7 +406,7 @@ final class WatchService {
             if wid == WindowServer.desktopID {
                 made = await desktopStream(w)
             } else if let scw = await scWindow(wid) {
-                made = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
+                made = WindowStream(window: scw, frame: place.bounds.size, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
             } else {
                 made = nil
             }
