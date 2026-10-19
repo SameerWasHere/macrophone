@@ -19,10 +19,6 @@ final class MacReachUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
     }
 
-    private func controls(_ app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Mac Controls'")).firstMatch
-    }
-
     func testSendToMoreHasDisplaysAndMacControls() {
         let app = XCUIApplication()
         app.launchEnvironment = ["MACROPHONE_SCREEN": "main"]
@@ -34,18 +30,21 @@ final class MacReachUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Whole Screen — Studio Display"].waitForExistence(timeout: 4), "a Whole Screen per display")
         XCTAssertTrue(app.buttons["Whole Screen — Built-in Retina Display"].exists)
         shot("1-more-menu")
-        controls(app).tap()
-        let up = app.buttons["Volume Up"]
+        // Away from the ⋯ menu; Mac Controls is the button beside Watch (Oct 19 2026).
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)).tap()
+        let controlsButton = app.buttons["mac-controls"].firstMatch
+        XCTAssertTrue(controlsButton.waitForExistence(timeout: 4), "Mac Controls beside Watch")
+        controlsButton.tap()
+        let up = app.buttons["mac-control-volumeUp"]
         XCTAssertTrue(up.waitForExistence(timeout: 4), "Mac Controls opens")
         shot("2-mac-controls")
         up.tap()
-        // The menu stays open for another press.
+        // The panel stays open for another press.
         XCTAssertTrue(up.waitForExistence(timeout: 2))
         up.tap()
-        app.buttons["Play or Pause"].tap()
+        app.buttons["mac-control-playPause"].tap()
         shot("3-after-presses")
-        // Dismiss and read the answer in the status line.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)).tap()
+        app.buttons["mac-controls-done"].tap()
         shot("4-status")
 
         // The window view: the whole screen of the second display, and the keys menu's Mac Controls.
@@ -61,16 +60,14 @@ final class MacReachUITests: XCTestCase {
         sleep(2)
         // The window is asking a question: its answers stand in for the keys until Keys.
         if app.buttons["watch-keys"].waitForExistence(timeout: 3) { app.buttons["watch-keys"].tap() }
-        let keys = app.buttons["watch-more-keys"]
-        if keys.waitForExistence(timeout: 4) {
-            keys.tap()
-            sleep(1)
-            shot("7a-keys-open")
-            XCTAssertTrue(controls(app).waitForExistence(timeout: 4), "Mac Controls in the keys menu")
-            shot("7-keys-menu")
-            controls(app).tap()
-            app.buttons["Mute"].tap()
-            shot("8-keys-mac-controls")
-        }
+        // Mac Controls is the header's own button (Oct 19 2026): one tap, the panel, a press.
+        let button = app.buttons["mac-controls"].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: 4), "Mac Controls in the window view's header")
+        button.tap()
+        XCTAssertTrue(app.buttons["mac-control-mute"].waitForExistence(timeout: 4), "the panel opens")
+        shot("7-mac-controls-panel")
+        app.buttons["mac-control-mute"].tap()
+        shot("8-after-mute")
+        app.buttons["mac-controls-done"].tap()
     }
 }

@@ -18,7 +18,7 @@ replaces are marked **superseded**); the sections below keep the mechanics and t
 | Feature | iPhone | Mac |
 | --- | --- | --- |
 | **Send to** (the shared choice, "Send to" everywhere — never "Send To") | The controls panel by the mic: `SEND TO` kicker, the pick's name, a row of app icons only (a long press lists an app's windows), **+** at the end = Open an App (the only way to open one that isn't open), **⋯** = Send a Photo… · Send a File… · Copy Mac's Clipboard · Send Clipboard to Mac · Refresh Open Apps. Settings › Send to is the full list. `UI/QuickControls.swift`, `UI/SendTo.swift`, `UI/SendToMac.swift` | The menu bar menu's Send to section (a check on the current, the first six apps, More Apps, Send after pasting as its own toggle); the `SendToCard` above every window pane; the first-run step. `UI/StatusItemController.swift`, `UI/Components/SendTo.swift` |
-| **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, tap twice = double-click, tap then hold-and-move = drag, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons; under the Thread the **KEYBOARD · MIC · TRACKPAD** pages (Oct 19 2026). `UI/WatchPanel.swift`, `Model/Watcher.swift`, `UI/InputCarousel.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, drags, the pointer, typing, keys and trackpad-style scrolls (`InputService.swift`, `ScrollPoster.swift`); the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
+| **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, tap twice = double-click, tap then hold-and-move = drag, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons; the **KEYBOARD · MIC · TRACKPAD** row above the Thread (Oct 19 2026 — the pages slide under it; the trackpad takes the Thread's room); **Mac Controls** beside Sound in the header (the carousel fixes). `UI/WatchPanel.swift`, `Model/Watcher.swift`, `UI/InputCarousel.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, drags, the pointer, typing, keys and trackpad-style scrolls (`InputService.swift`, `ScrollPoster.swift`); the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
 | **The header cluster** by Done: **zoom out** (`arrow.down.right.and.arrow.up.left`, the whole window and back), **Window** (`macwindow`) | One piece of glass; each only when the connected Mac names its feature. `UI/WatchReader.swift` is Text: your text size, selectable, Copy All, follows the newest line, asked every 2.5 s | Reader: a terminal's own text, else recognition over the column you type in (`WindowReader.swift`); `mpctl reader` |
 | **The Window menu** (in order of use) | Fit to iPhone · Text size on this iPhone (Normal · Larger · Largest, per app) · Size on your Mac (Fill the Screen `rectangle.inset.filled` · Left Half · Right Half · Middle · Back to How It Was) · Minimize · Close Window (asked first) · the photo / file / clipboard items (the same as Send to's ⋯, here because the panel is away) · Show Tips Again | `WindowFit.swift` resizes through Accessibility and restores on Done / Quit |
 | **First-use tips** (`UI/WatchTips.swift`) | Five at most, one card at a time over the window's top, each only when it works with this Mac: Tap to click / hold to right-click · Pinch to zoom, or Fit to iPhone · Swipe in from the side (two windows or more) · Pan or Scroll (auto-Scroll named)· More keys. `watch.tips.seen`; Window › Show Tips Again | — |
@@ -62,6 +62,63 @@ files from Mac to phone. Sending clipboard is good for now.") — don't build th
   arrives. UI test `testSaveToDownloadsItems` (with `TEST_RUNNER_MACROPHONE_LIVE=1` and a paired
   `mpctl serve`).
 
+## The carousel fixes (Oct 19 2026) — what Sameer found on his iPhone and Mac
+
+Contact sheet (before | after, Pro and SE): `docs/screens/carousel-fixes-oct19/`. Proven with real
+touches by `InputCarouselUITests` (a paired `mpctl serve`): a swipe on the Thread, a drag on the
+trackpad read back off its value ("Pointer 52 percent across, 61 percent down"), hide → mic, the
+Mac Controls button and panel, Close Window → the main screen.
+- **The page row is above the Thread** ("the switcher should be above the wave form"): `InputCarousel`
+  now holds the row, then the Thread (`thread:`), then the pages, as one band — a horizontal swipe
+  anywhere on the Thread or beside the mic (never on it) slides the pages; the mic's tap and hold,
+  the window's gestures and vertical scrolling are untouched. The Thread shows on the mic page only.
+- **The trackpad takes the Thread's room** (`pagesHeight`: the mic page's height + the Thread's slot,
+  so the window above never moves; Reduce Motion: a fade). The row stays above it to go back.
+- **The keyboard page is the iOS keyboard with ONE bar** (`MacKeyboardBar`, two rows, 94pt:
+  `esc ⇥ | ← ↑ ↓ →  Typing in Claude` over `⌘ ⌥ ⌃ ⇧ … fn | ⌨︎`): the arrows had been on the
+  carousel's page and the modifiers on the keyboard's bar — two strips laid out by two systems that
+  overlapped once the keyboard rose. The page itself is a 10pt breath under the row. A swipe
+  right-to-left on the bar's open room, hide, or the row come back to the mic — and **the keyboard
+  leaving for any reason leaves the page too** (`KeyboardTextView.onKeyboardGone`, 0.35 s after a
+  resign the field still wanted): never a keyboard page with no keyboard.
+- **The pointer is an arrow you can see** (`PointerSpriteView`, TrackpadView.swift): the Mac's own
+  arrow shape ×1.3, white with a dark edge and a cyan glow, placed in UIKit by `ViewerScrollView`
+  (`pointerHost`) but drawn in `WatchWindow`'s stack above Newest and the notes (`PointerOverlay`,
+  `PointerLink`); it mirrors at the window's right/bottom edge so the body stays whole; a pulse on
+  first show. It **starts where the Mac's pointer is**: the frames' words carry `cursor`
+  (`WatchVideoFrame.cursor` / `WatchFrame.cursor`, optional — a Mac from before sends none; the
+  Mac fills it from `CGEvent.location` while the trackpad is up and the pointer is inside the
+  window, and sends words at once on `.show`), else in the middle of what's on screen
+  (`MacInput.visibleCenter`, from the viewer); the Mac's place is taken only until the trackpad
+  moves it (`untouchedSinceShown`). The zoomed view follows it (`keepPointerInView`, content
+  coordinates, 36pt margin). **One pointer:** the Mac no longer draws its own into the stream
+  (`WindowStream.showsCursor` stays off; it lagged the phone's by a frame and read as a ghost;
+  hover still works — the pointer is left where it is). The trackpad plate lights under each
+  finger (a radial glow that follows and fades). Mac diagnostics: "watch input: N clicks, M
+  pointer moves (K didn't land, warped there)" — `InputPoster.missed` reads the cursor back before
+  each move while the trackpad is up and warps when it isn't at the last target.
+- **An app opened from the phone opens fitted to the iPhone** (`AppModel.openOnMac` →
+  `Watcher.fitNextOpen`, only for an app that wasn't running; applied on its first picture once the
+  viewer has its size, `fitToPhone(opened: true)`, forgotten after 10 min). Windows he had keep
+  their remembered choice.
+- **Mac Controls is its own button** (`MacControlsButton`): a cell beside Sound in the window
+  view's header (one piece of glass; every page, Whole Screen too) and a pill beside Watch on the
+  Send to panel — only with a Mac naming "macControls". It opens `MacControlsPanel` (sheet,
+  `.height(418)`): the Mac's answer as words and a meter (`MacReach.lastControl`), big cells for
+  volume − / mute / +, brightness − / +, ⏮ ⏯ ⏭; a press ticks and the panel stays; a key the Mac
+  can't press says why in ochre. The submenus in the ··· keys menu and Send to's ⋯ are gone.
+  Hook: `MACROPHONE_REACH=controls`.
+- **A closed window brings the main screen back** (`WatchState.unavailable(_, canReveal:, closed:)`,
+  coded by hand in the synthesized shape so older peers interoperate — `WatchStateWireTests`): the
+  Mac's `resolve` marks a window gone for good (closed, its app quit, no window left) and says so
+  only after a 1.2 s beat still gone (a window re-created meanwhile is found again and nothing is
+  said; after the phone's own Close there's no beat); minimized / another desktop never comes this
+  way, nor the whole screen. The phone closes the view as Done does, one soft haptic, "Closed
+  ‹name›" in the status line, and Send to moves to the app when it still has another window, else
+  Where I'm typing (`AppModel.windowClosed`). `mpctl serve` closes its demo window on the Window
+  menu's Close (`WATCH CLOSED`).
+- Words: the tip is "Swipe the Thread for a trackpad or keyboard".
+
 ## The polish pass over the five Oct 19 features (Oct 19 2026)
 
 Sameer: "do a polish agent to make sure everything works well together and looks fantastic."
@@ -87,7 +144,8 @@ What changed (the mechanics below still hold where not named here):
   display or a picture narrowed for a remote link isn't taken for a Retina window at full size;
   a Mac from before still gets pixels ÷ 2.
 - Words and glyphs: the Sound button off is a plain `speaker` (a slash read as something wrong);
-  the tip is "Swipe beside the mic for a trackpad or keyboard"; with two displays the Whole
+  the tip is "Swipe beside the mic for a trackpad or keyboard" **[superseded by the carousel
+  fixes: "Swipe the Thread for a trackpad or keyboard"]**; with two displays the Whole
   Screen rows say "With the menu bar, live" / "Everything on it, live"; the page row keeps a
   kicker's size at accessibility text sizes. Mac: `MACROPHONE_SHOW=setup-permissions`.
 - Left as is, noted: two phones on two displays share the last pick; the Accessibility banner
@@ -101,7 +159,10 @@ Sameer: "for trackpads a keyboard we should make that available in window view w
 default. Swiping right to left should show the trackpad and swiping left to right should open a
 full iOS keyboard that types in the Mac. They should essentially be a 3 input method carousel."
 
-- **The carousel** (`UI/InputCarousel.swift`, `Model/MacInput.swift`): the area under the Thread,
+- **The carousel** (`UI/InputCarousel.swift`, `Model/MacInput.swift`) **[the layout is superseded by
+  the carousel fixes above: the row sits above the Thread, the Thread is part of the swipeable band,
+  the trackpad takes the Thread's room, the keyboard's keys are one bar on the keyboard; the gestures
+  and the wire below still hold]**: the area under the Thread,
   where the mic sits, is three pages — KEYBOARD · MIC · TRACKPAD — with a mono row above saying
   where you are (a tap goes there; one VoiceOver element, adjustable). The mic is the default every
   time the window view opens. A swipe **beside** the mic (never on it — a hold there is a dictation)
@@ -339,7 +400,8 @@ Part of "control the Mac entirely from the iPhone". Three features, each named i
   dimmer / brighter, previous / play-pause / next. Phone → `.macControl`, Mac posts the NX_SYSDEFINED event
   (subtype 8, data1 = key << 16 | 0xA/0xB << 8; `Mac/App/Core/MediaKeys.swift`), reads the output volume / mute
   back from Core Audio 120 ms later and answers `.macControlDone` ("Volume 56%", "Muted"); brightness on a Mac
-  with no built-in or Apple (vendor 0x610) display answers that it can't. Phone: `MacControlsMenu` — a submenu in
+  with no built-in or Apple (vendor 0x610) display answers that it can't. Phone **[superseded by the
+  carousel fixes: `MacControlsButton` + `MacControlsPanel`, the submenus are gone]**: `MacControlsMenu` — a submenu in
   the window view's ··· keys menu (its own section, first — the menu opens upward, so it sits by the thumb) and in Send to's ⋯; a press ticks and keeps the
   menu open (`menuActionDismissBehavior(.disabled)`); the answer shows in the status line.
 - **Wake Your Mac** (`WakeInfo.feature` "wake", `Core/Wake.swift`): the Mac sends each `en*` interface's hardware
