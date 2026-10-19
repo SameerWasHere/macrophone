@@ -22,7 +22,10 @@ struct StatusLine: View {
         let check = landedWell
         let miss = landedMiss
         Group {
-            if settingsLink {
+            if text.isEmpty {
+                // Nothing to say: the slot stays (the mic never moves), empty.
+                Color.clear.accessibilityHidden(true)
+            } else if settingsLink {
                 // The fix is in Settings: the whole line is the way there (no extra row to make room for).
                 Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
@@ -99,9 +102,11 @@ struct StatusLine: View {
                 if model.isNotOpen(model.selection.target) {
                     return ("\(model.selection.target.displayName) isn't open on your Mac — it'll be copied instead", Light.ochre)
                 }
-                // How it's connected, when it isn't the everyday home network.
-                let via = model.linkRoute.flatMap { $0 == .homeNetwork ? nil : " · \($0.short)" } ?? ""
-                return ("Ready · \(name)\(via)", Light.cyan)
+                // Ready and connected: nothing to say (Oct 19 2026, Sameer: "the subtext under the
+                // mic button doesn't seem that useful. All that info is available on other parts of
+                // the page" — the Mac's pill says which Mac and how). The line is for news.
+                _ = name
+                return ("", Light.cyan)
             case .connecting(let name): return ("Connecting to \(name)", Ink.tertiary)
             case .unreachable(let name):
                 if model.localNetworkDenied { return ("Local Network is off for Macrophone — turn it on in Settings to reach \(name)", Light.ochre) }

@@ -485,7 +485,7 @@ final class MacrophoneUITests: XCTestCase {
     func testLiveSyncWithMac() throws {
         guard ProcessInfo.processInfo.environment["MACROPHONE_LIVE"] == "1" else { throw XCTSkip("needs mpctl serve") }
         let app = launch(["MACROPHONE_SCREEN": "main"])
-        XCTAssertTrue(statusContains(app, "Ready", timeout: 20), "connected")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Connected to'")).firstMatch.waitForExistence(timeout: 20), "connected")
         // The Mac's open apps are in the Send to row: one tap picks Messages.
         let messages = app.buttons["Messages"]
         XCTAssertTrue(messages.waitForExistence(timeout: 10), "the Mac's open apps are in the row")
@@ -506,7 +506,7 @@ final class MacrophoneUITests: XCTestCase {
         guard ProcessInfo.processInfo.environment["MACROPHONE_LIVE"] == "1" else { throw XCTSkip("needs mpctl serve") }
         for (pick, expect) in [("clipboard", "Save a File to Mac's Downloads…"), ("Claude", "Send a File…")] {
             let app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": pick])
-            XCTAssertTrue(statusContains(app, "Ready", timeout: 20), "connected")
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Connected to'")).firstMatch.waitForExistence(timeout: 20), "connected")
             let more = app.buttons["send-to-more"]
             XCTAssertTrue(more.waitForExistence(timeout: 5))
             more.tap()
@@ -561,7 +561,7 @@ final class MacrophoneUITests: XCTestCase {
         if expect == "timeout" { launchEnv["MACROPHONE_LANDINGS"] = "ignore" }
         if expect == "old" { launchEnv["MACROPHONE_LANDINGS"] = "ignore-old" }
         let app = launch(launchEnv)
-        XCTAssertTrue(statusContains(app, "Ready", timeout: 20), "connected")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Connected to'")).firstMatch.waitForExistence(timeout: 20), "connected")
         let start = app.buttons["Start dictation"]
         let idle = start.frame
         start.tap()

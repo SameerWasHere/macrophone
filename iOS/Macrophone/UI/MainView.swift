@@ -78,10 +78,10 @@ struct MainView: View {
                     GeometryReader { area in
                         ScrollView(.vertical) {
                             VStack(spacing: 0) {
+                                // No header (Oct 19 2026, Sameer: "the speak and it's on your Mac and
+                                // sub header are also useless"): the top bar, then the panel in thumb
+                                // reach above the Thread.
                                 topBar
-                                Spacer(minLength: compact ? 10 : 20)
-                                header
-                                    .padding(.horizontal, Space.text)
                                 Spacer(minLength: compact ? 10 : 20)
                                 quickControls
                             }
@@ -234,23 +234,6 @@ struct MainView: View {
                 .frame(maxHeight: .infinity, alignment: .top)
                 .clipped()
         }
-    }
-
-    /// The header at the top of the page: the line, and how to use the mic.
-    private var header: some View {
-        let line = model.isPaired ? "Speak, and it's on your Mac." : "Speak, and it's on your clipboard."
-        return VStack(spacing: 8) {
-            Text(line)
-                .font(.serif(compact ? .title3 : .title2))
-                .foregroundStyle(Ink.ink)
-            Text("Tap to talk, tap again to send. Or hold, and let go.")
-                .font(compact ? .footnote : .subheadline)
-                .foregroundStyle(Ink.tertiary)
-        }
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity)
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var timer: some View {

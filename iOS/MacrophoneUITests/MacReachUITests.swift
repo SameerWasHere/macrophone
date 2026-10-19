@@ -23,7 +23,7 @@ final class MacReachUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment = ["MACROPHONE_SCREEN": "main"]
         app.launch()
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Ready'")).firstMatch.waitForExistence(timeout: 20), "connected")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Connected to'")).firstMatch.waitForExistence(timeout: 20), "connected")
         let more = app.buttons["send-to-more"]
         XCTAssertTrue(more.waitForExistence(timeout: 8))
         more.tap()

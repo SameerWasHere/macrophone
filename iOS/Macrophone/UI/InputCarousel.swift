@@ -43,8 +43,10 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The Thread's band, between the row and the pages.
     @ViewBuilder var thread: () -> Thread
 
-    /// The finger's offset while a swipe is under way on the mic page.
-    @State private var dragX: CGFloat = 0
+    /// The pages following a finger. Gesture state: back to 0 whenever the swipe ends — finished
+    /// or cancelled (a scroll that takes the touch over never calls onEnded; a plain state stayed
+    /// put and left the mic off centre — Oct 19 2026, Sameer: "the mic button shifted").
+    @GestureState(resetTransaction: Transaction(animation: Motion.settle)) private var dragX: CGFloat = 0
     @State private var width: CGFloat = 0
     /// The mic page's own height: what the trackpad page starts from.
     @State private var micHeight: CGFloat = 0
@@ -142,16 +144,16 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// (or a flick) they settle on the next.
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 24, coordinateSpace: .local)
-            .onChanged { v in
-                guard !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
-                var x = v.translation.width
+            .updating($dragX) { v, x, _ in
+                // One page (no window showing): nothing to slide to, so nothing moves.
+                guard input.pages.count > 1, !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
+                var dx = v.translation.width
                 // No page that way: the finger meets a soft stop.
-                if (x > 0 && index == 0) || (x < 0 && index == input.pages.count - 1) { x = x / 4 }
-                dragX = x
+                if (dx > 0 && index == 0) || (dx < 0 && index == input.pages.count - 1) { dx = dx / 4 }
+                x = dx
             }
             .onEnded { v in
-                defer { withAnimation(motion) { dragX = 0 } }
-                guard !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
+                guard input.pages.count > 1, !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
                 let x = v.translation.width, flick = v.predictedEndTranslation.width
                 guard abs(x) > width / 4 || abs(flick) > width / 2 else { return }
                 // Right to left: the trackpad (the next page); left to right: the keyboard.
