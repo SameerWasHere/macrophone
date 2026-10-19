@@ -114,8 +114,8 @@ final class InputCarouselUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 4))
         confirm.tap()
         // The demo Mac confirms a beat later; the window view goes and the selector is back.
-        let watch = app.buttons["watch"]
-        XCTAssertTrue(watch.waitForExistence(timeout: 8), "the main screen's Send to panel is back")
+        let places = app.descendants(matching: .any)["places"].firstMatch
+        XCTAssertTrue(places.waitForExistence(timeout: 8), "the main screen's Send to panel is back")
         XCTAssertFalse(app.buttons["watch-done"].exists, "the window view closed by itself")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Closed'")).firstMatch.waitForExistence(timeout: 3), "the status line says so")
     }

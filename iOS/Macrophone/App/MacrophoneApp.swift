@@ -60,8 +60,7 @@ struct RootView: View {
                 case .openApp: OpenAppSheet()
                 case .macControls:
                     // A compact panel, not a page: the window stays in sight behind it.
-                    MacControlsPanel()
-                        .presentationDetents([.height(MacControlsPanel.height)])
+                    MacControlsPanel() // sizes itself to its contents
                 }
             }
             .environmentObject(model)

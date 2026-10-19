@@ -193,6 +193,7 @@ struct PlacesRow: View {
                                 OtherAppsRule(compact: compact)
                             }
                             PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact,
+                                        watchable: p.id == selected && current != .clipboard && model.isConnected && !notOpen,
                                         needs: model.isConnected ? model.needs(p) : nil,
                                         windowNeeds: { model.needs($0) != nil },
                                         onWatch: { watch(current) }) { pick($0) }
@@ -246,23 +247,11 @@ struct PlacesRow: View {
     }
 
     @ViewBuilder private func buttons(_ current: TargetRef, notOpen: Bool) -> some View {
-        // See the picked app's window on the Mac (an app or Where I'm typing, while connected).
-        if current != .clipboard, model.isConnected, !notOpen {
-            Button {
-                Haptics.tick()
-                model.watcher.open(current)
-            } label: {
-                Label("Watch", systemImage: "eye").font(.subheadline.weight(.semibold)).fixedSize()
-            }
-            .nativeGlassButton()
-            .controlSize(.small)
-            .accessibilityHint("Shows \(Places.appName(current, in: model))'s window on your Mac, live.")
-            .accessibilityIdentifier("watch")
-            .transition(.opacity)
-        }
-        // Volume, brightness and media keys, one tap (Oct 19 2026): its own button, not a submenu.
+        // Watching is the eye on the picked icon, tapped again (Oct 19 2026, Sameer: "get rid of the
+        // dedicated watch button and instead put the eye logo as an overlay of the selected app").
+        // Volume, brightness and media keys, one tap: its own round button, the icon alone.
         if model.canMacControls {
-            MacControlsButton(style: .pill).transition(.opacity)
+            MacControlsButton(style: .round).transition(.opacity)
         }
         // ⋯: a photo, a file or the clipboard into the chat you send to, and a fresh look at the
         // open apps. Opening an app that isn't open is the + at the end of the row, and only there.
@@ -314,6 +303,8 @@ private struct PlaceButton: View {
     var selected: Bool
     var current: TargetRef
     var compact = false
+    /// The pick, and its window can be shown: the eye on its icon says another tap watches it.
+    var watchable = false
     /// One of its windows answered you: the mark on its icon.
     var needs: NeedsYou?
     var windowNeeds: (LiveTarget) -> Bool = { _ in false }
@@ -346,6 +337,21 @@ private struct PlaceButton: View {
                         }
                     }
                     .animation(Motion.snap, value: needs != nil)
+                    .overlay(alignment: .bottomTrailing) {
+                        if watchable {
+                            // Tap again to watch: the eye, on a small glass disc at the icon's corner.
+                            Image(systemName: "eye.fill")
+                                .font(.system(size: compact ? 8 : 9, weight: .bold))
+                                .foregroundStyle(Ink.ground)
+                                .frame(width: compact ? 16 : 18, height: compact ? 16 : 18)
+                                .background(Circle().fill(Ink.ink))
+                                .overlay(Circle().stroke(Ink.ground, lineWidth: 1.5))
+                                .offset(x: 5, y: 5)
+                                .transition(.scale(scale: 0.5).combined(with: .opacity))
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .animation(Motion.snap, value: watchable)
                 // On its way (just opened from Open an App): a turn over its icon.
                 if place.kind == .opening { ProgressView().controlSize(.small).tint(Ink.ink) }
             }
@@ -370,7 +376,8 @@ private struct PlaceButton: View {
         }
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityHint(selected ? "" : "Sends your dictations here.")
+        .accessibilityHint(watchable ? "Tap again to watch its window on your Mac." : selected ? "" : "Sends your dictations here.")
+        .accessibilityAction(named: "Watch") { if watchable { onWatch() } }
     }
 
     private var label: String {

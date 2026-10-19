@@ -8,10 +8,10 @@ import SwiftUI
 /// Mac Controls — volume, brightness, play / pause, next, previous — as its own button (Oct 19
 /// 2026, Sameer: "Mac controls should be its own button rather than hidden in a sub menu"): a
 /// cell in the window view's header, beside Sound, on every page of the carousel; and on the main
-/// screen's Send to panel beside Watch. Only with a Mac that named the feature. A tap opens
+/// screen's Send to panel beside ⋯, as its icon alone (Oct 19 2026, Sameer: "Mac control button can just be the logo"). Only with a Mac that named the feature. A tap opens
 /// `MacControlsPanel`. (It was a submenu in the window's ··· keys menu and Send to's ⋯.)
 struct MacControlsButton: View {
-    enum Style { case cell, pill }
+    enum Style { case cell, round }
     @EnvironmentObject var model: AppModel
     var style: Style
 
@@ -23,11 +23,13 @@ struct MacControlsButton: View {
                     Image(systemName: "slider.horizontal.3").font(.subheadline.weight(.semibold)).frame(width: 20)
                 }
                 .buttonStyle(WatchCellStyle(width: 40, height: WatchLook.header))
-            case .pill:
+            case .round:
+                // The same round glass as ⋯ beside it.
                 Button { open() } label: {
-                    Label("Mac Controls", systemImage: "slider.horizontal.3").font(.subheadline.weight(.semibold)).fixedSize()
+                    Image(systemName: "slider.horizontal.3").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
                 }
                 .nativeGlassButton()
+                .buttonBorderShape(.circle)
                 .controlSize(.small)
             }
         }
@@ -51,8 +53,11 @@ struct MacControlsPanel: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The sheet's height: the three clusters and the readout, no scrolling on any phone.
-    static let height: CGFloat = 418
+    /// The sheet's height before its contents are measured. The sheet then takes exactly the
+    /// height they need (Oct 19 2026, Sameer: the top was cut off — a fixed 418 was shorter than
+    /// the contents at his text size, so they overflowed past the sheet's top edge).
+    static let height: CGFloat = 460
+    @State private var measured: CGFloat?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -85,9 +90,12 @@ struct MacControlsPanel: View {
                 .accessibilityHidden(reach.lastControl?.ok ?? true)
         }
         .padding(.horizontal, Space.margin)
-        .padding(.top, 18)
-        .padding(.bottom, 10)
+        .padding(.top, 26)
+        .padding(.bottom, 12)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured = ceil($0) }
         .frame(maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(measured ?? Self.height)])
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: reach.lastControl)
     }
