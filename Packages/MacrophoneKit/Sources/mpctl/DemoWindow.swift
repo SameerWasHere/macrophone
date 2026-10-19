@@ -104,6 +104,11 @@ final class DemoWindow: @unchecked Sendable {
 
     func click(_ p: CGPoint) { lock.sync { lastClick = p; version += 1 } }
 
+    /// `mpctl serve --busy`: the column scrolls a few pixels every frame, like output streaming
+    /// past — a window that changes all the time, for the lossy-link proof.
+    private var drift = 0
+    func driftStep(_ px: Int = 6) { lock.sync { drift += px; version += 1 } }
+
     /// A swipe: content follows the finger (dy > 0 shows earlier lines), a line at a time with the
     /// rest carried into the next step.
     private var scrollRemainder = 0.0
@@ -131,12 +136,13 @@ final class DemoWindow: @unchecked Sendable {
 
     /// The window as a picture (what the Mac would capture).
     func image() -> CGImage? {
-        let (shown, offset, clicked, app, title, w) = lock.sync { () -> ([String], Int, CGPoint?, String, String, Int) in
+        let (shown, offset, clicked, app, title, w, drift) = lock.sync { () -> ([String], Int, CGPoint?, String, String, Int, Int) in
             var l = lines
             if asking {
                 l += answers.enumerated().map { i, a in (i == highlighted ? "❯ " : "  ") + "\(i + 1). \(a)" }
             }
-            return (l, scroll, lastClick, self.app, self.title, width)
+            if drift > 0 { l = script + l }
+            return (l, scroll, lastClick, self.app, self.title, width, self.drift)
         }
         let h = height
         // The columns that fit (Menlo 24 is ~14.5 px a character); a longer line wraps.
@@ -178,12 +184,25 @@ final class DemoWindow: @unchecked Sendable {
         let visible = (composerY - 90) / lineH
         let end = all.count - offset
         let start = max(0, end - visible)
+        if drift > 0, !all.isEmpty {
+            // Busy: the whole window is text moving up by `drift` pixels a frame, cycling through
+            // the script in three columns — a big window full of output scrolling past.
+            let small = 26, rows = (h - 90) / small
+            let first = drift / small, shift = drift % small
+            for i in 0...rows {
+                for col in 0..<3 {
+                    let l = all[(first + i * 3 + col) % all.count]
+                    text(String(l.prefix(40)), 16 + col * (w / 3), 80 + i * small + 20 - shift, size: 17, CGColor(gray: 0.92, alpha: 1))
+                }
+            }
+        } else {
         for (i, l) in all[start..<end].enumerated() {
             let warm = l.hasPrefix("Do you") || l.hasPrefix("❯")
             let dim = l.hasPrefix("›") || l.hasPrefix("  ⎿") || l.hasPrefix("⎿")
             let c = warm ? CGColor(red: 0.91, green: 0.75, blue: 0.42, alpha: 1)
                 : dim ? CGColor(gray: 0.6, alpha: 1) : CGColor(gray: 0.92, alpha: 1)
             text(l, x0, 100 + i * lineH + 24, size: 24, c)
+        }
         }
         rect(x0 - 10, composerY, Int(focus.width * Double(w)), 80, CGColor(gray: 0.2, alpha: 1), radius: 14)
         text("Reply to \(app)…", x0 + 14, composerY + 48, size: 24, CGColor(gray: 0.45, alpha: 1), mono: false)

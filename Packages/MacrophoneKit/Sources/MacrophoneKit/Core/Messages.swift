@@ -33,6 +33,14 @@ public enum Handshake: Codable, Sendable {
 
     /// The handshake failed; the connection closes after this.
     case failure(reason: HandshakeFailure)
+
+    // MARK: Video lane (Oct 19 2026) — a second connection that carries only the pictures, so a
+    // lost packet of video never holds up a tap, a key or an answer. Only to a Mac whose welcome
+    // named VideoLane.feature, and only for a session already open (VideoLane.swift).
+    /// proof = HMAC(pairKey, "lane-phone" ‖ the session's nonces): it's this phone, this session.
+    case laneHello(phoneID: UUID, proof: Data)
+    /// proof = HMAC(pairKey, "lane-mac" ‖ the session's nonces): it's this Mac.
+    case laneReady(proof: Data)
 }
 
 public enum PairRejection: String, Codable, Sendable, Error {
@@ -192,6 +200,12 @@ public enum Message: Codable, Sendable {
     /// Mac → phone: 20 ms of the Mac's sound (only to a phone naming MacSound.feature that turned
     /// Sound on).
     case macAudio(MacAudioPacket)
+    /// Mac → phone (only to a phone naming MacPermissions.feature): what the Mac is allowed to do
+    /// (Accessibility, Screen Recording) — after the welcome and whenever a grant changes.
+    case macPermissions(MacPermissions)
+    /// Phone → Mac (only to a Mac naming MacPermissions.feature): bring Macrophone's permissions
+    /// page forward on the Mac, so the person can turn them on there.
+    case showPermissions
     // Either way
     case ping
     case pong

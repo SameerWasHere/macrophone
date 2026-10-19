@@ -124,6 +124,9 @@ public final class LinkServer: @unchecked Sendable {
     /// What this Mac understands beyond the first version, told to each phone in the welcome
     /// ("video", "fit").
     public var macFeatures: [String] = []
+    /// Away from home, a phone that can may move the window's pictures to a connection of their
+    /// own (VideoLane.swift); the welcome names it. Off only to prove the fallback (mpctl --no-lane).
+    public var laneEnabled = true
     /// A swipe's steps and phases, handed on from the receive loop itself — sixty a second during
     /// a swipe, none of them through the main actor. Set once at start; while set, the delegate
     /// doesn't hear them.
@@ -184,6 +187,11 @@ public final class LinkServer: @unchecked Sendable {
     public func isRemote(_ peerID: UUID) -> Bool { lock.sync { sessions[peerID]?.isRemote ?? false } }
     /// How that phone is connected (nil when it isn't).
     public func route(_ peerID: UUID) -> LinkRoute? { lock.sync { sessions[peerID]?.route } }
+    /// Whether that phone's pictures go on a video lane of their own.
+    public func hasLane(_ peerID: UUID) -> Bool { lock.sync { sessions[peerID]?.hasLane ?? false } }
+    /// That phone's open session, and what its hello named (for the video lane).
+    func openSession(_ peerID: UUID) -> SecureSession? { lock.sync { sessions[peerID] } }
+    func phoneFeatures(_ peerID: UUID) -> Set<String> { lock.sync { features[peerID] ?? [] } }
 
     public func start() {
         let (old, oldAway) = lock.sync { () -> (NWListener?, NWListener?) in
@@ -403,6 +411,8 @@ public final class LinkServer: @unchecked Sendable {
                                    inviteID: inviteID, proof: proof, version: version)
             case let .pairCodeCommit(phoneID, phoneName, commitment, version):
                 try await pairByCode(conn, phoneID: phoneID, phoneName: phoneName, commitment: commitment, version: version)
+            case let .laneHello(phoneID, proof):
+                await acceptLane(conn, phoneID: phoneID, proof: proof)
             default:
                 try? await conn.sendHandshake(.failure(reason: .protocolError))
                 conn.cancel()
@@ -525,7 +535,8 @@ public final class LinkServer: @unchecked Sendable {
             try? await conn.sendHandshake(.failure(reason: .badProof)); conn.cancel(); return
         }
         let keys = LinkCrypto.sessionKeys(key, phoneNonce: phoneNonce, macNonce: macNonce)
-        let session = SecureSession(connection: conn, peerID: phoneID, sendKey: keys.macToPhone, receiveKey: keys.phoneToMac, isRemote: fromAway)
+        let session = SecureSession(connection: conn, peerID: phoneID, sendKey: keys.macToPhone, receiveKey: keys.phoneToMac, isRemote: fromAway,
+                                    laneSecrets: LaneSecrets(pairKey: key, phoneNonce: phoneNonce, macNonce: macNonce))
 
         let old = lock.sync { () -> SecureSession? in let o = sessions[phoneID]; sessions[phoneID] = session; return o }
         old?.close()
@@ -558,7 +569,8 @@ public final class LinkServer: @unchecked Sendable {
                     store.save(peer, key: key)
                 }
                 let p = peer
-                try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion, features: macFeatures))
+                try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion,
+                                                features: macFeatures + (laneEnabled ? [VideoLane.feature] : [])))
                 try await session.send(.targets(EveryApp.list(await targetsOnMain(), for: Set(phoneFeatures ?? []))))
                 // Only a phone that named "remote" gets the addresses (an unknown message would end
                 // an older phone's session).
@@ -567,6 +579,9 @@ public final class LinkServer: @unchecked Sendable {
                 }
                 if phoneFeatures?.contains(NeedsYou.feature) == true {
                     try await session.send(.needsYou(await needsOnMain()))
+                }
+                if phoneFeatures?.contains(MacPermissions.feature) == true, let p = await permissionsOnMain() {
+                    try await session.send(.macPermissions(p))
                 }
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
@@ -677,7 +692,11 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchRightClick: CGPoint(x: x, y: y), from: phoneID) }
             case let .watchSound(on):
                 notify { $0.linkServer(self, watchSound: on, from: phoneID) }
+            case .showPermissions:
+                notifyPermissions { $0.linkServerShowPermissions(self, from: phoneID) }
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
+                break
+            case .macPermissions:
                 break
             }
         }

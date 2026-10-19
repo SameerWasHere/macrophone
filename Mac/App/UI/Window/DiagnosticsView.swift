@@ -39,6 +39,8 @@ enum Diagnostics {
             ("Send to", AppModel.kind(model.settings.selection)),
             ("Apps with somewhere to type", "\(model.targets.filter(\.typeable).count) of \(model.targets.count) open"),
             ("Accessibility granted", model.accessibilityGranted ? "yes" : "no"),
+            ("Screen Recording granted", model.permissions.screenRecording ? "yes" : "no"),
+            ("Pictures on their own connection", "\(model.connected.filter { model.server.hasLane($0) }.count) of \(model.remotePeers.count) phones from away"),
             ("History", model.settings.historyEnabled ? "on (\(model.history.count) items)" : "off"),
         ]
     }

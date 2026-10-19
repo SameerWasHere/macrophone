@@ -360,6 +360,59 @@ lookup — no Tailscale CLI). Unit tests in `RemoteAccessTests`.
   lands, the move home with no "not found" in between. Still needs a real phone on cellular with
   Tailscale on both.
 
+## Permissions on the Mac, and the video lane away from home (Oct 19 2026)
+
+**Permissions.** The Mac's setup is pair · paired · login · **permissions** · modes (four dots).
+`Mac/App/Core/Permissions.swift` (`PermissionsMonitor`, on `AppModel.permissions`) reads
+`AXIsProcessTrusted` / `CGPreflightScreenCaptureAccess` every second while a page showing them is
+open, every ten otherwise, and on app activation — it only reads; each row's "Open System
+Settings" opens that exact Privacy pane (asking once first, so Macrophone is in the list).
+`UI/Components/PermissionRows.swift` is the one view (Accessibility: "to click, type and paste for
+you"; Screen Recording: "to show your Mac on your iPhone"; a mint check and "Allowed" once on;
+a "quit and reopen" hint if Screen Recording was asked and still reads off) — the setup step and
+General › Permissions. Diagnostics' header adds Screen Recording and "Pictures on their own
+connection". The wire (`Core/MacPermissions.swift`, `Transport/PermissionsLink.swift`, feature
+`permissions`): `.macPermissions` Mac → phone after the welcome and on every change;
+`.showPermissions` phone → Mac opens the setup at Permissions (`AppModel+Permissions.swift`).
+Separate delegate protocols (`LinkServerPermissionsDelegate`, `LinkClientPermissionsDelegate`), so
+the big delegates are untouched. Phone: `UI/MacPermissionNote.swift` — a compact banner over a
+live window when Accessibility is off ("Your Mac needs to allow Accessibility — open Macrophone on
+your Mac", Open Macrophone on my Mac, ×), and the Screen Recording note now says "Open Macrophone on
+your Mac" and its button opens it there (an older Mac: the setting itself, as before).
+Hooks: phone `MACROPHONE_FAKE_PERMISSIONS=accessibility|screen|both`; `mpctl serve --permissions
+accessibility=off,screen=off`, `mpctl listen --features permissions --show-permissions`.
+
+**The video lane** (`Transport/VideoLane.swift`). Away from home the window's pictures ride a second
+TCP connection, so a lost packet of video never holds up a tap, a key, a pong or an answer.
+Negotiated: the Mac's welcome names `videoLane` (`LinkServer.laneEnabled`), the phone's hello too
+(`LinkClient.laneEnabled`, added by the transport itself); a phone connected **from away** then
+dials the same address again with `Handshake.laneHello(phoneID, proof)` — proof = HMAC(pair key,
+"lane-phone" ‖ that session's nonces) — the Mac checks it against the open session, answers
+`laneReady` (its own proof), and from then `.watchVideo` / `.watchFrame` go on the lane under their
+own HKDF key and counter (`LaneSecrets`, `LaneLink`); everything else stays on the session. One
+lane per session, refused otherwise; a lane that drops or fails a send puts the pictures back on
+the session (the phone asks for a keyframe for any it missed); the session closing closes it.
+At home, an older phone or Mac, or a lane that won't open: exactly today's single connection.
+**Why not QUIC:** Network.framework's pre-shared key is TLS 1.2 only — adding one pins
+`max_version` to 0x0303, and QUIC needs 1.3, so QUIC + the pair key fails
+`NO_SUPPORTED_VERSIONS_ENABLED` (-9858; seen in boringssl's log). QUIC with a certificate would mean
+making and keeping a signing identity in a keychain on his Mac. Not worth it for what the lane gives.
+**Measured** (`mpctl relay`, a link model: 80 ms round trip, a lost 1448-byte segment one round
+trip late and everything behind it on that connection waiting — TCP's in-order rule; real packet
+loss needs the firewall's shaper, off limits): `mpctl serve --busy` streaming ~19 frames a second
+(~29 KB each), `mpctl probe` timing a ping every 0.1 s for 30 s. Before (one connection) → after
+(the lane): 0% loss 81 → 81 ms median; 1%: mean 98 → 83 ms, round trips over 120 ms 21.5% → 2.1%,
+p95 154 → 81 ms; 2%: mean 108 → 84, over 120 ms 35.4% → 3.6%, p95 159 → 82; 5%: mean 131 → 88,
+median 131 → 81, over 120 ms 55.1% → 9.7% (≈ the ping's or pong's own loss, which nothing avoids),
+p99 345 → 161, max 720 → 161 ms, and video 16.4 → 19.4 frames a second. The move home (`roam
+--bonjour-after 3 --expect home`) and away (`--expect remote`) still pass with the lane.
+Hooks: `mpctl serve --busy` / `--no-lane`, any phone command `--no-lane` / `--only-dial` (just the
+`--dial` address, not the Mac's list), `mpctl relay --listen P --to host:port --loss 0.02 --rtt 80`,
+`mpctl probe --seconds 30 --every 0.1 [--slow 120]`; `LinkClient.roundTrip()` / `hasVideoLane`,
+`LinkServer.hasLane(peer)`. Tests: `VideoLaneTests` (the rule, the secrets, both fallbacks, a
+wrong proof, a dropped lane, over loopback on ports 47916–47919). Still needs a real phone on
+cellular with Tailscale: the lane's log lines ("video lane open in N ms") on both sides.
+
 ## Agents tell the Mac themselves (Oct 17 2026)
 
 Sameer picked "know exactly when an agent waits" over reading pictures. Claude Code (hooks) and
@@ -450,6 +503,8 @@ swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url
 .build/debug/mpctl watch --sound --features video,sound      # the Mac's sound: serve's tone, latency and underruns printed
 .build/debug/mpctl serve --remote --port 47899 --auto-approve   # then: mpctl pair '<url>' (at home), and
 .build/debug/mpctl roam --no-bonjour --bonjour-after 3 --expect home   # away by the stored address, then back home
+.build/debug/mpctl relay --listen 47915 --to 127.0.0.1:47899 --loss 0.02 --rtt 80   # a lossy link (with serve --remote --busy)
+.build/debug/mpctl probe --no-bonjour --dial 127.0.0.1:47915 --only-dial --features video [--no-lane]   # input round trips under it
 ```
 
 ## Rules

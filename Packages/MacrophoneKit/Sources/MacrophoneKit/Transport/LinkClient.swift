@@ -119,6 +119,9 @@ public final class LinkClient: @unchecked Sendable {
     /// Whether to look for the Mac with Bonjour at all. Off only in the protocol proof (mpctl),
     /// to stand in for a network where Bonjour finds nothing.
     public var browsesBonjour = true
+    /// Away from home, move the window's pictures to a connection of their own when the Mac can
+    /// (VideoLane.swift); the hello names it. Off only to prove the fallback (mpctl --no-lane).
+    public var laneEnabled = true
 
     private let queue = DispatchQueue(label: "macrophone.client")
     private let lock = NSLock()
@@ -128,6 +131,8 @@ public final class LinkClient: @unchecked Sendable {
     private var sessionMacID: UUID?
     private var connectTask: Task<SecureSession, Error>?
     private var pending: [UUID: CheckedContinuation<Ack, Error>] = [:]
+    /// Waiting for the Mac's next pong (`roundTrip`).
+    private var pongWaiters: [(Date) -> Void] = []
     private var pingTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var retryDelay: TimeInterval = 1
@@ -155,6 +160,15 @@ public final class LinkClient: @unchecked Sendable {
     }
 
     public var state: State { lock.lock(); defer { lock.unlock() }; return _state }
+    /// The open session (nil when not connected), and whether `s` still is it.
+    var currentSession: SecureSession? { lock.sync { session } }
+    func isCurrentSession(_ s: SecureSession) -> Bool { lock.sync { session === s } }
+    /// The connected Mac's pictures come on a video lane of their own (away from home).
+    public var hasVideoLane: Bool { lock.sync { session?.hasLane ?? false } }
+    /// What the hello names: the app's list, plus the video lane when it's on.
+    var helloFeatures: [String] {
+        laneEnabled && !features.contains(VideoLane.feature) ? features + [VideoLane.feature] : features
+    }
     /// Connected over a remote address (away from home) rather than Bonjour.
     public var isRemote: Bool { lock.sync { session != nil && _remote } }
     /// How it's connected to the Mac now (nil when it isn't).
@@ -449,8 +463,10 @@ public final class LinkClient: @unchecked Sendable {
                 }
                 try await conn.sendHandshake(.clientFinish(proof: LinkCrypto.sessionProof(key, role: "phone", phoneNonce: phoneNonce, macNonce: macNonce)))
                 let keys = LinkCrypto.sessionKeys(key, phoneNonce: phoneNonce, macNonce: macNonce)
-                let s = SecureSession(connection: conn, peerID: mac.id, sendKey: keys.phoneToMac, receiveKey: keys.macToPhone, isRemote: remote)
-                try await s.send(.hello(phoneName: identity.name, appVersion: appVersion, os: osDescription, features: features))
+                let s = SecureSession(connection: conn, peerID: mac.id, sendKey: keys.phoneToMac, receiveKey: keys.macToPhone, isRemote: remote,
+                                      laneSecrets: LaneSecrets(pairKey: key, phoneNonce: phoneNonce, macNonce: macNonce))
+                let hello = helloFeatures
+                try await s.send(.hello(phoneName: identity.name, appVersion: appVersion, os: osDescription, features: hello))
                 guard case let .welcome(macName, _, macFeatures) = try await receive(s, timeout: timeout) else {
                     throw LinkError.protocolError("expected welcome")
                 }
@@ -476,6 +492,10 @@ public final class LinkClient: @unchecked Sendable {
                     if case .cancelled = state, let s { self?.sessionEnded(s, error: LinkError.cancelled) }
                 }
                 startLoops(s, macID: mac.id)
+                // Away, and both name it: the pictures get a connection of their own.
+                if VideoLane.shouldOpen(phoneFeatures: hello, macFeatures: Set(macFeatures ?? []), remote: remote, enabled: laneEnabled) {
+                    openLane(for: s, endpoint: conn.connection.endpoint, macID: mac.id)
+                }
                 return s
             case .failure(.unknownPeer) where !verified:
                 // Dialled by name: this may be another Mac with the same name. Never forget the
@@ -571,7 +591,7 @@ public final class LinkClient: @unchecked Sendable {
         }
     }
 
-    private func handle(_ m: Message, from s: SecureSession, macID: UUID) {
+    func handle(_ m: Message, from s: SecureSession, macID: UUID) {
         switch m {
         case let .ack(id, outcome, detail):
             let c = lock.sync { pending.removeValue(forKey: id) }
@@ -674,7 +694,13 @@ public final class LinkClient: @unchecked Sendable {
                 guard let self else { return }
                 self.delegate?.linkClient(self, unpairedBy: macID)
             }
-        case .pong, .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
+        case let .macPermissions(p):
+            deliverPermissions(p)
+        case .pong:
+            pongArrived()
+        case .showPermissions:
+            break
+        case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
              .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound:
             break
         }
@@ -749,6 +775,28 @@ public final class LinkClient: @unchecked Sendable {
                 throw error
             }
         }
+    }
+
+    /// How long a ping takes to come back as a pong right now — an input's trip to the Mac and the
+    /// answer's trip back, on the path a tap takes (mpctl's latency proof). Nil when not connected
+    /// or nothing came back within `timeout`.
+    public func roundTrip(timeout: TimeInterval = 5) async -> TimeInterval? {
+        guard let s = currentSession else { return nil }
+        let t0 = Date()
+        // Timed where the pong is read off the link, not when this task next runs.
+        let arrived = await withCheckedContinuation { (c: CheckedContinuation<Date?, Never>) in
+            let once = OnceFlag()
+            lock.sync { pongWaiters.append { at in if once.claim() { c.resume(returning: at) } } }
+            Task { do { try await s.send(.ping) } catch { if once.claim() { c.resume(returning: nil) } } }
+            queue.asyncAfter(deadline: .now() + timeout) { if once.claim() { c.resume(returning: nil) } }
+        }
+        return arrived.map { $0.timeIntervalSince(t0) }
+    }
+
+    func pongArrived() {
+        let at = Date()
+        let waiting = lock.sync { () -> [(Date) -> Void] in let v = pongWaiters; pongWaiters = []; return v }
+        waiting.forEach { $0(at) }
     }
 
     /// Tell the Mac the Send-to choice changed on the phone. If not connected, it goes with

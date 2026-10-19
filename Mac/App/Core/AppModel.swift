@@ -24,6 +24,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     let server: LinkServer
     let historyStore: HistoryStore<HistoryItem>
     let popup = PopupController()
+    /// Accessibility and Screen Recording, read live (Permissions.swift).
+    let permissions = PermissionsMonitor()
     let api: LocalAPIServer
     private(set) var delivery: DeliveryEngine!
     /// A phone watching the window it sends to (WatchService).
@@ -121,6 +123,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature,
                               ClipboardItem.feature, AttachmentChunk.feature, DictationPrepare.feature, DesktopWatch.feature,
                               SaveToDownloads.feature, MacSound.feature]
+        server.macFeatures.append(MacPermissions.feature)
+        watchPermissions()
         // Swipes skip the main actor: the receive loop hands each step to the watch's poster.
         let watchService = watch!
         server.watchInput = { peer, input in watchService.scrollInput(peer, input) }

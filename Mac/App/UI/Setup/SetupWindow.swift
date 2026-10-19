@@ -4,11 +4,12 @@ import CoreImage.CIFilterBuiltins
 import MacrophoneKit
 import SwiftUI
 
-enum SetupStep: Equatable { case pair, paired, login, modes }
+enum SetupStep: Equatable { case pair, paired, login, permissions, modes }
 
 final class SetupNav: ObservableObject {
     @Published var step: SetupStep = .pair
-    /// First run walks through login + modes after pairing; "Pair iPhone…" just pairs.
+    /// First run walks through login, permissions and modes after pairing; "Pair iPhone…" just
+    /// pairs, and a phone asking to see the permissions opens just that step.
     @Published var firstRun = false
 }
 
@@ -71,16 +72,18 @@ struct SetupView: View {
                 case .paired: PairedStep(model: model, next: { nav.firstRun ? (nav.step = .login) : finish() }, firstRun: nav.firstRun)
                 case .login: LoginStep(openAtLogin: $openAtLogin, next: {
                     model.setLaunchAtLogin(openAtLogin)
-                    nav.step = .modes
+                    nav.step = .permissions
                 })
+                case .permissions: PermissionsStep(monitor: model.permissions, firstRun: nav.firstRun,
+                                                   next: { nav.firstRun ? (nav.step = .modes) : finish() })
                 case .modes: ModesStep(model: model, settings: settings, done: finish)
                 }
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
 
-            // First run walks three screens: say where you are.
+            // First run walks four screens: say where you are.
             if nav.firstRun {
-                StepDots(current: stepIndex, count: 3)
+                StepDots(current: stepIndex, count: 4)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .padding(.top, 14)
             }
@@ -108,7 +111,8 @@ struct SetupView: View {
         switch nav.step {
         case .pair, .paired: return 0
         case .login: return 1
-        case .modes: return 2
+        case .permissions: return 2
+        case .modes: return 3
         }
     }
 }
@@ -276,6 +280,45 @@ struct LoginStep: View {
                 .padding(.top, 28)
             Spacer()
             Button("Continue", action: next)
+                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                .keyboardShortcut(.defaultAction)
+                .padding(.bottom, 32)
+        }
+    }
+}
+
+/// What Macrophone needs to be allowed to do, live: each grant's check lands the moment it's
+/// switched on in System Settings (PermissionRows polls every second while this is up).
+struct PermissionsStep: View {
+    @ObservedObject var monitor: PermissionsMonitor
+    var firstRun: Bool
+    var next: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            Image(systemName: monitor.accessibility && monitor.screenRecording ? "checkmark.shield" : "lock.shield")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(monitor.accessibility && monitor.screenRecording ? Light.mint : Light.cyan)
+                .accessibilityHidden(true)
+            Text("Two permissions").font(Typeface.serif(30)).foregroundStyle(Ink.ink).padding(.top, 22)
+            Text("Your iPhone works this Mac for you. macOS asks you to allow it — you turn each one on in System Settings.")
+                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 400).padding(.top, 8)
+            PermissionRows(monitor: monitor)
+                .padding(.horizontal, 32)
+                .padding(.top, 26)
+            Text(monitor.accessibility && monitor.screenRecording
+                 ? "All set. You can change these any time in General › Permissions."
+                 : "You can do this later — General › Permissions has the same switches. Dictations still land on the clipboard without them.")
+                .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 420).padding(.top, 16)
+            Spacer()
+            Button(firstRun ? (monitor.accessibility && monitor.screenRecording ? "Continue" : "Continue Without Them") : "Done", action: next)
                 .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
                 .keyboardShortcut(.defaultAction)
                 .padding(.bottom, 32)

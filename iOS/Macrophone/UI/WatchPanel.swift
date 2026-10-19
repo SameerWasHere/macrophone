@@ -61,6 +61,8 @@ struct WatchPanel: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
                 // The first times: what a tap, a hold, a pinch and the side swipe do.
                 .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight) }
+                // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
+                .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
                 .offset(x: slide)
             WatchActions(watcher: watcher)
                 .opacity(watcher.phase == .live ? 1 : 0)
@@ -582,9 +584,15 @@ struct WatchWindow: View {
         case .needsPermission:
             Dimmed {
                 Note(symbol: "rectangle.dashed.badge.record", title: "Your Mac needs to allow Screen Recording",
-                     detail: "Turn on Macrophone in Privacy & Security › Screen Recording on your Mac. It only ever shows the app you pick.") {
-                    Button { watcher.perform(.openScreenRecordingSettings) } label: {
-                        Text("Open the setting on my Mac").fontWeight(.semibold)
+                     detail: MacPermissionsState.shared.canShowOnMac()
+                        ? "Open Macrophone on your Mac — it shows where to turn it on. It only ever shows the app you pick."
+                        : "Turn on Macrophone in Privacy & Security › Screen Recording on your Mac. It only ever shows the app you pick.") {
+                    // A Mac that can brings Macrophone's permissions forward (a live check as it's
+                    // switched on); an older one opens the setting itself.
+                    Button {
+                        if !MacPermissionsState.shared.openOnMac() { watcher.perform(.openScreenRecordingSettings) }
+                    } label: {
+                        Text(MacPermissionsState.shared.canShowOnMac() ? "Open Macrophone on my Mac" : "Open the setting on my Mac").fontWeight(.semibold)
                     }
                     .watchProminentButton()
                     .accessibilityIdentifier("watch-open-permission")

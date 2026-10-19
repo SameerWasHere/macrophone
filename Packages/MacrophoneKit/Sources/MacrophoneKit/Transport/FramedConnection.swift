@@ -184,17 +184,27 @@ public final class SecureSession: @unchecked Sendable {
     private var sealer: FrameSealer
     private var opener: FrameOpener
     private let sendLock = AsyncLock()
+    /// The video lane's secrets (VideoLane.swift) and the lane, once one joins.
+    let laneSecrets: LaneSecrets?
+    let laneSlot = LaneSlot()
 
-    init(connection: FramedConnection, peerID: UUID, sendKey: SymmetricKey, receiveKey: SymmetricKey, isRemote: Bool = false) {
+    init(connection: FramedConnection, peerID: UUID, sendKey: SymmetricKey, receiveKey: SymmetricKey, isRemote: Bool = false,
+         laneSecrets: LaneSecrets? = nil) {
         self.connection = connection
         self.peerID = peerID
         self.isRemote = isRemote
         self.route = connection.route
         self.sealer = FrameSealer(key: sendKey)
         self.opener = FrameOpener(key: receiveKey)
+        self.laneSecrets = laneSecrets
     }
 
     public func send(_ message: Message) async throws {
+        // The window's pictures go on the video lane when there is one; if it fails they come
+        // back here (the phone asks for a keyframe for any it missed).
+        if VideoLane.rides(message), let lane = laneSlot.get() {
+            do { try await lane.send(message); return } catch { detachLane(lane) }
+        }
         try await sendLock.withLock {
             let plain = try WireCoding.encoder.encode(message)
             let sealed = try self.sealer.seal(plain)
@@ -212,7 +222,10 @@ public final class SecureSession: @unchecked Sendable {
         }
     }
 
-    public func close() { connection.cancel() }
+    public func close() {
+        laneSlot.closeAll()
+        connection.cancel()
+    }
 }
 
 /// A tiny async mutex so sends never interleave their counters.

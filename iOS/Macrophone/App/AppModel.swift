@@ -170,6 +170,8 @@ final class AppModel: ObservableObject {
         macAudio.attach(client)
         macAudio.bind(watcher: watcher, recorderPhase: recorder.$phase.eraseToAnyPublisher(), remote: $isRemote.eraseToAnyPublisher(),
                       link: $linkState.eraseToAnyPublisher())
+        MacPermissionsState.shared.showOnMac = { [weak self] in self?.client.showPermissionsOnMac() ?? false }
+        MacPermissionsState.shared.canShowOnMac = { [weak self] in self?.client.canShowMacPermissions ?? false }
         AgentAlerts.shared.install(self)
         // Looking at a chat that answered settles its mark.
         watcher.$target.compactMap { $0 }.sink { [weak self] t in self?.clearNeeds(for: t) }.store(in: &bag)
@@ -214,6 +216,8 @@ final class AppModel: ObservableObject {
         // the watched window as video (Watcher decodes it).
         c.features = [Attention.feature, RemoteAccess.feature, WatchVideo.feature, NeedsYou.feature,
                       ClipboardItem.feature, AttachmentChunk.feature, AllWindows.feature, EveryApp.feature, SaveToDownloads.feature, MacSound.feature] + (AgentAlerts.cloudReady ? [Attention.cloudFeature] : [])
+        // The Mac says what it's allowed to do (MacPermissionNote.swift).
+        c.features.append(MacPermissions.feature)
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }

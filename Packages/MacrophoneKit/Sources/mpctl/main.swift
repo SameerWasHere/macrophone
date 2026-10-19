@@ -32,6 +32,14 @@ import MacrophoneKit
 //   mpctl put-file <path> [--downloads] [--target …]   # a photo or file as the phone sends it (serve --save-to DIR writes it there)
 //   mpctl watch --sound --features video,sound   # Sound on: the tone `serve` sends, decoded and measured (latency, underruns)
 //   mpctl serve --sound-gap 2                 # the tone pauses for 2 s after 3 s (a gap, not an underrun)
+//   mpctl relay --listen 47915 --to 127.0.0.1:47917 [--loss 0.02] [--rtt 80] [--seed 1]
+//              a link that loses packets (Lossy.swift): what TCP does with a lost segment — it and
+//              everything after it on that connection wait for the resend, one round trip later
+//   mpctl probe [--seconds 20] [--every 0.1] [--no-lane]   # watch a busy window and time a ping's
+//              round trip the whole while: median / p95 / p99 / max, and the video frames that came
+//   mpctl serve --busy                        # the demo window changes every frame (output streaming past)
+//   mpctl serve --no-lane / any phone command --no-lane   # a Mac / a phone from before the video lane
+//   mpctl serve --permissions accessibility=off,screen=off # what this "Mac" says it's allowed to do
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -245,6 +253,7 @@ final class ServeDelegate: LinkServerDelegate {
                 // A line of the answer every second; the window is looked at thirty times a second
                 // and a frame goes whenever it changed (a swipe moves it at display rate).
                 if n % 30 == 0 { demo.tick() }
+                if has("--busy") { demo.driftStep() }
                 let keyframe = self.lock.sync { self.keyframeWanted.remove(peerID) != nil }
                 if demo.version != drawn || keyframe, let jpeg = demo.jpeg() {
                     drawn = demo.version
@@ -505,7 +514,7 @@ final class PhoneDelegate: LinkClientDelegate {
             let pixels = try decoder.decode(f)
             newestVideo = f.seq
             waitingForKeyframe = false
-            stdout("WATCH VIDEO #\(f.seq) \(f.width)x\(f.height) \(f.data.count / 1024) KB\(f.keyframe ? " key" : "") decoded in \(Int(Date().timeIntervalSince(t0) * 1000)) ms\(f.focus.map { " focus \($0)" } ?? "")\(t)")
+            if !quietFrames { stdout("WATCH VIDEO #\(f.seq) \(f.width)x\(f.height) \(f.data.count / 1024) KB\(f.keyframe ? " key" : "") decoded in \(Int(Date().timeIntervalSince(t0) * 1000)) ms\(f.focus.map { " focus \($0)" } ?? "")\(t)") }
             if let dir = flag("--save"), let image = VideoDecoder.image(pixels) {
                 let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(f.seq).png")
                 try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -539,12 +548,19 @@ func makeClient() -> (LinkClient, PhoneDelegate) {
     // where Bonjour finds nothing; --dial keeps a typed address with the pairing, as Settings does.
     if !client.features.contains(RemoteAccess.feature) { client.features.append(RemoteAccess.feature) }
     if has("--no-bonjour") { client.browsesBonjour = false }
+    if has("--no-lane") { client.laneEnabled = false }
     if let a = flag("--away-after").flatMap(Double.init) { client.awayAfter = a }
     if let text = flag("--dial") {
         guard let addr = RemoteAddressRule.parse(text) else { stdout("bad --dial address: \(text)"); exit(2) }
         guard let mac = client.activeMac else { stdout("--dial needs a paired Mac (pair first)"); exit(2) }
         client.setTypedAddress(addr, for: mac.id)
         stdout("DIAL \(addr.display) kept for \(mac.name)")
+        // --only-dial: that address and no other (the lossy relay's), and don't take the Mac's list.
+        if has("--only-dial"), var peer = client.store.peers().first(where: { $0.id == mac.id }) {
+            peer.remoteAddresses = peer.remoteAddresses.filter { $0.source == .typed }
+            client.store.update(peer)
+            client.features.removeAll { $0 == RemoteAccess.feature }
+        }
     }
     return (client, d)
 }
@@ -571,6 +587,9 @@ func run() async -> Int32 {
         // What this "Mac" can do beyond the first version (the welcome names it). --jpeg: a Mac from before.
         server.macFeatures = has("--jpeg") ? [] : [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, WatchRightClick.feature, WatchKey.feature, WatchShape.feature, WatchWindowCommand.feature,
                                                          ClipboardItem.feature, AttachmentChunk.feature, SaveToDownloads.feature, MacSound.feature]
+        // The video lane (pictures on their own connection away from home): --no-lane is a Mac from before.
+        if has("--no-lane") { server.laneEnabled = false }
+        server.macFeatures.append(MacPermissions.feature)
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -880,6 +899,12 @@ func run() async -> Int32 {
         let r = await Cleaner.clean(args[1], level: level, dictionary: [], language: "en-US")
         stdout(r.cleaned ?? "(kept as spoken\(r.skipped.map { ": " + $0 } ?? ""))")
         return 0
+
+    case "relay":
+        return await LossyRelay.run()
+
+    case "probe":
+        return await Probe.run()
 
     case "cleanup-eval":
         return await CleanupEval.run(file: flag("--file"), level: flag("--level"), only: flag("--only"))

@@ -293,23 +293,9 @@ struct GeneralPane: View {
             }
 
             PaneSection("Permissions") {
+                // Accessibility and Screen Recording, live (PermissionRows.swift).
+                PermissionRows(monitor: model.permissions)
                 Plate {
-                    PlateRow(title: "Accessibility",
-                             subtitle: model.accessibilityGranted
-                                ? "Allowed. Macrophone can see which apps have somewhere to type, paste, and press send."
-                                : "Needed to list your open apps and to paste into them. Until it's on, dictations are copied.",
-                             subtitleColor: model.accessibilityGranted ? Ink.tertiary : Light.ochre,
-                             icon: model.accessibilityGranted ? "checkmark.circle.fill" : "hand.raised",
-                             iconColor: model.accessibilityGranted ? Light.mint : Light.ochre) {
-                        if !model.accessibilityGranted {
-                            Button("Open System Settings") {
-                                Paster.requestTrust()
-                                NSWorkspace.shared.open(Paster.accessibilitySettingsURL)
-                            }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
-                        }
-                    }
-                    PlateDivider()
                     PlateRow(title: "Notifications", subtitle: notificationLine,
                              icon: notificationsOn ? "checkmark.circle.fill" : "bell",
                              iconColor: notificationsOn ? Light.mint : Ink.tertiary) {
