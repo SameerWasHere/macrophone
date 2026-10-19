@@ -828,23 +828,35 @@ struct WatchStrip: View {
 /// default up, down, return, esc buttons"), with Esc and Keys kept small beside the switch.
 struct WatchActions: View {
     @ObservedObject var watcher: Watcher
+    /// Which input page is up: with the keyboard, its own bar carries Esc, the arrows and Return,
+    /// so this row steps aside and the window keeps the room (the polish pass, Oct 19 2026).
+    @ObservedObject private var input: MacInput
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(watcher: Watcher) {
+        self.watcher = watcher
+        _input = ObservedObject(wrappedValue: watcher.input)
+    }
+
+    private var keyboardUp: Bool { input.page == .keyboard }
 
     var body: some View {
         Group {
             if let p = watcher.answers {
                 answers(p)
                     .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
-            } else {
+            } else if !keyboardUp {
                 keys.transition(.opacity)
             }
         }
         .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86), value: watcher.answers?.id)
+        .animation(reduceMotion ? nil : Motion.settle, value: keyboardUp)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
     /// The question's answers: the one the arrows are on — what Return would pick — stands out
-    /// in the window's light; a tap on any of them answers.
+    /// in the window's light; a tap on any of them answers. With the keyboard up only the
+    /// answers show (Esc and the keys are on its bar).
     private func answers(_ p: WatchPrompt) -> some View {
         VStack(spacing: 8) {
             ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
@@ -886,23 +898,25 @@ struct WatchActions: View {
                 .accessibilityHint(lit ? "What Return picks now. Answers \(watcher.name) on your Mac." : "Answers \(watcher.name) on your Mac.")
                 .accessibilityIdentifier("watch-answer-\(i)")
             }
-            HStack(spacing: 8) {
-                HStack(spacing: 0) {
-                    key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
-                    WatchCellDivider()
-                    Button { watcher.showKeys() } label: {
-                        Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold))
+            if !keyboardUp {
+                HStack(spacing: 8) {
+                    HStack(spacing: 0) {
+                        key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
+                        WatchCellDivider()
+                        Button { watcher.showKeys() } label: {
+                            Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(WatchCellStyle(inset: 16))
+                        .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
+                        .accessibilityIdentifier("watch-keys")
                     }
-                    .buttonStyle(WatchCellStyle(inset: 16))
-                    .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
-                    .accessibilityIdentifier("watch-keys")
-                }
-                .watchGlass(Capsule())
-                .fixedSize()
-                Spacer(minLength: 0)
-                ViewThatFits(in: .horizontal) {
-                    WatchDragSwitch(watcher: watcher, style: .words).fixedSize()
-                    WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize()
+                    .watchGlass(Capsule())
+                    .fixedSize()
+                    Spacer(minLength: 0)
+                    ViewThatFits(in: .horizontal) {
+                        WatchDragSwitch(watcher: watcher, style: .words).fixedSize()
+                        WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize()
+                    }
                 }
             }
         }

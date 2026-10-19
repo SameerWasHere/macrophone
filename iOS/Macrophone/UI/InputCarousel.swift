@@ -94,10 +94,6 @@ struct InputCarousel<Mic: View>: View {
         case .keyboard:
             KeyboardPage(input: input, watcher: watcher)
                 .frame(height: InputCarouselLook.keyboardStrip)
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 20).onEnded { v in
-                    if v.translation.width < -40, abs(v.translation.width) > abs(v.translation.height) { input.step(1) }
-                })
         }
     }
 
@@ -156,6 +152,9 @@ struct InputPageRow: View {
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: input.page)
+        // A kicker row of a fixed height: it keeps a kicker's size at accessibility sizes (the
+        // words had grown past the row and the screen's width).
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Input")
         .accessibilityValue(input.page.title)
@@ -167,9 +166,9 @@ struct InputPageRow: View {
     }
 }
 
-/// The keyboard page: a strip above the iOS keyboard (which the hidden field below brings up)
-/// saying where the typing goes; the bar with Esc, Tab, the modifiers, the arrows and the F-keys
-/// rides with the keyboard itself (`MacKeyboardField`).
+/// The keyboard page: a strip above the iOS keyboard (which the hidden field below brings up) —
+/// esc · ⇥ and the arrows, with where the typing goes beside them when there's room; the
+/// modifiers, the F-keys and hide ride on the keyboard's own bar (`MacKeyboardField`).
 struct KeyboardPage: View {
     @ObservedObject var input: MacInput
     @ObservedObject var watcher: Watcher
@@ -179,32 +178,20 @@ struct KeyboardPage: View {
             MacKeyboardField(input: input, watcher: watcher, active: input.page == .keyboard)
                 .frame(width: 1, height: 1)
                 .accessibilityHidden(true)
-            HStack(spacing: 8) {
-                Image(systemName: "keyboard")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Light.cyan)
-                Text(line)
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(Ink.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, minHeight: 36)
-            .watchGlass(Capsule())
-            .padding(.horizontal, WatchLook.sideMargin)
+            MacKeyboardStrip(input: input, watcher: watcher)
+                .frame(maxWidth: .infinity, minHeight: InputCarouselLook.keyboardStrip)
+                // The way back, as on the mic page: a swipe right to left on the strip's open
+                // room (a key keeps its own press). The row above and hide are the visible ways.
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 20).onEnded { v in
+                            if v.translation.width < -40, abs(v.translation.width) > abs(v.translation.height) { input.step(1) }
+                        })
+                }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(line)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Keyboard, typing in \(watcher.name) on your Mac")
         .accessibilityIdentifier("input-keyboard")
-    }
-
-    private var line: String {
-        if input.switching { return "Switching apps — tap again for the next one" }
-        if !input.modifiers.isEmpty {
-            let mods = WatchModifier.allCases.filter { input.modifiers.contains($0) }.map(\.glyph).joined()
-            return "\(mods) goes on the next key or tap"
-        }
-        return "Typing in \(watcher.name) on your Mac"
     }
 }

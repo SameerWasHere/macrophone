@@ -90,9 +90,20 @@ final class MacInput: ObservableObject {
         pages = [.mic]
     }
 
-    /// The link came back: the pages may differ (another Mac).
+    /// The link came back: the pages may differ (another Mac), and a trackpad page still up gets
+    /// its pointer back (the Mac's own cursor was drawn into the stream only while told so).
     func linkChanged(connected: Bool) {
-        if connected { refreshPages() } else { pointerShown = false; switching = false }
+        if connected {
+            refreshPages()
+            if page == .trackpad, canMouse, !pointerShown {
+                pointerShown = true
+                _ = sendMouse(WatchMouseEvent(.show, at: pointer.point))
+                pointerSeq &+= 1
+            }
+        } else {
+            pointerShown = false
+            switching = false
+        }
     }
 
     func show(_ p: Page, quiet: Bool = false) {
@@ -110,6 +121,9 @@ final class MacInput: ObservableObject {
             pointerShown = false
             _ = sendMouse(WatchMouseEvent(.hide, at: pointer.point))
         }
+        // A modifier waiting is shown lit on the keyboard's bar and nowhere else: leaving the
+        // keyboard page lets it go, so no page ever carries one it can't show (the polish pass).
+        if p != .keyboard, !modifiers.isEmpty { modifiers = [] }
         watcher?.log?.add("watching: input page \(p.rawValue)")
     }
 
@@ -170,6 +184,8 @@ final class MacInput: ObservableObject {
         if !switching {
             guard sendKeyState(WatchKey("command"), true) else { return }
             switching = true
+            // The keyboard's bar says so too; over the window for the other pages.
+            if page != .keyboard { watcher?.say("Switching apps — tap Switch App again for the next one", symbol: "macwindow.on.rectangle") }
         }
         Haptics.tick()
         _ = sendKey(WatchKey("tab"))
