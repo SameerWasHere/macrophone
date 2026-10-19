@@ -59,7 +59,8 @@ struct WholeScreenItems: View {
                     let shown = watcher.isDesktop && (Displays.key(of: watcher.target) ?? reach.lastDisplay?.id) == d.id
                     Label("Whole Screen — \(Displays.name(for: d, among: reach.displays))",
                           systemImage: shown ? "checkmark" : (d.isMain ? "display" : "display.2"))
-                    if let subtitle { Text(d.isMain ? "\(subtitle) · with the menu bar" : subtitle) }
+                    // Short, per display (the polish pass): the one line that tells them apart.
+                    if subtitle != nil { Text(d.isMain ? "With the menu bar, live" : "Everything on it, live") }
                 }
                 .accessibilityIdentifier("whole-screen-\(d.id)")
             }

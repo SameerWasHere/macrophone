@@ -11,7 +11,7 @@ import SwiftUI
 ///                                   popup-delayed | popup-rtl | popup-sent | popup-not-sent | popup-not-open |
 ///                                   popup-window-gone | popup-nowhere | popup-composer | popup-prefix |
 ///                                   window-<pane> | setup | setup-paired | setup-paired-generic | setup-login |
-///                                   setup-modes | code-approval | diagnostics | menu
+///                                   setup-permissions | setup-modes | code-approval | diagnostics | menu
 ///   MACROPHONE_WINDOW_SIZE=WxH      the main window's content size (window-<pane> only)
 ///   MACROPHONE_POPUP_ON_ICON=1      the popup hangs under the icon on its own display (not the display in use)
 ///   MACROPHONE_BACKDROP=1           a neutral backdrop under the popup (screenshots never show a real desktop)
@@ -130,6 +130,13 @@ enum DebugHooks {
         case "setup-modes":
             app.openSetup(.pair)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { app.setupNavForDebug?.step = .modes }
+        case "setup-permissions":
+            // The Permissions step as a first run shows it (the dots, Continue Without Them).
+            app.openSetup(.pair)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                app.setupNavForDebug?.firstRun = true
+                app.setupNavForDebug?.step = .permissions
+            }
         case "code-approval":
             app.openSetup(.pair)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.codeRequest = CodeRequest(code: "482 913", phoneName: "Sameer's iPhone") }

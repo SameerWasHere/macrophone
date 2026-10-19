@@ -49,8 +49,8 @@ struct WatchTip: Identifiable, Equatable {
                                 detail: "Tap twice for a double-click. Tap, then hold and move, to drag. Hold — or tap with two fingers — for a right-click.")
     /// The keyboard and the trackpad beside the mic (Oct 19 2026).
     static let input = WatchTip(id: "input", symbol: "rectangle.and.hand.point.up.left",
-                                title: "Swipe the mic for a trackpad or keyboard",
-                                detail: "Swipe right to left beside the mic for a trackpad; left to right for the keyboard, typing straight into your Mac. Or tap the words above the mic.")
+                                title: "Swipe beside the mic for a trackpad or keyboard",
+                                detail: "Right to left for a trackpad; left to right for a keyboard that types straight into your Mac. Or tap Keyboard, Mic or Trackpad above the mic.")
 }
 
 enum WatchTips {

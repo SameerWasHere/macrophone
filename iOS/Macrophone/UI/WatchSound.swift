@@ -3,12 +3,13 @@ import SwiftUI
 /// Sound (Oct 19 2026): the Mac's audio with the window — a speaker in the header, its own piece of
 /// glass beside the zoom-out and Window cluster. Off by default; a tap turns it on (remembered) and
 /// lights it cyan; while the mic is open it shows paused (the mic wins, and it comes back after).
-/// Shown only when the connected Mac sends its sound.
+/// Shown only when the connected Mac sends its sound. Off is a plain speaker, not a slashed one
+/// (the polish pass): off is the usual state, and a slash read as something wrong.
 struct WatchSoundButton: View {
     @ObservedObject var player: MacAudioPlayer
 
     private var symbol: String {
-        guard player.isOn else { return "speaker.slash" }
+        guard player.isOn else { return "speaker" }
         return player.playing ? "speaker.wave.2.fill" : "speaker.fill"
     }
 
