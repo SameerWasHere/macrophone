@@ -67,10 +67,13 @@ struct InputCarousel<Mic: View, Thread: View>: View {
             // The Thread and the pages are one band: a swipe anywhere on it (off the mic) slides
             // the pages.
             VStack(spacing: 0) {
+                // Never clipped: the Thread and its glow run past its slot above and below, as they
+                // always have (Oct 19 2026, Sameer: "the glow … is getting cut at the top and
+                // bottom"). Folding away it fades as its slot closes, so nothing spills.
                 thread()
                     .frame(height: threadShown ? threadHeight : 0)
                     .opacity(threadShown ? 1 : 0)
-                    .clipped()
+                    .allowsHitTesting(threadShown)
                 ZStack(alignment: .top) {
                     ForEach(input.pages) { page in
                         pageView(page)

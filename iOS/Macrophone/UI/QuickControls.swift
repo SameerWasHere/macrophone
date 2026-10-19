@@ -221,6 +221,11 @@ struct PlacesRow: View {
                     .padding(.vertical, 4)
                 }
                 .scrollIndicators(.hidden)
+                // A pressed or held icon grows past the row (Oct 19 2026, Sameer: "when I press and
+                // hold on an app icon the button also gets cut off at top and bottom"): the row
+                // draws past its top and bottom, and is trimmed only at its sides.
+                .scrollClipDisabled()
+                .mask(Rectangle().padding(.vertical, -40))
                 // Only as far as it takes to bring the pick into view (Clipboard stays put when it's visible).
                 .onAppear { if let selected { proxy.scrollTo(selected) } }
                 .onChange(of: selected) { _, id in
@@ -388,6 +393,8 @@ private struct PlaceButton: View {
         .placeButtonStyle(selected: selected)
         .controlSize(.small)
         .opacity(place.kind == .closed && !selected ? 0.55 : 1)
+        // The held icon lifts as its own rounded button, whole.
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16, style: .continuous))
         .contextMenu {
             if place.windows.count > 1 {
                 Section("\(place.name) windows") {
