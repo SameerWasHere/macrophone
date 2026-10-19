@@ -322,6 +322,21 @@ final class ServeDelegate: LinkServerDelegate {
         lock.sync { watched[peerID] }?.fit(fit)
     }
 
+    /// A Window menu command. Close (Oct 19 2026) closes the demo window as the Mac would: the
+    /// frames stop, and a beat later the phone hears the window is closed for good.
+    func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID) {
+        stdout("WATCH WINDOW \(command.rawValue)")
+        guard command == .close else { return }
+        watches[peerID]?.cancel()
+        let name = lock.sync { watched[peerID] }?.app ?? "Claude"
+        watches[peerID] = Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled else { return }
+            stdout("WATCH CLOSED \(name)")
+            await server.send(.watchState(.unavailable("That \(name) window is closed", canReveal: false, closed: true)), to: peerID)
+        }
+    }
+
     func linkServer(_ server: LinkServer, watchAction action: WatchAction, from peerID: UUID) {
         stdout("WATCH ACTION \(action.rawValue)")
         lock.sync { watched[peerID] }?.apply(action)

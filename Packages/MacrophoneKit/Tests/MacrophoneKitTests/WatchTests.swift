@@ -30,6 +30,32 @@ final class WatchTests: XCTestCase {
     }
 }
 
+final class WatchStateWireTests: XCTestCase {
+    /// The state keeps the shape a phone from before reads; `closed` rides along only when set.
+    func testUnavailableKeepsItsShapeAndReadsAnOlderMacs() throws {
+        let old = Data(#"{"unavailable":{"_0":"That Claude window is closed","canReveal":false}}"#.utf8)
+        XCTAssertEqual(try WireCoding.decoder.decode(WatchState.self, from: old),
+                       .unavailable("That Claude window is closed", canReveal: false, closed: false))
+        let plain = try WireCoding.encoder.encode(WatchState.unavailable("Minimized", canReveal: true))
+        XCTAssertFalse(String(decoding: plain, as: UTF8.self).contains("closed"))
+        let closed = try WireCoding.encoder.encode(WatchState.unavailable("Closed", canReveal: false, closed: true))
+        XCTAssertTrue(String(decoding: closed, as: UTF8.self).contains(#""closed":true"#))
+        XCTAssertEqual(try WireCoding.decoder.decode(WatchState.self, from: closed), .unavailable("Closed", canReveal: false, closed: true))
+        for s: WatchState in [.live(appName: "Claude"), .needsPermission, .stopped] {
+            XCTAssertEqual(try WireCoding.decoder.decode(WatchState.self, from: try WireCoding.encoder.encode(s)), s)
+        }
+        XCTAssertEqual(String(decoding: try WireCoding.encoder.encode(WatchState.needsPermission), as: UTF8.self), #"{"needsPermission":{}}"#)
+    }
+
+    func testFramesCarryTheMacsPointerWhenTold() throws {
+        let f = WatchVideoFrame(seq: 1, data: Data(), parameterSets: nil, keyframe: false, width: 2, height: 2, appName: "Claude", bundleID: nil, focus: nil, cursor: CGPoint(x: 0.25, y: 0.75))
+        let back = try WireCoding.decoder.decode(WatchVideoFrame.self, from: try WireCoding.encoder.encode(f))
+        XCTAssertEqual(back.cursor?.x ?? 0, 0.25, accuracy: 0.0001)
+        let bare = Data(#"{"seq":1,"data":"","keyframe":false,"width":2,"height":2,"appName":"Claude"}"#.utf8)
+        XCTAssertNil(try WireCoding.decoder.decode(WatchVideoFrame.self, from: bare).cursor)
+    }
+}
+
 final class WatchFrameRuleTests: XCTestCase {
     func testOnlyNewerPicturesShow() {
         // Pictures are decoded off the main thread, so an older one can finish after a newer one.

@@ -75,8 +75,15 @@ final class WatchService {
         let poster: ScrollPoster
         /// The pointer, typing and held keys (Oct 19 2026), off the main thread.
         let input = InputPoster()
-        /// The phone's trackpad is in use: the stream draws the pointer.
+        /// The phone's trackpad is in use: the pointer stays where it's left, and each frame's
+        /// words say where the Mac's own pointer is (the phone's starts there).
         var pointerShown = false
+        /// A window was found and shown at least once: only then can it be "closed".
+        var sawWindow = false
+        /// When the window it showed was first found gone: a beat later, still gone, it's closed.
+        var goneAt: Date?
+        /// The phone asked to close the window: gone right after that needs no beat.
+        var closeAskedAt = Date.distantPast
         /// When typing was last logged (a line per sentence, not per keystroke).
         var typedLogAt = Date.distantPast
         /// The whole screen: the app in front, as last told.
@@ -273,7 +280,11 @@ final class WatchService {
             Task { @MainActor in
                 guard let self, let w else { return }
                 w.pointerShown = shown
-                if let s = w.stream { await s.setCursor(shown: shown) }
+                // The phone draws the one pointer (instant; the Mac's own in the stream lagged it
+                // as a ghost). It starts where the Mac's pointer is: the words say so at once.
+                self.tellPipe(w)
+                w.pipe?.sendWords()
+                w.hurry()
                 self.app.log.add("watch pointer \(shown ? "shown" : "hidden")")
             }
         }
@@ -292,7 +303,7 @@ final class WatchService {
         w.poster.stop()
         w.input.stop()
         if w.input.clicks + w.input.moves + w.input.typed > 0 {
-            app.log.add("watch input: \(w.input.clicks) clicks, \(w.input.moves) pointer moves, \(w.input.typed) characters typed")
+            app.log.add("watch input: \(w.input.clicks) clicks, \(w.input.moves) pointer moves (\(w.input.missed) didn't land, warped there), \(w.input.typed) characters typed")
         }
         if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
         let v = w.pipe?.snapshot() ?? VideoPipe.Stats()
@@ -364,6 +375,7 @@ final class WatchService {
             w.dropStream()
             return .needsPermission
         }
+        w.sawWindow = true
         guard place.onScreen else {
             return .unavailable("\(w.appName)'s window is minimized or on another desktop", canReveal: true)
         }
@@ -379,7 +391,7 @@ final class WatchService {
             if wid == WindowServer.desktopID {
                 made = await desktopStream(w)
             } else if let scw = await scWindow(wid) {
-                made = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo, showsCursor: w.pointerShown)
+                made = WindowStream(window: scw, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
             } else {
                 made = nil
             }
@@ -518,7 +530,17 @@ final class WatchService {
     private func words(_ w: Watch) -> VideoPipe.Words {
         .init(appName: w.appName, bundleID: w.bundleID, focus: shownFocus(w), prompt: w.prompt,
               front: w.windowID == WindowServer.desktopID ? Self.frontApp() : nil,
-              points: w.stream?.windowSize)
+              points: w.stream?.windowSize, cursor: cursorInWindow(w))
+    }
+
+    /// Where the Mac's own pointer is, as a fraction of the watched window — while the phone's
+    /// trackpad is up and the pointer is inside the window (nil otherwise): the phone's pointer
+    /// starts there instead of at the window's centre.
+    private func cursorInWindow(_ w: Watch) -> CGPoint? {
+        // With companions the picture is the wider area, and the phone's fractions are of that.
+        guard w.pointerShown, let wid = w.windowID, let b = w.area ?? WindowServer.bounds(of: wid), b.width > 0, b.height > 0,
+              let c = CGEvent(source: nil)?.location, b.contains(c) else { return nil }
+        return CGPoint(x: (c.x - b.minX) / b.width, y: (c.y - b.minY) / b.height)
     }
 
     /// The app in front, not Macrophone.
@@ -633,14 +655,38 @@ final class WatchService {
         w.changedSince = 0
         w.forceUntil = .distantPast
         let frame = WatchFrame(seq: w.seq, jpeg: data, width: image.width, height: image.height,
-                               appName: w.appName, bundleID: w.bundleID, focus: shownFocus(w), prompt: w.prompt, points: w.stream?.windowSize)
+                               appName: w.appName, bundleID: w.bundleID, focus: shownFocus(w), prompt: w.prompt, points: w.stream?.windowSize, cursor: cursorInWindow(w))
         // Waits until it's on the wire: a slow link gets fewer pictures, never a backlog.
         await app.server.send(.watchFrame(frame), to: w.peer)
         if timing { print("[watch] encode \(encoded) · send \(data.count / 1024) KB \(Self.ms(t) - encoded)"); fflush(stdout) }
     }
 
-    /// Finds the window to show (once; again only when it's gone). Nil = found.
+    /// Finds the window to show (once; again only when it's gone). Nil = found. A window the
+    /// phone was looking at that has gone (closed, or its app quit — `find` marks those `closed`)
+    /// is said to be closed only a beat later, still gone (Oct 19 2026, Sameer: "when I close a
+    /// window, the app should just go back to the selector screen"): a window an app re-creates
+    /// (a tab moving between windows) is found again meanwhile and nothing is said; a window
+    /// that's only minimized or on another desktop never comes this way. After the phone's own
+    /// Close there's no beat.
     private func resolve(_ w: Watch) async -> WatchState? {
+        guard let r = await find(w) else { w.goneAt = nil; return nil }
+        guard case let .unavailable(why, canReveal, true) = r else { w.goneAt = nil; return r }
+        guard w.sawWindow else { return .unavailable(why, canReveal: canReveal) }
+        let now = Date()
+        if w.goneAt == nil { w.goneAt = now }
+        if now.timeIntervalSince(w.closeAskedAt) < 15 || now.timeIntervalSince(w.goneAt!) >= 1.2 {
+            if w.lastState != r { app.log.add("watch: the window is closed") }
+            return r
+        }
+        // The beat: nothing new said yet (the phone keeps its last picture); look again soon.
+        Task { @MainActor [weak w] in
+            try? await Task.sleep(nanoseconds: 1_300_000_000)
+            w?.wake()
+        }
+        return w.lastState ?? .unavailable(why, canReveal: canReveal)
+    }
+
+    private func find(_ w: Watch) async -> WatchState? {
         // The whole screen: no app, no window to find.
         if DesktopWatch.isDesktop(w.target) {
             // Which display: the one the phone picked (its key), else the main one.
@@ -669,7 +715,7 @@ final class WatchService {
         case let .app(bundleID, windowKey, name):
             guard let r = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first(where: { !$0.isTerminated }) else {
                 let n = Paster.installedName(bundleID) ?? Paster.appName(fromTitle: name)
-                return .unavailable("\(n) isn't open on your Mac", canReveal: false)
+                return .unavailable("\(n) isn't open on your Mac", canReveal: false, closed: true)
             }
             return await adopt(r, windowKey: windowKey, w)
         }
@@ -681,7 +727,7 @@ final class WatchService {
         w.bundleID = r.bundleIdentifier
         w.appName = name
         if let windowKey, let id = CGWindowID(windowKey) {
-            guard WindowServer.exists(id) else { return .unavailable("That \(name) window is closed", canReveal: false) }
+            guard WindowServer.exists(id) else { return .unavailable("That \(name) window is closed", canReveal: false, closed: true) }
             w.windowID = id
             return nil
         }
@@ -699,7 +745,7 @@ final class WatchService {
             // that one, so the phone says so and "Show it on my Mac" brings it back up.
             w.windowID = id
         } else {
-            return .unavailable("\(name) has no window open", canReveal: true)
+            return .unavailable("\(name) has no window open", canReveal: true, closed: true)
         }
         return nil
     }
@@ -730,7 +776,7 @@ final class WatchService {
               let display = c.displays.first(where: { $0.displayID == wanted }) ?? c.displays.first else { return nil }
         w.desktopDisplay = display.displayID
         let mine = c.windows.filter { $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier }
-        return WindowStream(display: display, excluding: mine, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo, showsCursor: w.pointerShown)
+        return WindowStream(display: display, excluding: mine, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
     }
 
     private func scWindow(_ id: CGWindowID) async -> SCWindow? {
@@ -907,6 +953,12 @@ final class WatchService {
             _ = AX.set(win, kAXMinimizedAttribute, kCFBooleanTrue)
         case .close:
             if let b = AX.element(win, kAXCloseButtonAttribute) { _ = AXUIElementPerformAction(b, kAXPressAction as CFString) }
+            // Gone after this is closed, no beat needed; the next look comes soon.
+            w.closeAskedAt = Date()
+            Task { @MainActor [weak w] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                w?.wake()
+            }
         case .restore:
             if let f = w.beforeWindowChanges, !AX.bool(win, "AXFullScreen") { _ = WindowFit.set(win, frame: f) }
             w.beforeWindowChanges = nil

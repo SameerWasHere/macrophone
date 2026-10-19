@@ -23,8 +23,10 @@ public struct WatchFrame: Codable, Sendable {
     public var prompt: WatchPrompt?
     /// The window's size in points on the Mac (`WatchVideoFrame.points`); nil from a Mac from before.
     public var points: CGSize?
+    /// Where the Mac's own pointer is, as a fraction of the window (`WatchVideoFrame.cursor`).
+    public var cursor: CGPoint?
 
-    public init(seq: Int, jpeg: Data, width: Int, height: Int, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil, points: CGSize? = nil) {
+    public init(seq: Int, jpeg: Data, width: Int, height: Int, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil, points: CGSize? = nil, cursor: CGPoint? = nil) {
         self.seq = seq
         self.jpeg = jpeg
         self.width = width
@@ -34,6 +36,7 @@ public struct WatchFrame: Codable, Sendable {
         self.focus = focus
         self.prompt = prompt
         self.points = points
+        self.cursor = cursor
     }
 }
 
@@ -65,10 +68,57 @@ public enum WatchState: Codable, Sendable, Equatable {
     /// Screen Recording is off for Macrophone on the Mac.
     case needsPermission
     /// Nothing to show right now, in one plain sentence ("Claude isn't open on your Mac",
-    /// "Claude's window is minimized").
-    case unavailable(String, canReveal: Bool)
+    /// "Claude's window is minimized"). `closed` (Oct 19 2026): the window the phone was looking
+    /// at is gone for good — closed on the Mac or from the phone, or its app quit — confirmed a
+    /// beat later (never a window that's only minimized, on another desktop, or re-created);
+    /// the phone goes back to its main screen. An older Mac never sets it.
+    case unavailable(String, canReveal: Bool, closed: Bool = false)
     /// The Mac stopped (asked to, or the phone went away).
     case stopped
+
+    // Coded by hand in the synthesized shape ({"unavailable":{"_0":…,"canReveal":…}}), so a
+    // phone from before reads a new Mac's state (an extra key is ignored) and a new phone reads
+    // an older Mac's (no `closed` key: false).
+    private enum Key: String, CodingKey { case live, needsPermission, unavailable, stopped }
+    private enum LiveKey: String, CodingKey { case appName }
+    private enum UnavailableKey: String, CodingKey { case _0, canReveal, closed }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        if c.contains(.live) {
+            let n = try c.nestedContainer(keyedBy: LiveKey.self, forKey: .live)
+            self = .live(appName: try n.decode(String.self, forKey: .appName))
+        } else if c.contains(.unavailable) {
+            let n = try c.nestedContainer(keyedBy: UnavailableKey.self, forKey: .unavailable)
+            self = .unavailable(try n.decode(String.self, forKey: ._0),
+                                canReveal: try n.decodeIfPresent(Bool.self, forKey: .canReveal) ?? false,
+                                closed: try n.decodeIfPresent(Bool.self, forKey: .closed) ?? false)
+        } else if c.contains(.needsPermission) {
+            self = .needsPermission
+        } else if c.contains(.stopped) {
+            self = .stopped
+        } else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "no watch state"))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Key.self)
+        switch self {
+        case .live(let appName):
+            var n = c.nestedContainer(keyedBy: LiveKey.self, forKey: .live)
+            try n.encode(appName, forKey: .appName)
+        case let .unavailable(why, canReveal, closed):
+            var n = c.nestedContainer(keyedBy: UnavailableKey.self, forKey: .unavailable)
+            try n.encode(why, forKey: ._0)
+            try n.encode(canReveal, forKey: .canReveal)
+            if closed { try n.encode(true, forKey: .closed) }
+        case .needsPermission:
+            _ = c.nestedContainer(keyedBy: LiveKey.self, forKey: .needsPermission)
+        case .stopped:
+            _ = c.nestedContainer(keyedBy: LiveKey.self, forKey: .stopped)
+        }
+    }
 }
 
 /// A one-tap action on the watched window. Each brings the window forward first.

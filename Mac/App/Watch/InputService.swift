@@ -40,6 +40,10 @@ final class InputPoster: @unchecked Sendable {
     private(set) var clicks = 0
     private(set) var moves = 0
     private(set) var typed = 0
+    /// Moves after which the pointer wasn't where it was sent (read back before the next one,
+    /// while the trackpad is up) — counted, and the pointer warped there, so a Mac where posted
+    /// moves don't take shows up in the diagnostics as numbers.
+    private(set) var missed = 0
 
     /// queue: the watched window isn't on top at this spot on screen (or it's the whole screen):
     /// bring what's there forward, then call back. The click waits for it, a second and a half at most.
@@ -139,10 +143,19 @@ final class InputPoster: @unchecked Sendable {
 
     /// queue: a move (or a drag, while the button is down) to a point on screen.
     private func move(to pt: CGPoint, flags: CGEventFlags) {
+        // Did the last move land? (Read before this one goes: a posted event takes a moment to
+        // show in the cursor's location.) Only while the trackpad drives the pointer — after a
+        // tap on the picture the pointer is put back on purpose.
+        var warp = false
+        if kept, let last = pointer, let here = CGEvent(source: nil)?.location, abs(here.x - last.x) + abs(here.y - last.y) > 3 {
+            missed += 1
+            warp = true
+        }
         let ev = CGEvent(mouseEventSource: source, mouseType: dragging ? .leftMouseDragged : .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)
         if dragging { ev?.setIntegerValueField(.mouseEventClickState, value: 1) }
         ev?.flags = flags
         ev?.post(tap: .cghidEventTap)
+        if warp { CGWarpMouseCursorPosition(pt) }
         pointer = pt
     }
 

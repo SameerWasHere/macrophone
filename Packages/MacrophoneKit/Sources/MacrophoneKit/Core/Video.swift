@@ -49,11 +49,16 @@ public struct WatchVideoFrame: Codable, Sendable {
     /// in those, so a 1× display or a picture narrowed for a remote link moves it right. Nil from a
     /// Mac from before (the phone then takes the picture as a Retina window at full size).
     public var points: CGSize?
+    /// Where the Mac's own pointer is, as a fraction of the window (Oct 19 2026), sent while the
+    /// phone's trackpad is up and the pointer is inside the window: the phone's pointer starts
+    /// there, not at the window's centre. Nil otherwise, and from a Mac from before.
+    public var cursor: CGPoint?
 
     public init(seq: Int, data: Data, parameterSets: [Data]?, keyframe: Bool, width: Int, height: Int,
-                appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil, front: FrontApp? = nil, points: CGSize? = nil) {
+                appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt? = nil, front: FrontApp? = nil, points: CGSize? = nil, cursor: CGPoint? = nil) {
         self.front = front
         self.points = points
+        self.cursor = cursor
         self.seq = seq
         self.data = data
         self.parameterSets = parameterSets

@@ -42,7 +42,10 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// conversion before the encode, and the change sample reads the brightness plane. Pictures
     /// come as BGRA, which a JPEG is made from.
     let video: Bool
-    /// The pointer drawn in the picture (Oct 19 2026): while the phone's trackpad is in use.
+    /// The Mac's pointer drawn in the picture. Off (Oct 19 2026, the carousel fixes): the phone
+    /// draws the one pointer itself — an arrow that answers the finger at once; the Mac's own in
+    /// the stream lagged it by a frame or two and read as a ghost. The phone is told where the
+    /// Mac's pointer is in the frame's words instead.
     private(set) var showsCursor: Bool
 
     init(window: SCWindow, maxWidth: CGFloat, maxRate: Int = pictureRate, video: Bool = false, showsCursor: Bool = false) {
