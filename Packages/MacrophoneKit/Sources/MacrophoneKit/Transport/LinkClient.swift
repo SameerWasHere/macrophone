@@ -485,10 +485,11 @@ public final class LinkClient: @unchecked Sendable {
     }
 
     /// `replacing`: a move back home — the new session takes the place of the remote one and the
-    /// state never leaves `.connected`.
-    private func dial(mac: PairedPeer, key: SymmetricKey, timeout: TimeInterval, replacing: Bool = false) async throws -> SecureSession {
+    /// state never leaves `.connected`. `aside`: a session to a Mac that isn't the active one, to
+    /// tell it one thing (it's being forgotten) — never installed as the link, no state, no retry.
+    private func dial(mac: PairedPeer, key: SymmetricKey, timeout: TimeInterval, replacing: Bool = false, aside: Bool = false) async throws -> SecureSession {
         let generation = lock.sync { switchGeneration }
-        if !replacing { setState(.connecting(mac.name)) }
+        if !replacing, !aside { setState(.connecting(mac.name)) }
         let route: Route = replacing
             ? .bonjour(discoveredMacs.first(where: { $0.macID == mac.id })?.endpoint ?? .service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil), verified: true)
             : await route(for: mac)
@@ -510,7 +511,7 @@ public final class LinkClient: @unchecked Sendable {
             }
         } catch {
             log?.add("connect failed: \(String(describing: error))")
-            if !replacing { setState(.unreachable(mac.name)); scheduleRetry() }
+            if !replacing, !aside { setState(.unreachable(mac.name)); scheduleRetry() }
             throw error
         }
         do {
@@ -532,6 +533,7 @@ public final class LinkClient: @unchecked Sendable {
                 guard case let .welcome(macName, _, macFeatures) = try await receive(s, timeout: timeout) else {
                     throw LinkError.protocolError("expected welcome")
                 }
+                if aside { return s }
                 let old = lock.sync { () -> SecureSession?? in
                     // Another Mac was made active while this dial ran: this session is for the
                     // Mac before — close it, and leave the state to the new Mac's dial.
@@ -577,6 +579,7 @@ public final class LinkClient: @unchecked Sendable {
                 // Our Mac (matched by id) forgot us while we were away.
                 log?.add("Mac no longer knows this phone")
                 conn.cancel()
+                if aside { throw LinkError.handshake(.unknownPeer) }
                 store.remove(mac.id)
                 settleChoice()
                 forgottenByMac(mac.id)
@@ -589,7 +592,7 @@ public final class LinkClient: @unchecked Sendable {
         } catch {
             conn.cancel()
             log?.add("connect failed: \(String(describing: error))")
-            if replacing { throw error }
+            if replacing || aside { throw error }
             switch error {
             case LinkError.handshake(.unknownPeer), LinkError.anotherMac: break
             default:
@@ -1245,17 +1248,32 @@ public final class LinkClient: @unchecked Sendable {
         return .service(name: fallbackName, type: Product.serviceType, domain: "local.", interface: nil)
     }
 
-    /// Forget a Mac on this phone, telling it if connected.
+    /// Forget a Mac on this phone, telling it if it can be reached.
     public func unpair(_ macID: UUID) async {
-        // Best effort: reach the Mac so it forgets this phone too. If it's away, the Mac
-        // learns on the next connection attempt (it gets no session) — or via its own menu.
+        // Best effort: reach the Mac so it forgets this phone too. The active one through the
+        // link; another on a session of its own, when Bonjour sees it or it gave addresses for
+        // away. Out of reach, the Mac keeps the phone until its own Forget this iPhone.
         if activeMac?.id == macID { _ = try? await connect(timeout: 3) }
-        let s = lock.sync { () -> SecureSession? in
+        var s = lock.sync { () -> SecureSession? in
             let s = sessionMacID == macID ? session : nil
             if s != nil { session = nil; sessionMacID = nil }
             return s
         }
-        if let s { try? await s.send(.unpair); s.close() }
+        var aside = false
+        if s == nil, activeMac?.id != macID, let key = store.key(for: macID), let mac = store.peers().first(where: { $0.id == macID }),
+           isNearby(macID) || !mac.remoteAddresses.isEmpty {
+            s = try? await dial(mac: mac, key: key, timeout: 4, aside: true)
+            aside = s != nil
+            log?.add(aside ? "told the Mac being forgotten" : "couldn't reach the Mac being forgotten")
+        }
+        if let s {
+            try? await s.send(.unpair)
+            // A close right behind the send can drop it: the Mac closes once it has the message
+            // (the aside session has no reader of its own, so wait for that); the link's own
+            // session gets a beat.
+            if aside { _ = try? await receive(s, timeout: 2) } else { try? await Task.sleep(nanoseconds: 300_000_000) }
+            s.close()
+        }
         let wasActive = activeMac?.id == macID
         store.remove(macID)
         settleChoice()
