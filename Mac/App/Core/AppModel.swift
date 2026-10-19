@@ -708,7 +708,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     private func sendEveryWindow() {
         var names: [pid_t: (String, String)] = [:]
+        // A sheet, a panel or a menu shown with a watched window is part of it, not a window of its own.
+        let companions = watch.companionWindows
         let list: [LiveTarget] = WindowServer.everyWindow().compactMap { w in
+            if companions.contains(w.id) { return nil }
             if names[w.pid] == nil, let r = NSRunningApplication(processIdentifier: w.pid), let bid = r.bundleIdentifier {
                 names[w.pid] = (bid, r.localizedName ?? bid)
             }

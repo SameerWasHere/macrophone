@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import MacrophoneKit
 
 /// What the window server knows that Accessibility doesn't: every app's windows on every
 /// desktop (Space), front to back. Accessibility only sees windows on the current desktop.
@@ -107,6 +108,62 @@ enum WindowServer {
             return wid == id
         }
         return false
+    }
+
+    /// Every on-screen window, front to back, as `WatchCompanions` reads them (Oct 19 2026): one
+    /// list a look, with whether each owner is an ordinary app and its bundle id (an XPC service —
+    /// the Open and Save Panel Service — has no running-app entry: its bundle is found from its path).
+    static func companionList() -> [WatchCompanions.Window] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        var out: [WatchCompanions.Window] = []
+        out.reserveCapacity(list.count)
+        for w in list {
+            guard let id = w[kCGWindowNumber as String] as? CGWindowID,
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t,
+                  let layer = w[kCGWindowLayer as String] as? Int,
+                  let b = w[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: b as CFDictionary) else { continue }
+            let p = process(pid)
+            out.append(.init(id: id, pid: pid, layer: layer, bounds: rect, alpha: w[kCGWindowAlpha as String] as? Double ?? 1,
+                             owner: w[kCGWindowOwnerName as String] as? String, bundleID: p.bundleID, regularApp: p.regular))
+        }
+        return out
+    }
+
+    /// Whether a click at a spot on screen reaches the watched window or one of its companions, or
+    /// something else covers it there (one window list).
+    static func spot(_ p: CGPoint, watched id: CGWindowID, pid: pid_t) -> WatchCompanions.Spot {
+        if id == desktopID { return .watched }
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        return WatchCompanions.spot(p, watched: id, in: companionList(), hostInFront: front, me: ProcessInfo.processInfo.processIdentifier)
+    }
+
+    private static let processLock = NSLock()
+    nonisolated(unsafe) private static var processes: [pid_t: (regular: Bool, bundleID: String?)] = [:]
+
+    /// A process's kind, kept (pids are seldom reused while a watch lasts; the cache is dropped when big).
+    private static func process(_ pid: pid_t) -> (regular: Bool, bundleID: String?) {
+        processLock.lock()
+        if let p = processes[pid] { processLock.unlock(); return p }
+        processLock.unlock()
+        let app = NSRunningApplication(processIdentifier: pid)
+        var bundleID = app?.bundleIdentifier
+        if bundleID == nil || bundleID?.isEmpty == true {
+            var buf = [CChar](repeating: 0, count: 4096)
+            if proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 {
+                let path = String(cString: buf)
+                // …/Foo.xpc/Contents/MacOS/Foo or …/Foo.app/Contents/MacOS/Foo
+                if let r = path.range(of: ".xpc/") ?? path.range(of: ".app/") {
+                    bundleID = Bundle(path: String(path[..<r.lowerBound]) + String(path[r].dropLast()))?.bundleIdentifier
+                }
+            }
+        }
+        let p = (regular: app?.activationPolicy == .regular, bundleID: bundleID)
+        processLock.lock()
+        if processes.count > 300 { processes.removeAll() }
+        processes[pid] = p
+        processLock.unlock()
+        return p
     }
 
     static func exists(_ id: CGWindowID) -> Bool { info(id) != nil }

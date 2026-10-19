@@ -57,6 +57,13 @@ final class InputPoster: @unchecked Sendable {
         queue.async { self.bounds = nil }
     }
 
+    /// The part of the screen the picture shows when the window's companions are streamed with it
+    /// (Oct 19 2026, `WatchCompanions`): the phone's fractions are of that; nil = the window alone.
+    private var area: CGRect?
+    func set(area: CGRect?) {
+        lock.lock(); self.area = area; lock.unlock()
+    }
+
     // MARK: The pointer
 
     func mouse(_ e: WatchMouseEvent) {
@@ -141,8 +148,9 @@ final class InputPoster: @unchecked Sendable {
 
     /// queue: the window's frame (looked up at most once a second) and the spot in it on screen.
     private func screenPoint(_ p: CGPoint) -> CGPoint? {
-        let wid = lock.sync { windowID }
+        let (wid, area) = lock.sync { (windowID, self.area) }
         guard let wid else { return nil }
+        if let area { return WatchCompanions.point(p, in: area) }
         if bounds == nil || Date().timeIntervalSince(boundsAt) > 1 {
             bounds = WindowServer.bounds(of: wid)
             boundsAt = Date()
@@ -158,8 +166,15 @@ final class InputPoster: @unchecked Sendable {
     private func raiseIfNeeded(at pt: CGPoint) {
         let (wid, pid) = lock.sync { (windowID, self.pid) }
         guard let wid, let onRaise else { return }
-        if wid != WindowServer.desktopID, WindowServer.isOnTop(wid, at: pt),
-           NSWorkspace.shared.frontmostApplication?.processIdentifier == pid { return }
+        if wid != WindowServer.desktopID {
+            // A companion there (an Open panel a service draws, a menu, a sheet): straight to it,
+            // no raise of the window under it, no wait.
+            switch WindowServer.spot(pt, watched: wid, pid: pid) {
+            case .companion: return
+            case .watched where NSWorkspace.shared.frontmostApplication?.processIdentifier == pid: return
+            default: break
+            }
+        }
         let done = DispatchSemaphore(value: 0)
         onRaise(pt) { done.signal() }
         _ = done.wait(timeout: .now() + 1.5)

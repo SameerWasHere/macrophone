@@ -171,6 +171,35 @@ full iOS keyboard that types in the Mac. They should essentially be a 3 input me
   tooltip; typing an emoji and an autocorrected word into TextEdit and into Terminal; ⌘Tab
   switching apps; a sticky ⌘ with a tap (⌘-click).
 
+## What's laid over the window shows, and takes clicks (Oct 19 2026)
+
+Sameer: "I tried opening TextEdit, the document creator popped up, but I could not click anything
+on it from my phone." TextEdit is sandboxed: its Open panel is drawn by the Open and Save Panel
+Service (`com.apple.appkit.xpc.openAndSavePanelService`, an XPC process, layer 0, a window id
+*older* than TextEdit's — it's reused) in its own window over TextEdit's, and the stream showed
+only TextEdit's (130 frames given, 1 changed) while each click "raised" TextEdit first.
+- **Companions** (`WatchCompanions`, MacrophoneKit, pure, `WatchCompanionsTests`): on-screen
+  windows in front of the watched one that overlap it and are the same app's (any level 1–1000 —
+  menus, popovers, panels, tooltips — or a normal-level window inside it and smaller: a sheet), a
+  known remote-view service's (open/save panel, ViewBridge, share sheet, Quick Look, by bundle id
+  or owner name — found from the process path when it has no app entry), the window server's
+  pop-up menus (layer ≥ 101), or any non-app process's window made after it, ≥80% over it and no
+  bigger, while its app is in front. Never another ordinary app, never Notification Center's
+  full-screen layer 21, the Dock, Control Center, Macrophone.
+- **Streamed together** (`WindowStream.show(display:windows:area:)`): `SCContentFilter(display:
+  including:)` = window + companions, `sourceRect` = their union clipped to the window's display;
+  `show(window:)` goes back to the window alone. `Settle`: a new set or area goes at once, back to
+  alone only after 0.4 s gone. The watch loop looks every 0.25 s for 2.5 s after a click or key,
+  0.5 s while companions are up, else 1.5 s. Log: "watch: with N companion windows".
+- **The phone's fractions follow the area** (`InputPoster.set(area:)`, `ScrollPoster.area`,
+  `points` = the area's size, the place to type re-framed — `WatchCompanions.reframe`); a click on a
+  companion is posted straight there (`WindowServer.spot` → `.companion`: no raise, no wait); `act`
+  counts a companion in front as the window; Every Window leaves companions of a watched window out.
+- **Needs a real-device check:** TextEdit's Open panel (open TextEdit with no document, watch it,
+  pick a file / New Document), a right-click menu in TextEdit (hold on the phone, pick Look Up),
+  a pop-up button menu (the font-size pop-up in TextEdit's ruler), and a Save sheet (⌘S on an
+  edited document, type a name, Save) — each should show on the phone and take the taps.
+
 ## The window in hand (Oct 18 2026, the third polish pass — iOS only)
 
 Sameer: "make the app exceptional … it should almost feel like the Mac is running in real time

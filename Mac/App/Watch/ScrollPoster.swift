@@ -41,6 +41,14 @@ final class ScrollPoster: @unchecked Sendable {
         set { lock.lock(); windowID = newValue; lock.unlock(); queue.async { self.bounds = nil } }
     }
 
+    /// The part of the screen the picture shows when the window's companions are streamed with it
+    /// (Oct 19 2026): the phone's fractions are of that; nil = the window alone.
+    private var areaValue: CGRect?
+    var area: CGRect? {
+        get { lock.lock(); defer { lock.unlock() }; return areaValue }
+        set { lock.lock(); areaValue = newValue; lock.unlock() }
+    }
+
     /// A step: scroll at `p` (fractions of the window) by `d` (fractions).
     func scroll(at p: CGPoint, by d: CGVector) {
         queue.async {
@@ -85,7 +93,7 @@ final class ScrollPoster: @unchecked Sendable {
             bounds = WindowServer.bounds(of: wid)
             boundsAt = Date()
         }
-        guard let b = bounds else { return nil }
+        guard let b = area ?? bounds else { return nil }
         point = CGPoint(x: b.minX + p.x * b.width, y: b.minY + p.y * b.height)
         if cursorBefore == nil { cursorBefore = CGEvent(source: nil)?.location }
         return b

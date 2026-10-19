@@ -93,6 +93,17 @@ final class WatchService {
         var wantedFit: WatchFit = .normal
         /// The window's frame before the first Window menu size (Back to How It Was).
         var beforeWindowChanges: CGRect?
+        /// The windows that belong with it right now (Oct 19 2026, `WatchCompanions`: a service's
+        /// Open panel over it, a menu, a sheet), streamed with it over `area` — the part of the
+        /// screen the picture shows (nil = the window alone, the phone's fractions are the window's).
+        var settle = WatchCompanions.Settle()
+        var companions: [WatchCompanions.Window] = []
+        var area: CGRect?
+        /// The window's frame at the last look (the place to type is given as a fraction of it).
+        var windowBounds: CGRect?
+        /// When the phone last clicked or typed: companions are looked for more often for a moment
+        /// (a menu opens a beat after the click that opened it).
+        var inputAt = Date.distantPast
         /// The wait between looks, so an action can cut it short.
         private var waiting: CheckedContinuation<Void, Never>?
         private var waitTimer: Task<Void, Never>?
@@ -139,10 +150,20 @@ final class WatchService {
         @MainActor func dropStream() {
             pipe?.stop()
             pipe = nil
+            alone()
             guard let s = stream else { return }
             stream = nil
             latest = nil
             Task { await s.stop() }
+        }
+
+        /// The picture is the window alone (again): the phone's fractions are the window's.
+        @MainActor func alone() {
+            settle.reset()
+            companions = []
+            area = nil
+            poster.area = nil
+            input.set(area: nil)
         }
 
         /// Puts a window sized for the phone back to its own size and place.
@@ -216,7 +237,7 @@ final class WatchService {
         // steps don't wait for that.
         w.poster.onBegan = { [weak self, weak w] spot in
             Task { @MainActor in
-                guard let self, let w, let wid = w.windowID, !WindowServer.isOnTop(wid, at: spot) else { return }
+                guard let self, let w, let wid = w.windowID, WindowServer.spot(spot, watched: wid, pid: w.pid) == .covered else { return }
                 self.act(on: w.peer, what: "scroll", quiet: true) { _ in }
             }
         }
@@ -236,6 +257,7 @@ final class WatchService {
             Task { @MainActor in
                 guard let self, let w else { return }
                 w.hurry()
+                w.inputAt = Date()
                 if what == "key-return", let wid = w.windowID, wid != WindowServer.desktopID { self.app.replies.engaged(windowID: wid, bundleID: w.bundleID) }
                 if what == "type" {
                     // A line per burst of typing, not per keystroke (never the words).
@@ -308,7 +330,10 @@ final class WatchService {
                 onChange()
                 await app.server.send(.watchState(state), to: w.peer)
             }
-            if !Task.isCancelled { await w.wait(1.5) }
+            // Companions are looked for every quarter second for a moment after a click or a key (a
+            // menu opens a beat after its click), every half second while there are some.
+            let soon = Date().timeIntervalSince(w.inputAt) < 2.5 ? 0.25 : w.area != nil ? 0.5 : 1.5
+            if !Task.isCancelled { await w.wait(soon) }
         }
     }
 
@@ -414,6 +439,10 @@ final class WatchService {
             app.log.add("watching: streaming the window")
         }
 
+        // What's laid over the window right now (an Open panel, a menu, a sheet) goes in the picture.
+        w.windowBounds = place.bounds
+        if wid != WindowServer.desktopID, let s = w.stream { await followCompanions(w, wid, place.bounds, s) }
+
         // Where the place to type is (every few seconds; off the main thread — it walks the window).
         if Date().timeIntervalSince(w.focusAt) > 5 {
             w.focusAt = Date()
@@ -425,9 +454,69 @@ final class WatchService {
         return .live(appName: w.appName)
     }
 
+    /// The windows laid over the watched one right now (`WatchCompanions`, one window list): when
+    /// the set or the area changes the stream shows them with it, over the part of the display
+    /// around them, and the phone's clicks and swipes map to that; when they've gone a moment, the
+    /// window alone again. Not every look: only on a change (`Settle`).
+    private func followCompanions(_ w: Watch, _ wid: CGWindowID, _ bounds: CGRect, _ s: WindowStream) async {
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier == w.pid
+        let found = WatchCompanions.select(watched: wid, in: WindowServer.companionList(), hostInFront: front, me: ProcessInfo.processInfo.processIdentifier)
+        let plan = found.isEmpty ? nil : WatchCompanions.Plan(
+            ids: found.map(\.id), area: WatchCompanions.area(window: bounds, companions: found.map(\.bounds), display: Self.display(around: bounds)))
+        let before = w.companions.count
+        switch w.settle.next(plan) {
+        case .none:
+            return
+        case .show(let p):
+            // New windows: the shareable content is read again.
+            guard let c = try? await refreshContent(), w.stream === s,
+                  let host = c.windows.first(where: { $0.windowID == wid }),
+                  let display = c.displays.first(where: { $0.frame.contains(CGPoint(x: bounds.midX, y: bounds.midY)) }) ?? c.displays.first(where: { $0.frame.intersects(bounds) }) else {
+                w.settle.reset()
+                return
+            }
+            let others = p.ids.compactMap { id in c.windows.first { $0.windowID == id } }
+            await s.show(display: display, windows: [host] + others, area: p.area)
+            guard w.stream === s else { return }
+            w.companions = found
+            w.area = p.area
+            w.poster.area = p.area
+            w.input.set(area: p.area)
+        case .alone:
+            guard let scw = await scWindow(wid), w.stream === s else { w.settle.reset(); return }
+            await s.show(window: scw)
+            guard w.stream === s else { return }
+            w.alone()
+        }
+        if w.companions.count != before { app.log.add("watch: with \(w.companions.count) companion windows") }
+        tellPipe(w)
+        w.hurry()
+    }
+
+    /// The display a window is on (most of it), in global points.
+    private static func display(around r: CGRect) -> CGRect? {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var n: UInt32 = 0
+        guard CGGetActiveDisplayList(16, &ids, &n) == .success else { return nil }
+        return ids.prefix(Int(n)).map { CGDisplayBounds($0) }.max { a, b in
+            let x = a.intersection(r), y = b.intersection(r)
+            return (x.isNull ? 0 : x.width * x.height) < (y.isNull ? 0 : y.width * y.height)
+        }
+    }
+
+    /// The place to type as a fraction of what's streamed (the window, or the wider area with its
+    /// companions).
+    private func shownFocus(_ w: Watch) -> CGRect? {
+        guard let f = w.focus, let area = w.area, let wb = w.windowBounds else { return w.focus }
+        return WatchCompanions.reframe(f, window: wb, in: area)
+    }
+
+    /// The windows shown with the watched ones (the Every Window list leaves them out).
+    var companionWindows: Set<CGWindowID> { Set(watches.values.flatMap { $0.companions.map(\.id) }) }
+
     /// What each video frame carries, as of now.
     private func words(_ w: Watch) -> VideoPipe.Words {
-        .init(appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt,
+        .init(appName: w.appName, bundleID: w.bundleID, focus: shownFocus(w), prompt: w.prompt,
               front: w.windowID == WindowServer.desktopID ? Self.frontApp() : nil,
               points: w.stream?.windowSize)
     }
@@ -521,7 +610,7 @@ final class WatchService {
         let pid = w.pid
         let ax = Paster.isTrusted ? await Task.detached(priority: .utility) { AXPrompt.read(pid: pid, windowID: wid) }.value : nil
         w.axPrompt = ax
-        let column = w.focus.map { max(0, Double($0.minX) - 0.04)...min(1, Double($0.maxX) + 0.02) }
+        let column = shownFocus(w).map { max(0, Double($0.minX) - 0.04)...min(1, Double($0.maxX) + 0.02) }
         let p: WatchPrompt? = if let ax { ax.prompt } else { await PromptVision.read(image, column: column) }
         if timing { print("[watch] prompt(\(ax != nil ? "ax" : "vision")) \(Self.ms(t))"); fflush(stdout) }
         guard p != w.prompt else { return false }
@@ -544,7 +633,7 @@ final class WatchService {
         w.changedSince = 0
         w.forceUntil = .distantPast
         let frame = WatchFrame(seq: w.seq, jpeg: data, width: image.width, height: image.height,
-                               appName: w.appName, bundleID: w.bundleID, focus: w.focus, prompt: w.prompt, points: w.stream?.windowSize)
+                               appName: w.appName, bundleID: w.bundleID, focus: shownFocus(w), prompt: w.prompt, points: w.stream?.windowSize)
         // Waits until it's on the wire: a slow link gets fewer pictures, never a backlog.
         await app.server.send(.watchFrame(frame), to: w.peer)
         if timing { print("[watch] encode \(encoded) · send \(data.count / 1024) KB \(Self.ms(t) - encoded)"); fflush(stdout) }
@@ -935,8 +1024,11 @@ final class WatchService {
         let name = w.appName
         Task { [weak self] in
             let recently = quiet && Date().timeIntervalSince(w.inFrontAt) < 1
-            let inFront = recently || (NSWorkspace.shared.frontmostApplication?.processIdentifier == running.processIdentifier
-                && WindowServer.appWindows().first { $0.z == 0 }?.id == wid)
+            // A companion in front (the Open panel a service draws over it, a sheet) counts as the window.
+            let frontPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            let companionIDs = Set(w.companions.map(\.id))
+            let inFront = recently || ((frontPid == running.processIdentifier || w.companions.contains { $0.pid == frontPid })
+                && WindowServer.appWindows().first { $0.z == 0 }.map { $0.id == wid || companionIDs.contains($0.id) } == true)
             if inFront { w.inFrontAt = Date() }
             if !inFront || what == WatchAction.reveal.rawValue {
                 do { _ = try await Paster.bringToFront(running, windowID: wid, required: true, name: name) } catch {

@@ -21,9 +21,13 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     var onStop: (@Sendable (Error?) -> Void)?
     /// The picture's size, in pixels.
     private(set) var size: (width: Int, height: Int)
-    /// The window's size the stream was set up for, in points.
+    /// The window's size the stream was set up for, in points — with companions, the part of the
+    /// display streamed (the phone's fractions and its trackpad are in those).
     private(set) var windowSize: CGSize
-    private let scale: CGFloat
+    private var scale: CGFloat
+    /// With companions (Oct 19 2026): the part of the display streamed, in the display's points;
+    /// nil = the window alone.
+    private(set) var sourceRect: CGRect?
     /// At most this many pictures a second, when the window keeps changing (the fastest a picture
     /// is sent is three a second; more only costs the window server) — ten over the home network;
     /// and frames of video, which cost little each, at the rate a window scrolls (thirty a second;
@@ -59,12 +63,40 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     func setCursor(shown: Bool) async {
         guard shown != showsCursor else { return }
         showsCursor = shown
-        let (cfg, _) = Self.configuration(for: windowSize, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: shown)
+        let (cfg, _) = Self.configuration(for: windowSize, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: shown, source: sourceRect)
         try? await stream.updateConfiguration(cfg)
     }
 
-    private static func configuration(for window: CGSize, scale: CGFloat, maxWidth: CGFloat, maxRate: Int, video: Bool, cursor: Bool = false) -> (SCStreamConfiguration, (Int, Int)) {
+    /// The watched window alone again (its companions went away).
+    func show(window: SCWindow) async {
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        scale = CGFloat(filter.pointPixelScale)
+        sourceRect = nil
+        let (cfg, size) = Self.configuration(for: window.frame.size, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
+        windowSize = window.frame.size
+        self.size = size
+        try? await stream.updateConfiguration(cfg)
+        try? await stream.updateContentFilter(filter)
+    }
+
+    /// The watched window with its companions (Oct 19 2026: a service's Open panel over it, a menu,
+    /// a sheet, a popover): only those windows, over `area` (global points, on `display`) — so
+    /// what's laid over the window shows, and nothing else does.
+    func show(display: SCDisplay, windows: [SCWindow], area: CGRect) async {
+        let filter = SCContentFilter(display: display, including: windows)
+        scale = CGFloat(filter.pointPixelScale)
+        let source = area.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+        sourceRect = source
+        let (cfg, size) = Self.configuration(for: area.size, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor, source: source)
+        windowSize = area.size
+        self.size = size
+        try? await stream.updateConfiguration(cfg)
+        try? await stream.updateContentFilter(filter)
+    }
+
+    private static func configuration(for window: CGSize, scale: CGFloat, maxWidth: CGFloat, maxRate: Int, video: Bool, cursor: Bool = false, source: CGRect? = nil) -> (SCStreamConfiguration, (Int, Int)) {
         let cfg = SCStreamConfiguration()
+        if let source { cfg.sourceRect = source }
         let pxW = max(1, window.width * scale), pxH = max(1, window.height * scale)
         let k = min(1, maxWidth / pxW)
         // Even sizes: what a video encoder takes whole.
@@ -108,7 +140,8 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
 
     /// The window was resized: pictures follow its new shape.
     func resize(to window: CGSize, maxWidth: CGFloat) async {
-        guard window != windowSize else { return }
+        // With companions the area is set by `show(display:windows:area:)`.
+        guard window != windowSize, sourceRect == nil else { return }
         self.maxWidth = maxWidth
         let (cfg, size) = Self.configuration(for: window, scale: scale, maxWidth: maxWidth, maxRate: maxRate, video: video, cursor: showsCursor)
         windowSize = window
