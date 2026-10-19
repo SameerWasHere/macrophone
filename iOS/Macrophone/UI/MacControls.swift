@@ -2,43 +2,158 @@ import MacrophoneKit
 import SwiftUI
 
 // "Control the Mac entirely from the iPhone" (Oct 19 2026): the pieces the menus and the main
-// screen share — Mac Controls (the keyboard's top row), a Whole Screen per display, Wake Your Mac.
+// screen share — Mac Controls (the keyboard's top row, its own button and panel), a Whole Screen
+// per display, Wake Your Mac.
 
-/// Mac Controls: volume, brightness, play / pause, next, previous — a submenu in the window view's
-/// keys menu and in Send to's ⋯. A press keeps the menu open (volume is pressed several times);
-/// each gives a tick, and the Mac's answer ("Volume 40%") shows in the status line.
-struct MacControlsMenu: View {
+/// Mac Controls — volume, brightness, play / pause, next, previous — as its own button (Oct 19
+/// 2026, Sameer: "Mac controls should be its own button rather than hidden in a sub menu"): a
+/// cell in the window view's header, beside Sound, on every page of the carousel; and on the main
+/// screen's Send to panel beside Watch. Only with a Mac that named the feature. A tap opens
+/// `MacControlsPanel`. (It was a submenu in the window's ··· keys menu and Send to's ⋯.)
+struct MacControlsButton: View {
+    enum Style { case cell, pill }
     @EnvironmentObject var model: AppModel
+    var style: Style
 
     var body: some View {
-        if model.canMacControls {
-            Section {
-                Menu {
-                    row("Volume", MacControl.volume)
-                    row("Brightness", MacControl.brightness)
-                    row("Music and Video", MacControl.media)
-                    Text("Brightness keys change only a built-in or Apple display.")
-                } label: {
-                    Label("Mac Controls", systemImage: "slider.horizontal.3")
-                    Text("Volume, brightness, play and pause")
+        Group {
+            switch style {
+            case .cell:
+                Button { open() } label: {
+                    Image(systemName: "slider.horizontal.3").font(.subheadline.weight(.semibold)).frame(width: 20)
                 }
-                .accessibilityIdentifier("mac-controls")
+                .buttonStyle(WatchCellStyle(width: 40, height: WatchLook.header))
+            case .pill:
+                Button { open() } label: {
+                    Label("Mac Controls", systemImage: "slider.horizontal.3").font(.subheadline.weight(.semibold)).fixedSize()
+                }
+                .nativeGlassButton()
+                .controlSize(.small)
             }
         }
+        .accessibilityLabel("Mac Controls")
+        .accessibilityHint("Your Mac's volume, brightness, and play, pause, next and previous.")
+        .accessibilityIdentifier("mac-controls")
     }
 
-    private func row(_ title: String, _ controls: [MacControl]) -> some View {
-        Section(title) {
-            ControlGroup {
-                ForEach(controls) { c in
-                    Button { model.press(c) } label: { Label(c.title, systemImage: c.symbol) }
-                        .menuActionDismissBehavior(.disabled)
-                        .accessibilityLabel(c.title)
-                        .accessibilityIdentifier("mac-control-\(c.rawValue)")
+    private func open() {
+        Haptics.tick()
+        model.sheet = .macControls
+    }
+}
+
+/// The controls themselves, a compact sheet in the app's glass: big cells for volume − / mute /
+/// +, brightness − / +, and ⏮ ⏯ ⏭, with the Mac's answer ("Volume 56%", a meter) at the top. A
+/// press ticks and the sheet stays for the next; a key the Mac can't press says why.
+struct MacControlsPanel: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject private var reach = MacReach.shared
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The sheet's height: the three clusters and the readout, no scrolling on any phone.
+    static let height: CGFloat = 418
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Kicker("Mac Controls")
+                    Text(model.macName)
+                        .font(.serif(.title3))
+                        .foregroundStyle(Ink.ink)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button("Done") { dismiss() }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(WatchCellStyle(inset: 14, height: WatchLook.header))
+                    .fixedSize()
+                    .watchGlass(Capsule())
+                    .accessibilityIdentifier("mac-controls-done")
+            }
+            readout
+            cluster("Volume", MacControl.volume)
+            cluster("Brightness", MacControl.brightness)
+            cluster("Music and Video", MacControl.media)
+            Text(reach.lastControl.map { $0.ok ? "" : $0.detail } ?? "")
+                .font(.footnote)
+                .foregroundStyle(Light.ochre)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 18)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityHidden(reach.lastControl?.ok ?? true)
+        }
+        .padding(.horizontal, Space.margin)
+        .padding(.top, 18)
+        .padding(.bottom, 10)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: reach.lastControl)
+    }
+
+    /// The Mac's answer to the last key: the volume as words and a meter, or what it did.
+    private var readout: some View {
+        let r = reach.lastControl
+        let volume = r?.volume
+        let muted = r?.muted == true
+        return HStack(spacing: 12) {
+            Image(systemName: muted ? "speaker.slash.fill" : (volume ?? 0) > 0.6 ? "speaker.wave.3.fill" : (volume ?? 0) > 0.2 ? "speaker.wave.2.fill" : "speaker.wave.1.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(muted ? Light.ochre : Light.cyan)
+                .frame(width: 22)
+                .contentTransition(.symbolEffect(.replace))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(words(r))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Ink.ink)
+                    .contentTransition(.numericText())
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Ink.lineStrong)
+                        Capsule().fill(muted ? Light.ochre : Light.cyan)
+                            .frame(width: max(0, g.size.width * (muted ? 0 : (volume ?? 0))))
+                    }
+                }
+                .frame(height: 4)
+                .opacity(volume == nil ? 0.35 : 1)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .watchGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(words(r))
+    }
+
+    private func words(_ r: MacControlResult?) -> String {
+        guard let r else { return "Press a volume key to see the level" }
+        if r.control.isVolume, let line = MacControlResult.volumeLine(r.volume, muted: r.muted) { return line }
+        return r.ok ? r.detail : "\(r.control.title) — couldn't"
+    }
+
+    private func cluster(_ title: String, _ controls: [MacControl]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Kicker(title)
+                .padding(.leading, 4)
+            HStack(spacing: 0) {
+                ForEach(Array(controls.enumerated()), id: \.element) { i, c in
+                    if i > 0 { WatchCellDivider() }
+                    Button { model.press(c) } label: {
+                        Image(systemName: c.symbol)
+                            .font(.system(size: 20, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(WatchCellStyle(height: 56))
+                    .accessibilityLabel(c.title)
+                    .accessibilityHint("Presses it on your Mac.")
+                    .accessibilityIdentifier("mac-control-\(c.rawValue)")
                 }
             }
-            .controlGroupStyle(.compactMenu)
+            .watchGlass(Capsule())
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
     }
 }
 

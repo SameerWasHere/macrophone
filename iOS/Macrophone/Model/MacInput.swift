@@ -5,9 +5,11 @@ import UIKit
 /// The three ways in while a window shows (Oct 19 2026, Sameer: "a 3 input method carousel"):
 /// the keyboard, the mic (the default, every time), the trackpad. This holds the page, the sticky
 /// modifiers (⌘ ⌥ ⌃ ⇧ — one goes on the next key or click), the pointer the trackpad moves (kept
-/// here, as a fraction of the window: the phone draws it, keeps it in view and tells the Mac the
-/// place, so the two never drift apart), and the app switcher's held ⌘. The messages are gated on
-/// what the Mac named in its welcome: a page shows only when the Mac takes its messages.
+/// here, as a fraction of the window: the phone draws it as an arrow, keeps it in view and tells
+/// the Mac the place, so the two never drift apart; it starts where the Mac's own pointer is when
+/// the Mac says, else in the middle of what's on screen), and the app switcher's held ⌘. The
+/// messages are gated on what the Mac named in its welcome: a page shows only when the Mac takes
+/// its messages.
 @MainActor
 final class MacInput: ObservableObject {
     enum Page: String, CaseIterable, Identifiable {
@@ -59,6 +61,13 @@ final class MacInput: ObservableObject {
     /// halved — a Retina Mac); the trackpad's motion is in these.
     var windowPoints = CGSize(width: 1400, height: 900)
     private var releaseSwitch: Task<Void, Never>?
+    /// The middle of what the window's view shows now, as a fraction of the window (set by the
+    /// viewer): where the pointer starts when the trackpad opens, until the Mac says where its
+    /// own pointer is.
+    var visibleCenter: () -> CGPoint? = { nil }
+    /// The trackpad hasn't moved the pointer since its page opened: the Mac's own pointer's place,
+    /// when it comes, is where it starts.
+    private var untouchedSinceShown = false
 
     var canMouse: Bool { macFeatures().contains(WatchMouse.feature) }
     var canType: Bool { macFeatures().contains(WatchTyping.feature) }
@@ -114,6 +123,10 @@ final class MacInput: ObservableObject {
         let wasTrackpad = page == .trackpad
         page = p
         if p == .trackpad, canMouse {
+            // The pointer starts in the middle of what's on screen (the window's centre could be
+            // off a zoomed view); the Mac's answer moves it to where its own pointer is.
+            if let c = visibleCenter() { pointer.put(c) }
+            untouchedSinceShown = true
             pointerShown = true
             _ = sendMouse(WatchMouseEvent(.show, at: pointer.point))
             pointerSeq &+= 1
@@ -226,9 +239,20 @@ final class MacInput: ObservableObject {
 
     // MARK: The trackpad
 
+    /// The Mac said where its own pointer is in the window (with a frame's words): the trackpad
+    /// starts from there, so the first move carries on from the real pointer — as long as the
+    /// trackpad hasn't moved it yet since its page opened.
+    func macCursor(_ p: CGPoint) {
+        guard page == .trackpad, pointerShown, untouchedSinceShown else { return }
+        guard abs(p.x - pointer.x) > 0.002 || abs(p.y - pointer.y) > 0.002 else { return }
+        pointer.put(p)
+        pointerSeq &+= 1
+    }
+
     /// A finger moved on the trackpad: the pointer by that much, faster when the finger is.
     func pointerMoved(by delta: CGVector, dt: TimeInterval) {
         trackpadUsed = true
+        untouchedSinceShown = false
         watcher?.touch()
         pointer.move(by: TrackpadMotion.step(delta, dt: dt), window: windowPoints)
         pointerSeq &+= 1
@@ -262,6 +286,7 @@ final class MacInput: ObservableObject {
     }
 
     func dragMoved(by delta: CGVector, dt: TimeInterval) {
+        untouchedSinceShown = false
         pointer.move(by: TrackpadMotion.step(delta, dt: dt), window: windowPoints)
         pointerSeq &+= 1
         _ = sendMouse(WatchMouseEvent(.drag, at: pointer.point))
@@ -274,6 +299,7 @@ final class MacInput: ObservableObject {
 
     /// A tap on the window itself: the pointer is there now (the trackpad carries on from it).
     func pointerTapped(_ p: CGPoint) {
+        untouchedSinceShown = false
         pointer.put(p)
     }
 
@@ -284,6 +310,7 @@ final class MacInput: ObservableObject {
     /// sends the old click).
     func windowClick(_ p: CGPoint, count: Int, right: Bool) -> Bool {
         guard canMouse else { return false }
+        untouchedSinceShown = false
         pointer.put(p)
         return sendMouse(WatchMouseEvent(.click, at: p, right: right, count: count, modifiers: takeModifiers()))
     }
@@ -291,6 +318,7 @@ final class MacInput: ObservableObject {
     /// A drag on the picture (a tap, then a hold that moves): press, drag, release.
     func windowDrag(_ kind: WatchMouseEvent.Kind, at p: CGPoint) {
         guard canMouse else { return }
+        untouchedSinceShown = false
         pointer.put(p)
         let mods = kind == .down ? takeModifiers() : []
         _ = sendMouse(WatchMouseEvent(kind, at: p, modifiers: mods))

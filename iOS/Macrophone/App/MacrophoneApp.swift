@@ -58,6 +58,10 @@ struct RootView: View {
                 case .pairing: PairingView()
                 case .customCleanup: CustomCleanupSheet()
                 case .openApp: OpenAppSheet()
+                case .macControls:
+                    // A compact panel, not a page: the window stays in sight behind it.
+                    MacControlsPanel()
+                        .presentationDetents([.height(MacControlsPanel.height)])
                 }
             }
             .environmentObject(model)

@@ -20,6 +20,10 @@ struct MacKeyboardField: UIViewRepresentable {
         let v = KeyboardTextView()
         v.delegate = context.coordinator
         v.onEmptyDelete = { [weak input] in input?.typed(WatchTyping(delete: 1, text: "")) }
+        // The keyboard went away while this page was up (hide, a swipe down, the system): the
+        // page goes with it — back to the mic (Sameer: "when hitting the close button, the UI
+        // should just go back to mic mode", never a keyboard page with no keyboard).
+        v.onKeyboardGone = { [weak input] in if input?.page == .keyboard { input?.show(.mic, quiet: true) } }
         v.bar = KeyboardBarHost(rootView: MacKeyboardBar(input: input, watcher: watcher))
         v.inputAccessoryView = v.bar
         return v
@@ -67,8 +71,11 @@ struct MacKeyboardField: UIViewRepresentable {
 /// delegate nothing then), with the Mac's bar as its accessory.
 final class KeyboardTextView: UITextView {
     var onEmptyDelete: () -> Void = {}
+    /// The keyboard left while the page still wanted it.
+    var onKeyboardGone: () -> Void = {}
     var bar: KeyboardBarHost?
     var wantsKeyboard = false
+    private var goneCheck: DispatchWorkItem?
 
     init() {
         super.init(frame: .zero, textContainer: nil)
@@ -93,6 +100,23 @@ final class KeyboardTextView: UITextView {
 
     override var canBecomeFirstResponder: Bool { true }
 
+    /// Let go of the keyboard while the page still wants it (hide, the system, a menu): a
+    /// moment later, still without it, the page is told. A menu that hands the keyboard straight
+    /// back never counts.
+    override func resignFirstResponder() -> Bool {
+        let r = super.resignFirstResponder()
+        if r, wantsKeyboard {
+            goneCheck?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard let self, self.wantsKeyboard, !self.isFirstResponder, self.window != nil else { return }
+                self.onKeyboardGone()
+            }
+            goneCheck = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)
+        }
+        return r
+    }
+
     override func deleteBackward() {
         if (text ?? "").isEmpty { onEmptyDelete(); return }
         super.deleteBackward()
@@ -106,6 +130,7 @@ final class KeyboardTextView: UITextView {
     /// Takes the keyboard when the page is up (once it's in a window), lets it go when it isn't.
     func applyFocus() {
         guard window != nil else { return }
+        if !wantsKeyboard { goneCheck?.cancel() }
         if wantsKeyboard, !isFirstResponder {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.wantsKeyboard, self.window != nil else { return }
@@ -120,7 +145,8 @@ final class KeyboardTextView: UITextView {
 /// The bar above the keys, as a view UIKit can hand to the keyboard: the SwiftUI bar hosted in it.
 final class KeyboardBarHost: UIView {
     private let host: UIHostingController<MacKeyboardBar>
-    static let height: CGFloat = 50
+    /// Two rows of cells and the room between (`MacKeyboardBar`).
+    static let height: CGFloat = MacKeyboardBar.height
 
     var rootView: MacKeyboardBar {
         get { host.rootView }
@@ -148,48 +174,89 @@ final class KeyboardBarHost: UIView {
     override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: Self.height) }
 }
 
-/// The keys a phone's keyboard lacks, in two rows that fit every iPhone without scrolling (the
-/// polish pass, Oct 19 2026 — one row of twelve cells was cut mid-arrow even on a Pro):
+/// The keys a phone's keyboard lacks — one bar on the keyboard itself, two rows, fitting every
+/// iPhone without scrolling (the carousel fixes, Oct 19 2026 — before, the arrows rode the
+/// carousel's page and the modifiers the keyboard's bar, two strips laid out by two systems
+/// that overlapped once the keyboard rose):
 ///
-///   [ esc | ⇥ ]  [ ← | ↑ | ↓ | → ]        Typing in Claude     ← `MacKeyboardStrip`, the carousel's
-///   [ ⌘ | ⌥ | ⌃ | ⇧ ]            [ fn | ⌨︎ ]                      keyboard page, above the keys
-///                                                               ← `MacKeyboardBar`, the keyboard's own
-///                                                                  accessory bar
-/// Both are clusters of the watch's glass, so they read as one instrument with the window's keys.
-struct MacKeyboardStrip: View {
+///   [ esc | ⇥ ]  [ ← | ↑ | ↓ | → ]         Typing in Claude      ← the first row
+///   [ ⌘ | ⌥ | ⌃ | ⇧ ]                        [ fn | ⌨︎ ]           ← the second
+///
+/// Clusters of the watch's glass, so it reads as one instrument with the window's keys. A swipe
+/// right to left on the bar's open room comes back to the mic, as the row above and hide do.
+struct MacKeyboardBar: View {
     @ObservedObject var input: MacInput
     @ObservedObject var watcher: Watcher
 
+    /// Two rows of cells, the room between and around.
+    static let height: CGFloat = WatchLook.control * 2 + 6 * 3
+
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 0) {
-                MacKeyboardCell(input: input, watcher: watcher, key: WatchKey("escape"), label: Text("esc"), width: 44)
-                WatchCellDivider()
-                MacKeyboardCell(input: input, watcher: watcher, key: WatchKey("tab"), label: Text("⇥"), width: 36)
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    MacKeyboardCell(input: input, watcher: watcher, key: WatchKey("escape"), label: Text("esc"), width: 44)
+                    WatchCellDivider()
+                    MacKeyboardCell(input: input, watcher: watcher, key: WatchKey("tab"), label: Text("⇥"), width: 36)
+                }
+                .watchGlass(Capsule())
+                HStack(spacing: 0) {
+                    repeatKey(WatchKey("left"), symbol: "arrow.left")
+                    WatchCellDivider()
+                    repeatKey(WatchKey("up"), symbol: "arrow.up")
+                    WatchCellDivider()
+                    repeatKey(WatchKey("down"), symbol: "arrow.down")
+                    WatchCellDivider()
+                    repeatKey(WatchKey("right"), symbol: "arrow.right")
+                }
+                .watchGlass(Capsule())
+                // Where the typing goes, when there's room for it (the kicker at the top says
+                // the window too); a modifier waiting or the app switcher held says so instead.
+                ViewThatFits(in: .horizontal) {
+                    status.fixedSize()
+                    Color.clear.frame(width: 0, height: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityHidden(true)
             }
-            .watchGlass(Capsule())
-            HStack(spacing: 0) {
-                repeatKey(WatchKey("left"), symbol: "arrow.left")
-                WatchCellDivider()
-                repeatKey(WatchKey("up"), symbol: "arrow.up")
-                WatchCellDivider()
-                repeatKey(WatchKey("down"), symbol: "arrow.down")
-                WatchCellDivider()
-                repeatKey(WatchKey("right"), symbol: "arrow.right")
+            HStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    ForEach(WatchModifier.allCases, id: \.self) { m in
+                        if m != .command { WatchCellDivider() }
+                        modifier(m)
+                    }
+                }
+                .watchGlass(Capsule())
+                Spacer(minLength: 0)
+                HStack(spacing: 0) {
+                    moreKeys
+                    WatchCellDivider()
+                    Button { input.show(.mic) } label: {
+                        Image(systemName: "keyboard.chevron.compact.down").font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(WatchCellStyle(width: 40, tint: Ink.secondary))
+                    .accessibilityLabel("Hide the keyboard")
+                    .accessibilityHint("Back to the mic.")
+                    .accessibilityIdentifier("keyboard-hide")
+                }
+                .watchGlass(Capsule())
             }
-            .watchGlass(Capsule())
-            // Where the typing goes, when there's room for it (the kicker at the top says the
-            // window too); a modifier waiting or the app switcher held says so instead.
-            ViewThatFits(in: .horizontal) {
-                status.fixedSize()
-                Color.clear.frame(width: 0, height: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .accessibilityHidden(true)
         }
         .padding(.horizontal, WatchLook.sideMargin)
+        .padding(.vertical, 6)
+        .frame(height: Self.height)
+        // The way back on the open room (a key keeps its own press).
+        .background {
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 20).onEnded { v in
+                    if v.translation.width < -40, abs(v.translation.width) > abs(v.translation.height) { input.show(.mic) }
+                })
+        }
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
-        .accessibilityIdentifier("keyboard-strip")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Keys for \(watcher.name) on your Mac")
+        .accessibilityIdentifier("keyboard-bar")
     }
 
     private var status: some View {
@@ -215,58 +282,6 @@ struct MacKeyboardStrip: View {
     private func repeatKey(_ k: WatchKey, symbol: String) -> some View {
         RepeatKey(label: Image(systemName: symbol), name: k.name, watcherName: watcher.name) { input.press(k) }
             .accessibilityIdentifier("keyboard-\(k.key)")
-    }
-}
-
-/// One key as a cell: pressed in the watched window, with the modifiers waiting folded in.
-struct MacKeyboardCell: View {
-    @ObservedObject var input: MacInput
-    @ObservedObject var watcher: Watcher
-    var key: WatchKey
-    var label: Text
-    var width: CGFloat = 40
-
-    var body: some View {
-        Button { input.press(key) } label: { label.font(.subheadline.weight(.semibold)) }
-            .buttonStyle(WatchCellStyle(width: width))
-            .accessibilityLabel(key.name)
-            .accessibilityHint("Presses \(key.name) in \(watcher.name) on your Mac.")
-            .accessibilityIdentifier("keyboard-\(key.key)")
-    }
-}
-
-/// ⌘ ⌥ ⌃ ⇧ | fn (F-keys and the Mac's moves) · hide — the keyboard's own bar, under the strip.
-struct MacKeyboardBar: View {
-    @ObservedObject var input: MacInput
-    @ObservedObject var watcher: Watcher
-
-    var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 0) {
-                ForEach(WatchModifier.allCases, id: \.self) { m in
-                    if m != .command { WatchCellDivider() }
-                    modifier(m)
-                }
-            }
-            .watchGlass(Capsule())
-            Spacer(minLength: 0)
-            HStack(spacing: 0) {
-                moreKeys
-                WatchCellDivider()
-                Button { input.show(.mic) } label: {
-                    Image(systemName: "keyboard.chevron.compact.down").font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(WatchCellStyle(width: 40, tint: Ink.secondary))
-                .accessibilityLabel("Hide the keyboard")
-                .accessibilityHint("Back to the mic.")
-                .accessibilityIdentifier("keyboard-hide")
-            }
-            .watchGlass(Capsule())
-        }
-        .padding(.horizontal, WatchLook.sideMargin)
-        .padding(.vertical, 6)
-        .dynamicTypeSize(...DynamicTypeSize.xLarge)
-        .accessibilityIdentifier("keyboard-bar")
     }
 
     /// ⌘ ⌥ ⌃ ⇧: on, the next key or tap goes with it.
@@ -326,6 +341,23 @@ struct MacKeyboardBar: View {
         .accessibilityLabel("Function keys and more")
         .accessibilityHint("F1 to F20, Home, End, Page Up and Down, and your Mac's own moves: Spotlight, Switch App, Mission Control.")
         .accessibilityIdentifier("keyboard-fn")
+    }
+}
+
+/// One key as a cell: pressed in the watched window, with the modifiers waiting folded in.
+struct MacKeyboardCell: View {
+    @ObservedObject var input: MacInput
+    @ObservedObject var watcher: Watcher
+    var key: WatchKey
+    var label: Text
+    var width: CGFloat = 40
+
+    var body: some View {
+        Button { input.press(key) } label: { label.font(.subheadline.weight(.semibold)) }
+            .buttonStyle(WatchCellStyle(width: width))
+            .accessibilityLabel(key.name)
+            .accessibilityHint("Presses \(key.name) in \(watcher.name) on your Mac.")
+            .accessibilityIdentifier("keyboard-\(key.key)")
     }
 }
 

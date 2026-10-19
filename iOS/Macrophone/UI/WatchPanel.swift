@@ -210,7 +210,17 @@ struct WatchPanel: View {
                 WatchKicker(watcher: watcher).layoutPriority(1)
             }
             Spacer(minLength: 8)
-            WatchSoundButton(player: model.macAudio)
+            // The Mac's sound here, and its volume, brightness and media keys (Oct 19 2026,
+            // Sameer: "Mac controls should be its own button rather than hidden in a sub menu"
+            // — one tap from any window, on every page): one piece of glass.
+            if model.macAudio.macCanPlay || model.canMacControls {
+                HStack(spacing: 0) {
+                    WatchSoundButton(player: model.macAudio)
+                    if model.macAudio.macCanPlay, model.canMacControls { WatchCellDivider() }
+                    if model.canMacControls { MacControlsButton(style: .cell) }
+                }
+                .watchGlass(Capsule())
+            }
             if watcher.macCanFit, watcher.target != .clipboard {
                 HStack(spacing: 0) {
                     WatchWholeButton(watcher: watcher)
@@ -419,6 +429,9 @@ struct WatchWindow: View {
     @State private var dragNoteTask: Task<Void, Never>?
     /// "Opening …" shows only once a switch has taken a moment: a quick one never flashes it.
     @State private var opening = false
+    /// The pointer's sprite and the viewer that places it (the trackpad's pointer, drawn above
+    /// everything over the picture).
+    @StateObject private var pointer = PointerLink()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
@@ -443,7 +456,14 @@ struct WatchWindow: View {
                              onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
                              onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } },
-                             onWhole: { whole in if interactive { watcher.wholeShown(whole) } })
+                             onWhole: { whole in if interactive { watcher.wholeShown(whole) } },
+                             pointerSprite: interactive ? pointer.sprite : nil,
+                             onReady: { v in
+                                 guard interactive else { return }
+                                 pointer.viewer = v
+                                 // Where the trackpad's pointer starts: the middle of what shows.
+                                 input.visibleCenter = { [weak v] in v?.visibleCenter }
+                             })
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerSize = $0 }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
@@ -483,6 +503,12 @@ struct WatchWindow: View {
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+            // The trackpad's pointer, above the picture and everything laid over it.
+            if interactive {
+                PointerOverlay(sprite: pointer.sprite)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
             if interactive { overlay }
         }
@@ -961,9 +987,8 @@ struct WatchActions: View {
     /// the digits as one row at the foot.
     private var moreKeys: some View {
         Menu {
-            // Volume, brightness and media keys (Oct 19 2026): a section of their own, first — the
-            // menu opens upward, so it sits by the thumb instead of past the end of a long list.
-            MacControlsMenu()
+            // (Mac Controls — volume, brightness, media — is the header's own button since the
+            // carousel fixes, Oct 19 2026; it was a submenu here.)
             ForEach(watcher.input.canHoldKeys ? WatchKey.menuSections : WatchKey.sections) { section in
                 Section(section.title) {
                     ForEach(section.keys) { k in
@@ -1101,6 +1126,10 @@ struct WindowViewer: UIViewRepresentable {
     var onAdjusted: (Bool) -> Void
     /// The whole window is on screen (fully zoomed out), or no longer is.
     var onWhole: (Bool) -> Void = { _ in }
+    /// The pointer's sprite, placed by this view (the window's stack draws it above everything).
+    var pointerSprite: PointerSpriteView? = nil
+    /// The view, once made and on every update: the window hands it what needs it.
+    var onReady: (ViewerScrollView) -> Void = { _ in }
 
     func makeUIView(context: Context) -> ViewerScrollView {
         let v = ViewerScrollView()
@@ -1126,6 +1155,8 @@ struct WindowViewer: UIViewRepresentable {
         v.onScrollPhase = onScrollPhase
         v.onAdjusted = onAdjusted
         v.onWholeShown = onWhole
+        v.pointerHost = pointerSprite
+        onReady(v)
     }
 }
 
@@ -1160,8 +1191,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     private var lastTapAt = Date.distantPast
     private var lastTapPoint = CGPoint.zero
     private var lastTapCount = 0
-    /// The pointer the trackpad moves, drawn as a ring on the Mac's own pointer.
-    private var pointerLayer: CAShapeLayer?
+    /// The pointer the trackpad moves: its sprite lives in the window's stack above everything
+    /// (so the Newest button or a note never covers it); this view places it.
+    weak var pointerHost: PointerSpriteView?
     private var pointerSpot: CGPoint?
     private var pointerSeq = 0
     private var holder: UILongPressGestureRecognizer!
@@ -1529,61 +1561,54 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
 
     // MARK: The pointer (the trackpad's)
 
-    /// The pointer, as a fraction of the window: a ring drawn on it; a move (a new `seq`) keeps it
-    /// in sight, scrolling the view as little as needed. Nil takes the ring away.
+    /// The pointer, as a fraction of the window: the arrow drawn over it; a move (a new `seq`)
+    /// keeps it in sight, scrolling the view as little as needed. Nil takes the arrow away.
     func setPointer(_ p: CGPoint?, seq: Int) {
         pointerSpot = p
         guard let p, imageSize.width > 0 else {
-            pointerLayer?.removeFromSuperlayer()
-            pointerLayer = nil
+            pointerHost?.hide()
             return
         }
-        if pointerLayer == nil {
-            let r: CGFloat = 11
-            let l = CAShapeLayer()
-            l.path = UIBezierPath(ovalIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)).cgPath
-            l.fillColor = UIColor(Light.cyan).withAlphaComponent(0.12).cgColor
-            l.strokeColor = UIColor(Light.cyan).cgColor
-            l.lineWidth = 1.5
-            l.shadowColor = UIColor.black.cgColor
-            l.shadowOpacity = 0.5
-            l.shadowRadius = 2
-            l.shadowOffset = .zero
-            layer.addSublayer(l)
-            pointerLayer = l
-        }
-        placePointer()
         if seq != pointerSeq {
             pointerSeq = seq
             keepPointerInView(CGPoint(x: p.x * imageSize.width, y: p.y * imageSize.height))
         }
+        placePointer()
     }
 
-    /// The ring where the pointer is, in this view's (scrolling) coordinates — again on every
-    /// scroll and zoom.
+    /// The arrow where the pointer is, in the sprite's coordinates — again on every scroll and zoom.
     private func placePointer() {
-        guard let l = pointerLayer, let p = pointerSpot, imageSize.width > 0 else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        l.position = convert(CGPoint(x: p.x * imageSize.width, y: p.y * imageSize.height), from: canvas)
-        CATransaction.commit()
+        guard let host = pointerHost, let p = pointerSpot, imageSize.width > 0 else { return }
+        host.place(canvas.convert(CGPoint(x: p.x * imageSize.width, y: p.y * imageSize.height), to: host))
     }
 
-    /// Zoomed in, the pointer stays on screen: when it nears an edge the view moves with it.
+    /// The middle of what's on screen, as a fraction of the window (where the trackpad's pointer
+    /// starts); nil before a picture.
+    var visibleCenter: CGPoint? {
+        guard imageSize.width > 0, zoomScale > 0, bounds.width > 0 else { return nil }
+        let w = imageSize.width * zoomScale, h = imageSize.height * zoomScale
+        let cx = contentOffset.x + bounds.width / 2, cy = contentOffset.y + bounds.height / 2
+        return CGPoint(x: min(max(cx / w, 0), 1), y: min(max(cy / h, 0), 1))
+    }
+
+    /// Zoomed in, the pointer stays on screen: when it nears an edge the view moves with it, as
+    /// far as it moved (the content's coordinates: the visible rect starts at the content offset;
+    /// a picture smaller than the view sits inside the insets and never moves).
     private func keepPointerInView(_ canvasPoint: CGPoint) {
         guard zoomScale > 0, bounds.width > 0 else { return }
         let p = CGPoint(x: canvasPoint.x * zoomScale, y: canvasPoint.y * zoomScale)
-        let margin: CGFloat = 28
+        let margin: CGFloat = 36
         var offset = contentOffset
-        let visible = CGRect(origin: CGPoint(x: contentOffset.x + contentInset.left, y: contentOffset.y + contentInset.top), size: bounds.size)
-        if p.x < visible.minX + margin { offset.x = p.x - margin - contentInset.left }
-        if p.x > visible.maxX - margin { offset.x = p.x + margin - bounds.width - contentInset.left }
-        if p.y < visible.minY + margin { offset.y = p.y - margin - contentInset.top }
-        if p.y > visible.maxY - margin { offset.y = p.y + margin - bounds.height - contentInset.top }
-        let maxX = max(-contentInset.left, contentSize.width - bounds.width + contentInset.right)
-        let maxY = max(-contentInset.top, contentSize.height - bounds.height + contentInset.bottom)
-        offset.x = min(max(offset.x, -contentInset.left), maxX)
-        offset.y = min(max(offset.y, -contentInset.top), maxY)
+        let visible = CGRect(origin: contentOffset, size: bounds.size)
+        if p.x < visible.minX + margin { offset.x = p.x - margin }
+        if p.x > visible.maxX - margin { offset.x = p.x + margin - bounds.width }
+        if p.y < visible.minY + margin { offset.y = p.y - margin }
+        if p.y > visible.maxY - margin { offset.y = p.y + margin - bounds.height }
+        let minX = -contentInset.left, minY = -contentInset.top
+        let maxX = max(minX, contentSize.width - bounds.width + contentInset.right)
+        let maxY = max(minY, contentSize.height - bounds.height + contentInset.bottom)
+        offset.x = min(max(offset.x, minX), maxX)
+        offset.y = min(max(offset.y, minY), maxY)
         guard offset != contentOffset else { return }
         adjusted = true
         setContentOffset(offset, animated: false)

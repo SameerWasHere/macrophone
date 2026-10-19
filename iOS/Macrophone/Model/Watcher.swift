@@ -316,13 +316,14 @@ final class Watcher: ObservableObject {
     var sendWindow: (WatchWindowCommand) -> Bool = { _ in false }
 
     /// The size of this phone's view of the window, in points (Fit to iPhone sends its shape).
-    var viewerSize: CGSize = .zero
+    var viewerSize: CGSize = .zero { didSet { if viewerSize != oldValue { applyFitWhenShown() } } }
     var canFitToPhone: Bool { macFeatures().contains(WatchShape.feature) }
     var sendShape: (CGSize) -> Bool = { _ in false }
 
     /// Fit to iPhone: the Mac gives the window this view's shape, as big as its screen allows, so
     /// the whole window fills the view. Takes over from Aa, like the Window menu's sizes.
-    func fitToPhone() {
+    /// `opened`: the phone opened this app itself, so its window starts this way (Oct 19 2026).
+    func fitToPhone(opened: Bool = false) {
         touch()
         guard viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
         Haptics.tick()
@@ -334,8 +335,36 @@ final class Watcher: ObservableObject {
         // and whenever this app's window opens while it keeps this shape.
         if let target { Self.setFitted(target, true) }
         drag = .scroll
-        say("\(name)'s window now has your iPhone's shape — all of it fits here, and one finger scrolls it", symbol: "iphone.gen3")
-        log?.add("watching: fit to iPhone")
+        say(opened ? "\(name) opened with your iPhone's shape — the Window menu has other sizes"
+                   : "\(name)'s window now has your iPhone's shape — all of it fits here, and one finger scrolls it", symbol: "iphone.gen3")
+        log?.add("watching: fit to iPhone\(opened ? " (opened from here)" : "")")
+    }
+
+    /// An app the phone opened (Oct 19 2026, Sameer: "when a new window is opened via the app, it
+    /// should by default be opened to fit iPhone window mode"): its window is fitted once its first
+    /// picture is here and the view has its size. Windows he already had keep their remembered
+    /// choice. Forgotten after ten minutes unused.
+    private var fitWhenShown: (bundleID: String, at: Date)?
+    func fitNextOpen(of bundleID: String) { fitWhenShown = (bundleID, Date()) }
+
+    private func applyFitWhenShown() {
+        guard let pending = fitWhenShown else { return }
+        guard Date().timeIntervalSince(pending.at) < 600 else { fitWhenShown = nil; return }
+        guard isOpen, phase == .live, hasPicture, let target, target.bundleID == pending.bundleID,
+              canFitToPhone, viewerSize.width > 40, viewerSize.height > 40 else { return }
+        fitWhenShown = nil
+        fitToPhone(opened: true)
+    }
+
+    /// The Mac confirmed the window is gone: this view closes as Done does, and the main screen
+    /// hears which window (its status line, and Send to no longer pointing at it).
+    var onClosed: (String, TargetRef?) -> Void = { _, _ in }
+    private func windowClosed() {
+        let n = name, t = target
+        log?.add("watching: the window closed — back to the main screen")
+        close()
+        Haptics.soft()
+        onClosed(n, t)
     }
 
     /// Apps whose window was fitted to the phone (and not sized since): they open in Scroll.
@@ -505,7 +534,12 @@ final class Watcher: ObservableObject {
             appName = name
             if hasPicture, !stale { phase = .live }
         case .needsPermission: phase = .needsPermission
-        case let .unavailable(why, canReveal): phase = .unavailable(why, canReveal: canReveal)
+        case let .unavailable(why, canReveal, closed):
+            // The window is gone for good (the Mac waited a beat and confirmed): the window view
+            // closes by itself and the main screen is back (Oct 19 2026, Sameer: "when I close a
+            // window, the app should just go back to the selector screen"). Never the whole screen.
+            if closed, !isDesktop { windowClosed(); return }
+            phase = .unavailable(why, canReveal: canReveal)
         case .stopped:
             // Stopped from the Mac's menu: the picture stays, and Resume asks again.
             idleTask?.cancel()
@@ -524,7 +558,7 @@ final class Watcher: ObservableObject {
             guard let img, self.isOpen, !self.phase.isPaused, frame.seq == 1 || frame.seq >= self.newestSeq else { return }
             // A picture after video (the Mac's chip got busy): the picture is what shows now.
             if self.videoSize != nil { self.video.clear(); self.videoSize = nil }
-            self.show(img, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: data.count, how: "picture", points: frame.points)
+            self.show(img, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: data.count, how: "picture", points: frame.points, cursor: frame.cursor)
         }
     }
 
@@ -550,7 +584,7 @@ final class Watcher: ObservableObject {
         if isDesktop, front != frame.front { front = frame.front }
         if frame.isWordsOnly {
             newestSeq = frame.seq
-            words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt)
+            words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, cursor: frame.cursor)
             return
         }
         guard WatchVideoFrame.canDecode(seq: frame.seq, keyframe: frame.keyframe, newest: newestSeq, waitingForKeyframe: waitingForKeyframe) else {
@@ -580,7 +614,7 @@ final class Watcher: ObservableObject {
             videoSize = video.frameSize
             notePictureSize(video.frameSize, points: frame.points)
         }
-        words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt)
+        words(appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, cursor: frame.cursor)
         if phase != .live { phase = .live }
         #if DEBUG
         if Self.timing, framePathMicros.count < 20_000 { framePathMicros.append(Int((CACurrentMediaTime() - t0) * 1_000_000)) }
@@ -589,6 +623,7 @@ final class Watcher: ObservableObject {
             awaitingFirstPicture = false
             cameAlive &+= 1
             log?.add("watching: first \(frame.keyframe ? "keyframe" : "frame") \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(frame.data.count / 1024) KB")
+            applyFitWhenShown()
         }
     }
 
@@ -617,21 +652,24 @@ final class Watcher: ObservableObject {
     private var keyframeRetry: Task<Void, Never>?
 
     /// Each published change re-renders every view watching this; only what changed is set.
-    private func show(_ img: UIImage, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, bytes: Int, how: String, points: CGSize? = nil) {
+    private func show(_ img: UIImage, appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, bytes: Int, how: String, points: CGSize? = nil, cursor: CGPoint? = nil) {
         if image?.size != img.size || points != lastPoints { lastPoints = points; notePictureSize(img.size, points: points) }
         image = img
         if stale { stale = false }
         countFrame()
-        words(appName: appName, bundleID: bundleID, focus: focus, prompt: prompt)
+        words(appName: appName, bundleID: bundleID, focus: focus, prompt: prompt, cursor: cursor)
         if phase != .live { phase = .live }
         if awaitingFirstPicture {
             awaitingFirstPicture = false
             cameAlive &+= 1
             log?.add("watching: first \(how) \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(bytes / 1024) KB")
+            applyFitWhenShown()
         }
     }
 
-    private func words(appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?) {
+    private func words(appName: String, bundleID: String?, focus: CGRect?, prompt: WatchPrompt?, cursor: CGPoint? = nil) {
+        // Where the Mac's own pointer is: the trackpad's pointer starts there (Oct 19 2026).
+        if let cursor { input.macCursor(cursor) }
         if self.appName != appName { self.appName = appName }
         if self.bundleID != bundleID { self.bundleID = bundleID }
         // Only a real move re-centres the view; the frame jitters as the window redraws.

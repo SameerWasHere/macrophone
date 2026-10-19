@@ -15,6 +15,10 @@ final class MacReach: ObservableObject {
     @Published private(set) var waking = false
     /// The wake info changed (kept with the pairing) — the wake button reads it again.
     @Published private(set) var wakeVersion = 0
+    /// The Mac's answer to the last Mac Controls key (the panel's readout: "Volume 56%", a meter).
+    @Published private(set) var lastControl: MacControlResult?
+
+    func noteControl(_ r: MacControlResult) { lastControl = r }
 
     private var wakeTask: Task<Void, Never>?
     private static let displayKey = "watch.display"
@@ -139,6 +143,7 @@ extension AppModel {
     func linkClient(_ client: LinkClient, macControlDone result: MacControlResult) {
         guard client === self.client else { return }
         if !result.ok { Haptics.warning() }
+        reach.noteControl(result)
         explain(result.detail, for: result.ok ? 1.6 : 4)
     }
 }
@@ -160,6 +165,9 @@ extension MacReach {
                     if let d = shared.displays.first(where: { $0.id == id }) { model.watchWholeScreen(d) }
                 } else if s.hasPrefix("control@"), let c = MacControl(rawValue: String(s.dropFirst(8))) {
                     model.press(c)
+                } else if s == "controls" {
+                    // The Mac Controls panel, as its button opens it.
+                    model.sheet = .macControls
                 } else if s == "wake" {
                     if let info = WakeOnLAN.info(for: model.pairedMac?.id) { shared.wake(info, model: model) }
                     else { model.log.add("wake: no wake info kept") }

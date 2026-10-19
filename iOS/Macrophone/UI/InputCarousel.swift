@@ -3,84 +3,121 @@ import SwiftUI
 
 // The three ways in, while a window shows (Oct 19 2026, Sameer: "swiping right to left should
 // show the trackpad and swiping left to right should open a full iOS keyboard … a 3 input method
-// carousel"). The area under the Thread, where the mic sits, becomes three pages side by side:
+// carousel"). The foot of the screen becomes three pages side by side, with the row saying where
+// you are ABOVE the Thread (the carousel fixes, Oct 19 2026 — Sameer: "the keyboard, mic, and
+// trackpad switcher should be above the wave form in mic mode and swiping where the wave form is
+// should still allow switching between views"):
 //
 //        KEYBOARD      ● MIC       TRACKPAD        the row says where you are; a tap goes there
+//   ╌╌╌╌╌╌╌╌╌╌╌╌╌╌ the Thread ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌   on the mic page; it folds away on the others
 //   ┌──────────────┬──────────────┬──────────────┐
-//   │ typing in    │    ( mic )   │  a plate the │   the mic is the default, every time the window
-//   │ Claude …     │  status line │  finger moves│   opens; a swipe on the mic page (not on the mic
-//   └──────────────┴──────────────┴──────────────┘   itself) slides to the next; the trackpad takes
-//                                                    every finger for the pointer, so its way back
-// is the row (or a swipe in from its left edge); the keyboard page is a strip above the iOS keyboard,
-// whose bar carries Esc, Tab, ⌘ ⌥ ⌃ ⇧, the arrows and the F-keys. A page shows only when the
-// connected Mac takes its messages (named in its welcome); a Mac from before has the mic alone,
-// and the row doesn't show. The mic page is the same view whatever page is up, so a hold that
-// started on the mic is never lost to a page change.
+//   │ (the iOS     │    ( mic )   │  a plate the │   the mic is the default, every time the window
+//   │  keyboard)   │  status line │  finger moves│   opens; a swipe on the Thread or beside the mic
+//   └──────────────┴──────────────┴──────────────┘   (not on it — a hold there is a dictation)
+//                                                    slides to the next; the trackpad takes every
+// finger for the pointer and grows into the Thread's room, so its way back is the row (or a swipe
+// in from its left edge); the keyboard page is the iOS keyboard with one bar of the Mac's keys
+// above it (`MacKeyboardBar`), and hide on that bar comes back to the mic. A page shows only when
+// the connected Mac takes its messages (named in its welcome); a Mac from before has the mic
+// alone, and the row doesn't show. The mic page is the same view whatever page is up, so a hold
+// that started on the mic is never lost to a page change.
 
 /// The carousel's measures.
 enum InputCarouselLook {
-    /// The page row's height; the keyboard page's strip (the keyboard itself is below it).
+    /// The page row's height, and the room under it.
     static let row: CGFloat = 22
-    static let keyboardStrip: CGFloat = 44
+    static let rowGap: CGFloat = 6
+    /// The keyboard page's own height: a breath between the row and the keyboard's bar (the
+    /// keys themselves ride on the keyboard).
+    static let keyboardBreath: CGFloat = 10
 }
 
-struct InputCarousel<Mic: View>: View {
+struct InputCarousel<Mic: View, Thread: View>: View {
     @ObservedObject var input: MacInput
     @ObservedObject var watcher: Watcher
     var compact: Bool
+    /// The Thread's slot on the mic page (the trackpad takes it on its page).
+    var threadHeight: CGFloat
     /// The mic page: the mic button and the status line, built by the mic screen.
     @ViewBuilder var mic: () -> Mic
+    /// The Thread's band, between the row and the pages.
+    @ViewBuilder var thread: () -> Thread
 
     /// The finger's offset while a swipe is under way on the mic page.
     @State private var dragX: CGFloat = 0
-    @State private var size: CGSize = .zero
+    @State private var width: CGFloat = 0
+    /// The mic page's own height: what the trackpad page starts from.
+    @State private var micHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var multi: Bool { input.pages.count > 1 }
     private var index: Int { input.pages.firstIndex(of: input.page) ?? 0 }
+    /// The Thread shows on the mic page alone: the trackpad takes its room, the keyboard the foot.
+    private var threadShown: Bool { input.page == .mic }
+    private var motion: Animation { reduceMotion ? .easeInOut(duration: 0.2) : Motion.settle }
 
     var body: some View {
         VStack(spacing: 0) {
             if multi {
                 InputPageRow(input: input)
                     .frame(height: InputCarouselLook.row)
+                    .padding(.bottom, InputCarouselLook.rowGap)
                     .transition(.opacity)
             }
-            ZStack(alignment: .top) {
-                ForEach(input.pages) { page in
-                    pageView(page)
-                        .frame(width: size.width > 0 ? size.width : nil)
-                        .offset(x: offset(of: page))
-                        .accessibilityHidden(page != input.page)
-                        .allowsHitTesting(page == input.page)
+            // The Thread and the pages are one band: a swipe anywhere on it (off the mic) slides
+            // the pages.
+            VStack(spacing: 0) {
+                thread()
+                    .frame(height: threadShown ? threadHeight : 0)
+                    .opacity(threadShown ? 1 : 0)
+                    .clipped()
+                ZStack(alignment: .top) {
+                    ForEach(input.pages) { page in
+                        pageView(page)
+                            .frame(width: width > 0 ? width : nil)
+                            .offset(x: offset(of: page))
+                            .accessibilityHidden(page != input.page)
+                            .allowsHitTesting(page == input.page)
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .frame(height: pagesHeight, alignment: .top)
+                .clipped()
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: input.page == .keyboard ? InputCarouselLook.keyboardStrip : nil, alignment: .top)
-            .clipped()
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-            // The room beside the mic is the swipe's: without a shape of its own the empty space
-            // between the views would take no touch at all.
+            // Without a shape of its own the empty room beside the mic and under the Thread
+            // would take no touch at all.
             .contentShape(Rectangle())
             .simultaneousGesture(swipe, including: multi && input.page == .mic ? .all : .subviews)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
-        .animation(reduceMotion ? nil : Motion.settle, value: input.page)
-        .animation(reduceMotion ? nil : Motion.settle, value: input.pages)
+        .animation(motion, value: input.page)
+        .animation(motion, value: input.pages)
+    }
+
+    /// The pages' height: the mic page's own; the trackpad's that plus the Thread's room (the
+    /// screen above never moves); the keyboard's a breath (its keys ride on the keyboard).
+    private var pagesHeight: CGFloat? {
+        switch input.page {
+        case .mic: return micHeight > 0 ? micHeight : nil
+        case .trackpad: return micHeight > 0 ? micHeight + threadHeight : nil
+        case .keyboard: return InputCarouselLook.keyboardBreath
+        }
     }
 
     /// Where a page sits: the current one at 0, the others a width to each side.
     private func offset(of page: MacInput.Page) -> CGFloat {
-        guard let i = input.pages.firstIndex(of: page), size.width > 0 else { return page == input.page ? 0 : 10_000 }
-        return CGFloat(i - index) * size.width + dragX
+        guard let i = input.pages.firstIndex(of: page), width > 0 else { return page == input.page ? 0 : 10_000 }
+        return CGFloat(i - index) * width + dragX
     }
 
     @ViewBuilder private func pageView(_ page: MacInput.Page) -> some View {
         switch page {
         case .mic:
             mic()
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { micHeight = $0 }
         case .trackpad:
             TrackpadPage(input: input, watcher: watcher)
-                .frame(height: size.height > 0 ? size.height : nil)
+                .frame(height: micHeight > 0 ? micHeight + threadHeight : nil)
                 // The way back: the row above, or a swipe in from the plate's left edge.
                 .overlay(alignment: .leading) {
                     Color.clear
@@ -93,12 +130,13 @@ struct InputCarousel<Mic: View>: View {
                 }
         case .keyboard:
             KeyboardPage(input: input, watcher: watcher)
-                .frame(height: InputCarouselLook.keyboardStrip)
+                .frame(height: InputCarouselLook.keyboardBreath)
         }
     }
 
-    /// A swipe on the mic page — not on the mic itself (a hold there is a dictation): the pages
-    /// follow the finger, and let go past a quarter of the width (or a flick) they settle on the next.
+    /// A swipe on the mic page — on the Thread or beside the mic, never on the mic itself (a hold
+    /// there is a dictation): the pages follow the finger, and let go past a quarter of the width
+    /// (or a flick) they settle on the next.
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 24, coordinateSpace: .local)
             .onChanged { v in
@@ -109,18 +147,19 @@ struct InputCarousel<Mic: View>: View {
                 dragX = x
             }
             .onEnded { v in
-                defer { withAnimation(reduceMotion ? nil : Motion.settle) { dragX = 0 } }
+                defer { withAnimation(motion) { dragX = 0 } }
                 guard !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
                 let x = v.translation.width, flick = v.predictedEndTranslation.width
-                guard abs(x) > size.width / 4 || abs(flick) > size.width / 2 else { return }
+                guard abs(x) > width / 4 || abs(flick) > width / 2 else { return }
                 // Right to left: the trackpad (the next page); left to right: the keyboard.
-                withAnimation(reduceMotion ? nil : Motion.settle) { input.step(x < 0 ? 1 : -1) }
+                withAnimation(motion) { input.step(x < 0 ? 1 : -1) }
             }
     }
 
-    /// The mic's own ground, in the middle of the page's top: a touch there is the mic's.
+    /// The mic's own ground, in the middle of the page under the Thread: a touch there is the mic's.
     private func onMic(_ p: CGPoint) -> Bool {
-        abs(p.x - size.width / 2) < 70 && p.y < (compact ? 130 : 150)
+        let top = threadShown ? threadHeight : 0
+        return abs(p.x - width / 2) < 70 && p.y > top - 6 && p.y < top + (compact ? 130 : 150)
     }
 }
 
@@ -166,32 +205,19 @@ struct InputPageRow: View {
     }
 }
 
-/// The keyboard page: a strip above the iOS keyboard (which the hidden field below brings up) —
-/// esc · ⇥ and the arrows, with where the typing goes beside them when there's room; the
-/// modifiers, the F-keys and hide ride on the keyboard's own bar (`MacKeyboardField`).
+/// The keyboard page: the hidden field that brings the iOS keyboard up, with the Mac's keys on
+/// the keyboard's own bar (`MacKeyboardBar`) — nothing of its own on the page but a breath.
 struct KeyboardPage: View {
     @ObservedObject var input: MacInput
     @ObservedObject var watcher: Watcher
 
     var body: some View {
-        ZStack {
-            MacKeyboardField(input: input, watcher: watcher, active: input.page == .keyboard)
-                .frame(width: 1, height: 1)
-                .accessibilityHidden(true)
-            MacKeyboardStrip(input: input, watcher: watcher)
-                .frame(maxWidth: .infinity, minHeight: InputCarouselLook.keyboardStrip)
-                // The way back, as on the mic page: a swipe right to left on the strip's open
-                // room (a key keeps its own press). The row above and hide are the visible ways.
-                .background {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .gesture(DragGesture(minimumDistance: 20).onEnded { v in
-                            if v.translation.width < -40, abs(v.translation.width) > abs(v.translation.height) { input.step(1) }
-                        })
-                }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Keyboard, typing in \(watcher.name) on your Mac")
-        .accessibilityIdentifier("input-keyboard")
+        MacKeyboardField(input: input, watcher: watcher, active: input.page == .keyboard)
+            .frame(width: 1, height: 1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityHidden(true)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Keyboard, typing in \(watcher.name) on your Mac")
+            .accessibilityIdentifier("input-keyboard")
     }
 }

@@ -51,7 +51,7 @@ struct Route: Equatable {
 }
 
 enum AppSheet: String, Identifiable {
-    case history, settings, pairing, customCleanup, openApp
+    case history, settings, pairing, customCleanup, openApp, macControls
     var id: String { rawValue }
 }
 
@@ -177,6 +177,7 @@ final class AppModel: ObservableObject {
         watcher.input.sendType = { [weak self] t in self?.client.watchType(t) ?? false }
         watcher.input.sendKeyState = { [weak self] k, down in self?.client.watchKeyState(k, down: down) ?? false }
         watcher.input.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
+        watcher.onClosed = { [weak self] name, target in self?.windowClosed(name, target) }
         AgentAlerts.shared.install(self)
         // Looking at a chat that answered settles its mark.
         watcher.$target.compactMap { $0 }.sink { [weak self] t in self?.clearNeeds(for: t) }.store(in: &bag)
@@ -952,7 +953,9 @@ final class AppModel: ObservableObject {
         if !client.listApps() { macAppsLoaded = true }
     }
 
-    /// Open an app on the Mac, bring it forward, and send there from now on.
+    /// Open an app on the Mac, bring it forward, and send there from now on. An app that wasn't
+    /// running opens with the iPhone's shape when its window shows here (Oct 19 2026); one that
+    /// was keeps its window as it is.
     func openOnMac(_ app: MacApp) {
         guard client.openApp(app.bundleID) else {
             explain("Your Mac isn't connected — open \(app.name) when it is")
@@ -961,9 +964,27 @@ final class AppModel: ObservableObject {
         }
         Haptics.tick()
         justOpened[app.bundleID] = Date()
+        if !app.running { watcher.fitNextOpen(of: app.bundleID) }
         pick(.app(bundleID: app.bundleID, windowKey: nil, name: app.name))
         explain("Opening \(app.name) on your Mac", for: 6)
-        log.add("asked the Mac to open an app")
+        log.add("asked the Mac to open an app\(app.running ? "" : " (its window will fit the iPhone)")")
+    }
+
+    /// The watched window closed (on the Mac, or from here) and the window view has gone: the
+    /// status line says so, and Send to stops pointing at a window that isn't there — the app,
+    /// when it still has another window open; else Where I'm typing.
+    private func windowClosed(_ name: String, _ target: TargetRef?) {
+        explain("Closed \(name)", for: 3.2)
+        guard let target, target == settings.selection.target || target.bundleID == settings.selection.target.bundleID,
+              case let .app(bundleID, windowKey, appName) = target else { refreshTargets(); return }
+        let another = liveTargets.first { $0.bundleID == bundleID && $0.windowKey != windowKey }
+        if windowKey != nil, another != nil {
+            pick(.app(bundleID: bundleID, windowKey: nil, name: appName))
+        } else {
+            pick(.frontApp)
+        }
+        refreshTargets()
+        log.add("send to: the watched window closed")
     }
 
     /// The Mac can quit apps (a Mac from before Oct 17 2026 can't; the button doesn't show).

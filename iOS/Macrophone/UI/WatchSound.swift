@@ -24,8 +24,8 @@ struct WatchSoundButton: View {
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 20)
         }
-        .buttonStyle(WatchCellStyle(width: 42, height: WatchLook.header, tint: player.isOn ? Light.cyan : Ink.ink))
-        .watchGlass(Capsule())
+        // A cell: the header puts it on one piece of glass with Mac Controls.
+        .buttonStyle(WatchCellStyle(width: 40, height: WatchLook.header, tint: player.isOn ? Light.cyan : Ink.ink))
         .accessibilityLabel("Sound")
         .accessibilityValue(player.isOn ? "On" : "Off")
         .accessibilityHint(player.isOn ? "Stops playing your Mac's sound here." : "Plays your Mac's sound here while the window shows.")

@@ -165,7 +165,9 @@ struct PlacesRow: View {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 1) {
-                        kicker
+                        // Whole, or this layout doesn't fit (it had wrapped to "SEND / TO" beside
+                        // three buttons).
+                        kicker.fixedSize()
                         title(current, notOpen: notOpen, answered: answered).fixedSize()
                     }
                     Spacer(minLength: 0)
@@ -258,6 +260,10 @@ struct PlacesRow: View {
             .accessibilityIdentifier("watch")
             .transition(.opacity)
         }
+        // Volume, brightness and media keys, one tap (Oct 19 2026): its own button, not a submenu.
+        if model.canMacControls {
+            MacControlsButton(style: .pill).transition(.opacity)
+        }
         // ⋯: a photo, a file or the clipboard into the chat you send to, and a fresh look at the
         // open apps. Opening an app that isn't open is the + at the end of the row, and only there.
         Menu {
@@ -267,7 +273,6 @@ struct PlacesRow: View {
                 }
             }
             MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
-            MacControlsMenu()
             Section {
                 Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
             }
