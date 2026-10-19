@@ -116,14 +116,6 @@ final class Settings: ObservableObject {
     }
 }
 
-extension TargetRef {
-    /// A stable key for remembering things per target ("app:com.apple.MobileSMS#41").
-    var storageKey: String {
-        switch self {
-        case .clipboard: return "clipboard"
-        case .frontApp: return "front"
-        case let .app(bid, key, _): return "app:\(bid)#\(key ?? "")"
-        }
     }
 }
 

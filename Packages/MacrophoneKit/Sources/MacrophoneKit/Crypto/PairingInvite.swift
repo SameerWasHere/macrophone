@@ -10,6 +10,8 @@ public enum LinkError: Error, Sendable, CustomStringConvertible {
     case rejected(PairRejection)
     case handshake(HandshakeFailure)
     case cancelled
+    /// Another paired Mac is active now; this was for the one before (queued for it).
+    case anotherMac
 
     public var description: String {
         switch self {
@@ -21,6 +23,7 @@ public enum LinkError: Error, Sendable, CustomStringConvertible {
         case .rejected(let r): return r.message
         case .handshake(let f): return "Handshake failed (\(f.rawValue))"
         case .cancelled: return "Cancelled"
+        case .anotherMac: return "Another Mac is active"
         }
     }
 
@@ -35,6 +38,7 @@ public enum LinkError: Error, Sendable, CustomStringConvertible {
         case .timedOut: return "Your Mac didn't answer in time. Check that Macrophone is open on it, then try again."
         case .notPaired: return "This iPhone isn't paired with a Mac yet. Pair it from Settings."
         case .cancelled: return "Cancelled."
+        case .anotherMac: return "Another Mac is active now. Switch back to send this."
         default: return "Couldn't reach your Mac. Check that Macrophone is open on it and both are on the same Wi-Fi."
         }
     }

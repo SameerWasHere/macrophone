@@ -160,11 +160,19 @@ public final class LinkClient: @unchecked Sendable {
     /// phone's choice wins when the two reconnect.
     public var selectionProvider: (@Sendable () -> SendSelection?)?
 
-    public init(identity: DeviceIdentity, store: PairingStore, appVersion: String, osDescription: String) {
+    /// Which Mac is active (`MacPreferences.chosenMacKey`), kept across launches.
+    private let preferences: MacPreferences
+    private var chosen: UUID?
+    /// Bumped on every switch: a dial that began for the Mac before never installs its session.
+    private var switchGeneration = 0
+
+    public init(identity: DeviceIdentity, store: PairingStore, appVersion: String, osDescription: String, defaults: UserDefaults = .standard) {
         self.identity = identity
         self.store = store
         self.appVersion = appVersion
         self.osDescription = osDescription
+        preferences = MacPreferences(defaults: defaults)
+        chosen = preferences.chosenMac
         _state = store.peers().isEmpty ? .notPaired : .searching
     }
 
@@ -185,11 +193,55 @@ public final class LinkClient: @unchecked Sendable {
     /// Where the active Mac can be reached from away, in the order they'd be dialled.
     public var remoteAddresses: [RemoteAddress] { RemoteAddressRule.ordered(activeMac?.remoteAddresses ?? []) }
     public var discoveredMacs: [DiscoveredMac] { lock.lock(); defer { lock.unlock() }; return macs }
-    public var pairedMacs: [PairedPeer] { store.peers() }
+    /// Every Mac this phone is paired with, in the order they were paired (`MacRoster.ordered`).
+    public var pairedMacs: [PairedPeer] { MacRoster.ordered(store.peers()) }
 
-    /// The Mac dictations go to — v1 uses the most recently paired one.
+    /// The Mac dictations go to: the chosen one, else the most recently paired (`MacRoster.active`).
     public var activeMac: PairedPeer? {
-        store.peers().sorted { $0.pairedAt > $1.pairedAt }.first
+        MacRoster.active(in: store.peers(), chosen: lock.sync { chosen })
+    }
+
+    /// A Mac on this network right now (Bonjour shows it by id) — for the ones that aren't active.
+    public func isNearby(_ macID: UUID) -> Bool { discoveredMacs.contains { $0.macID == macID } }
+
+    /// Make another paired Mac the active one: the session to the Mac before closes (anything
+    /// still waiting on it fails here and is queued for that Mac by the app), and the phone
+    /// connects to the new one at once. Kept across launches. Nothing happens for the active Mac
+    /// or an unknown id.
+    public func setActiveMac(_ id: UUID) {
+        guard store.peers().contains(where: { $0.id == id }) else { return }
+        guard activate(id) else { return }
+        log?.add("switched to another Mac")
+    }
+
+    /// Returns false when `id` was active already.
+    @discardableResult
+    private func activate(_ id: UUID) -> Bool {
+        let (old, want) = lock.sync { () -> (SecureSession?, Bool) in
+            guard chosen != id else { return (nil, false) }
+            chosen = id
+            switchGeneration &+= 1
+            retryDelay = 1
+            let s = session
+            session = nil; sessionMacID = nil; _remote = false; macFeatures = []
+            connectTask = nil
+            return (s, wantsConnection)
+        }
+        preferences.chosenMac = id
+        retryTask?.cancel()
+        pingTask?.cancel()
+        old?.close()
+        failPending(LinkError.anotherMac)
+        if let name = activeMac?.name { setState(want ? .connecting(name) : .searching) }
+        if want { ensureConnected() }
+        return true
+    }
+
+    /// After a Mac was forgotten: the choice stays only while it names a paired Mac.
+    private func settleChoice() {
+        let now = activeMac?.id
+        lock.sync { chosen = now }
+        preferences.chosenMac = now
     }
 
     private func setState(_ s: State) {
@@ -435,6 +487,7 @@ public final class LinkClient: @unchecked Sendable {
     /// `replacing`: a move back home — the new session takes the place of the remote one and the
     /// state never leaves `.connected`.
     private func dial(mac: PairedPeer, key: SymmetricKey, timeout: TimeInterval, replacing: Bool = false) async throws -> SecureSession {
+        let generation = lock.sync { switchGeneration }
         if !replacing { setState(.connecting(mac.name)) }
         let route: Route = replacing
             ? .bonjour(discoveredMacs.first(where: { $0.macID == mac.id })?.endpoint ?? .service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil), verified: true)
@@ -479,10 +532,18 @@ public final class LinkClient: @unchecked Sendable {
                 guard case let .welcome(macName, _, macFeatures) = try await receive(s, timeout: timeout) else {
                     throw LinkError.protocolError("expected welcome")
                 }
-                let old = lock.sync { () -> SecureSession? in
+                let old = lock.sync { () -> SecureSession?? in
+                    // Another Mac was made active while this dial ran: this session is for the
+                    // Mac before — close it, and leave the state to the new Mac's dial.
+                    guard switchGeneration == generation else { return .none }
                     let o = session
                     session = s; sessionMacID = mac.id; retryDelay = 1; _remote = remote; self.macFeatures = Set(macFeatures ?? [])
-                    return o
+                    return .some(o)
+                }
+                guard let old else {
+                    s.close()
+                    log?.add("a dial finished for a Mac that's no longer active; closed")
+                    throw LinkError.anotherMac
                 }
                 old?.close()
                 if let sel = selectionProvider?() { try? await s.send(.selection(sel)) }
@@ -517,11 +578,8 @@ public final class LinkClient: @unchecked Sendable {
                 log?.add("Mac no longer knows this phone")
                 conn.cancel()
                 store.remove(mac.id)
-                setState(.notPaired)
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.delegate?.linkClient(self, unpairedBy: mac.id)
-                }
+                settleChoice()
+                forgottenByMac(mac.id)
                 throw LinkError.handshake(.unknownPeer)
             case let .failure(reason):
                 throw LinkError.handshake(reason)
@@ -532,11 +590,30 @@ public final class LinkClient: @unchecked Sendable {
             conn.cancel()
             log?.add("connect failed: \(String(describing: error))")
             if replacing { throw error }
-            if case LinkError.handshake(.unknownPeer) = error {} else {
+            switch error {
+            case LinkError.handshake(.unknownPeer), LinkError.anotherMac: break
+            default:
                 setState(.unreachable(mac.name))
                 scheduleRetry()
             }
             throw error
+        }
+    }
+
+    /// A Mac forgot this phone (its key is already gone): the next paired Mac, if any, becomes
+    /// active and the phone looks for it; with none left, not paired.
+    private func forgottenByMac(_ macID: UUID) {
+        if let next = activeMac {
+            setState(.searching)
+            if lock.sync({ wantsConnection }) { ensureConnected() }
+            _ = next
+            log?.add("another paired Mac is active now")
+        } else {
+            setState(.notPaired)
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.delegate?.linkClient(self, unpairedBy: macID)
         }
     }
 
@@ -697,12 +774,10 @@ public final class LinkClient: @unchecked Sendable {
         case .unpair:
             log?.add("Mac forgot this phone")
             store.remove(macID)
-            sessionEnded(s, error: LinkError.notPaired)
-            setState(.notPaired)
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.delegate?.linkClient(self, unpairedBy: macID)
-            }
+            settleChoice()
+            // The session ends quietly (not a drop to retry): the next Mac, if any, takes over.
+            sessionEnded(s, error: LinkError.notPaired, quiet: true)
+            forgottenByMac(macID)
         case let .displays(list):
             let clean = Displays.clean(list)
             Task { @MainActor [weak self] in
@@ -732,7 +807,8 @@ public final class LinkClient: @unchecked Sendable {
         }
     }
 
-    private func sessionEnded(_ s: SecureSession, error: Error) {
+    /// `quiet`: the end was expected (the Mac forgot this phone) — no "not found", no retry here.
+    private func sessionEnded(_ s: SecureSession, error: Error, quiet: Bool = false) {
         lock.lock()
         guard session === s else { lock.unlock(); return }
         session = nil
@@ -746,7 +822,7 @@ public final class LinkClient: @unchecked Sendable {
         pingTask?.cancel()
         failPending(error)
         log?.add(moving ? "remote session closed by the move home" : "session ended")
-        guard !moving else { return }
+        guard !moving, !quiet else { return }
         if let mac = activeMac {
             setState(.unreachable(mac.name))
             scheduleRetry()
@@ -776,9 +852,13 @@ public final class LinkClient: @unchecked Sendable {
     }
 
     /// Sends one dictation and waits for the Mac's ack. Throws if the Mac can't be reached —
-    /// the caller queues it and calls again later with `delayed: true`.
-    public func send(_ dictation: Dictation, delayed: Bool, timeout: TimeInterval = 10) async throws -> Ack {
+    /// the caller queues it and calls again later with `delayed: true`. `to`: the Mac it was
+    /// meant for — with another one active it isn't sent (`LinkError.anotherMac`), so a switch
+    /// mid-send never lands words on the wrong Mac.
+    public func send(_ dictation: Dictation, delayed: Bool, to macID: UUID? = nil, timeout: TimeInterval = 10) async throws -> Ack {
+        if let macID, activeMac?.id != macID { throw LinkError.anotherMac }
         let s = try await connect(timeout: min(timeout, 6))
+        if let macID, lock.sync({ sessionMacID }) != macID { throw LinkError.anotherMac }
         return try await withThrowingTaskGroup(of: Ack.self) { g in
             g.addTask {
                 try await withCheckedThrowingContinuation { (c: CheckedContinuation<Ack, Error>) in
@@ -1133,12 +1213,21 @@ public final class LinkClient: @unchecked Sendable {
             guard macID == expectedMacID, LinkCrypto.verify(confirm, LinkCrypto.macConfirm(key)) else {
                 throw LinkError.rejected(.badProof)
             }
-            // One Mac at a time in v1: replace any older pairing's session.
-            let peer = PairedPeer(id: macID, name: macName)
+            // Pairing again with a Mac the phone knows keeps its place in the list (its remote
+            // addresses too); a new one joins at the end. Either way it becomes the active Mac:
+            // the session to the one before closes and the phone connects to this one.
+            var peer = PairedPeer(id: macID, name: macName)
+            if let known = store.peers().first(where: { $0.id == macID }) {
+                peer.pairedAt = known.pairedAt
+                peer.remoteAddresses = known.remoteAddresses
+            }
             store.save(peer, key: key)
-            log?.add("paired with a Mac")
-            let old = lock.sync { () -> SecureSession? in let v = session; session = nil; sessionMacID = nil; return v }
-            old?.close()
+            log?.add("paired with a Mac (\(store.peers().count) paired)")
+            if !activate(macID) {
+                // It was the active one already: a fresh key means a fresh session.
+                let old = lock.sync { () -> SecureSession? in let v = session; session = nil; sessionMacID = nil; return v }
+                old?.close()
+            }
             ensureConnected()
             return peer
         case let .pairRejected(reason):
@@ -1167,8 +1256,13 @@ public final class LinkClient: @unchecked Sendable {
             return s
         }
         if let s { try? await s.send(.unpair); s.close() }
+        let wasActive = activeMac?.id == macID
         store.remove(macID)
-        log?.add("unpaired a Mac")
+        settleChoice()
+        log?.add("unpaired a Mac (\(store.peers().count) left)")
+        guard wasActive else { return }
+        // The next Mac in line takes over (the most recently paired); none left: not paired.
+        failPending(LinkError.anotherMac)
         setState(activeMac == nil ? .notPaired : .searching)
         if activeMac != nil { ensureConnected() }
     }
