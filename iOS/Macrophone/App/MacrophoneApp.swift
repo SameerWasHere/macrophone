@@ -87,10 +87,24 @@ struct RootView: View {
                 let scale = min(1, geo.size.width / size.width, geo.size.height / size.height)
                 sized.safeAreaPadding(.top, scale < 1 ? 0 : 20)
                     .frame(width: size.width, height: size.height)
+                    // MACROPHONE_FAKE_KEYBOARD: a stand-in keyboard at the frame's own scale on
+                    // the keyboard page (the cover's real one rises over the frame at 1:1).
+                    .overlay(alignment: .bottom) {
+                        if let h = DebugHooks.fakeKeyboard { DebugKeyboard(watcher: model.watcher, height: h) }
+                    }
                     .border(Ink.line)
                     .scaleEffect(scale, anchor: .topLeading)
                     .frame(width: size.width * scale, height: size.height * scale, alignment: .topLeading)
                     .clipped()
+                    // The UI tests read the frame's place on the screen off this element.
+                    .overlay(alignment: .topLeading) {
+                        Color.clear
+                            .frame(width: size.width * scale, height: size.height * scale)
+                            .allowsHitTesting(false)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("The inner screen's frame")
+                            .accessibilityIdentifier("duo-frame")
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
@@ -101,6 +115,48 @@ struct RootView: View {
         #endif
     }
 }
+
+#if DEBUG
+/// `MACROPHONE_FAKE_KEYBOARD=<height>`: what the keyboard page looks like inside a to-scale
+/// frame — the Mac's bar over a plate of keys of that height, rising when the page is up.
+private struct DebugKeyboard: View {
+    @ObservedObject var watcher: Watcher
+    @ObservedObject private var input: MacInput
+    var height: CGFloat
+
+    init(watcher: Watcher, height: CGFloat) {
+        self.watcher = watcher
+        self.height = height
+        _input = ObservedObject(wrappedValue: watcher.input)
+    }
+
+    var body: some View {
+        if input.page == .keyboard {
+            VStack(spacing: 0) {
+                MacKeyboardBar(input: input, watcher: watcher)
+                    .background(Color(white: 0.13))
+                VStack(spacing: 10) {
+                    ForEach(["qwertyuiop", "asdfghjkl", "zxcvbnm"], id: \.self) { row in
+                        HStack(spacing: 6) {
+                            ForEach(Array(row), id: \.self) { c in
+                                RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.3))
+                                    .overlay(Text(String(c)).font(.title3).foregroundStyle(.white))
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                    RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.3)).frame(maxWidth: .infinity).padding(.horizontal, 90)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 10)
+                .frame(height: height)
+                .background(Color(white: 0.13))
+            }
+            .transition(.move(edge: .bottom))
+        }
+    }
+}
+#endif
 
 /// How long the app took to put its first frame up (a number for the diagnostics log).
 enum LaunchClock {

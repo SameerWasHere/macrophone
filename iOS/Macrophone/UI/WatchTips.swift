@@ -74,6 +74,9 @@ struct WatchTipCard: View {
     /// The window's height here: a card shows only when it fits over the window with the newest
     /// lines still clear beneath it (the window's question had pushed a card over the answers).
     var room: CGFloat = .greatestFiniteMagnitude
+    /// The Duo's inner screen (Oct 25 2026): a narrower card in the window's top corner, off its
+    /// middle, so the window stays the thing.
+    var corner = false
     /// Bumped by Show Tips Again.
     @AppStorage(WatchTips.key) private var seenRaw = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -152,6 +155,7 @@ struct WatchTipCard: View {
         .padding(.horizontal, 14)
         .padding(.bottom, 12)
         .watchGlass(RoundedRectangle(cornerRadius: WatchLook.card, style: .continuous))
+        .frame(maxWidth: corner ? 340 : .infinity)
         .padding(WatchLook.bezelWidth + 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tip \(at + 1) of \(count): \(tip.title)")

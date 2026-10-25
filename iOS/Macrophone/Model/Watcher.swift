@@ -42,6 +42,21 @@ final class Watcher: ObservableObject {
 
     @Published private(set) var isOpen = false
     @Published private(set) var phase: Phase = .starting
+    /// The iPhone Duo's glance (Oct 25 2026, the second pass): Done on the inner screen keeps the
+    /// pictures coming but puts the controls away — the picked app's window stays live and big,
+    /// not a placeholder, with Show it here to take it in hand again. Never on the cover or a
+    /// regular iPhone, where Done closes as ever.
+    @Published private(set) var glancing = false
+    /// Done glances instead of closing (set by the pose: the inner screen).
+    var glanceOnDone = false
+    /// The window is in hand: open, with its controls (not the glance).
+    var isShowing: Bool { isOpen && !glancing }
+    /// A folded Duo's Mac half (Oct 25 2026): the picture fills the half (aspect-fill, scrolling)
+    /// rather than letterboxing, and a window the Mac can reshape is quietly given the half's
+    /// shape as the pose settles.
+    @Published private(set) var fillsView = false
+    /// The half's shape still to be sent (once the window is live and the view has its size).
+    private var wantsHalfFit = false
     /// The three ways in (Oct 19 2026): the keyboard, the mic, the trackpad — the page, the sticky
     /// modifiers, the pointer.
     let input = MacInput()
@@ -168,7 +183,8 @@ final class Watcher: ObservableObject {
         // A window fitted to the phone shows whole: one finger scrolls it (nothing to pan to).
         if Self.isFitted(target), (switching || !isOpen) { drag = .scroll }
         // The whole screen opens fitted: all of it at once (pinch in for detail).
-        if DesktopWatch.isDesktop(target), switching || !isOpen { wholeWindow = true }
+        // (A folded Duo's half fills with it instead: the middle of the screen, scrolling.)
+        if DesktopWatch.isDesktop(target), switching || !isOpen { wholeWindow = !fillsView }
         if switching { front = nil }
         if switching {
             // The last window's picture stays on screen, dimmed, until the new one's first frame:
@@ -182,17 +198,59 @@ final class Watcher: ObservableObject {
             keysInstead = false
             fit = Self.rememberedFit(for: target)
         }
-        let opening = !isOpen
+        let opening = !isOpen || glancing
         isOpen = true
+        if glancing { glancing = false }
+        if fillsView, switching || opening { wantsHalfFit = true }
         start()
         // The mic, every time the window view opens (a switch keeps the page).
         if opening { input.opened() }
         log?.add("watching opened")
     }
 
+    /// Done: on the Duo's inner screen the glance (the pictures stay, the controls go); anywhere
+    /// else, closed.
+    func done() {
+        if glanceOnDone, isOpen { glance() } else { close() }
+    }
+
+    /// The glance: the window stays live but out of hand — its pointer, keys and pages put away.
+    func glance() {
+        guard isOpen, !glancing else { return }
+        glancing = true
+        input.closed()
+        touch()
+        log?.add("watching: the glance")
+    }
+
+    /// A folded pose (the laptop, the book) or not: the picture fills its half, and a window the
+    /// Mac can reshape takes the half's shape as the pose settles.
+    func setFillsView(_ on: Bool) {
+        guard on != fillsView else { return }
+        fillsView = on
+        if on, isOpen { wantsHalfFit = true }
+    }
+
+    /// The half's shape, quietly: once per entry into a folded pose, once the window is live and
+    /// the view measured. Never the whole screen (nothing to reshape), never a Mac that can't.
+    private func applyHalfFit() {
+        guard wantsHalfFit, fillsView, isOpen, phase == .live, canFitToPhone, !isDesktop, let target,
+              viewerSize.width > 40, viewerSize.height > 40 else { return }
+        wantsHalfFit = false
+        guard sendShape(viewerSize) else { return }
+        shapeSent = viewerSize
+        if fit != .normal { setFitLocally(.normal) }
+        Self.setFitted(target, true)
+        drag = .scroll
+        if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
+        log?.add("watching: the window takes the half's shape (\(Int(viewerSize.width))×\(Int(viewerSize.height)))")
+    }
+
     func close() {
         guard isOpen else { return }
         isOpen = false
+        glancing = false
+        wantsHalfFit = false
         input.closed()
         idleTask?.cancel()
         _ = sendWatch(nil)
@@ -316,7 +374,7 @@ final class Watcher: ObservableObject {
     var sendWindow: (WatchWindowCommand) -> Bool = { _ in false }
 
     /// The size of this phone's view of the window, in points (Fit to iPhone sends its shape).
-    var viewerSize: CGSize = .zero { didSet { if viewerSize != oldValue { applyFitWhenShown(); followShape() } } }
+    var viewerSize: CGSize = .zero { didSet { if viewerSize != oldValue { applyFitWhenShown(); applyHalfFit(); followShape() } } }
     var canFitToPhone: Bool { macFeatures().contains(WatchShape.feature) }
     var sendShape: (CGSize) -> Bool = { _ in false }
 
@@ -352,6 +410,7 @@ final class Watcher: ObservableObject {
         touch()
         guard viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
         shapeSent = viewerSize
+        wantsHalfFit = false
         Haptics.tick()
         if fit != .normal { setFitLocally(.normal) }
         if wholeWindow { toggleWholeWindow() }
@@ -650,6 +709,7 @@ final class Watcher: ObservableObject {
             cameAlive &+= 1
             log?.add("watching: first \(frame.keyframe ? "keyframe" : "frame") \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(frame.data.count / 1024) KB")
             applyFitWhenShown()
+            applyHalfFit()
         }
     }
 
@@ -690,6 +750,7 @@ final class Watcher: ObservableObject {
             cameAlive &+= 1
             log?.add("watching: first \(how) \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(bytes / 1024) KB")
             applyFitWhenShown()
+            applyHalfFit()
         }
     }
 

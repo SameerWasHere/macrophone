@@ -14,6 +14,9 @@ final class InputCarouselUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_WATCH": "1"]
         app.launch()
+        // A fresh simulator: the system's notifications prompt would take the first touches.
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
         let mic = app.buttons["Start dictation"]
         XCTAssertTrue(mic.waitForExistence(timeout: 10))
         let row = app.descendants(matching: .any)["input-pages"]

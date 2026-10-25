@@ -13,6 +13,9 @@ import UIKit
 struct TrackpadPage: View {
     @ObservedObject var input: MacInput
     @ObservedObject var watcher: Watcher
+    /// A folded Duo's deck (Oct 25 2026): the trackpad is the whole half, like a laptop's — an
+    /// even inset all round and the faint inner outline of a trackpad.
+    var big = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -23,6 +26,14 @@ struct TrackpadPage: View {
                 .overlay(shape.fill(LinearGradient(colors: [Ink.ink.opacity(0.05), .clear], startPoint: .top, endPoint: .bottom)))
                 .overlay(SpecularEdge(shape: shape))
                 .overlay(shape.strokeBorder(contrast == .increased ? Ink.ink.opacity(0.45) : Ink.lineStrong, lineWidth: 1))
+            if big {
+                // The outline of the pad itself, a step in from the plate's edge, barely there.
+                RoundedRectangle(cornerRadius: WatchLook.bezel - 6, style: .continuous)
+                    .strokeBorder(Ink.ink.opacity(0.06), lineWidth: 1)
+                    .padding(10)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             TrackpadSurface(input: input, watcher: watcher)
                 .clipShape(shape)
             if !input.trackpadUsed {
@@ -44,6 +55,7 @@ struct TrackpadPage: View {
             }
         }
         .padding(.horizontal, WatchLook.sideMargin)
+        .padding(.top, big ? 8 : 0)
         .padding(.bottom, 8)
         .animation(.easeOut(duration: 0.3), value: input.trackpadUsed)
         .accessibilityElement(children: .ignore)

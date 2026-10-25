@@ -44,6 +44,9 @@ struct WatchPanel: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
     var compact = false
+    /// The iPhone Duo's open inner screen (Oct 25 2026): the answers go across in a row, and a
+    /// first-run tip keeps to the window's top corner, off its middle.
+    var duo = false
     /// The window just switched to, named for a moment ("Terminal — codex ~/api").
     @State private var switchedTo: String?
     @State private var switchedTask: Task<Void, Never>?
@@ -60,11 +63,23 @@ struct WatchPanel: View {
                 .frame(maxHeight: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
                 // The first times: what a tap, a hold, a pinch and the side swipe do.
-                .overlay(alignment: .top) { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight) }
+                .overlay(alignment: duo ? .topTrailing : .top) { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight, corner: duo) }
+                // The Duo's inner screen: the question's answers float over the picture's foot,
+                // so the window keeps its room; the key row stays under it.
+                .overlay(alignment: .bottom) {
+                    if duo {
+                        WatchActions(watcher: watcher, floating: true)
+                            .padding(.horizontal, WatchLook.bezelWidth + 10)
+                            .padding(.bottom, WatchLook.bezelWidth + 10)
+                            .opacity(watcher.phase == .live ? 1 : 0)
+                            .allowsHitTesting(watcher.phase == .live)
+                            .accessibilityHidden(watcher.phase != .live)
+                    }
+                }
                 // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
                 .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
                 .offset(x: slide)
-            WatchActions(watcher: watcher)
+            WatchActions(watcher: watcher, keysOnly: duo)
                 .opacity(watcher.phase == .live ? 1 : 0)
                 .allowsHitTesting(watcher.phase == .live)
                 .accessibilityHidden(watcher.phase != .live)
@@ -141,6 +156,8 @@ struct WatchHeaderBar: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
     var twoRows = false
+    /// Pan | Scroll among the clusters (a folded Duo's overlay header: its deck has no key row).
+    var dragSwitch = false
     /// A window picked from the menu, and the side it came from (1 next, -1 previous).
     var onSwitched: (LiveTarget, Int) -> Void = { _, _ in }
 
@@ -261,6 +278,9 @@ struct WatchHeaderBar: View {
             }
             .watchGlass(Capsule())
         }
+        if dragSwitch, watcher.phase == .live {
+            WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize()
+        }
         if watcher.macCanFit, watcher.target != .clipboard {
             HStack(spacing: 0) {
                 WatchWholeButton(watcher: watcher)
@@ -277,13 +297,13 @@ struct WatchHeaderBar: View {
     private var done: some View {
         Button("Done") {
             Haptics.tick()
-            watcher.close()
+            watcher.done()
         }
         .font(.subheadline.weight(.semibold))
         .buttonStyle(WatchCellStyle(inset: 14, height: WatchLook.header))
         .fixedSize()
         .watchGlass(Capsule())
-        .accessibilityHint("Stops showing the window and brings back Send to and Cleanup.")
+        .accessibilityHint(watcher.glanceOnDone ? "Puts the controls away; the window stays in view." : "Stops showing the window and brings back Send to and Cleanup.")
         .accessibilityIdentifier("watch-done")
     }
 }
@@ -459,10 +479,20 @@ struct WatchWindow: View {
     /// The pointer and the modifiers (Oct 19 2026): the viewer draws the pointer and keeps it in view.
     @ObservedObject private var input: MacInput
     var interactive: Bool
+    /// The bezel's width and corner: the phone's (3pt, 20), or a folded Duo's half, where the
+    /// screen runs almost to the edges (Oct 25 2026).
+    var bezelWidth: CGFloat = WatchLook.bezelWidth
+    var corner: CGFloat = WatchLook.bezel
+    /// The picture fills the view (aspect-fill, scrolling) rather than letterboxing — a folded
+    /// Duo's half. The zoom-out button still shows it whole.
+    var fill = false
 
-    init(watcher: Watcher, interactive: Bool) {
+    init(watcher: Watcher, interactive: Bool, bezelWidth: CGFloat = WatchLook.bezelWidth, corner: CGFloat = WatchLook.bezel, fill: Bool = false) {
         self.watcher = watcher
         self.interactive = interactive
+        self.bezelWidth = bezelWidth
+        self.corner = corner
+        self.fill = fill
         _input = ObservedObject(wrappedValue: watcher.input)
     }
     /// A moment of words after the Pan | Scroll switch flips or Aa changes: what happens now.
@@ -478,8 +508,8 @@ struct WatchWindow: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        let screen = RoundedRectangle(cornerRadius: WatchLook.screen, style: .continuous)
-        let bezel = RoundedRectangle(cornerRadius: WatchLook.bezel, style: .continuous)
+        let screen = RoundedRectangle(cornerRadius: max(0, corner - bezelWidth), style: .continuous)
+        let bezel = RoundedRectangle(cornerRadius: corner, style: .continuous)
         let high = contrast == .increased
         ZStack {
             Ink.sunk
@@ -487,7 +517,7 @@ struct WatchWindow: View {
                 WindowViewer(image: watcher.image, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
                              focus: watcher.focus, recenter: watcher.recenter, generation: watcher.windowSeq,
                              interactive: interactive && watcher.phase == .live,
-                             drag: watcher.drag, phased: watcher.macCanScroll,
+                             drag: watcher.drag, phased: watcher.macCanScroll, fill: fill,
                              viewKey: interactive ? watcher.viewKey : nil,
                              pointer: interactive && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
                              canDrag: interactive && watcher.canMouse,
@@ -556,7 +586,7 @@ struct WatchWindow: View {
         .clipShape(screen)
         // The screen sits a hair below the bezel: a dark line at its edge is the recess.
         .overlay(screen.strokeBorder(Color.black.opacity(high ? 0 : 0.55), lineWidth: 1))
-        .padding(WatchLook.bezelWidth)
+        .padding(bezelWidth)
         .background {
             // The bezel, and the light under it in the state's colour (a still layer of its own, so
             // the pictures changing above it cost the shadow nothing).
@@ -898,14 +928,23 @@ struct WatchActions: View {
     /// Which input page is up: with the keyboard, its own bar carries Esc, the arrows and Return,
     /// so this row steps aside and the window keeps the room (the polish pass, Oct 19 2026).
     @ObservedObject private var input: MacInput
-    /// The Duo's laptop deck (Oct 25 2026): wide and short, so the answers go across in one row
-    /// when they fit (the trackpad under them keeps its room), else down as on the phone.
+    /// The Duo's open inner screen (Oct 25 2026): wide, so the answers go across in one row
+    /// when they fit, else down as on the phone.
     var wide = false
+    /// A folded Duo's Mac half (the second pass): the answers alone, as a row of glass floating
+    /// over the picture's foot — Esc beside them, nothing else (the keys ride the keyboard page's
+    /// bar; Pan | Scroll is in the overlay header). Nothing to answer: nothing shows.
+    var floating = false
+    /// The keys alone (Esc · ↑ · ↓ · Return · ··· and Pan | Scroll), whatever the window asks —
+    /// its answers float over the picture instead (the Duo's open inner screen).
+    var keysOnly = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(watcher: Watcher, wide: Bool = false) {
+    init(watcher: Watcher, wide: Bool = false, floating: Bool = false, keysOnly: Bool = false) {
         self.watcher = watcher
         self.wide = wide
+        self.floating = floating
+        self.keysOnly = keysOnly
         _input = ObservedObject(wrappedValue: watcher.input)
     }
 
@@ -913,10 +952,9 @@ struct WatchActions: View {
 
     var body: some View {
         Group {
-            if let p = watcher.answers {
-                answers(p)
-                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
-            } else if !keyboardUp {
+            if let p = watcher.answers, !keysOnly {
+                if floating { floatingRow(p) } else { answers(p) }
+            } else if !keyboardUp, !floating {
                 keys.transition(.opacity)
             }
         }
@@ -955,6 +993,32 @@ struct WatchActions: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
         }
+    }
+
+    /// Over the picture's foot: Esc, then the answers in one row (a column when they're too
+    /// long for it), each on its own glass.
+    private func floatingRow(_ p: WatchPrompt) -> some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
+                .watchGlass(Capsule())
+                .fixedSize()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                        answer(p, i, c).fixedSize()
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                        answer(p, i, c)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
     }
 
     /// Esc · Keys, and Pan | Scroll, under (or beside) the answers.
@@ -1183,6 +1247,9 @@ struct WindowViewer: UIViewRepresentable {
     var drag: Watcher.Drag
     /// The Mac takes a swipe's phases (it named "scroll").
     var phased: Bool
+    /// The picture fills the view (a folded Duo's half): it opens at the scale that covers the
+    /// view, scrolling, instead of letterboxed; the whole window is still a zoom-out away.
+    var fill = false
     /// Where this viewer remembers the zoom you left it at (the window's, per app); nil: the strip.
     var viewKey: String? = nil
     /// The pointer the trackpad moves (a fraction of the window), drawn over the picture; nil = none.
@@ -1220,6 +1287,7 @@ struct WindowViewer: UIViewRepresentable {
         wire(v)
         v.viewKey = viewKey
         v.canDrag = canDrag
+        v.fill = fill
         v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, generation: generation, interactive: interactive, drag: drag, phased: phased)
         v.showWhole(whole)
         v.setPointer(pointer, seq: pointerSeq)
@@ -1286,6 +1354,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     var onAdjusted: (Bool) -> Void = { _ in }
     /// Where the zoom you leave it at is kept, so the window opens there next time.
     var viewKey: String?
+    /// The picture covers the view (a folded Duo's half, Oct 25 2026): the start scale fills it
+    /// rather than fitting it, and the zoom's top end is at least that.
+    var fill = false { didSet { if fill != oldValue, imageSize != .zero, bounds.width > 0 { configureZoom(); reset(animated: false) } } }
     private var tapper: UITapGestureRecognizer!
     private var swiper: UIPanGestureRecognizer!
     /// The swipe so far, not yet sent (sent once a display frame), and where it started.
@@ -1464,7 +1535,10 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     /// in its place for its fade-out. Nothing per frame: the canvas draws itself.
     private func adopt(_ video: VideoCanvas?) {
         canvas.subviews.filter { $0.tag == Self.snapshotTag }.forEach { $0.removeFromSuperview() }
+        wantedVideo = video
         guard let video else { return }
+        // The newest viewer that wants the video: a viewer on its way out hands the canvas here.
+        if window != nil { Self.newest = self }
         guard video.superview !== canvas else { return }
         if let old = video.superview, let snap = video.snapshotView(afterScreenUpdates: false) {
             snap.frame = video.frame
@@ -1477,6 +1551,20 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     }
 
     private static let snapshotTag = 7001
+
+    /// The canvas this viewer shows when video flows, and the viewer most recently given it. Two
+    /// viewers overlap while one cross-fades into the other (the Duo's glance, Oct 25 2026): the
+    /// one leaving the screen could take the canvas with it, leaving the new one black until the
+    /// next update — so a viewer leaving the window hands the canvas to the newest one that wants it.
+    private var wantedVideo: VideoCanvas?
+    private static weak var newest: ViewerScrollView?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, let v = wantedVideo else { return }
+        Self.newest = self
+        if v.superview !== canvas { adopt(v) }
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -1492,6 +1580,10 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         guard imageSize.width > 0, bounds.width > 0 else { return 1 }
         let fitWidth = bounds.width / imageSize.width
         let fillHeight = bounds.height / imageSize.height
+        // A folded Duo's half: the picture covers it, the window's foot (the newest output) in
+        // view — a window shaped nothing like the half (one the Mac can't reshape, on the book's
+        // tall page) stops at the usual 1.8× rather than zooming onto a sliver.
+        if fill { return min(max(fitWidth, fillHeight), fitWidth * 1.8, maximumZoomScale) }
         // A window shaped like this view (Fit to iPhone gives it the view's own shape, square or
         // not): all of it, never zoomed onto a part.
         let shapeRatio = (imageSize.width / imageSize.height) / (bounds.width / max(1, bounds.height))
@@ -1512,6 +1604,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         // In to one point per pixel of the Mac's picture (three screen pixels to one of the
         // Mac's): Retina text reads large there, and past it a pinch only blurred.
         maximumZoomScale = max(1.0, fitAll * 2)
+        // Filling the view is always within reach.
+        if fill { maximumZoomScale = max(maximumZoomScale, bounds.width / imageSize.width, bounds.height / imageSize.height) }
     }
 
     /// Back to the start: where you last left this app's window (your zoom, your spot across it,
@@ -1816,7 +1910,13 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
 
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
-        if newWindow == nil { endMomentum() }
+        if newWindow == nil {
+            endMomentum()
+            if let v = wantedVideo, v.superview === canvas, let other = Self.newest, other !== self, other.window != nil, other.wantedVideo === v {
+                other.adopt(v)
+                other.setNeedsLayout()
+            }
+        }
     }
 
     /// Where the click landed: a ring that grows and fades (a double one for a right-click).

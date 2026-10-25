@@ -53,7 +53,9 @@ import UIKit
 /// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
 /// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
-///                                            answer@1 (the window's question, second answer), keys, done (closes it),
+///                                            answer@1 (the window's question, second answer), keys, done (closes it;
+///                                            the Duo's inner screen: the glance), say@<words> (the mic opening with
+///                                            those words while the window shows),
 ///                                            next / prev (the next or previous window), attend@<bundle>@<window>
 ///                                            (what tapping an alert does), fit@larger|largest|normal (Aa),
 ///                                            sound (the Sound button's tap), mic (the mic opening, for the sound)
@@ -70,6 +72,11 @@ import UIKit
 /// MACROPHONE_POSTURE=closed|portrait|landscape|laptop|book[@<angle>]  the iPhone Duo held that way (the hinge and the fold's
 ///                                            region stood in for; laptop and book split the frame in the middle), e.g.
 ///                                            MACROPHONE_FRAME=951x669 MACROPHONE_POSTURE=laptop@112
+/// MACROPHONE_FAKE_KEYBOARD=<height>          the keyboard page draws a stand-in keyboard of that height inside the frame
+///                                            (with the Mac's bar above it) instead of raising the simulator's own — the
+///                                            inner screen's layout at its real proportions, since the cover's keyboard
+///                                            rises over a scaled frame at 1:1
+/// MACROPHONE_DUO_HEADER=held                 a folded pose's overlay header never fades
 /// MACROPHONE_MIC_LOOK=pressed|holding|starting|finishing|sending|sent|queued|error|disabled
 ///                                            holds one of the mic button's looks (the Thread and the sky follow; holding
 ///                                            pairs with MACROPHONE_FAKE_RECORDING for "let go to send")
@@ -101,6 +108,10 @@ enum DebugHooks {
 
     static let env = ProcessInfo.processInfo.environment
     static var fakeCamera: Bool { env["MACROPHONE_FAKE_CAMERA"] == "1" }
+    /// `MACROPHONE_FAKE_KEYBOARD`: a stand-in keyboard of this height on the keyboard page.
+    static var fakeKeyboard: CGFloat? { env["MACROPHONE_FAKE_KEYBOARD"].flatMap(Double.init).map { CGFloat($0) } }
+    /// `MACROPHONE_DUO_HEADER=held`: the folded poses' overlay header stays.
+    static var duoHeaderHeld: Bool { env["MACROPHONE_DUO_HEADER"] == "held" }
 
     /// A smaller phone's screen, drawn in the middle of this one (a 20pt status bar, like an SE's).
     static var frame: CGSize? {
@@ -320,6 +331,9 @@ enum DebugHooks {
                         model.macAudio.micOpening()
                     } else if a.hasPrefix("answer@"), let i = Int(a.dropFirst(7)) {
                         model.watcher.choose(i)
+                    } else if a.hasPrefix("say@") {
+                        // The mic opening with these words, while the window shows (the Duo's live words over the picture).
+                        model.debugSimulateRecording(String(a.dropFirst(4)))
                     } else if a.hasPrefix("attend@") {
                         // What a tapped alert does: attend@com.apple.Terminal@42
                         let v = a.split(separator: "@").dropFirst().map(String.init)
@@ -330,7 +344,7 @@ enum DebugHooks {
                         model.watcher.showKeys()
                     } else if a == "done" {
                         // Done: the window view closes (on the Duo's inner screen, the glance shows).
-                        model.watcher.close()
+                        model.watcher.done()
                     } else if a.hasPrefix("fit@"), let f = WatchFit(rawValue: String(a.dropFirst(4))) {
                         model.watcher.setFit(f)
                     } else if a == "pan" || a == "scroll" {

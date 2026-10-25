@@ -71,6 +71,8 @@ struct MainView: View {
 
     var body: some View {
         poseBody
+        // A pose settling: the layouts cross-fade (the halves' own motion follows the hinge).
+        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: posture.pose)
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         .background(GroundBackground(glow: skyGlow).animation(.easeInOut(duration: 0.7), value: filamentMode))
         #if DEBUG
@@ -96,10 +98,10 @@ struct MainView: View {
     /// The pose's layout: the phone's (the cover screen, every other iPhone), or the Duo's.
     @ViewBuilder private var poseBody: some View {
         switch posture.pose {
-        case .closed: phoneBody
-        case .open(let landscape): if landscape { openLandscapeBody } else { openPortraitBody }
-        case .laptop: laptopBody
-        case .book: bookBody
+        case .closed: phoneBody.transition(.opacity)
+        case .open(let landscape): if landscape { openLandscapeBody.transition(.opacity) } else { openPortraitBody.transition(.opacity) }
+        case .laptop: laptopBody.transition(.opacity)
+        case .book: bookBody.transition(.opacity)
         }
     }
 

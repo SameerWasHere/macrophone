@@ -1457,11 +1457,17 @@ extension AppModel: LinkClientDelegate {
     private func poseChanged(_ pose: FoldPose) {
         let was = lastPose
         lastPose = pose
+        // The inner screen: Done keeps the picture (the glance); folded, the picture fills its
+        // half and a window the Mac can reshape takes the half's shape.
+        watcher.glanceOnDone = pose.isInner
+        watcher.setFillsView(pose.isFolded)
         watcher.input.poseChanged(pose)
         if pose.isInner, !was.isInner {
             openWindowForPose()
         } else if !pose.isInner, was.isInner {
             if openedByPose, watcher.isOpen { watcher.close(); log.add("pose: closed — the window view the pose opened closes with it") }
+            // A glance has no place on the cover (Done there closes): it closes with the screen.
+            else if watcher.glancing { watcher.close() }
             openedByPose = false
         }
     }
@@ -1469,6 +1475,7 @@ extension AppModel: LinkClientDelegate {
     /// The pick's window for the inner screen, when nothing is being watched.
     private func openWindowForPose() {
         guard lastPose.isInner, !watcher.isOpen, isConnected, !recorder.isActive else { return }
+        watcher.glanceOnDone = true
         let pick = settings.selection.target
         switch pick {
         case .app:

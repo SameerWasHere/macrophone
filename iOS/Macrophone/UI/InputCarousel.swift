@@ -41,6 +41,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The Duo's deck (Oct 25 2026): the room the whole carousel has — the pages take all of it
     /// (the trackpad whole, the mic in the middle of it). Nil: the pages size themselves.
     var fill: CGFloat? = nil
+    /// The page row isn't drawn here (a folded Duo's deck draws the switcher in a corner,
+    /// `InputCornerSwitcher`, so the trackpad is the whole half).
+    var rowHidden = false
     /// The mic page: the mic button and the status line, built by the mic screen.
     @ViewBuilder var mic: () -> Mic
     /// The Thread's band, between the row and the pages.
@@ -65,7 +68,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if multi {
+            if multi, !rowHidden {
                 InputPageRow(input: input)
                     .frame(height: InputCarouselLook.row)
                     .padding(.bottom, InputCarouselLook.rowGap)
@@ -111,7 +114,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
             // The deck: whatever the row and the Thread leave (the keyboard page stays a breath —
             // the keyboard itself rises over the deck).
             if input.page == .keyboard { return InputCarouselLook.keyboardBreath }
-            return max(0, fill - (multi ? InputCarouselLook.row + InputCarouselLook.rowGap : 0) - (threadShown ? threadHeight : 0))
+            return max(0, fill - (multi && !rowHidden ? InputCarouselLook.row + InputCarouselLook.rowGap : 0) - (threadShown ? threadHeight : 0))
         }
         switch input.page {
         case .mic: return micHeight > 0 ? micHeight : nil
@@ -134,7 +137,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                 // The deck: the mic in the middle of the room.
                 .frame(maxHeight: fill != nil ? .infinity : nil)
         case .trackpad:
-            TrackpadPage(input: input, watcher: watcher)
+            TrackpadPage(input: input, watcher: watcher, big: rowHidden)
                 .frame(height: fill != nil ? pagesHeight : micHeight > 0 ? micHeight + threadHeight : nil)
                 // The way back: the row above, or a swipe in from the plate's left edge.
                 .overlay(alignment: .leading) {
@@ -180,6 +183,42 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         // The deck: the mic page sits in the middle of the room.
         if let pages = pagesHeight, fill != nil, micHeight > 0 { top += max(0, (pages - micHeight) / 2) }
         return abs(p.x - width / 2) < 70 && p.y > top - 6 && p.y < top + (compact ? 130 : 150)
+    }
+}
+
+/// A folded Duo's deck (Oct 25 2026): the three pages as one small cluster of glass cells in the
+/// deck's corner — the keyboard, the mic, the trackpad — so the trackpad can be the whole half.
+/// The same one adjustable element for VoiceOver as the row.
+struct InputCornerSwitcher: View {
+    @ObservedObject var input: MacInput
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(input.pages.enumerated()), id: \.element.id) { i, page in
+                if i > 0 { WatchCellDivider() }
+                let on = page == input.page
+                Button { input.show(page) } label: {
+                    Image(systemName: page.symbol)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(on ? Light.cyan : Ink.secondary)
+                        .frame(width: 44, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHidden(true)
+            }
+        }
+        .watchGlass(Capsule())
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: input.page)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Input")
+        .accessibilityValue(input.page.title)
+        .accessibilityHint("Swipe up or down for \(input.pages.map { $0.title.lowercased() }.joined(separator: ", ")).")
+        .accessibilityAdjustableAction { direction in
+            input.step(direction == .increment ? 1 : -1)
+        }
+        .accessibilityIdentifier("input-pages")
     }
 }
 
@@ -232,7 +271,12 @@ struct KeyboardPage: View {
     @ObservedObject var watcher: Watcher
 
     var body: some View {
-        MacKeyboardField(input: input, watcher: watcher, active: input.page == .keyboard)
+        #if DEBUG
+        let standIn = DebugHooks.fakeKeyboard != nil
+        #else
+        let standIn = false
+        #endif
+        MacKeyboardField(input: input, watcher: watcher, active: input.page == .keyboard && !standIn)
             .frame(width: 1, height: 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityHidden(true)
