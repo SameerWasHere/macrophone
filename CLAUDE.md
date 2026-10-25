@@ -40,6 +40,85 @@ Feature flags: a message goes only to a peer that named its feature in hello / w
 (`LinkClient.features`, `LinkServer.macFeatures`; `mpctl serve` names them all) — App Store
 iPhone 1.0 and an older Mac keep working.
 
+## The iPhone Duo (Oct 25 2026)
+
+Sameer: "make the app work on the iPhone Duo. Everything we built needs to work well on the front
+screen and then we need to come up with an epic inside screen experience … like a little MacBook
+with the window or full screen taking up the full half when partially folded and the bottom half
+being trackpad or keyboard or mic … a Duo version that supports every fold option". The Duo folds
+like a book: a cover screen (466 × 678 pt — wider and shorter than a Pro, its status bar on the
+side) and an inner screen (669 × 951 pt). Nothing changes for any other iPhone.
+- **Poses** (`FoldPose`, MacrophoneKit `Core/FoldPose.swift`, pure, `FoldPoseTests`): `closed`
+  (the cover: the phone's layout, `MainView.phoneBody`, compact), `open(landscape:)` (the inner
+  screen flat), `laptop` (partly folded, the hinge across), `book` (partly folded, the hinge up
+  and down). `FoldPose.derive(FoldReading)`: the hinge decides (closed · partiallyOpen · fullyOpen);
+  partly open, the fold's region says which way (a band wider than tall = laptop) else the scene's
+  shape; no hinge reading and a scene ≥ 600 pt on its short side is still the inner screen, open.
+  `FoldHalves.split` cuts the scene at the fold's region (margins included; a 28 pt band in the
+  middle without one). `deckRise(angle:)` = 0 flat → 1 past ~120°.
+- **Read** (`Model/Posture.swift`, `Posture.shared`, iOS 27.1 gated, older systems untouched):
+  SwiftUI's `onHingeChange` (`DeviceHinge.status` / `angle`) and `GeometryProxy.reservedRegions(kind:
+  .division, options: [.includeInactive])` — `PostureReader` round the main view (`RootView`), the
+  size measured with the keyboard ignored so a folded layout never shrinks for it. UIKit's
+  `UIHingeInteraction` / `UIView.reservedRegions` are the same facts; the app reads them once, in
+  SwiftUI. A pose change: `Haptics.soft()`, a VoiceOver layout announcement (`FoldPose.spoken`),
+  "pose: laptop (112°, 951×669)" in the log.
+- **Layouts** (`UI/DuoView.swift`, extensions of `MainView` — its members are internal now, not
+  private, so the Duo file reaches them): *open, upright* — the top bar, the window view large
+  (`WatchPanel` as the phone has it: header, window, keys/answers), then side by side with the
+  fold's line between them the Send to panel (left; the transcript while the mic is open) and the
+  carousel (right: row · Thread · mic — each half a set width, since the carousel sizes its pages
+  to the width it's given and a flexible split had it chasing itself: the hang of Oct 25);
+  *open, on its side* — the window left, a 352 pt rail right (top bar, panel, the mic at its
+  foot, below the fold's line); *laptop* — `DuoMacHalf` (`WatchWindow` edge to edge, 4 pt inset)
+  on the top half, the fold's band empty, `DuoDeck` on the bottom half: `WatchHeaderBar` (the
+  window view's header, extracted from `WatchPanel`: name menu + dots, Sound | Mac Controls, zoom
+  out | Window, Done), `WatchActions(wide:)` (the answers in one row when they fit, Esc · Keys
+  and Pan | Scroll under them; else the keys row), then the carousel filling the rest
+  (`InputCarousel(fill:)`: the trackpad takes it all, the mic sits in the middle, a Thread slot
+  of 40 — none under 175 pt of room — and a one-line status); the laptop body ignores the
+  keyboard's safe area so the Mac's half never shrinks (the keyboard and its bar rise over the
+  deck); *book* — the Mac on the LEFT page, the deck on the RIGHT (`twoRows` header: name + Done,
+  then the clusters) — the right thumb drives the trackpad, and it reads as a laptop does, the
+  screen then the keys. Not watching on the inner screen: `DuoGlance` on the Mac's plate — the
+  picked app's icon and name, "Show it here" (`AppModel.showWindowForPose`); Pair a Mac / Looking
+  for ‹Mac› when there's none. The split follows the hinge: the deck rises (`offset` + opacity on
+  `Posture.rise`), the Mac's picture settles into its half (`scaleEffect` 0.97 → 1); Reduce
+  Motion: fades. State is kept across poses: the window, its zoom (per app), the carousel's page,
+  a dictation under way (the deck shows the transcript in the actions' place), a sheet.
+- **Rules:** opening the inner screen opens the pick's window by itself (`AppModel.poseChanged` →
+  `openWindowForPose`: the Whole Screen for the Clipboard / Where I'm typing; waits for the Mac
+  when it isn't connected yet — `linkClient(_:stateChanged:)`); closing the phone closes a window
+  view the pose opened (`openedByPose`), never one he opened. The deck remembers its page per
+  folded pose (`MacInput.deckPage(for:)`, UserDefaults `duo.deck.laptop` / `duo.deck.book`, the
+  trackpad the first time; `MacInput.poseChanged`, `opened()` honours it); flat or closed, the mic
+  as ever. A window fitted to the phone follows the view's shape when the pose changes
+  (`Watcher.followShape`: 0.7 s after the view settles, only `isFitted`, only when the aspect
+  moved > 6%, quiet). Orientation: `AppDelegate.application(_:supportedInterfaceOrientationsFor:)`
+  — every way on a screen ≥ 600 pt on its short side (the inner), upright on the cover and every
+  other iPhone (Info.plist lists all four; the delegate narrows).
+- **The simulator can't be folded from a script.** Xcode 27.1's Device Hub folds and rotates a
+  simulated Duo, but opening it the first time asks for an admin password ("DevicesSystemUpdater
+  is trying to install Apple software") — not done; `simctl` has no hinge command, the Duo's
+  `io enumerate` lists the cover (1398 × 2034) and the inner (2007 × 2853) displays but the app
+  runs on the cover with the inner dark, and nothing in CoreSimulator / DeviceHub / backboardd
+  names a hinge. So: `MACROPHONE_POSTURE=closed|portrait|landscape|laptop|book[@<angle>]` forces
+  the pose (a fold band in the middle stands for the region) and `MACROPHONE_FRAME=951x669` /
+  `669x951` draws the inner screen's frame to scale on the cover (the frame's own keyboard is
+  the cover's, rising over everything); the real APIs are wired and untested on hardware.
+  `MACROPHONE_WATCH_ACTIONS=…,done` closes the window view (the glance). Frames:
+  `docs/screens/duo/<pose>/` (main · window on each page · Mac Controls · Settings · the glance,
+  a contact sheet each). UI tests `DuoUITests` (a paired `mpctl serve`): the laptop pose opens on
+  the trackpad, a drag moves the pointer, the row switches pages, typing reaches the Mac, hide
+  comes back to the mic, Done leaves the glance; the book's deck is on the right page; the open
+  screen keeps the mic and the panel off the fold. `TEST_RUNNER_MACROPHONE_DUO_SHOTS=<dir>`.
+- **Needs a real Duo:** the hinge's angle range and update rate (the deck's rise is tuned to
+  165°→120°), the division region's frame and margins, which display the scene lands on when
+  folding, the inner keyboard's height in the laptop pose (the deck is 321 pt; the bar + keys
+  should cover it, not the Mac), the Mac's picture at the inner screen's size (the stream is
+  already up to 2,560 px wide; `watchShape` carries the view's points — nothing on the Mac
+  changes).
+
 ## Several Macs on one iPhone (Oct 19 2026)
 
 Sameer: "I should also be able to pair multiple Macs to my phone and switch easily by swiping up
