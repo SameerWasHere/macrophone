@@ -36,7 +36,10 @@ final class InputCarouselUITests: XCTestCase {
 
         // Right to left ON THE THREAD (the band right under the page row): the trackpad.
         let threadY = row.frame.maxY + 40
-        let fromThread = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: app.frame.width - 40, dy: threadY))
+        // From the band's right side, measured off the row (the iPhone Duo's cover keeps a
+        // status bar down its right edge, outside the app's content: a start at the screen's
+        // edge there lands on nothing — Oct 25 2026).
+        let fromThread = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.maxX + 20, dy: threadY))
         fromThread.press(forDuration: 0.05, thenDragTo: fromThread.withOffset(CGVector(dx: -240, dy: 0)))
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
         XCTAssertTrue(trackpad.waitForExistence(timeout: 3), "a swipe right to left on the Thread shows the trackpad")
