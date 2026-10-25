@@ -11,7 +11,7 @@ final class DuoShotsTests: XCTestCase {
 
     override func setUp() { continueAfterFailure = true }
 
-    private func shoot(_ pose: String, frame: String, name: String, wait: TimeInterval, extra: [String: String] = [:]) {
+    private func shoot(_ pose: String, frame: String, name: String, wait: TimeInterval, extra: [String: String] = [:], keepTips: Bool = false) {
         guard let dir else { return }
         let app = XCUIApplication()
         var env = ["MACROPHONE_SCREEN": "main", "MACROPHONE_FRAME": frame, "MACROPHONE_POSTURE": pose,
@@ -26,7 +26,7 @@ final class DuoShotsTests: XCTestCase {
         let gotIt = app.buttons["Got it"]
         let deadline = Date().addingTimeInterval(wait)
         while Date() < deadline {
-            if gotIt.exists { gotIt.tap() }
+            if !keepTips, gotIt.exists { gotIt.tap() }
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
         let folder = URL(fileURLWithPath: dir).appendingPathComponent(pose)
@@ -42,6 +42,11 @@ final class DuoShotsTests: XCTestCase {
         shoot(pose, frame: frame, name: "4-window-trackpad", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@trackpad"])
         shoot(pose, frame: frame, name: "7-glance", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "done"])
         shoot(pose, frame: frame, name: "8-live-words", wait: 10, extra: ["MACROPHONE_WATCH_ACTIONS": "say@Fix the login bug where the token expires early"])
+        // The first-run tip, where the open screens show one (a strip under the window since the
+        // fourth pass); the folded halves show none.
+        if pose == "portrait" || pose == "landscape" {
+            shoot(pose, frame: frame, name: "9-first-run-tip", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@mic"], keepTips: true)
+        }
     }
 
     func testPortraitFrames() throws {

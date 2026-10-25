@@ -108,17 +108,19 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
   While two viewers overlap in the cross-fade, a `ViewerScrollView` leaving the window hands the
   video canvas to the newest one that wants it (`wantedVideo` / `newest`) — the one on its way out
   used to take the canvas with it and leave the glance black.
-- **Open, upright** (669 × 951): the top bar, the window large (`DuoMacArea` → `WatchPanel(duo:
-  true)`: the answers float over the picture's foot there too, `WatchActions(keysOnly: true)`
-  under it; a first-run tip keeps to the window's top-right corner at 340 pt, `WatchTipCard(corner:)`),
-  then side by side with the fold's line between them the Send to panel (left; the transcript
-  while the mic is open) and the carousel (right, tight: a 48 pt Thread slot, a one-line status) —
-  each half a set width (a flexible split had the carousel chasing its own measure: the hang of
-  Oct 25). The window gets ~58% of the height. *Open, on its side* (951 × 669): the window left
-  at full height, a 316 pt rail right — the top bar, Send to (the transcript while the mic is
-  open), then the deck filling the rest (the trackpad whole, the mic in the middle). The rail
-  rather than a bottom deck: it keeps the window near-square, so a window fitted to it reads like
-  a laptop's, puts the controls under the right thumb, and only the picture crosses the fold.
+- **Open, upright** (669 × 951) **[the fourth pass, below, re-laid the lower part]**: the top bar,
+  the window large (`DuoMacArea` → `WatchPanel(duo: true)`: the answers float over the picture's
+  foot there too, `WatchActions(keysOnly: true)` under it; a first-run tip is a strip under the
+  window, `WatchTipCard(inline:)`), then Send to across the whole width (a grid of every place
+  with its name, none on the fold's line; the transcript while the mic is open), then a band
+  split at the fold: Send after pasting and Cleanup on the left (`optionsPanel`), the carousel on
+  the right (tight: a 48 pt Thread slot, a one-line status) — each half a set width (a flexible
+  split had the carousel chasing its own measure: the hang of Oct 25). *Open, on its side*
+  (951 × 669): the window left at full height, a 344 pt rail right — the top bar, Send to as a
+  grid three across (the transcript while the mic is open), then the deck filling the rest (the
+  trackpad whole, the mic in the middle). The rail rather than a bottom deck: it keeps the window
+  near-square, so a window fitted to it reads like a laptop's, puts the controls under the right
+  thumb, and only the picture crosses the fold.
 - **Rules:** opening the inner screen opens the pick's window by itself (`AppModel.poseChanged` →
   `openWindowForPose`: the Whole Screen for the Clipboard / Where I'm typing; waits for the Mac
   when it isn't connected yet — `linkClient(_:stateChanged:)`); closing the phone closes a window
@@ -215,6 +217,48 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
     overflowed a 320 pt half). The window already fills what each pose gives it; Sound, Mac
     Controls, zoom out, Window, Pan | Scroll are visible in every header; Whole Screen, Mac
     Controls, Refresh and ⋯ are round buttons on the panel.
+- **The fourth pass (the QA walkthrough, the same day — Sameer: "make sure the app is
+  appropriately taking advantage of the additional screen space inside"):**
+  - *Send to on the inner screen is a grid* (`PlacesLayout.grid(gutter:maxRows:)`,
+    `QuickControls(layout:options:)`): every open app in view with its name, Clipboard, Where I'm
+    typing and + among them, in rows that wrap (`FoldFlow`, a `Layout`: cells of one size, left
+    to right; given a `gutter` — `DuoLook.creaseBand`, the fold's band — no cell sits across the
+    middle of the width, so the crease reads as the gap between two columns). Open upright it
+    spans the width under the window; the rail and a folded deck with nothing watched take it
+    three or four across, `maxRows` before it scrolls (as tall as its rows, then an edge fade —
+    a scroll view would otherwise take whatever the deck below it left). A cell is a set width
+    and as tall as its name — "Where I'm typing" takes two lines, never "…". Open upright, Send
+    after pasting and Cleanup leave the panel for a small panel of their own on the left of the
+    band under it, level with the mic (`optionsPanel`), so the band balances: the two switches
+    left, the pages, the Thread and the mic right. The phone's panel is untouched.
+  - *The answers never cover the question* (`WatchWindow(footInset:)` → `ViewerScrollView
+    .footInset`): what floats over the picture's foot — the answers, on the open screen and a
+    folded half — is the viewer's bottom inset, so the picture's newest lines sit above the
+    chips (the view's visible height is the bounds less the inset: the fit, the fill, the
+    centring and the bottom all use it; the zoom-out shows the whole window above them). The
+    floating row wraps (`FoldFlow` again): three long answers take two rows, not three; one
+    longer than the row wraps its words. The words you're saying still go over the picture.
+  - *A first-run tip on the inner screen is a strip under the window* (`WatchTipCard(inline:)`:
+    the symbol, "TIP 1 OF 6 · the title", the words whole, Next and ×), between the picture and
+    the key row — never a card over the picture's text; a folded half shows no tips, as before.
+  - *A window that can't fill a folded half* (`DuoMacHalf.shortPicture` — one the Mac can't
+    reshape, or hasn't yet; the whole screen; the demo on the book's tall page) sits at the top
+    at the width-fit scale times the fill's cap (`ViewerScrollView.fillCap`, 1.8), the header
+    above it with room of its own (never over its first lines), and the room under it holds the
+    answers with Esc · Keys and Pan | Scroll (the phone's column), or the keys, and the words
+    you're saying (`DuoLiveWords(below:)`); the glance there puts its bar under the picture
+    (`DuoGlance(pictureHeight:)`, Show it here on its own line when the page is narrow). No
+    black above or below. A window the Mac does reshape fills the half as before.
+  - *A folded deck's mic page is a laptop's* (`carousel(rowHidden:)`): the mic a size up
+    (`DuoLook.deckMic`, 112 — the glyph and the ring grow with it, `MicButton(size:)`), the
+    Thread across the half in a 96 pt slot with the room over it for the pages' cluster
+    (`DuoLook.deckThreadTop`; more on the book's tall page, so the Thread and the mic sit
+    together in the middle of the page — the mic page aligns to the Thread, not the room's
+    middle), the status line in the body size (`StatusLine(font:)`). The laptop's deck with
+    nothing watched puts the top bar over the mic on the right, so the grid on the left has two
+    rows of room.
+  - DuoUITests' portrait test now checks that Send to spans the screen and that no place sits
+    on the fold's line. Frames: `docs/screens/duo/<pose>/` again, before | after sheets each.
 - **Needs a real Duo:** the hinge's angle range and update rate (the deck's rise is tuned to
   165°→120°), the division region's frame and margins, which display the scene lands on when
   folding, the inner keyboard's height in the laptop pose (the deck is ~320 pt; the bar + keys
