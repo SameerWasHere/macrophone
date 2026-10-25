@@ -83,11 +83,43 @@ final class MacInput: ObservableObject {
         if !pages.contains(page) { show(.mic, quiet: true) }
     }
 
-    /// The window view opened: the mic, every time.
+    /// The window view opened: the mic, every time — unless the Duo is folded into the laptop
+    /// or the book (Oct 25 2026), where the deck opens on the page remembered for that pose (the
+    /// trackpad the first time, like a laptop).
     func opened() {
         refreshPages()
-        if page != .mic { show(.mic, quiet: true) }
+        let wanted = pose.isFolded ? deckPage(for: pose) : .mic
+        if page != wanted { show(wanted, quiet: true) }
     }
+
+    // MARK: The Duo's deck (Oct 25 2026)
+
+    /// How the Duo is held (`Posture`): folded, the deck remembers its page per pose.
+    private(set) var pose: FoldPose = .closed
+
+    /// The pose changed: a folded pose brings its remembered page up (the trackpad the first
+    /// time); back to a flat or closed screen, the mic — the page the window view always opens on.
+    func poseChanged(_ p: FoldPose) {
+        let was = pose
+        pose = p
+        guard watcher?.isOpen == true else { return }
+        refreshPages()
+        if p.isFolded, !was.isFolded || p != was {
+            show(deckPage(for: p), quiet: true)
+        } else if !p.isFolded, was.isFolded, page == .trackpad {
+            show(.mic, quiet: true)
+        }
+    }
+
+    /// The deck's page for a folded pose: the one last picked there, else the trackpad (the mic
+    /// when the Mac has no trackpad).
+    func deckPage(for p: FoldPose) -> Page {
+        let stored = UserDefaults.standard.string(forKey: Self.deckKey(p)).flatMap(Page.init(rawValue:))
+        let wanted = stored ?? .trackpad
+        return pages.contains(wanted) ? wanted : .mic
+    }
+
+    private static func deckKey(_ p: FoldPose) -> String { "duo.deck.\(p.name)" }
 
     /// The window view closed: back to the mic, nothing held or waiting.
     func closed() {
@@ -137,6 +169,8 @@ final class MacInput: ObservableObject {
         // A modifier waiting is shown lit on the keyboard's bar and nowhere else: leaving the
         // keyboard page lets it go, so no page ever carries one it can't show (the polish pass).
         if p != .keyboard, !modifiers.isEmpty { modifiers = [] }
+        // Folded: the deck remembers the page he picked for this pose.
+        if pose.isFolded, !quiet { UserDefaults.standard.set(p.rawValue, forKey: Self.deckKey(pose)) }
         watcher?.log?.add("watching: input page \(p.rawValue)")
     }
 

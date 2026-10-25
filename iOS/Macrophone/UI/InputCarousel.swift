@@ -38,6 +38,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     var compact: Bool
     /// The Thread's slot on the mic page (the trackpad takes it on its page).
     var threadHeight: CGFloat
+    /// The Duo's deck (Oct 25 2026): the room the whole carousel has — the pages take all of it
+    /// (the trackpad whole, the mic in the middle of it). Nil: the pages size themselves.
+    var fill: CGFloat? = nil
     /// The mic page: the mic button and the status line, built by the mic screen.
     @ViewBuilder var mic: () -> Mic
     /// The Thread's band, between the row and the pages.
@@ -55,7 +58,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     private var multi: Bool { input.pages.count > 1 }
     private var index: Int { input.pages.firstIndex(of: input.page) ?? 0 }
     /// The Thread shows on the mic page alone: the trackpad takes its room, the keyboard the foot.
-    private var threadShown: Bool { input.page == .mic }
+    /// The Thread shows on the mic page alone — and not on a deck too short for it (the Duo
+    /// folded with the window's question up: the mic keeps its room, the Thread folds away).
+    private var threadShown: Bool { input.page == .mic && !(fill.map { $0 < 175 } ?? false) }
     private var motion: Animation { reduceMotion ? .easeInOut(duration: 0.2) : Motion.settle }
 
     var body: some View {
@@ -102,6 +107,12 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The pages' height: the mic page's own; the trackpad's that plus the Thread's room (the
     /// screen above never moves); the keyboard's a breath (its keys ride on the keyboard).
     private var pagesHeight: CGFloat? {
+        if let fill {
+            // The deck: whatever the row and the Thread leave (the keyboard page stays a breath —
+            // the keyboard itself rises over the deck).
+            if input.page == .keyboard { return InputCarouselLook.keyboardBreath }
+            return max(0, fill - (multi ? InputCarouselLook.row + InputCarouselLook.rowGap : 0) - (threadShown ? threadHeight : 0))
+        }
         switch input.page {
         case .mic: return micHeight > 0 ? micHeight : nil
         case .trackpad: return micHeight > 0 ? micHeight + threadHeight : nil
@@ -120,9 +131,11 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         case .mic:
             mic()
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { micHeight = $0 }
+                // The deck: the mic in the middle of the room.
+                .frame(maxHeight: fill != nil ? .infinity : nil)
         case .trackpad:
             TrackpadPage(input: input, watcher: watcher)
-                .frame(height: micHeight > 0 ? micHeight + threadHeight : nil)
+                .frame(height: fill != nil ? pagesHeight : micHeight > 0 ? micHeight + threadHeight : nil)
                 // The way back: the row above, or a swipe in from the plate's left edge.
                 .overlay(alignment: .leading) {
                     Color.clear
@@ -163,7 +176,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
 
     /// The mic's own ground, in the middle of the page under the Thread: a touch there is the mic's.
     private func onMic(_ p: CGPoint) -> Bool {
-        let top = threadShown ? threadHeight : 0
+        var top = threadShown ? threadHeight : 0
+        // The deck: the mic page sits in the middle of the room.
+        if let pages = pagesHeight, fill != nil, micHeight > 0 { top += max(0, (pages - micHeight) / 2) }
         return abs(p.x - width / 2) < 70 && p.y > top - 6 && p.y < top + (compact ? 130 : 150)
     }
 }

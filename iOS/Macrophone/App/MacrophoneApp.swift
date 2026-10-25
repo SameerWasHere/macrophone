@@ -4,6 +4,8 @@ import SwiftUI
 @main
 struct MacrophoneApp: App {
     @Environment(\.scenePhase) private var scenePhase
+    /// Where the screen may turn (the Duo's inner screen every way; every other screen upright).
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
         #if DEBUG
@@ -72,15 +74,25 @@ struct RootView: View {
     }
 
     @ViewBuilder private var mainView: some View {
+        // The Duo's pose is read round the main view (the hinge, the fold's region, the size).
         let main = MainView(recorder: recorder, watcher: model.watcher)
+            .modifier(PostureReader(posture: Posture.shared))
         #if DEBUG
         // MACROPHONE_TYPE: the app at that Dynamic Type size.
         let sized = main.transformEnvironment(\.dynamicTypeSize) { if let t = DebugHooks.typeSize { $0 = t } }
         if let size = DebugHooks.frame {
-            // A smaller phone's screen, to check the compact layout on this simulator.
-            sized.safeAreaPadding(.top, 20)
-                .frame(width: size.width, height: size.height)
-                .border(Ink.line)
+            // Another screen's shape on this simulator: a smaller phone's (an SE), or the Duo's
+            // inner screen (951 × 669, 669 × 951 — bigger than the cover, so drawn to scale).
+            GeometryReader { geo in
+                let scale = min(1, geo.size.width / size.width, geo.size.height / size.height)
+                sized.safeAreaPadding(.top, scale < 1 ? 0 : 20)
+                    .frame(width: size.width, height: size.height)
+                    .border(Ink.line)
+                    .scaleEffect(scale, anchor: .topLeading)
+                    .frame(width: size.width * scale, height: size.height * scale, alignment: .topLeading)
+                    .clipped()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else {
             sized
         }

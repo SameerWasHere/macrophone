@@ -55,7 +55,7 @@ struct WatchPanel: View {
 
     var body: some View {
         VStack(spacing: compact ? 6 : 8) {
-            header
+            WatchHeaderBar(watcher: watcher, onSwitched: announce)
             WatchWindow(watcher: watcher, interactive: true)
                 .frame(maxHeight: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
@@ -96,21 +96,8 @@ struct WatchPanel: View {
 
     private var sessions: [LiveTarget] { model.watchSessions }
 
-    private var current: Int? {
-        guard let t = watcher.target else { return nil }
-        return sessions.firstIndex { t.matches($0) }
-    }
-
     private func go(_ step: Int) {
         if let t = model.watchStep(step) { announce(t, from: step) }
-    }
-
-    private func show(_ t: LiveTarget) {
-        let was = current
-        if model.watchSession(t) {
-            let now = sessions.firstIndex { $0.id == t.id }
-            announce(t, from: (was.map { w in (now ?? w) >= w } ?? true) ? 1 : -1)
-        }
     }
 
     /// Names the window for a moment, and slides it in from the side it came from.
@@ -142,6 +129,58 @@ struct WatchPanel: View {
                 if (step > 0 && dx < 0) || (step < 0 && dx > 0) { go(step) }
             })
             .accessibilityHidden(true)
+    }
+}
+
+/// The window view's header — the name as a menu of the Mac's windows (with the page dots), Sound
+/// and Mac Controls, zoom out and the Window menu, Done — as one row; on the Duo's book page
+/// (Oct 25 2026, `twoRows`) the name and Done on one row and the clusters under them. The panel
+/// draws it over the window; a folded Duo draws it at the top of the deck, the window filling
+/// the other half.
+struct WatchHeaderBar: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var watcher: Watcher
+    var twoRows = false
+    /// A window picked from the menu, and the side it came from (1 next, -1 previous).
+    var onSwitched: (LiveTarget, Int) -> Void = { _, _ in }
+
+    var body: some View {
+        if twoRows {
+            VStack(spacing: 6) {
+                HStack(spacing: 10) {
+                    name
+                    Spacer(minLength: 8)
+                    done
+                }
+                HStack(spacing: 10) {
+                    clusters
+                    Spacer(minLength: 0)
+                }
+            }
+        } else {
+            HStack(spacing: 10) {
+                name
+                Spacer(minLength: 8)
+                clusters
+                done
+            }
+            .frame(minHeight: WatchLook.header)
+        }
+    }
+
+    private var sessions: [LiveTarget] { model.watchSessions }
+
+    private var current: Int? {
+        guard let t = watcher.target else { return nil }
+        return sessions.firstIndex { t.matches($0) }
+    }
+
+    private func show(_ t: LiveTarget) {
+        let was = current
+        if model.watchSession(t) {
+            let now = sessions.firstIndex { $0.id == t.id }
+            onSwitched(t, (was.map { w in (now ?? w) >= w } ?? true) ? 1 : -1)
+        }
     }
 
     /// Every window on the Mac's screen that isn't already one of the places above (Finder, a
@@ -194,56 +233,58 @@ struct WatchPanel: View {
         .accessibilityIdentifier("watch-sessions")
     }
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            // The name keeps its room; the page dots step aside when the controls need it.
-            if sessions.count > 1 || watcher.canWatchDesktop || !model.everyWindow.isEmpty {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 10) {
-                        sessionMenu
-                        if sessions.count <= 8, let i = current { WatchPageDots(count: sessions.count, current: i) }
-                    }
+    /// The name keeps its room; the page dots step aside when the controls need it.
+    @ViewBuilder private var name: some View {
+        if sessions.count > 1 || watcher.canWatchDesktop || !model.everyWindow.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
                     sessionMenu
+                    if sessions.count <= 8, let i = current { WatchPageDots(count: sessions.count, current: i) }
                 }
-                .layoutPriority(1)
-            } else {
-                WatchKicker(watcher: watcher).layoutPriority(1)
+                sessionMenu
             }
-            Spacer(minLength: 8)
-            // The Mac's sound here, and its volume, brightness and media keys (Oct 19 2026,
-            // Sameer: "Mac controls should be its own button rather than hidden in a sub menu"
-            // — one tap from any window, on every page): one piece of glass.
-            if model.macAudio.macCanPlay || model.canMacControls {
-                HStack(spacing: 0) {
-                    WatchSoundButton(player: model.macAudio)
-                    if model.macAudio.macCanPlay, model.canMacControls { WatchCellDivider() }
-                    if model.canMacControls { MacControlsButton(style: .cell) }
-                }
-                .watchGlass(Capsule())
-            }
-            if watcher.macCanFit, watcher.target != .clipboard {
-                HStack(spacing: 0) {
-                    WatchWholeButton(watcher: watcher)
-                    // The whole screen has no window to size, minimize or close.
-                    if !watcher.isDesktop {
-                        WatchCellDivider()
-                        WatchWindowMenu(watcher: watcher)
-                    }
-                }
-                .watchGlass(Capsule())
-            }
-            Button("Done") {
-                Haptics.tick()
-                watcher.close()
-            }
-            .font(.subheadline.weight(.semibold))
-            .buttonStyle(WatchCellStyle(inset: 14, height: WatchLook.header))
-            .fixedSize()
-            .watchGlass(Capsule())
-            .accessibilityHint("Stops showing the window and brings back Send to and Cleanup.")
-            .accessibilityIdentifier("watch-done")
+            .layoutPriority(1)
+        } else {
+            WatchKicker(watcher: watcher).layoutPriority(1)
         }
-        .frame(minHeight: WatchLook.header)
+    }
+
+    @ViewBuilder private var clusters: some View {
+        // The Mac's sound here, and its volume, brightness and media keys (Oct 19 2026,
+        // Sameer: "Mac controls should be its own button rather than hidden in a sub menu"
+        // — one tap from any window, on every page): one piece of glass.
+        if model.macAudio.macCanPlay || model.canMacControls {
+            HStack(spacing: 0) {
+                WatchSoundButton(player: model.macAudio)
+                if model.macAudio.macCanPlay, model.canMacControls { WatchCellDivider() }
+                if model.canMacControls { MacControlsButton(style: .cell) }
+            }
+            .watchGlass(Capsule())
+        }
+        if watcher.macCanFit, watcher.target != .clipboard {
+            HStack(spacing: 0) {
+                WatchWholeButton(watcher: watcher)
+                // The whole screen has no window to size, minimize or close.
+                if !watcher.isDesktop {
+                    WatchCellDivider()
+                    WatchWindowMenu(watcher: watcher)
+                }
+            }
+            .watchGlass(Capsule())
+        }
+    }
+
+    private var done: some View {
+        Button("Done") {
+            Haptics.tick()
+            watcher.close()
+        }
+        .font(.subheadline.weight(.semibold))
+        .buttonStyle(WatchCellStyle(inset: 14, height: WatchLook.header))
+        .fixedSize()
+        .watchGlass(Capsule())
+        .accessibilityHint("Stops showing the window and brings back Send to and Cleanup.")
+        .accessibilityIdentifier("watch-done")
     }
 }
 
@@ -857,10 +898,14 @@ struct WatchActions: View {
     /// Which input page is up: with the keyboard, its own bar carries Esc, the arrows and Return,
     /// so this row steps aside and the window keeps the room (the polish pass, Oct 19 2026).
     @ObservedObject private var input: MacInput
+    /// The Duo's laptop deck (Oct 25 2026): wide and short, so the answers go across in one row
+    /// when they fit (the trackpad under them keeps its room), else down as on the phone.
+    var wide = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(watcher: Watcher) {
+    init(watcher: Watcher, wide: Bool = false) {
         self.watcher = watcher
+        self.wide = wide
         _input = ObservedObject(wrappedValue: watcher.input)
     }
 
@@ -883,11 +928,70 @@ struct WatchActions: View {
     /// The question's answers: the one the arrows are on — what Return would pick — stands out
     /// in the window's light; a tap on any of them answers. With the keyboard up only the
     /// answers show (Esc and the keys are on its bar).
-    private func answers(_ p: WatchPrompt) -> some View {
+    @ViewBuilder private func answers(_ p: WatchPrompt) -> some View {
+        if wide {
+            // The answers in one row across the deck (the phone's column when they're too long
+            // for it), Esc · Keys and Pan | Scroll on the row under them.
+            VStack(spacing: 8) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                            answer(p, i, c).fixedSize()
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    VStack(spacing: 8) {
+                        ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                            answer(p, i, c)
+                        }
+                    }
+                }
+                if !keyboardUp { answerKeys }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
+        } else {
+            answersColumn(p)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
+        }
+    }
+
+    /// Esc · Keys, and Pan | Scroll, under (or beside) the answers.
+    private var answerKeys: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 0) {
+                key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
+                WatchCellDivider()
+                Button { watcher.showKeys() } label: {
+                    Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(WatchCellStyle(inset: 16))
+                .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
+                .accessibilityIdentifier("watch-keys")
+            }
+            .watchGlass(Capsule())
+            .fixedSize()
+            Spacer(minLength: 0)
+            ViewThatFits(in: .horizontal) {
+                WatchDragSwitch(watcher: watcher, style: .words).fixedSize()
+                WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize()
+            }
+        }
+    }
+
+    private func answersColumn(_ p: WatchPrompt) -> some View {
         VStack(spacing: 8) {
             ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                answer(p, i, c)
+            }
+            if !keyboardUp { answerKeys }
+        }
+    }
+
+    private func answer(_ p: WatchPrompt, _ i: Int, _ c: WatchPrompt.Choice) -> some View {
                 let lit = p.highlighted == i
-                Button { watcher.choose(i) } label: {
+                return Button { watcher.choose(i) } label: {
                     HStack(spacing: 10) {
                         if let n = c.number {
                             Text("\(n)")
@@ -923,31 +1027,6 @@ struct WatchActions: View {
                 .accessibilityLabel(c.label)
                 .accessibilityHint(lit ? "What Return picks now. Answers \(watcher.name) on your Mac." : "Answers \(watcher.name) on your Mac.")
                 .accessibilityIdentifier("watch-answer-\(i)")
-            }
-            if !keyboardUp {
-                HStack(spacing: 8) {
-                    HStack(spacing: 0) {
-                        key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
-                        WatchCellDivider()
-                        Button { watcher.showKeys() } label: {
-                            Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold))
-                        }
-                        .buttonStyle(WatchCellStyle(inset: 16))
-                        .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
-                        .accessibilityIdentifier("watch-keys")
-                    }
-                    .watchGlass(Capsule())
-                    .fixedSize()
-                    Spacer(minLength: 0)
-                    ViewThatFits(in: .horizontal) {
-                        WatchDragSwitch(watcher: watcher, style: .words).fixedSize()
-                        WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize()
-                    }
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
     }
 
     /// The row at the widest it fits: Pan | Scroll as words, else as glyphs (Oct 18 2026 — with

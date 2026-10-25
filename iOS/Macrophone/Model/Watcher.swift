@@ -316,9 +316,34 @@ final class Watcher: ObservableObject {
     var sendWindow: (WatchWindowCommand) -> Bool = { _ in false }
 
     /// The size of this phone's view of the window, in points (Fit to iPhone sends its shape).
-    var viewerSize: CGSize = .zero { didSet { if viewerSize != oldValue { applyFitWhenShown() } } }
+    var viewerSize: CGSize = .zero { didSet { if viewerSize != oldValue { applyFitWhenShown(); followShape() } } }
     var canFitToPhone: Bool { macFeatures().contains(WatchShape.feature) }
     var sendShape: (CGSize) -> Bool = { _ in false }
+
+    /// The shape last sent to the Mac (Fit to iPhone), to tell a real change of shape from a jitter.
+    private var shapeSent: CGSize?
+    private var followTask: Task<Void, Never>?
+
+    /// A window fitted to the phone follows the view's shape when the view changes shape — the
+    /// Duo folding into the laptop or the book, opening flat, turning (Oct 25 2026): a moment
+    /// after the view settles, the Mac gives the window the new shape. Only a window that was
+    /// fitted (never one he sized himself), only when the shape really differs, and quietly.
+    private func followShape() {
+        followTask?.cancel()
+        guard isOpen, let target, Self.isFitted(target), canFitToPhone, viewerSize.width > 40, viewerSize.height > 40 else { return }
+        let size = viewerSize
+        let before = shapeSent ?? size
+        let aspect = size.width / size.height, was = before.width / before.height
+        guard shapeSent == nil || abs(aspect - was) / was > 0.06 else { return }
+        followTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard let self, !Task.isCancelled, self.isOpen, self.viewerSize == size, self.phase == .live else { return }
+            guard self.sendShape(size) else { return }
+            self.shapeSent = size
+            if let viewKey = self.viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
+            self.log?.add("watching: the fitted window follows the view's shape")
+        }
+    }
 
     /// Fit to iPhone: the Mac gives the window this view's shape, as big as its screen allows, so
     /// the whole window fills the view. Takes over from Aa, like the Window menu's sizes.
@@ -326,6 +351,7 @@ final class Watcher: ObservableObject {
     func fitToPhone(opened: Bool = false) {
         touch()
         guard viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
+        shapeSent = viewerSize
         Haptics.tick()
         if fit != .normal { setFitLocally(.normal) }
         if wholeWindow { toggleWholeWindow() }

@@ -153,6 +153,10 @@ final class AppModel: ObservableObject {
     private var bag = Set<AnyCancellable>()
     private var flushing = false
     private var sceneActive = false
+    /// The Duo (Oct 25 2026): the window view was opened by the pose (the inner screen), not by
+    /// him — closing the phone closes it again, so the cover screen is where he left it.
+    var openedByPose = false
+    var lastPose: FoldPose = .closed
     /// A Shortcut / control / Siri picked the target for this one recording.
     private var recordingOverride: SendSelection?
     private var textWaiters: [CheckedContinuation<String?, Never>] = []
@@ -203,6 +207,10 @@ final class AppModel: ObservableObject {
         watcher.input.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
         watcher.onClosed = { [weak self] name, target in self?.windowClosed(name, target) }
         AgentAlerts.shared.install(self)
+        // The Duo's pose (Oct 25 2026): the inner screen opens the pick's window by itself, the
+        // deck follows the pose, and closing the phone puts things back.
+        Posture.shared.log = log
+        Posture.shared.$pose.removeDuplicates().sink { [weak self] p in self?.poseChanged(p) }.store(in: &bag)
         // Looking at a chat that answered settles its mark.
         watcher.$target.compactMap { $0 }.sink { [weak self] t in self?.clearNeeds(for: t) }.store(in: &bag)
         Task { await AgentAlerts.shared.subscribeInCloud() }
@@ -1436,6 +1444,50 @@ extension AppModel: LinkClientDelegate {
         // Another Mac, or none: its agents aren't this one's.
         if case .notPaired = state { needsYou = [] }
         if case .connected = state { watcher.linkChanged(connected: true) } else { watcher.linkChanged(connected: false) }
+        // On the Duo's inner screen with nothing watched yet: the pick's window, now that the Mac is here.
+        if case .connected = state { openWindowForPose() }
+    }
+
+    // MARK: The iPhone Duo (Oct 25 2026)
+
+    /// How the Duo is held changed. Opening it (flat, the laptop, the book) brings the picked
+    /// app's window up by itself — the Whole Screen when the pick is the Clipboard or Where I'm
+    /// typing — so the inner screen is the Mac; closing it puts the main screen back if the pose
+    /// opened the window. Between inner poses nothing is opened or closed: the deck just re-lays.
+    private func poseChanged(_ pose: FoldPose) {
+        let was = lastPose
+        lastPose = pose
+        watcher.input.poseChanged(pose)
+        if pose.isInner, !was.isInner {
+            openWindowForPose()
+        } else if !pose.isInner, was.isInner {
+            if openedByPose, watcher.isOpen { watcher.close(); log.add("pose: closed — the window view the pose opened closes with it") }
+            openedByPose = false
+        }
+    }
+
+    /// The pick's window for the inner screen, when nothing is being watched.
+    private func openWindowForPose() {
+        guard lastPose.isInner, !watcher.isOpen, isConnected, !recorder.isActive else { return }
+        let pick = settings.selection.target
+        switch pick {
+        case .app:
+            watcher.open(pick)
+        case .clipboard, .frontApp:
+            guard watcher.canWatchDesktop else { return }
+            watcher.open(reach.wholeScreenTarget)
+        }
+        guard watcher.isOpen else { return }
+        openedByPose = true
+        log.add("pose: \(lastPose.name) — opened the window view")
+    }
+
+    /// The window view, from the inner screen's glance (after Done): the same window the pose opens.
+    func showWindowForPose() {
+        Haptics.tick()
+        openedByPose = false
+        let pick = settings.selection.target
+        if case .app = pick { watcher.open(pick) } else if watcher.canWatchDesktop { watcher.open(reach.wholeScreenTarget) }
     }
 
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac]) {

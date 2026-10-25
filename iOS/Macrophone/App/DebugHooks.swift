@@ -53,7 +53,7 @@ import UIKit
 /// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
 /// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
-///                                            answer@1 (the window's question, second answer), keys,
+///                                            answer@1 (the window's question, second answer), keys, done (closes it),
 ///                                            next / prev (the next or previous window), attend@<bundle>@<window>
 ///                                            (what tapping an alert does), fit@larger|largest|normal (Aa),
 ///                                            sound (the Sound button's tap), mic (the mic opening, for the sound)
@@ -66,6 +66,10 @@ import UIKit
 ///                                            key@cmd+shift+f5, appswitch (⌘ held, Tab)
 /// MACROPHONE_VIDEO=0                         a phone from before video: the Mac sends pictures (to compare the two)
 /// MACROPHONE_FRAME=375x667                   the mic screen in a smaller phone's frame (an SE: compact < 700pt) on this simulator
+///                                            — or the Duo's inner screen (951x669, 669x951), drawn to scale on a smaller one
+/// MACROPHONE_POSTURE=closed|portrait|landscape|laptop|book[@<angle>]  the iPhone Duo held that way (the hinge and the fold's
+///                                            region stood in for; laptop and book split the frame in the middle), e.g.
+///                                            MACROPHONE_FRAME=951x669 MACROPHONE_POSTURE=laptop@112
 /// MACROPHONE_MIC_LOOK=pressed|holding|starting|finishing|sending|sent|queued|error|disabled
 ///                                            holds one of the mic button's looks (the Thread and the sky follow; holding
 ///                                            pairs with MACROPHONE_FAKE_RECORDING for "let go to send")
@@ -324,6 +328,9 @@ enum DebugHooks {
                         model.watchStep(a == "next" ? 1 : -1)
                     } else if a == "keys" {
                         model.watcher.showKeys()
+                    } else if a == "done" {
+                        // Done: the window view closes (on the Duo's inner screen, the glance shows).
+                        model.watcher.close()
                     } else if a.hasPrefix("fit@"), let f = WatchFit(rawValue: String(a.dropFirst(4))) {
                         model.watcher.setFit(f)
                     } else if a == "pan" || a == "scroll" {

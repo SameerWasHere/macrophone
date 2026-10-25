@@ -16,39 +16,39 @@ struct MainView: View {
     @ObservedObject var recorder: Recorder
     @ObservedObject var watcher: Watcher
     /// The three ways in while a window shows (Oct 19 2026): which page is up.
-    @ObservedObject private var input: MacInput
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject var input: MacInput
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     init(recorder: Recorder, watcher: Watcher) {
         self.recorder = recorder
         self.watcher = watcher
         _input = ObservedObject(wrappedValue: watcher.input)
     }
-    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.dynamicTypeSize) var typeSize
 
-    @State private var startedByPress = false
-    @State private var stopOnRelease = false
-    @State private var holding = false
-    @State private var filamentMode: FilamentMode = .ready
-    @State private var showCheck = false
-    @State private var settleTask: Task<Void, Never>?
+    @State var startedByPress = false
+    @State var stopOnRelease = false
+    @State var holding = false
+    @State var filamentMode: FilamentMode = .ready
+    @State var showCheck = false
+    @State var settleTask: Task<Void, Never>?
     /// iPhone SE-class heights: a shorter stage and card; History lives in the top bar only.
-    @State private var compact = false
+    @State var compact = false
 
-    private var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting || look == "starting" }
+    var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting || look == "starting" }
 
     /// The mic has closed and the last words are settling (a tap waits for them).
-    private var isFinishing: Bool { recorder.phase == .finishing || look == "finishing" }
+    var isFinishing: Bool { recorder.phase == .finishing || look == "finishing" }
 
     /// The mic can't open until a permission is turned on in Settings: the button says so and waits.
-    private var micOff: Bool {
+    var micOff: Bool {
         if look == "disabled" { return true }
         if case .problem(_, true) = model.status { return true }
         return false
     }
 
     /// `MACROPHONE_MIC_LOOK` holds one of the button's looks for a screenshot (DEBUG only).
-    private var look: String? {
+    var look: String? {
         #if DEBUG
         return DebugHooks.env["MACROPHONE_MIC_LOOK"]
         #else
@@ -57,15 +57,55 @@ struct MainView: View {
     }
 
     /// The words stay on screen from the first word until the text has gone out.
-    private var showLiveWords: Bool {
+    var showLiveWords: Bool {
         isRecording || recorder.phase == .finishing || model.processing
     }
 
     /// The top bar, header and controls: at rest, when nothing else has the area.
-    private var showSettings: Bool { !showLiveWords && !watcher.isOpen }
+    var showSettings: Bool { !showLiveWords && !watcher.isOpen }
 
+
+    /// How the iPhone Duo is held (Oct 25 2026): the cover screen keeps this layout; the inner
+    /// screen's poses are laid out in `UI/DuoView.swift`.
+    @ObservedObject var posture = Posture.shared
 
     var body: some View {
+        poseBody
+        // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
+        .background(GroundBackground(glow: skyGlow).animation(.easeInOut(duration: 0.7), value: filamentMode))
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            if DebugHooks.env["MACROPHONE_ROUTE_PROBE"] == "1" {
+                Text(model.routeProbe).font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
+                    .accessibilityIdentifier("debug-route").accessibilityLabel(model.routeProbe)
+            }
+        }
+        #endif
+        .onChange(of: model.pulse) { _, _ in react() }
+        .onChange(of: recorder.phase) { _, _ in react() }
+        .onChange(of: recorder.hasWords) { _, _ in react() }
+        .onChange(of: model.status) { _, _ in react() }
+        .onAppear { react() }
+        // A pose settling: a soft tick, and VoiceOver hears what's where now.
+        .onChange(of: posture.settleSeq) { _, _ in
+            Haptics.soft()
+            UIAccessibility.post(notification: .layoutChanged, argument: posture.pose.spoken)
+        }
+    }
+
+    /// The pose's layout: the phone's (the cover screen, every other iPhone), or the Duo's.
+    @ViewBuilder private var poseBody: some View {
+        switch posture.pose {
+        case .closed: phoneBody
+        case .open(let landscape): if landscape { openLandscapeBody } else { openPortraitBody }
+        case .laptop: laptopBody
+        case .book: bookBody
+        }
+    }
+
+    // MARK: The phone's layout (the cover screen too)
+
+    var phoneBody: some View {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 // The top area: the settings at rest; the transcript while the mic is open.
@@ -149,26 +189,11 @@ struct MainView: View {
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }
         }
-        // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
-        .background(GroundBackground(glow: skyGlow).animation(.easeInOut(duration: 0.7), value: filamentMode))
-        #if DEBUG
-        .overlay(alignment: .topLeading) {
-            if DebugHooks.env["MACROPHONE_ROUTE_PROBE"] == "1" {
-                Text(model.routeProbe).font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
-                    .accessibilityIdentifier("debug-route").accessibilityLabel(model.routeProbe)
-            }
-        }
-        #endif
-        .onChange(of: model.pulse) { _, _ in react() }
-        .onChange(of: recorder.phase) { _, _ in react() }
-        .onChange(of: recorder.hasWords) { _, _ in react() }
-        .onChange(of: model.status) { _, _ in react() }
-        .onAppear { react() }
     }
 
     // MARK: Top
 
-    private var topBar: some View {
+    var topBar: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
                 MacPill().fixedSize()
@@ -190,7 +215,7 @@ struct MainView: View {
         .animation(.easeInOut(duration: 0.25), value: isRecording)
     }
 
-    @ViewBuilder private var topButtons: some View {
+    @ViewBuilder var topButtons: some View {
         Button { model.sheet = .history } label: {
             Image(systemName: "clock.arrow.circlepath").topBarGlyph()
         }
@@ -207,10 +232,10 @@ struct MainView: View {
 
     // MARK: The Thread — fixed above the mic
 
-    private var filamentHeight: CGFloat { compact ? 56 : 96 }
-    private var filamentSlot: CGFloat { compact ? 56 : 84 }
+    var filamentHeight: CGFloat { compact ? 56 : 96 }
+    var filamentSlot: CGFloat { compact ? 56 : 84 }
 
-    private var threadBand: some View {
+    var threadBand: some View {
         ZStack {
             Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
                 .frame(height: filamentSlot)
@@ -223,7 +248,7 @@ struct MainView: View {
 
     // MARK: While the mic is open: the transcript takes the whole area
 
-    private var transcriptArea: some View {
+    var transcriptArea: some View {
         VStack(spacing: 0) {
             DestinationLine(words: recorder.words)
                 .padding(.horizontal, Space.text)
@@ -236,7 +261,7 @@ struct MainView: View {
         }
     }
 
-    private var timer: some View {
+    var timer: some View {
         Group {
             if isRecording, let start = recorder.startedAt {
                 TimelineView(.periodic(from: start, by: 1)) { ctx in
@@ -259,12 +284,12 @@ struct MainView: View {
 
     // MARK: Quick controls, the mic, the status line
 
-    private var quickControls: some View {
+    var quickControls: some View {
         QuickControls(settings: model.settings, compact: compact, glow: skyGlow)
             .padding(.bottom, compact ? 10 : 18)
     }
 
-    private var statusSlot: some View {
+    var statusSlot: some View {
         FixedSlot(alignment: .top) {
             // Two lines of the status font (three at accessibility sizes); longer lines step down a size.
             Text(typeSize.isAccessibilitySize ? "A\nB\nC" : "A\nB").font(.subheadline).lineSpacing(0)
@@ -275,7 +300,7 @@ struct MainView: View {
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
 
-    private func pressDown() {
+    func pressDown() {
         if isRecording {
             stopOnRelease = true
             startedByPress = false
@@ -287,7 +312,7 @@ struct MainView: View {
         }
     }
 
-    private func pressUp(_ held: TimeInterval) {
+    func pressUp(_ held: TimeInterval) {
         holding = false
         if stopOnRelease {
             stopOnRelease = false
@@ -301,9 +326,9 @@ struct MainView: View {
 
     // MARK: Filament state
 
-    private var checkColor: Color { Light.mint }
+    var checkColor: Color { Light.mint }
 
-    private var skyGlow: Color {
+    var skyGlow: Color {
         switch filamentMode {
         case .ready: return Light.cyan
         case .listening, .live: return Light.ember
@@ -314,7 +339,7 @@ struct MainView: View {
         }
     }
 
-    private func react() {
+    func react() {
         settleTask?.cancel()
         var mode: FilamentMode
         if isRecording {
