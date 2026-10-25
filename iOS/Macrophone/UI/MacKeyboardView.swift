@@ -23,7 +23,7 @@ struct MacKeyboardField: UIViewRepresentable {
         // The keyboard went away while this page was up (hide, a swipe down, the system): the
         // page goes with it — back to the mic (Sameer: "when hitting the close button, the UI
         // should just go back to mic mode", never a keyboard page with no keyboard).
-        v.onKeyboardGone = { [weak input] in if input?.page == .keyboard { input?.show(.mic, quiet: true) } }
+        v.onKeyboardGone = { [weak input] in input?.hideKeyboard(quiet: true) }
         v.bar = KeyboardBarHost(rootView: MacKeyboardBar(input: input, watcher: watcher))
         v.inputAccessoryView = v.bar
         return v
@@ -94,6 +94,7 @@ final class KeyboardTextView: UITextView {
         spellCheckingType = .default
         returnKeyType = .default
         accessibilityElementsHidden = true
+        Self.all.add(self)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -103,12 +104,29 @@ final class KeyboardTextView: UITextView {
     /// Let go of the keyboard while the page still wants it (hide, the system, a menu): a
     /// moment later, still without it, the page is told. A menu that hands the keyboard straight
     /// back never counts.
+    /// Inside our own `becomeFirstResponder`: UIKit resigns the current first responder first —
+    /// this view, when it's asked twice — and that resign is no loss of the keyboard.
+    private var becoming = false
+    /// A `becomeFirstResponder` already queued (the page's first frames ask twice).
+    private var focusQueued = false
+
+    override func becomeFirstResponder() -> Bool {
+        becoming = true
+        defer { becoming = false }
+        let ok = super.becomeFirstResponder()
+        if ok { Self.current = self }
+        return ok
+    }
+
     override func resignFirstResponder() -> Bool {
         let r = super.resignFirstResponder()
-        if r, wantsKeyboard {
+        if r, wantsKeyboard, !becoming {
             goneCheck?.cancel()
             let item = DispatchWorkItem { [weak self] in
                 guard let self, self.wantsKeyboard, !self.isFirstResponder, self.window != nil else { return }
+                // Another field of this page has the keyboard (the Duo's layouts cross-fading,
+                // Oct 25 2026: the arriving layout's field took it from this one's): not gone.
+                if let c = Self.current, c !== self, c.isFirstResponder, c.wantsKeyboard { return }
                 self.onKeyboardGone()
             }
             goneCheck = item
@@ -122,18 +140,42 @@ final class KeyboardTextView: UITextView {
         super.deleteBackward()
     }
 
+    /// Every field alive, and the one that last took the keyboard. Two exist while the Duo's
+    /// layouts cross-fade (each layout builds its own carousel; a page's field is in each), and
+    /// SwiftUI can keep a faded-out one around at alpha 0 (the third pass found the deck's
+    /// not-watching layout lingering so): the keyboard belongs to a field that can be seen,
+    /// and a field leaving the window hands it to one that's still there.
+    private static let all = NSHashTable<KeyboardTextView>.weakObjects()
+    private static weak var current: KeyboardTextView?
+
+    /// Hidden by an ancestor (faded out, hidden): never takes the keyboard.
+    private var seen: Bool {
+        var v: UIView? = self
+        while let u = v { if u.isHidden || u.alpha < 0.01 { return false }; v = u.superview }
+        return true
+    }
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil, wantsKeyboard {
+            // Gone from the screen while the page still wants the keyboard: a field that's
+            // still there (the arriving layout's) takes it.
+            for other in Self.all.allObjects where other !== self && other.window != nil && other.wantsKeyboard { other.applyFocus() }
+        }
         applyFocus()
     }
 
-    /// Takes the keyboard when the page is up (once it's in a window), lets it go when it isn't.
+    /// Takes the keyboard when the page is up (once it's in a window, and visible), lets it go
+    /// when it isn't.
     func applyFocus() {
         guard window != nil else { return }
         if !wantsKeyboard { goneCheck?.cancel() }
-        if wantsKeyboard, !isFirstResponder {
+        if wantsKeyboard, !isFirstResponder, !focusQueued, seen {
+            focusQueued = true
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.wantsKeyboard, self.window != nil else { return }
+                guard let self else { return }
+                self.focusQueued = false
+                guard self.wantsKeyboard, self.window != nil, !self.isFirstResponder, self.seen else { return }
                 self.becomeFirstResponder()
             }
         } else if !wantsKeyboard, isFirstResponder {
@@ -231,12 +273,12 @@ struct MacKeyboardBar: View {
                 HStack(spacing: 0) {
                     moreKeys
                     WatchCellDivider()
-                    Button { input.show(.mic) } label: {
+                    Button { input.hideKeyboard() } label: {
                         Image(systemName: "keyboard.chevron.compact.down").font(.subheadline.weight(.semibold))
                     }
                     .buttonStyle(WatchCellStyle(width: 40, tint: Ink.secondary))
                     .accessibilityLabel("Hide the keyboard")
-                    .accessibilityHint("Back to the mic.")
+                    .accessibilityHint(input.pose.isFolded ? "Back to the deck." : "Back to the mic.")
                     .accessibilityIdentifier("keyboard-hide")
                 }
                 .watchGlass(Capsule())
@@ -250,7 +292,7 @@ struct MacKeyboardBar: View {
             Color.clear
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 20).onEnded { v in
-                    if v.translation.width < -40, abs(v.translation.width) > abs(v.translation.height) { input.show(.mic) }
+                    if v.translation.width < -40, abs(v.translation.width) > abs(v.translation.height) { input.hideKeyboard() }
                 })
         }
         .dynamicTypeSize(...DynamicTypeSize.xLarge)

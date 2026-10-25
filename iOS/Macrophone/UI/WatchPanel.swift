@@ -535,7 +535,7 @@ struct WatchWindow: View {
                                  // Where the trackpad's pointer starts: the middle of what shows.
                                  input.visibleCenter = { [weak v] in v?.visibleCenter }
                              })
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerSize = $0 }
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill) }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."

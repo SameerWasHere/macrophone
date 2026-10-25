@@ -8,6 +8,10 @@ import UIKit
 // (`FoldPose.derive`, MacrophoneKit) and keeps the answer here for every screen. A regular
 // iPhone never reads a hinge and stays `.closed` — its layout is untouched.
 //
+// What's published is only what a layout draws from: the pose, the halves, the rise (in steps —
+// `FoldPose.deckRise`). The raw reading isn't: a hinge trembling by half a degree would otherwise
+// re-lay the whole main view each time (the third pass).
+//
 // DEBUG: `MACROPHONE_POSTURE=closed|portrait|landscape|laptop|book[@<angle>]` forces the pose
 // (and a fold band in the middle of the scene), so every pose can be laid out and screenshotted
 // on a simulator that can't be folded from a script.
@@ -17,13 +21,15 @@ final class Posture: ObservableObject {
     static let shared = Posture()
 
     @Published private(set) var pose: FoldPose = .closed
-    @Published private(set) var reading: FoldReading = .none
     /// The two halves of a folded screen (the laptop, the book); nil otherwise.
     @Published private(set) var halves: FoldHalves?
     /// How far the deck has risen as the hinge folds: 0 flat, 1 folded (`FoldPose.deckRise`).
     @Published private(set) var rise: Double = 0
-    /// Bumped when the pose changes: a soft tick, a VoiceOver announcement.
+    /// Bumped when the pose changes after the first one is known: a soft tick, a VoiceOver
+    /// announcement (the pose the app opens in is no change he made).
     @Published private(set) var settleSeq = 0
+    /// What the pose was derived from, for the log and the tests (not published: see above).
+    private(set) var reading: FoldReading = .none
     /// The pose before this one (what to restore on the way back).
     private(set) var previous: FoldPose = .closed
     var log: DiagnosticLog?
@@ -32,6 +38,7 @@ final class Posture: ObservableObject {
     private var angle: Double = 180
     private var size: CGSize = .zero
     private var division: FoldDivision?
+    private var derivedOnce = false
 
     #if DEBUG
     /// `MACROPHONE_POSTURE`: the pose, and the angle it's held at.
@@ -56,9 +63,12 @@ final class Posture: ObservableObject {
     static let forced = Forced(DebugHooks.env["MACROPHONE_POSTURE"])
     #endif
 
-    /// The hinge, as SwiftUI reports it (nil: no hinge in this hierarchy).
+    /// The hinge, as SwiftUI reports it (nil: no hinge in this hierarchy). The angle only matters
+    /// in the rise's steps, so a reading that changes neither the status nor the step is dropped
+    /// here, before anything is published.
     func hinge(_ status: HingeStatus?, angle: Double) {
-        guard status != hinge || abs(angle - self.angle) > 0.5 else { return }
+        let stepped = FoldPose.deckRise(angle: angle) != FoldPose.deckRise(angle: self.angle)
+        guard status != hinge || stepped else { self.angle = angle; return }
         hinge = status
         self.angle = angle
         recompute()
@@ -99,8 +109,10 @@ final class Posture: ObservableObject {
         guard p != pose else { return }
         previous = pose
         pose = p
-        settleSeq &+= 1
+        if derivedOnce { settleSeq &+= 1 }
         log?.add("pose: \(p.name) (\(Int(r.angle))°, \(Int(r.size.width))×\(Int(r.size.height)))")
+        // The first pose derived after the first measure is the one the app opened in.
+        if size != .zero { derivedOnce = true }
     }
 
     /// The fold's line in the scene even when the screen is flat (the inactive region): what an
@@ -112,18 +124,22 @@ final class Posture: ObservableObject {
 }
 
 /// Reads the hinge and the fold's region into `Posture` — iOS 27.1 only; older systems and
-/// regular iPhones pass through untouched.
+/// regular iPhones pass through untouched. The scene is measured with the keyboard ignored (a
+/// folded layout never shrinks for it) in a layer of its own, so the content keeps the keyboard
+/// avoidance it always had on the phone: the window view moves up over the keyboard page there.
 struct PostureReader: ViewModifier {
     @ObservedObject var posture: Posture
 
     func body(content: Content) -> some View {
-        GeometryReader { geo in
-            content
-                .frame(width: geo.size.width, height: geo.size.height)
-                .onChange(of: FoldSnapshot(geo), initial: true) { _, s in posture.scene(size: s.size, division: s.division) }
-        }
-        .ignoresSafeArea(.keyboard)
-        .modifier(HingeReader(posture: posture))
+        content
+            .background {
+                GeometryReader { geo in
+                    Color.clear
+                        .onChange(of: FoldSnapshot(geo), initial: true) { _, s in posture.scene(size: s.size, division: s.division) }
+                }
+                .ignoresSafeArea(.keyboard)
+            }
+            .modifier(HingeReader(posture: posture))
     }
 }
 
@@ -135,7 +151,9 @@ private struct FoldSnapshot: Equatable {
     init(_ geo: GeometryProxy) {
         size = geo.size
         if #available(iOS 27.1, *) {
-            // The one that splits the view, active or not; the first is the fold.
+            // The one that splits the view, active or not; the first is the fold. Its frame is
+            // in this proxy's own coordinate space, margins included (UIKit's words for the
+            // same region).
             if let r = geo.reservedRegions(kind: .division, options: [.includeInactive]).first {
                 division = FoldDivision(frame: r.frame, isActive: r.isActive)
             } else {
@@ -153,8 +171,10 @@ private struct HingeReader: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 27.1, *) {
             content.onHingeChange { _, new in
+                // No hinge: the view left a hierarchy that has one (or never had one).
                 guard let h = new.hinge else { posture.hinge(nil, angle: 180); return }
                 let status: HingeStatus = h.status == .closed ? .closed : h.status == .partiallyOpen ? .partiallyOpen : .fullyOpen
+                // `DeviceHinge.angle` is an `Angle` (UIKit's `UIHinge.angle` is the same in radians).
                 posture.hinge(status, angle: h.angle.degrees)
             }
         } else {

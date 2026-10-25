@@ -197,6 +197,8 @@ final class Watcher: ObservableObject {
             prompt = nil
             keysInstead = false
             fit = Self.rememberedFit(for: target)
+            // Another window: what was sent for the last one says nothing about this one's shape.
+            shapeSent = nil
         }
         let opening = !isOpen || glancing
         isOpen = true
@@ -234,7 +236,9 @@ final class Watcher: ObservableObject {
     /// The half's shape, quietly: once per entry into a folded pose, once the window is live and
     /// the view measured. Never the whole screen (nothing to reshape), never a Mac that can't.
     private func applyHalfFit() {
-        guard wantsHalfFit, fillsView, isOpen, phase == .live, canFitToPhone, !isDesktop, let target,
+        // Never while glancing: the Mac's window is reshaped only once it's in hand (Show it here
+        // asks again).
+        guard wantsHalfFit, fillsView, viewerFills, isOpen, !glancing, phase == .live, canFitToPhone, !isDesktop, let target,
               viewerSize.width > 40, viewerSize.height > 40 else { return }
         wantsHalfFit = false
         guard sendShape(viewerSize) else { return }
@@ -251,6 +255,8 @@ final class Watcher: ObservableObject {
         isOpen = false
         glancing = false
         wantsHalfFit = false
+        shapeSent = nil
+        followTask?.cancel()
         input.closed()
         idleTask?.cancel()
         _ = sendWatch(nil)
@@ -374,20 +380,49 @@ final class Watcher: ObservableObject {
     var sendWindow: (WatchWindowCommand) -> Bool = { _ in false }
 
     /// The size of this phone's view of the window, in points (Fit to iPhone sends its shape).
-    var viewerSize: CGSize = .zero { didSet { if viewerSize != oldValue { applyFitWhenShown(); applyHalfFit(); followShape() } } }
+    /// Set through `viewerMeasured`, which also says whether the view is a folded half's.
+    private(set) var viewerSize: CGSize = .zero
+    /// The view reporting now is a folded Duo half's (the picture fills it).
+    private var viewerFills = false
     var canFitToPhone: Bool { macFeatures().contains(WatchShape.feature) }
     var sendShape: (CGSize) -> Bool = { _ in false }
+
+    /// A view of the window has its size. `fill`: it is a folded half's (the half's shape is what
+    /// the Mac is given, never the phone layout's that may still be on screen as the poses
+    /// cross-fade).
+    func viewerMeasured(_ size: CGSize, fill: Bool = false) {
+        guard size != viewerSize || fill != viewerFills else { return }
+        viewerSize = size
+        viewerFills = fill
+        applyFitWhenShown()
+        applyHalfFit()
+        followShape()
+    }
 
     /// The shape last sent to the Mac (Fit to iPhone), to tell a real change of shape from a jitter.
     private var shapeSent: CGSize?
     private var followTask: Task<Void, Never>?
+    /// A pose change is what a fitted window follows (the third pass): never the view growing or
+    /// shrinking on the phone for the keyboard, a question's answers or a tip, which reshaped
+    /// the Mac's window on every one of them. Armed by `poseSettled`, spent by the next follow or
+    /// after a few seconds.
+    private var followArmedAt: Date?
 
-    /// A window fitted to the phone follows the view's shape when the view changes shape — the
+    /// The Duo's pose changed (the laptop, the book, flat, turned): the next measure of the view
+    /// may reshape a fitted window.
+    func poseSettled() {
+        followArmedAt = Date()
+        followShape()
+    }
+
+    /// A window fitted to the phone follows the view's shape when the pose changes shape — the
     /// Duo folding into the laptop or the book, opening flat, turning (Oct 25 2026): a moment
     /// after the view settles, the Mac gives the window the new shape. Only a window that was
-    /// fitted (never one he sized himself), only when the shape really differs, and quietly.
+    /// fitted (never one he sized himself), only when the shape really differs, only after a
+    /// pose change, and quietly.
     private func followShape() {
         followTask?.cancel()
+        guard let armed = followArmedAt, Date().timeIntervalSince(armed) < 4 else { followArmedAt = nil; return }
         guard isOpen, let target, Self.isFitted(target), canFitToPhone, viewerSize.width > 40, viewerSize.height > 40 else { return }
         let size = viewerSize
         let before = shapeSent ?? size
@@ -396,10 +431,11 @@ final class Watcher: ObservableObject {
         followTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard let self, !Task.isCancelled, self.isOpen, self.viewerSize == size, self.phase == .live else { return }
+            self.followArmedAt = nil
             guard self.sendShape(size) else { return }
             self.shapeSent = size
             if let viewKey = self.viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
-            self.log?.add("watching: the fitted window follows the view's shape")
+            self.log?.add("watching: the fitted window follows the view's shape (\(Int(size.width))×\(Int(size.height)))")
         }
     }
 

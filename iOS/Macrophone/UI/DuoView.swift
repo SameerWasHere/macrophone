@@ -184,9 +184,9 @@ extension MainView {
         }
     }
 
-    /// The Send to panel at a size.
+    /// The Send to panel at a size — on the inner screen each place is named under its icon.
     func sendToPanel(compact: Bool) -> some View {
-        QuickControls(settings: model.settings, compact: compact, glow: skyGlow)
+        QuickControls(settings: model.settings, compact: compact, named: true, glow: skyGlow)
             .padding(.bottom, compact ? 8 : 18)
     }
 
@@ -326,6 +326,7 @@ struct DuoMacHalf: View {
             }
         }
         .onAppear { reveal() }
+        .onDisappear { hideTask?.cancel(); hideTask = nil }
         .onChange(of: watcher.isShowing) { _, _ in reveal() }
         .onChange(of: watcher.answers?.id) { _, _ in reveal() }
         .onChange(of: watcher.phase) { _, _ in reveal() }
@@ -341,7 +342,14 @@ struct DuoMacHalf: View {
         return headerShown || voiceOver || watcher.phase != .live
     }
 
+    @State private var revealedAt = Date.distantPast
+
     private func reveal() {
+        // A finger moving over the picture arrives at every frame: the hold is re-armed at most
+        // twice a second (each re-arm is a task), and the header stays up while it moves.
+        let now = Date()
+        guard !headerShown || now.timeIntervalSince(revealedAt) > 0.5 else { return }
+        revealedAt = now
         hideTask?.cancel()
         if !headerShown { headerShown = true }
         hideTask = Task { @MainActor in
@@ -360,10 +368,14 @@ struct DuoOverlayHeader: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        WatchHeaderBar(watcher: watcher, twoRows: twoRows, dragSwitch: !twoRows) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
+        WatchHeaderBar(watcher: watcher, twoRows: twoRows, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 16)
+            // The bar is a bar: a tap between its controls stays on it (it never clicks through
+            // to the Mac's title bar under it).
+            .contentShape(Rectangle())
+            .onTapGesture {}
             .background {
                 LinearGradient(colors: [Ink.ground.opacity(reduceTransparency ? 0.96 : 0.82), Ink.ground.opacity(reduceTransparency ? 0.96 : 0.5), .clear],
                                startPoint: .top, endPoint: .bottom)
@@ -433,7 +445,8 @@ struct DuoDeck: View {
                             .padding(.trailing, WatchLook.sideMargin + 8)
                     }
                 }
-            } else {
+            } else if vertical {
+                // The book's page: the top bar, Send to, the mic in what's left.
                 main.topBar
                 if main.showLiveWords {
                     main.transcriptArea
@@ -442,12 +455,27 @@ struct DuoDeck: View {
                     main.sendToPanel(compact: true)
                         .padding(.top, 8)
                 }
-                // The mic in the middle of what's left.
                 GeometryReader { g in
                     main.carousel(fill: g.size.height, compact: true)
                         .frame(width: g.size.width, height: g.size.height, alignment: .top)
                 }
                 .frame(minHeight: main.showLiveWords ? 150 : 160)
+            } else {
+                // The laptop's half is wide and short: Send to (or the transcript) on the left,
+                // the mic with its Thread on the right — as the open screen's band lies — so
+                // neither is cut off in a half of ~320 points.
+                main.topBar
+                GeometryReader { g in
+                    let half = max(0, (g.size.width - DuoLook.foldGap) / 2)
+                    HStack(alignment: .top, spacing: DuoLook.foldGap) {
+                        Group {
+                            if main.showLiveWords { main.transcriptArea } else { main.sendToPanel(compact: true).padding(.top, 8) }
+                        }
+                        .frame(width: half, height: g.size.height, alignment: .top)
+                        main.carousel(fill: g.size.height, compact: true)
+                            .frame(width: half, height: g.size.height, alignment: .top)
+                    }
+                }
             }
         }
         .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: main.showLiveWords)
@@ -499,9 +527,11 @@ struct DuoGlance: View {
                     } else {
                         icon(target, size: 64)
                         Text(Places.appName(target, in: model)).font(.serif(.title2)).foregroundStyle(Ink.ink)
-                        Text(target == .clipboard || target == .frontApp ? "Your Mac's whole screen, live." : "Its window on your Mac, live — and your words go there.")
-                            .font(.footnote).foregroundStyle(Ink.secondary)
-                        showButton
+                        Text(target == .clipboard || target == .frontApp ? "Your Mac's whole screen, live."
+                             : model.isNotOpen(target) ? "Not open on your Mac — pick another place, or open it from Send to."
+                             : "Its window on your Mac, live — and your words go there.")
+                            .font(.footnote).foregroundStyle(model.isNotOpen(target) ? Light.ochre : Ink.secondary)
+                        if !model.isNotOpen(target) { showButton }
                     }
                 }
                 .multilineTextAlignment(.center)

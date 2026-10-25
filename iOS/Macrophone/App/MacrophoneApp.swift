@@ -70,6 +70,10 @@ struct RootView: View {
             .preferredColorScheme(.dark)
             .presentationBackground(Ink.ground)
             .presentationDragIndicator(.visible)
+            // The Duo's inner screen (Oct 25 2026): a sheet is a form in the middle of the
+            // screen, not a phone's sheet stretched to its width; the Mac Controls panel takes
+            // only the room its controls need.
+            .modifier(InnerScreenSheet(posture: Posture.shared, fitted: sheet == .macControls))
         }
     }
 
@@ -107,12 +111,32 @@ struct RootView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            // The cover's own keyboard rises at 1:1 over the scaled frame: it is no part of the
+            // simulation, so the frame never moves for it (MACROPHONE_FAKE_KEYBOARD draws one to
+            // scale). Without this a field in the scaled frame lost the keyboard a moment after
+            // taking it (the third pass).
+            .ignoresSafeArea(.keyboard)
         } else {
             sized
         }
         #else
         main
         #endif
+    }
+}
+
+/// A sheet on the iPhone Duo's inner screen: sized as a form (a panel: to its contents), as it
+/// would be on any wide screen. Every other iPhone's sheets are untouched.
+struct InnerScreenSheet: ViewModifier {
+    @ObservedObject var posture: Posture
+    var fitted = false
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *), posture.pose.isInner {
+            if fitted { content.presentationSizing(.fitted) } else { content.presentationSizing(.form) }
+        } else {
+            content
+        }
     }
 }
 

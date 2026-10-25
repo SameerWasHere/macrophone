@@ -106,6 +106,9 @@ struct QuickControls: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
     var compact = false
+    /// The iPhone Duo's open inner screen (Oct 25 2026, the third pass): room for each place's
+    /// name under its icon, so the row reads at a glance rather than by the one name above it.
+    var named = false
     /// The Thread's light, under the panel: the plate's foot takes a breath of it.
     var glow: Color = Light.cyan
     @AppStorage("onboarding.macNudgeDismissed") private var macNudgeDismissed = false
@@ -118,7 +121,7 @@ struct QuickControls: View {
             // pasting and Cleanup share one row under the places; what a choice does is said by the
             // status line under the mic when it's made, and by each Cleanup level in its menu.
             if model.isPaired {
-                PlacesRow(current: target, compact: compact)
+                PlacesRow(current: target, compact: compact, named: named)
                 PanelDivider()
                 OptionsRow(settings: settings, target: target, compact: compact) { model.sheet = .customCleanup }
             } else {
@@ -157,6 +160,8 @@ struct PlacesRow: View {
     @State private var refreshTurns = 0
     var current: TargetRef
     var compact = false
+    /// Each place's name under its icon (the Duo's open inner screen).
+    var named = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -205,9 +210,9 @@ struct PlacesRow: View {
                         ForEach(Array(places.enumerated()), id: \.element.id) { i, p in
                             // The apps with somewhere to type, then a line, then every other open app.
                             if p.kind == .app, !p.canType, i > 0, places[i - 1].canType {
-                                OtherAppsRule(compact: compact)
+                                OtherAppsRule(compact: compact, named: named)
                             }
-                            PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact,
+                            PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact, named: named,
                                         watchable: p.id == selected && current != .clipboard && model.isConnected && !notOpen,
                                         needs: model.isConnected ? model.needs(p) : nil,
                                         windowNeeds: { model.needs($0) != nil },
@@ -215,7 +220,7 @@ struct PlacesRow: View {
                                 .id(p.id)
                         }
                         // Any app on the Mac, open or not (Open an app).
-                        MoreAppsButton(compact: compact) { model.sheet = .openApp }
+                        MoreAppsButton(compact: compact, named: named) { model.sheet = .openApp }
                     }
                     .padding(.horizontal, Space.inset)
                     .padding(.vertical, 4)
@@ -336,6 +341,8 @@ private struct PlaceButton: View {
     var selected: Bool
     var current: TargetRef
     var compact = false
+    /// The name under the icon (the Duo's open inner screen): one line, the short name.
+    var named = false
     /// The pick, and its window can be shown: the eye on its icon says another tap watches it.
     var watchable = false
     /// One of its windows answered you: the mark on its icon.
@@ -355,40 +362,52 @@ private struct PlaceButton: View {
             // Icons only (Oct 18 2026, Sameer: "remove the sub text entirely and just show the App
             // logos in the selector for a cleaner look"): the picked place's name is the line above,
             // every icon's name is its VoiceOver label, and a long press lists an app's windows.
-            ZStack {
-                TargetIcon(target: place.target, icon: place.icon, size: compact ? 32 : 36, onTint: selected)
-                    .saturation(place.kind == .closed ? 0 : 1)
-                    .overlay(alignment: .topTrailing) {
-                        if needs != nil {
-                            // Answered you: a mark like an app's badge, in the colour of your move.
-                            Circle()
-                                .fill(Light.ember)
-                                .frame(width: 11, height: 11)
-                                .overlay(Circle().stroke(Ink.ground, lineWidth: 2))
-                                .offset(x: 4, y: -4)
-                                .transition(.scale.combined(with: .opacity))
+            VStack(spacing: 5) {
+                ZStack {
+                    TargetIcon(target: place.target, icon: place.icon, size: named ? 36 : compact ? 32 : 36, onTint: selected)
+                        .saturation(place.kind == .closed ? 0 : 1)
+                        .overlay(alignment: .topTrailing) {
+                            if needs != nil {
+                                // Answered you: a mark like an app's badge, in the colour of your move.
+                                Circle()
+                                    .fill(Light.ember)
+                                    .frame(width: 11, height: 11)
+                                    .overlay(Circle().stroke(Ink.ground, lineWidth: 2))
+                                    .offset(x: 4, y: -4)
+                                    .transition(.scale.combined(with: .opacity))
+                            }
                         }
-                    }
-                    .animation(Motion.snap, value: needs != nil)
-                    .overlay(alignment: .bottomTrailing) {
-                        if watchable {
-                            // Tap again to watch: the eye, on a small glass disc at the icon's corner.
-                            Image(systemName: "eye.fill")
-                                .font(.system(size: compact ? 8 : 9, weight: .bold))
-                                .foregroundStyle(Ink.ground)
-                                .frame(width: compact ? 16 : 18, height: compact ? 16 : 18)
-                                .background(Circle().fill(Ink.ink))
-                                .overlay(Circle().stroke(Ink.ground, lineWidth: 1.5))
-                                .offset(x: 5, y: 5)
-                                .transition(.scale(scale: 0.5).combined(with: .opacity))
-                                .accessibilityHidden(true)
+                        .animation(Motion.snap, value: needs != nil)
+                        .overlay(alignment: .bottomTrailing) {
+                            if watchable {
+                                // Tap again to watch: the eye, on a small glass disc at the icon's corner.
+                                Image(systemName: "eye.fill")
+                                    .font(.system(size: compact ? 8 : 9, weight: .bold))
+                                    .foregroundStyle(Ink.ground)
+                                    .frame(width: compact ? 16 : 18, height: compact ? 16 : 18)
+                                    .background(Circle().fill(Ink.ink))
+                                    .overlay(Circle().stroke(Ink.ground, lineWidth: 1.5))
+                                    .offset(x: 5, y: 5)
+                                    .transition(.scale(scale: 0.5).combined(with: .opacity))
+                                    .accessibilityHidden(true)
+                            }
                         }
-                    }
-                    .animation(Motion.snap, value: watchable)
-                // On its way (just opened from Open an App): a turn over its icon.
-                if place.kind == .opening { ProgressView().controlSize(.small).tint(Ink.ink) }
+                        .animation(Motion.snap, value: watchable)
+                    // On its way (just opened from Open an App): a turn over its icon.
+                    if place.kind == .opening { ProgressView().controlSize(.small).tint(Ink.ink) }
+                }
+                .frame(width: named ? 44 : compact ? 40 : 44, height: named ? 40 : compact ? 40 : 44)
+                if named {
+                    Text(place.shortName)
+                        .font(.caption2.weight(selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? Ink.ground : Ink.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(width: PlacesLook.namedWidth - 4)
+                        .accessibilityHidden(true)
+                }
             }
-            .frame(width: compact ? 40 : 44, height: compact ? 40 : 44)
+            .frame(width: named ? PlacesLook.namedWidth : nil, height: named ? PlacesLook.namedHeight : nil)
         }
         .placeButtonStyle(selected: selected)
         .controlSize(.small)
@@ -425,17 +444,25 @@ private struct PlaceButton: View {
     }
 }
 
+/// The named row's cell (the Duo's open inner screen): wide enough for most app names whole
+/// ("Messages", "Terminal"), tight enough for four or five places across half the screen.
+enum PlacesLook {
+    static let namedWidth: CGFloat = 60
+    static let namedHeight: CGFloat = 60
+}
+
 /// The line in the Send to row between the apps with somewhere to type and every other open app
 /// (Oct 18 2026). Those take the words in whatever text box you tap in them.
 private struct OtherAppsRule: View {
     var compact = false
+    var named = false
 
     var body: some View {
         Capsule()
             .fill(Ink.line)
-            .frame(width: 1, height: compact ? 26 : 30)
+            .frame(width: 1, height: named ? 44 : compact ? 26 : 30)
             .padding(.horizontal, 4)
-            .frame(height: compact ? 40 : 44)
+            .frame(height: named ? PlacesLook.namedHeight : compact ? 40 : 44)
             .accessibilityElement()
             .accessibilityLabel("Other open apps")
             .accessibilityHint("These take your words in the text box you tap in them.")
@@ -445,17 +472,24 @@ private struct OtherAppsRule: View {
 /// The end of the Send to row: open any app on the Mac.
 private struct MoreAppsButton: View {
     var compact = false
+    var named = false
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "plus")
-                .font(.system(size: (compact ? 32 : 36) * 0.42, weight: .semibold))
-                .foregroundStyle(Ink.secondary)
-                .frame(width: compact ? 32 : 36, height: compact ? 32 : 36)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Ink.ink.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
-                .frame(width: compact ? 40 : 44, height: compact ? 40 : 44)
+            VStack(spacing: 5) {
+                Image(systemName: "plus")
+                    .font(.system(size: (named ? 36 : compact ? 32 : 36) * 0.42, weight: .semibold))
+                    .foregroundStyle(Ink.secondary)
+                    .frame(width: named ? 36 : compact ? 32 : 36, height: named ? 36 : compact ? 32 : 36)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Ink.ink.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+                    .frame(width: named ? 44 : compact ? 40 : 44, height: named ? 40 : compact ? 40 : 44)
+                if named {
+                    Text("Open…").font(.caption2).foregroundStyle(Ink.secondary).lineLimit(1).accessibilityHidden(true)
+                }
+            }
+            .frame(width: named ? PlacesLook.namedWidth : nil, height: named ? PlacesLook.namedHeight : nil)
         }
         .placeButtonStyle(selected: false)
         .controlSize(.small)

@@ -1462,6 +1462,15 @@ extension AppModel: LinkClientDelegate {
         watcher.glanceOnDone = pose.isInner
         watcher.setFillsView(pose.isFolded)
         watcher.input.poseChanged(pose)
+        // A fitted window may follow the new layout's shape (only a pose change arms this).
+        watcher.poseSettled()
+        if pose.isInner != was.isInner {
+            // The scene is on the other screen: UIKit asks the delegate again which ways the
+            // screen may turn (every way inside, upright on the cover).
+            for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+                for window in scene.windows { window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
+            }
+        }
         if pose.isInner, !was.isInner {
             openWindowForPose()
         } else if !pose.isInner, was.isInner {
@@ -1479,6 +1488,8 @@ extension AppModel: LinkClientDelegate {
         let pick = settings.selection.target
         switch pick {
         case .app:
+            // An app that isn't open on the Mac has no window to show (the glance says so).
+            guard !isNotOpen(pick) else { return }
             watcher.open(pick)
         case .clipboard, .frontApp:
             guard watcher.canWatchDesktop else { return }
@@ -1494,7 +1505,7 @@ extension AppModel: LinkClientDelegate {
         Haptics.tick()
         openedByPose = false
         let pick = settings.selection.target
-        if case .app = pick { watcher.open(pick) } else if watcher.canWatchDesktop { watcher.open(reach.wholeScreenTarget) }
+        if case .app = pick { if !isNotOpen(pick) { watcher.open(pick) } } else if watcher.canWatchDesktop { watcher.open(reach.wholeScreenTarget) }
     }
 
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac]) {
