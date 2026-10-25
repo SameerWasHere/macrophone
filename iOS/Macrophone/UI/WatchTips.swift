@@ -74,9 +74,10 @@ struct WatchTipCard: View {
     /// The window's height here: a card shows only when it fits over the window with the newest
     /// lines still clear beneath it (the window's question had pushed a card over the answers).
     var room: CGFloat = .greatestFiniteMagnitude
-    /// The Duo's inner screen (Oct 25 2026): a narrower card in the window's top corner, off its
-    /// middle, so the window stays the thing.
-    var corner = false
+    /// The Duo's inner screen (Oct 25 2026, the fourth pass): a strip in the flow under the window
+    /// — the symbol, the title and the words in one line or two, Next and × at its end — never a
+    /// card over the picture's words. It takes its own room (a few seconds of it, the first times).
+    var inline = false
     /// Bumped by Show Tips Again.
     @AppStorage(WatchTips.key) private var seenRaw = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -99,13 +100,61 @@ struct WatchTipCard: View {
         let open = tips.filter { !seen.contains($0.id) }
         let all = tips
         Group {
-            if watcher.phase == .live, room >= 250, let tip = open.first, let at = all.firstIndex(of: tip) {
-                card(tip, at: at, of: all.count, left: open.count)
-                    .id(tip.id)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+            if watcher.phase == .live, inline || room >= 250, let tip = open.first, let at = all.firstIndex(of: tip) {
+                if inline {
+                    strip(tip, at: at, of: all.count, left: open.count)
+                        .id(tip.id)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                } else {
+                    card(tip, at: at, of: all.count, left: open.count)
+                        .id(tip.id)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
         }
         .animation(reduceMotion ? nil : Motion.settle, value: open.first?.id)
+    }
+
+    /// The strip: the symbol on its disc, "TIP 1 OF 6 · the title" over the words (whole, on one
+    /// line or two), Next and × at the end — the height of a key row and a half.
+    private func strip(_ tip: WatchTip, at: Int, of count: Int, left: Int) -> some View {
+        HStack(spacing: 12) {
+            GlyphPlate(symbol: tip.symbol, tint: Light.cyan, size: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Kicker("Tip \(at + 1) of \(count)")
+                    Text(tip.title).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).fixedSize(horizontal: false, vertical: true)
+                }
+                Text(tip.detail)
+                    .font(.footnote)
+                    .foregroundStyle(Ink.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button(left > 1 ? "Next" : "Got it") {
+                WatchTips.markSeen(tip.id)
+                seenRaw = UserDefaults.standard.string(forKey: WatchTips.key) ?? ""
+            }
+            .font(.footnote.weight(.semibold))
+            .buttonStyle(WatchCellStyle(inset: 14, height: 34))
+            .watchGlass(Capsule())
+            .accessibilityIdentifier("watch-tip-next")
+            Button { dismissAll() } label: {
+                Image(systemName: "xmark").font(.caption.weight(.bold)).foregroundStyle(Ink.tertiary)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .watchGlass(Circle())
+            .accessibilityLabel("Hide tips")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .watchGlass(RoundedRectangle(cornerRadius: WatchLook.card, style: .continuous))
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Tip \(at + 1) of \(count): \(tip.title). \(tip.detail)")
     }
 
     private func card(_ tip: WatchTip, at: Int, of count: Int, left: Int) -> some View {
@@ -155,7 +204,6 @@ struct WatchTipCard: View {
         .padding(.horizontal, 14)
         .padding(.bottom, 12)
         .watchGlass(RoundedRectangle(cornerRadius: WatchLook.card, style: .continuous))
-        .frame(maxWidth: corner ? 340 : .infinity)
         .padding(WatchLook.bezelWidth + 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tip \(at + 1) of \(count): \(tip.title)")

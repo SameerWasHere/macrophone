@@ -54,23 +54,29 @@ struct WatchPanel: View {
     @State private var slide: CGFloat = 0
     /// The window's height here: a tip waits until there's room for its card over the window.
     @State private var windowHeight: CGFloat = 0
+    /// What floats over the picture's foot on the Duo (the answers): the picture keeps its newest
+    /// lines above it.
+    @State private var floatingHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: compact ? 6 : 8) {
             WatchHeaderBar(watcher: watcher, onSwitched: announce)
-            WatchWindow(watcher: watcher, interactive: true)
+            WatchWindow(watcher: watcher, interactive: true, footInset: duo && watcher.phase == .live ? floatingHeight : 0)
                 .frame(maxHeight: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
-                // The first times: what a tap, a hold, a pinch and the side swipe do.
-                .overlay(alignment: duo ? .topTrailing : .top) { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight, corner: duo) }
+                // The first times: what a tap, a hold, a pinch and the side swipe do (on the Duo's
+                // inner screen the tip is a strip under the window instead: never over its words).
+                .overlay(alignment: .top) { if !duo { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight) } }
                 // The Duo's inner screen: the question's answers float over the picture's foot,
-                // so the window keeps its room; the key row stays under it.
+                // so the window keeps its room; the key row stays under it. The picture's foot
+                // scrolls up above them (`footInset`), so the question is never under its answers.
                 .overlay(alignment: .bottom) {
                     if duo {
                         WatchActions(watcher: watcher, floating: true)
                             .padding(.horizontal, WatchLook.bezelWidth + 10)
-                            .padding(.bottom, WatchLook.bezelWidth + 10)
+                            .padding(.vertical, WatchLook.bezelWidth + 10)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { floatingHeight = watcher.answers == nil ? 0 : $0 }
                             .opacity(watcher.phase == .live ? 1 : 0)
                             .allowsHitTesting(watcher.phase == .live)
                             .accessibilityHidden(watcher.phase != .live)
@@ -79,6 +85,9 @@ struct WatchPanel: View {
                 // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
                 .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
                 .offset(x: slide)
+            if duo {
+                WatchTipCard(watcher: watcher, sessions: sessions.count, inline: true)
+            }
             WatchActions(watcher: watcher, keysOnly: duo)
                 .opacity(watcher.phase == .live ? 1 : 0)
                 .allowsHitTesting(watcher.phase == .live)
@@ -486,13 +495,17 @@ struct WatchWindow: View {
     /// The picture fills the view (aspect-fill, scrolling) rather than letterboxing — a folded
     /// Duo's half. The zoom-out button still shows it whole.
     var fill = false
+    /// Something floats over the screen's foot (the Duo's answers): the picture's newest lines —
+    /// the question — stay above it, so what's answered is never under its answers.
+    var footInset: CGFloat = 0
 
-    init(watcher: Watcher, interactive: Bool, bezelWidth: CGFloat = WatchLook.bezelWidth, corner: CGFloat = WatchLook.bezel, fill: Bool = false) {
+    init(watcher: Watcher, interactive: Bool, bezelWidth: CGFloat = WatchLook.bezelWidth, corner: CGFloat = WatchLook.bezel, fill: Bool = false, footInset: CGFloat = 0) {
         self.watcher = watcher
         self.interactive = interactive
         self.bezelWidth = bezelWidth
         self.corner = corner
         self.fill = fill
+        self.footInset = footInset
         _input = ObservedObject(wrappedValue: watcher.input)
     }
     /// A moment of words after the Pan | Scroll switch flips or Aa changes: what happens now.
@@ -517,7 +530,7 @@ struct WatchWindow: View {
                 WindowViewer(image: watcher.image, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
                              focus: watcher.focus, recenter: watcher.recenter, generation: watcher.windowSeq,
                              interactive: interactive && watcher.phase == .live,
-                             drag: watcher.drag, phased: watcher.macCanScroll, fill: fill,
+                             drag: watcher.drag, phased: watcher.macCanScroll, fill: fill, footInset: footInset,
                              viewKey: interactive ? watcher.viewKey : nil,
                              pointer: interactive && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
                              canDrag: interactive && watcher.canMouse,
@@ -995,26 +1008,17 @@ struct WatchActions: View {
         }
     }
 
-    /// Over the picture's foot: Esc, then the answers in one row (a column when they're too
-    /// long for it), each on its own glass.
+    /// Over the picture's foot: Esc, then the answers, each on its own glass, in rows that wrap
+    /// (the fourth pass — as many to a row as fit, so three long answers take two rows of the
+    /// picture, not three; one longer than the row wraps its words).
     private func floatingRow(_ p: WatchPrompt) -> some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        FoldFlow(spacing: 8, rowSpacing: 8) {
             key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
                 .watchGlass(Capsule())
                 .fixedSize()
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
-                        answer(p, i, c).fixedSize()
-                    }
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
-                        answer(p, i, c)
-                    }
-                }
+            ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                answer(p, i, c).fixedSize(horizontal: true, vertical: false)
             }
-            Spacer(minLength: 0)
         }
         .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
         .accessibilityElement(children: .contain)
@@ -1250,6 +1254,8 @@ struct WindowViewer: UIViewRepresentable {
     /// The picture fills the view (a folded Duo's half): it opens at the scale that covers the
     /// view, scrolling, instead of letterboxed; the whole window is still a zoom-out away.
     var fill = false
+    /// Something floats over the view's foot: the picture's newest lines stay above it.
+    var footInset: CGFloat = 0
     /// Where this viewer remembers the zoom you left it at (the window's, per app); nil: the strip.
     var viewKey: String? = nil
     /// The pointer the trackpad moves (a fraction of the window), drawn over the picture; nil = none.
@@ -1288,6 +1294,7 @@ struct WindowViewer: UIViewRepresentable {
         v.viewKey = viewKey
         v.canDrag = canDrag
         v.fill = fill
+        v.footInset = footInset
         v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, generation: generation, interactive: interactive, drag: drag, phased: phased)
         v.showWhole(whole)
         v.setPointer(pointer, seq: pointerSeq)
@@ -1357,6 +1364,25 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     /// The picture covers the view (a folded Duo's half, Oct 25 2026): the start scale fills it
     /// rather than fitting it, and the zoom's top end is at least that.
     var fill = false { didSet { if fill != oldValue, imageSize != .zero, bounds.width > 0 { configureZoom(); reset(animated: false) } } }
+    /// Something floats over the view's foot (the Duo's answers, Oct 25 2026): the picture's foot
+    /// — the newest output, the question — stays above it. The view's visible height is the
+    /// bounds less this; a picture that fits whole fits above it; the bottom is above it.
+    var footInset: CGFloat = 0 {
+        didSet {
+            guard footInset != oldValue, imageSize != .zero, bounds.width > 0 else { return }
+            let atBottom = contentOffset.y + contentInset.top >= max(0, imageSize.height * zoomScale - (bounds.height - oldValue)) - 24
+            configureZoom()
+            if zoomScale < minimumZoomScale { setZoomScale(minimumZoomScale, animated: false) }
+            if !adjusted || atBottom {
+                reset(animated: true, toBottom: true)
+            } else {
+                centerIfSmall()
+                keepPointerInView(CGPoint(x: (contentOffset.x + bounds.width / 2) / zoomScale, y: (contentOffset.y + visibleHeight / 2) / zoomScale))
+            }
+        }
+    }
+    /// The height the picture has above whatever floats over the foot.
+    private var visibleHeight: CGFloat { max(1, bounds.height - footInset) }
     private var tapper: UITapGestureRecognizer!
     private var swiper: UIPanGestureRecognizer!
     /// The swipe so far, not yet sent (sent once a display frame), and where it started.
@@ -1579,14 +1605,14 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     private var startScale: CGFloat {
         guard imageSize.width > 0, bounds.width > 0 else { return 1 }
         let fitWidth = bounds.width / imageSize.width
-        let fillHeight = bounds.height / imageSize.height
+        let fillHeight = visibleHeight / imageSize.height
         // A folded Duo's half: the picture covers it, the window's foot (the newest output) in
         // view — a window shaped nothing like the half (one the Mac can't reshape, on the book's
         // tall page) stops at the usual 1.8× rather than zooming onto a sliver.
-        if fill { return min(max(fitWidth, fillHeight), fitWidth * 1.8, maximumZoomScale) }
+        if fill { return min(max(fitWidth, fillHeight), fitWidth * ViewerScrollView.fillCap, maximumZoomScale) }
         // A window shaped like this view (Fit to iPhone gives it the view's own shape, square or
         // not): all of it, never zoomed onto a part.
-        let shapeRatio = (imageSize.width / imageSize.height) / (bounds.width / max(1, bounds.height))
+        let shapeRatio = (imageSize.width / imageSize.height) / (bounds.width / visibleHeight)
         if abs(shapeRatio - 1) < 0.15 { return min(fitWidth, fillHeight) }
         // A window taller than it's wide (Aa's Larger and Largest make it about the phone's shape)
         // already fits the phone across: its whole width, never zoomed onto a bar inside it.
@@ -1597,15 +1623,19 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         return max(fitWidth, min(fillHeight, fitWidth * 1.8))
     }
 
+    /// Filling a view with a picture shaped nothing like it stops here (a multiple of fitting the
+    /// width): past it the view would be a sliver of the window.
+    static let fillCap: CGFloat = 1.8
+
     private func configureZoom() {
         guard imageSize.width > 0, bounds.width > 0 else { return }
-        let fitAll = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let fitAll = min(bounds.width / imageSize.width, visibleHeight / imageSize.height)
         minimumZoomScale = fitAll
         // In to one point per pixel of the Mac's picture (three screen pixels to one of the
         // Mac's): Retina text reads large there, and past it a pinch only blurred.
         maximumZoomScale = max(1.0, fitAll * 2)
         // Filling the view is always within reach.
-        if fill { maximumZoomScale = max(maximumZoomScale, bounds.width / imageSize.width, bounds.height / imageSize.height) }
+        if fill { maximumZoomScale = max(maximumZoomScale, bounds.width / imageSize.width, visibleHeight / imageSize.height) }
     }
 
     /// Back to the start: where you last left this app's window (your zoom, your spot across it,
@@ -1622,8 +1652,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             let w = self.imageSize.width * s, h = self.imageSize.height * s
             let cx = (saved?.x ?? self.focus.map { $0.midX } ?? 0.5) * w
             let x = min(max(cx - self.bounds.width / 2, 0), max(0, w - self.bounds.width))
-            let bottom = max(0, h - self.bounds.height)
-            let y = saved.flatMap { $0.bottom || toBottom ? nil : min(max($0.y * h - self.bounds.height / 2, 0), bottom) } ?? bottom
+            let bottom = max(0, h - self.visibleHeight)
+            let y = saved.flatMap { $0.bottom || toBottom ? nil : min(max($0.y * h - self.visibleHeight / 2, 0), bottom) } ?? bottom
             self.contentOffset = CGPoint(x: x - self.contentInset.left, y: y - self.contentInset.top)
         }
         if animated { UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply) }
@@ -1649,18 +1679,18 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         guard let viewKey, !wholeShown, imageSize.width > 0, zoomScale > 0, bounds.width > 0 else { return }
         let w = imageSize.width * zoomScale, h = imageSize.height * zoomScale
         let mid = CGPoint(x: contentOffset.x + contentInset.left + bounds.width / 2,
-                          y: contentOffset.y + contentInset.top + bounds.height / 2)
-        let bottom = contentOffset.y + contentInset.top >= max(0, h - bounds.height) - 24
+                          y: contentOffset.y + contentInset.top + visibleHeight / 2)
+        let bottom = contentOffset.y + contentInset.top >= max(0, h - visibleHeight) - 24
         let v = SavedView(zoom: zoomScale / fitWidth, x: min(max(mid.x / w, 0), 1), y: min(max(mid.y / h, 0), 1),
                           aspect: imageSize.height / imageSize.width, bottom: bottom)
         if let data = try? JSONEncoder().encode(v) { UserDefaults.standard.set(data, forKey: viewKey) }
     }
 
-    /// A picture smaller than the view sits in the middle of it.
+    /// A picture smaller than the view sits in the middle of it (of the room above the foot).
     private func centerIfSmall() {
         let w = imageSize.width * zoomScale, h = imageSize.height * zoomScale
-        let dx = max(0, (bounds.width - w) / 2), dy = max(0, (bounds.height - h) / 2)
-        contentInset = UIEdgeInsets(top: dy, left: dx, bottom: dy, right: dx)
+        let dx = max(0, (bounds.width - w) / 2), dy = max(0, (visibleHeight - h) / 2)
+        contentInset = UIEdgeInsets(top: dy, left: dx, bottom: dy + footInset, right: dx)
     }
 
     /// The whole window, fitted, or back to the start (the column you type in).
@@ -1760,7 +1790,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     var visibleCenter: CGPoint? {
         guard imageSize.width > 0, zoomScale > 0, bounds.width > 0 else { return nil }
         let w = imageSize.width * zoomScale, h = imageSize.height * zoomScale
-        let cx = contentOffset.x + bounds.width / 2, cy = contentOffset.y + bounds.height / 2
+        let cx = contentOffset.x + bounds.width / 2, cy = contentOffset.y + visibleHeight / 2
         return CGPoint(x: min(max(cx / w, 0), 1), y: min(max(cy / h, 0), 1))
     }
 
@@ -1772,11 +1802,11 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let p = CGPoint(x: canvasPoint.x * zoomScale, y: canvasPoint.y * zoomScale)
         let margin: CGFloat = 36
         var offset = contentOffset
-        let visible = CGRect(origin: contentOffset, size: bounds.size)
+        let visible = CGRect(origin: contentOffset, size: CGSize(width: bounds.width, height: visibleHeight))
         if p.x < visible.minX + margin { offset.x = p.x - margin }
         if p.x > visible.maxX - margin { offset.x = p.x + margin - bounds.width }
         if p.y < visible.minY + margin { offset.y = p.y - margin }
-        if p.y > visible.maxY - margin { offset.y = p.y + margin - bounds.height }
+        if p.y > visible.maxY - margin { offset.y = p.y + margin - visibleHeight }
         let minX = -contentInset.left, minY = -contentInset.top
         let maxX = max(minX, contentSize.width - bounds.width + contentInset.right)
         let maxY = max(minY, contentSize.height - bounds.height + contentInset.bottom)
