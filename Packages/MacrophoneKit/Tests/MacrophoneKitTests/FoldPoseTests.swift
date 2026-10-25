@@ -29,6 +29,31 @@ final class FoldPoseTests: XCTestCase {
         XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: innerUp)), .book)
     }
 
+    func testAnInnerPoseNeedsTheInnerScreen() {
+        // The phone opening or closing: the hinge is partly open while the app is still on the
+        // cover (or the inner screen's size hasn't arrived) — the cover keeps the phone's layout,
+        // never a laptop 466 points wide.
+        let across = FoldDivision(frame: CGRect(x: 0, y: 325, width: 466, height: 28), isActive: true)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 60, size: cover, division: across)), .closed)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: cover)), .closed)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .fullyOpen, angle: 180, size: cover)), .closed)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .fullyOpen, angle: 180, size: pro)), .closed)
+        // Nothing measured yet: the hinge's word stands (the size follows in the same layout pass).
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .fullyOpen, angle: 180, size: .zero)), .open(landscape: false))
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: .zero)), .book)
+        // The hinge says closed while the scene is still the inner screen's: closed (the cover is next).
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .closed, angle: 0, size: innerUp)), .closed)
+    }
+
+    func testTheRiseIsInSteps() {
+        // A hinge trembling by a fraction of a degree moves the deck by nothing.
+        XCTAssertEqual(FoldPose.deckRise(angle: 142.5), FoldPose.deckRise(angle: 142.2))
+        XCTAssertEqual(FoldPose.deckRise(angle: 142.5), FoldPose.deckRise(angle: 142.8))
+        XCTAssertNotEqual(FoldPose.deckRise(angle: 142.5), FoldPose.deckRise(angle: 140))
+        XCTAssertEqual(FoldPose.deckRise(angle: 164.9), 0)
+        XCTAssertEqual(FoldPose.deckRise(angle: 120.1), 1)
+    }
+
     func testNoHingeIsARegularPhoneUnlessTheSceneIsTheInnerScreen() {
         XCTAssertEqual(FoldPose.derive(FoldReading(hinge: nil, angle: 180, size: pro)), .closed)
         XCTAssertEqual(FoldPose.derive(FoldReading(hinge: nil, angle: 180, size: cover)), .closed)

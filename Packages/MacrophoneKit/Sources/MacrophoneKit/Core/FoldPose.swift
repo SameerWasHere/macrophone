@@ -93,17 +93,22 @@ extension FoldPose {
     /// hinge reading yet is still the inner screen, open.
     public static func derive(_ r: FoldReading) -> FoldPose {
         let landscape = r.size.width > r.size.height
+        // An inner pose is laid out for the inner screen: a scene the cover's size (the hinge
+        // partly open while the app is still on the cover, as the phone opens or closes) stays
+        // the phone's layout. Nothing measured yet: the hinge's word stands.
+        let onCover = r.size != .zero && min(r.size.width, r.size.height) < innerShortSide
         switch r.hinge {
         case .closed?:
             return .closed
         case .fullyOpen?:
-            return .open(landscape: landscape)
+            return onCover ? .closed : .open(landscape: landscape)
         case .partiallyOpen?:
+            if onCover { return .closed }
             if let d = r.division { return d.isAcross ? .laptop : .book }
             return landscape ? .laptop : .book
         case nil:
             // No hinge (a regular iPhone, or nothing read yet): the size tells the screen.
-            guard r.size != .zero, min(r.size.width, r.size.height) >= innerShortSide else { return .closed }
+            guard r.size != .zero, !onCover else { return .closed }
             return .open(landscape: landscape)
         }
     }
@@ -111,9 +116,10 @@ extension FoldPose {
     /// How far the deck has risen as the hinge folds from flat toward the laptop or the book:
     /// 0 flat (nothing to show yet), 1 folded past about 120°. Drives the deck's arrival and the
     /// Mac's picture settling into its half, so the split follows the hinge rather than snapping.
+    /// In fiftieths, so a hinge that trembles by a fraction of a degree moves nothing.
     public static func deckRise(angle: Double) -> Double {
         let t = (165 - angle) / 45
-        return min(1, max(0, t))
+        return (min(1, max(0, t)) * 50).rounded() / 50
     }
 }
 
