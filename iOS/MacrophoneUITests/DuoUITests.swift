@@ -44,6 +44,22 @@ final class DuoUITests: XCTestCase {
         try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
     }
 
+    /// A page by the corner switcher: its cell by name (the frame is drawn at 0.4×, so a cell is
+    /// 18 × 14 points on the cover — a tap on the cell itself lands, a fraction of the row may not).
+    private func pick(_ switcher: XCUIElement, _ page: String, at fraction: CGFloat) {
+        let cell = switcher.buttons[page]
+        let want = NSPredicate(format: "value == %@", page)
+        // A cell that small can be missed by a point or two: a few tries, a nudge up and down.
+        for nudge in [0, -4, 4, 2, -2] as [CGFloat] {
+            if cell.exists {
+                cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: 0, dy: nudge)).tap()
+            } else {
+                switcher.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5)).withOffset(CGVector(dx: 0, dy: nudge)).tap()
+            }
+            if XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: want, object: switcher)], timeout: 1.5) == .completed { return }
+        }
+    }
+
     private func dismissTips(_ app: XCUIApplication) {
         let gotIt = app.buttons["Got it"]
         for _ in 0..<6 where gotIt.waitForExistence(timeout: 1) { gotIt.tap() }
@@ -57,7 +73,7 @@ final class DuoUITests: XCTestCase {
         guard switcher.waitForExistence(timeout: 20) else { throw XCTSkip("no Mac naming the keyboard and trackpad pages is connected") }
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
         // The deck remembers its page per pose (a run before may have left it on the mic).
-        if switcher.value as? String != "Trackpad" { switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.5)).tap() }
+        if switcher.value as? String != "Trackpad" { pick(switcher, "Trackpad", at: 0.83) }
         XCTAssertTrue(trackpad.waitForExistence(timeout: 5), "the laptop deck opens on the trackpad")
         XCTAssertEqual(switcher.value as? String, "Trackpad")
         // The header comes up on a touch of the Mac's half, fades a few seconds later, and comes
@@ -91,10 +107,13 @@ final class DuoUITests: XCTestCase {
         mid.tap()
 
         // The corner switcher: the keyboard rises over the deck, with the Mac's keys on its bar.
-        switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.17, dy: 0.5)).tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 6), "the iOS keyboard comes up")
+        pick(switcher, "Keyboard", at: 0.17)
+        // A fresh simulator's first keyboard may bring a system prompt that takes the keyboard's
+        // first moment (and the page with it): put it away and ask again.
         let cont = app.buttons["Continue"]
-        if cont.waitForExistence(timeout: 1) { cont.tap() }
+        if cont.waitForExistence(timeout: 2) { cont.tap() }
+        if switcher.value as? String != "Keyboard" { pick(switcher, "Keyboard", at: 0.17) }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 6), "the iOS keyboard comes up")
         XCTAssertEqual(switcher.value as? String, "Keyboard")
         XCTAssertTrue(app.buttons["keyboard-escape"].waitForExistence(timeout: 3), "esc and the arrows ride on the bar")
         app.typeText("duo")
@@ -102,17 +121,24 @@ final class DuoUITests: XCTestCase {
         let hide = app.buttons["Hide the keyboard"]
         XCTAssertTrue(hide.waitForExistence(timeout: 3))
         hide.tap()
-        let mic = app.buttons["Start dictation"]
-        XCTAssertTrue(mic.waitForExistence(timeout: 5), "hide comes back to the mic")
-        XCTAssertEqual(switcher.value as? String, "Mic")
+        // Hide goes back to the page the keyboard rose over — the trackpad here, the hands
+        // already on the deck (the third pass; the mic on a flat screen, as ever).
+        XCTAssertTrue(trackpad.waitForExistence(timeout: 5), "hide comes back to the trackpad it rose over")
+        XCTAssertEqual(switcher.value as? String, "Trackpad")
         XCTAssertFalse(app.keyboards.firstMatch.exists)
+        // The mic by the switcher: on the deck, under the fold.
+        pick(switcher, "Mic", at: 0.5)
+        let mic = app.buttons["Start dictation"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 5), "the switcher brings the mic")
+        XCTAssertEqual(switcher.value as? String, "Mic")
         XCTAssertGreaterThan(mic.frame.minY, inner.midY, "the mic is on the deck")
         shot("laptop-mic")
 
         // Back to the trackpad by the switcher; Done leaves the glance — the window still live —
         // and Show it here takes it back in hand.
-        switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.5)).tap()
+        pick(switcher, "Trackpad", at: 0.83)
         XCTAssertTrue(trackpad.waitForExistence(timeout: 3))
+        // A tap on the overlay header's own ground is the header's, never a click on the Mac.
         screen.tap()
         XCTAssertTrue(done.waitForExistence(timeout: 2))
         done.tap()
@@ -130,7 +156,7 @@ final class DuoUITests: XCTestCase {
         let switcher = app.descendants(matching: .any)["input-pages"]
         guard switcher.waitForExistence(timeout: 20) else { throw XCTSkip("no Mac naming the keyboard and trackpad pages is connected") }
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
-        if switcher.value as? String != "Trackpad" { switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.5)).tap() }
+        if switcher.value as? String != "Trackpad" { pick(switcher, "Trackpad", at: 0.83) }
         XCTAssertTrue(trackpad.waitForExistence(timeout: 5))
         // A touch on the left page brings its header up.
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: inner.minX + inner.width * 0.25, dy: inner.midY)).tap()
@@ -171,7 +197,7 @@ final class DuoUITests: XCTestCase {
         XCTAssertGreaterThan(mic.frame.minX, inner.width * 0.6, "and so is the mic")
         let switcher = app.descendants(matching: .any)["input-pages"]
         guard switcher.waitForExistence(timeout: 15) else { throw XCTSkip("no Mac naming the pages is connected") }
-        switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        pick(switcher, "Trackpad", at: 0.9)
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
         XCTAssertTrue(trackpad.waitForExistence(timeout: 3), "the deck's trackpad fills the rail's foot")
         XCTAssertGreaterThan(trackpad.frame.minX, inner.width * 0.6)

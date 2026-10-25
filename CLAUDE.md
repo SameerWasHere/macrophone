@@ -152,11 +152,69 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
   notifications prompt tapped away on a fresh simulator): the laptop pose opens on the trackpad
   which takes ≥ 80% of the bottom half, the answers sit over the top half, the header fades and a
   touch brings it back, a drag moves the pointer, the corner switcher brings the keyboard and
-  typing reaches the Mac, hide comes back to the mic on the deck, Done leaves the glance ("Live on
+  typing reaches the Mac, hide comes back to the trackpad it rose over, Done leaves the glance ("Live on
   your Mac", the pages put away) and Show it here brings the deck back; the book's deck is the
   right page and its answers float on the left; the open screen keeps the mic and the panel off
   the fold under a large window; on its side the rail holds Send to, the mic and the trackpad.
   `TEST_RUNNER_MACROPHONE_DUO_SHOTS=<dir>`.
+- **The third pass (the review, the same day) — what it changed:**
+  - *The rule:* an inner pose needs the inner screen. `FoldPose.derive` keeps a scene narrower
+    than `innerShortSide` at `.closed` whatever the hinge says (the hinge is partly open while
+    the app is still on the cover as the phone opens or closes — the cover drew a 466 pt laptop
+    for a frame); a size of zero still lets the hinge's word stand. `deckRise` is in fiftieths,
+    so a hinge trembling by a fraction of a degree moves nothing. Tested.
+  - *The read:* `Posture` publishes only what a layout draws from (the pose, the halves, the
+    rise); the raw `reading` isn't published and `hinge(_:angle:)` drops a reading that changes
+    neither the status nor the rise's step — every half-degree used to re-lay the whole main
+    view. The first pose derived after the first measure is the one the app opened in: no tick,
+    no announcement for it. `PostureReader` measures the scene in a background layer that
+    ignores the keyboard, so the content keeps the keyboard avoidance it always had — the
+    second pass had wrapped the whole main view in `ignoresSafeArea(.keyboard)`, which took it
+    away from every regular iPhone (the keyboard covered the window instead of the window
+    moving up); the folded bodies ignore the keyboard themselves, as before. `DeviceHinge.angle`
+    is an `Angle` (`.degrees`); `ReservedRegion.frame` is in the proxy's own space, margins
+    included (UIKit's `UIViewReservedRegion` says so in words) — both checked against the SDK.
+  - *The Mac's window is reshaped only on a pose change:* `Watcher.followShape` is armed by
+    `poseSettled()` (AppModel's `poseChanged`) and spent by the next follow or after 4 s —
+    it used to run on every change of the view's size, so on a regular iPhone a fitted window
+    was reshaped on the Mac each time the keyboard rose, a question's answers appeared or a
+    tip card went. `applyHalfFit` takes only a folded half's own measure
+    (`viewerMeasured(_:fill:)`, `WatchWindow(fill:)` says which), never the phone layout's
+    still on screen in the cross-fade; `shapeSent` is cleared on a switch and on close.
+  - *The deck:* `MacInput.hideKeyboard()` — the bar's button, the swipe down and the system
+    closing the keyboard — goes back to the page the keyboard rose over on a folded deck (the
+    trackpad on a laptop: the hands are already there; `underKeyboard`), the mic on a flat
+    screen as ever; the deck never remembers the keyboard as its page (it rose at once on the
+    next open), only the mic or the trackpad; a pose change while glancing shows no page (no
+    pointer sent while the controls are put away: `isShowing`).
+  - *The overlay header:* a finger moving over the picture re-arms its hold at most twice a
+    second (it was a task per touch frame); the hold is cancelled when the half leaves; its
+    ground takes a tap (a tap between its controls never clicked through to the Mac's title
+    bar under it); the book's header has Pan | Scroll too (it had no way to it).
+  - *The glance* of a pick that isn't open on the Mac says so instead of offering Show it
+    here (opening a closed app's window started a watch that never came up).
+  - *The keyboard page survives a cross-fade* (`KeyboardTextView`, MacKeyboardView.swift): every
+    pose lays out its own carousel, so while two layouts cross-fade — a fold, an unfold, the
+    deck's not-watching screen giving way to the window — two keyboard fields are alive and
+    both want the keyboard; the arriving one took it, UIKit resigned the leaving one, and 0.35 s
+    later the leaving one declared the keyboard gone and put the page back (on the simulator
+    SwiftUI even kept the deck's faded-out layout around at alpha 0, so the laptop's keyboard
+    page fell back to the trackpad every time, 0.6 s in). Now a field hidden by an ancestor
+    (alpha 0, hidden) never takes the keyboard, a resign inside the field's own
+    `becomeFirstResponder` (asked twice) is no loss, "gone" is never declared while another
+    field of the page holds the keyboard (`current`), and a field leaving the window hands the
+    keyboard to one still there (`all`). `MacInput.hideKeyboard` is what every keyboard-gone
+    path calls.
+  - *The room (Sameer: "make sure the app is appropriately taking advantage of the additional
+    screen space inside"):* on the inner screen every place in Send to has its name under its
+    icon (`QuickControls(named:)`, `PlacesLook` 68 × 62 cells — the row reads at a glance, and
+    Open… at its end); a sheet is a form in the middle of the screen (`InnerScreenSheet`:
+    `presentationSizing(.form)`, the Mac Controls panel `.fitted`, iOS 18+ and only while the
+    pose is inner — the cover and every other iPhone keep their sheets); the laptop's deck with
+    nothing watched lays Send to and the mic side by side (the stack of top bar, panel and mic
+    overflowed a 320 pt half). The window already fills what each pose gives it; Sound, Mac
+    Controls, zoom out, Window, Pan | Scroll are visible in every header; Whole Screen, Mac
+    Controls, Refresh and ⋯ are round buttons on the panel.
 - **Needs a real Duo:** the hinge's angle range and update rate (the deck's rise is tuned to
   165°→120°), the division region's frame and margins, which display the scene lands on when
   folding, the inner keyboard's height in the laptop pose (the deck is ~320 pt; the bar + keys
@@ -164,7 +222,18 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
   touch over the window's UIKit viewer reveals the header on hardware as it does on the
   simulator, the Mac's picture at the inner screen's size (the stream is already up to 2,560 px
   wide; `watchShape` carries the view's points — nothing on the Mac changes), and a real Mac
-  window taking the half's shape (the demo can't).
+  window taking the half's shape (the demo can't); the inner screen's size class (a form sheet is
+  a form only in a regular width — on a compact one `presentationSizing(.form)` is a plain
+  sheet, which is no worse than before); whether UIKit asks the delegate again for the
+  orientations when the scene moves between the displays (`setNeedsUpdateOfSupportedInterface
+  Orientations()` is called on the pose crossing the fold, in case it doesn't); the keyboard on
+  the open poses (it avoids as on the phone: the window moves up over it).
+  The frames are taken by `DuoShotsTests` (`TEST_RUNNER_MACROPHONE_DUO_SHOTS=<dir>`, and
+  `…_DUO_REGULAR=1` for the regular iPhone's) — in Xcode 27 the simulator has no window of its
+  own and `simctl io screenshot` returns the dark inner display, so `XCUIScreen` is the one way
+  to the cover's pixels. Turn `settings.agentAlerts` off on the simulator first (`simctl spawn
+  <udid> defaults write com.sameer.macrophone settings.agentAlerts -bool false`): the demo Mac's
+  question raises a banner over the frame's top.
 
 ## Several Macs on one iPhone (Oct 19 2026)
 
