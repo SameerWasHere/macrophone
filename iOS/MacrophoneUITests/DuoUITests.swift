@@ -177,12 +177,17 @@ final class DuoUITests: XCTestCase {
         let mic = app.buttons["Start dictation"]
         XCTAssertTrue(mic.waitForExistence(timeout: 10))
         let places = app.descendants(matching: .any)["places"].firstMatch
-        XCTAssertTrue(places.waitForExistence(timeout: 10), "Send to is on the screen beside the mic")
-        // The fold runs down the middle: the mic sits in the right half, the panel in the left.
+        XCTAssertTrue(places.waitForExistence(timeout: 10), "Send to is on the screen under the window")
+        // The fold runs down the middle: the mic sits in the right half; Send to spans the width
+        // (the fourth pass: a grid of every place with its name) with no cell on the fold's line.
         XCTAssertGreaterThan(mic.frame.minX, inner.midX - 20, "the mic is clear of the fold")
-        XCTAssertLessThan(places.frame.maxX, inner.midX + 20, "the panel is clear of the fold")
-        // The window gets the room: the bottom bar is the lower part of the screen only.
-        XCTAssertGreaterThan(places.frame.minY, inner.height * 0.62, "the bar is compact, under a large window")
+        XCTAssertGreaterThan(places.frame.width, inner.width * 0.8, "Send to spans the screen")
+        for cell in places.buttons.allElementsBoundByIndex where cell.frame.width > 10 {
+            XCTAssertFalse(cell.frame.minX < inner.midX - 4 && cell.frame.maxX > inner.midX + 4, "no place sits on the fold: \(cell.label) at \(cell.frame)")
+        }
+        XCTAssertTrue(app.buttons["Send after pasting"].exists || app.switches["send-toggle"].exists || app.descendants(matching: .any)["send-toggle"].exists, "Send after pasting is laid out beside the mic")
+        // The window gets the room: the panel is the lower part of the screen only.
+        XCTAssertGreaterThan(places.frame.minY, inner.height * 0.5, "Send to is under a large window")
         shot("portrait")
     }
 

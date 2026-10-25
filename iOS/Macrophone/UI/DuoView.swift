@@ -46,8 +46,18 @@ import UIKit
 enum DuoLook {
     /// The room kept clear each side of the fold's line on a flat inner screen.
     static let foldGap: CGFloat = 14
-    /// The rail beside the window when the screen is open on its side.
-    static let rail: CGFloat = 316
+    /// The band over the fold's line no cell of a grid sits on (the gap each side, and a hair).
+    static let creaseBand: CGFloat = 2 * foldGap + 8
+    /// The mic on a folded deck: a half of the screen to itself, so the disc is a size up from the
+    /// phone's 92 (not a cartoon — the glyph and the ring grow with it).
+    static let deckMic: CGFloat = 112
+    /// The Thread across a folded deck: its slot, and the room kept over it for the pages'
+    /// cluster in the corner.
+    static let deckThread: CGFloat = 96
+    static let deckThreadTop: CGFloat = 46
+    /// The rail beside the window when the screen is open on its side: three named places
+    /// across its Send to grid, with the panel's margins.
+    static let rail: CGFloat = 344
     /// A folded half's screen: a hair of bezel, the corner tight to the half's.
     static let halfBezel: CGFloat = 2
     static let halfCorner: CGFloat = 14
@@ -68,14 +78,31 @@ extension MainView {
                 DuoMacArea(main: self)
                     .padding(.top, 8)
                     .frame(maxHeight: .infinity)
-                HStack(alignment: .top, spacing: DuoLook.foldGap) {
-                    lowerPanel
-                        .frame(width: half, alignment: .top)
+                // Across the whole width (the fourth pass): Send to as a grid of every open app
+                // with its name, Clipboard and Where I'm typing and + among them, no cell on the
+                // fold's line — or the words you're saying, while the mic is open.
+                if showLiveWords {
+                    transcriptArea
+                        .frame(minHeight: 230, alignment: .top)
+                        .transition(.opacity)
+                } else {
+                    sendToPanel(layout: .grid(gutter: DuoLook.creaseBand), options: false)
+                        .padding(.top, 8)
+                        .transition(.opacity)
+                }
+                // The band under it, split at the fold: Send after pasting and Cleanup on the
+                // left, level with the mic; the mic with its pages and the Thread on the right,
+                // under the right thumb.
+                HStack(alignment: .center, spacing: DuoLook.foldGap) {
+                    optionsPanel
+                        .frame(width: half)
+                        .opacity(showLiveWords ? 0 : 1)
+                        .allowsHitTesting(!showLiveWords)
+                        .accessibilityHidden(showLiveWords)
                     carousel(fill: nil, compact: true)
                         .frame(width: half)
                 }
-                .padding(.top, 8)
-                .frame(minHeight: showLiveWords ? 230 : nil, alignment: .top)
+                .padding(.top, 4)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -94,7 +121,10 @@ extension MainView {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             VStack(spacing: 0) {
                 topBar
-                lowerPanel
+                // Send to as a grid down the rail: every open app with its name, three across,
+                // two rows before it scrolls (the fourth pass; it was one row showing three) —
+                // the deck under it keeps the room the mic and the trackpad need.
+                lowerPanel(layout: .grid(maxRows: 2))
                     .padding(.top, 12)
                     .frame(height: showLiveWords ? 250 : nil)
                 // The deck takes the rest of the rail: the trackpad whole, the mic in the middle.
@@ -174,35 +204,65 @@ extension MainView {
 
     /// Under or beside the window on a flat inner screen: the Send to panel, or the transcript
     /// while the mic is open (and until the words have gone out).
-    @ViewBuilder var lowerPanel: some View {
+    @ViewBuilder func lowerPanel(layout: PlacesLayout) -> some View {
         if showLiveWords {
             transcriptArea
                 .transition(.opacity)
         } else {
-            sendToPanel(compact: true)
+            sendToPanel(layout: layout)
                 .transition(.opacity)
         }
     }
 
-    /// The Send to panel at a size — on the inner screen each place is named under its icon.
-    func sendToPanel(compact: Bool) -> some View {
-        QuickControls(settings: model.settings, compact: compact, named: true, glow: skyGlow)
-            .padding(.bottom, compact ? 8 : 18)
+    /// The Send to panel on the inner screen: each place named under its icon, laid as a row or
+    /// a grid; `options`: Send after pasting and Cleanup under the places, or laid out elsewhere.
+    func sendToPanel(layout: PlacesLayout, options: Bool = true) -> some View {
+        QuickControls(settings: model.settings, compact: true, named: true, layout: layout, options: options, glow: skyGlow)
+            .padding(.bottom, 8)
+    }
+
+    /// Send after pasting and Cleanup as a small panel of their own (the open screen's band, on
+    /// the left of the fold, level with the mic): the two rows stacked, each whole.
+    var optionsPanel: some View {
+        VStack(spacing: 0) {
+            if model.isPaired {
+                SendAfterPastingRow(target: model.selection.target, compact: true)
+                PanelDivider()
+            }
+            HStack {
+                Text("Cleanup").font(.body).foregroundStyle(Ink.ink)
+                Spacer(minLength: 8)
+                CleanupMenu(settings: model.settings, short: true) { model.sheet = .customCleanup }
+            }
+            .padding(.horizontal, Space.inset)
+            .padding(.vertical, 8)
+        }
+        .controlPanel(glow: skyGlow)
+        .padding(.horizontal, Space.margin)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Send after pasting and Cleanup")
     }
 
     /// The carousel — the page row, the Thread, the mic · keyboard · trackpad pages — as the phone
     /// builds it. `fill`: the room the pages take whole (the trackpad fills it, the mic sits in
     /// the middle of it); `rowHidden`: a folded deck, where the switcher is a cluster in the
-    /// corner and the Thread has its full slot across the half.
+    /// corner, the Thread spans the half under it, the mic is a size up and the status line a
+    /// size up — the Thread and the mic one group in the middle of the half.
     func carousel(fill: CGFloat?, compact: Bool, rowHidden: Bool = false) -> some View {
         let deck = fill != nil
         // A flat inner screen's bottom bar is kept tight (the window has the room): the Thread's
         // slot a step slimmer and the status one line, as a deck's.
-        let slot: CGFloat = rowHidden ? 84 : deck ? 48 : compact ? 48 : 84
+        let slot: CGFloat = rowHidden ? DuoLook.deckThread : deck ? 48 : compact ? 48 : 84
+        let micSize = rowHidden ? DuoLook.deckMic : 92
+        // A folded deck: the room over the Thread — at least the cluster's row, more on a tall
+        // page so the Thread and the mic sit together in the middle.
+        let micGroup = 8 + micSize * 1.25 + 28
+        let threadTop: CGFloat = rowHidden ? max(DuoLook.deckThreadTop, ((fill ?? 0) - slot - micGroup) / 2) : 0
         let oneLine = deck || compact
-        return InputCarousel(input: input, watcher: watcher, compact: compact, threadHeight: slot, fill: fill, rowHidden: rowHidden) {
+        return InputCarousel(input: input, watcher: watcher, compact: compact, threadHeight: slot + threadTop, fill: fill, rowHidden: rowHidden) {
             VStack(spacing: 0) {
-                Color.clear.frame(height: deck ? 8 : compact ? 10 : 30)
+                Color.clear.frame(height: deck ? 8 : compact ? 4 : 30)
                 MicButton(recording: isRecording,
                           finishing: isFinishing,
                           mode: filamentMode,
@@ -210,30 +270,33 @@ extension MainView {
                           meter: recorder.meter,
                           onDown: pressDown,
                           onUp: pressUp,
-                          onAccessibilityToggle: { model.toggleRecording() })
+                          onAccessibilityToggle: { model.toggleRecording() },
+                          size: micSize)
                 if oneLine {
                     FixedSlot(alignment: .top) {
-                        Text("A").font(.subheadline).frame(maxWidth: .infinity)
+                        Text("A").font(rowHidden ? .body : .subheadline).frame(maxWidth: .infinity)
                     } content: {
-                        StatusLine(recorder: recorder, holding: holding || look == "holding")
+                        StatusLine(recorder: recorder, holding: holding || look == "holding", font: rowHidden ? .body : .subheadline)
                     }
                     .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                     .padding(.bottom, deck ? 2 : 6)
-                    // The Thread above and the mic together sit in the middle of the half.
-                    if rowHidden { Color.clear.frame(height: slot / 2) }
                 } else {
                     statusSlot
                         .padding(.bottom, compact ? 6 : 18)
                 }
             }
         } thread: {
-            ZStack {
-                Filament(mode: filamentMode, meter: recorder.meter, height: rowHidden ? 96 : deck ? 56 : compact ? 56 : 96)
-                    .frame(height: slot)
-                DeliveredCheck(visible: showCheck, color: checkColor)
-                timer.frame(maxHeight: .infinity, alignment: .bottom)
+            VStack(spacing: 0) {
+                if threadTop > 0 { Color.clear.frame(height: threadTop) }
+                ZStack {
+                    Filament(mode: filamentMode, meter: recorder.meter, height: rowHidden ? 120 : deck ? 56 : compact ? 56 : 96)
+                        .frame(height: slot)
+                    DeliveredCheck(visible: showCheck, color: checkColor)
+                    timer.frame(maxHeight: .infinity, alignment: .bottom)
+                }
+                .frame(height: slot)
             }
-            .frame(height: slot)
+            .frame(height: slot + threadTop)
             .padding(.horizontal, -4)
         }
         .onChange(of: showLiveWords) { _, live in if live, input.page != .mic { input.show(.mic, quiet: true) } }
@@ -289,42 +352,53 @@ struct DuoMacHalf: View {
         _watcher = ObservedObject(wrappedValue: main.watcher)
     }
 
+    /// What floats over the picture's foot (the answers): the picture's newest lines stay above it.
+    @State private var floatingHeight: CGFloat = 0
+
     var body: some View {
+        let live = watcher.phase == .live
         ZStack {
             if watcher.isShowing {
-                WatchWindow(watcher: watcher, interactive: true, bezelWidth: DuoLook.halfBezel, corner: DuoLook.halfCorner, fill: true)
-                    .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
-                    .overlay(alignment: .bottom) {
+                if let short = shortPicture {
+                    // A window that can't fill the half (the fourth pass — the Mac can't reshape
+                    // it, or hasn't yet: the whole screen, a window on the book's tall page):
+                    // the picture at the top at the scale that fills the width, and the room
+                    // under it holds what floated over it — the answers with Esc · Keys and
+                    // Pan | Scroll (or the keys), the words you're saying. No black above or below.
+                    VStack(spacing: 10) {
+                        // The header has room of its own here, above the picture, as on the open
+                        // screen (never over its first lines).
+                        WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                        screen(footInset: 0, floating: false, header: false)
+                            .frame(height: short)
                         if main.showLiveWords {
-                            DuoLiveWords(main: main, room: room)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            DuoLiveWords(main: main, room: room, below: true)
+                                .transition(.opacity)
                         } else {
-                            WatchActions(watcher: watcher, floating: true)
+                            WatchActions(watcher: watcher)
                                 .padding(.horizontal, 12)
-                                .padding(.bottom, 10)
-                                .opacity(watcher.phase == .live ? 1 : 0)
-                                .allowsHitTesting(watcher.phase == .live)
-                                .accessibilityHidden(watcher.phase != .live)
+                                .opacity(live ? 1 : 0)
+                                .allowsHitTesting(live)
+                                .accessibilityHidden(!live)
                         }
+                        Spacer(minLength: 0)
                     }
-                    .overlay(alignment: .top) {
-                        // Down, it's gone (not merely faded): nothing of it for a finger or
-                        // VoiceOver to find over the screen.
-                        if headerUp {
-                            DuoOverlayHeader(watcher: watcher, twoRows: vertical)
-                                .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -8)))
-                        }
-                    }
-                    .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: headerUp)
-                    // A touch anywhere on the screen brings the header back (the window's own
-                    // gestures go on as before).
-                    .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })
+                    .transition(.opacity)
+                } else {
+                    screen(footInset: live && !main.showLiveWords ? floatingHeight : 0, floating: true)
+                        .transition(.opacity)
+                }
+            } else if let short = shortPicture {
+                DuoGlance(watcher: watcher, fill: true, pictureHeight: short)
                     .transition(.opacity)
             } else {
                 DuoGlance(watcher: watcher, fill: true)
                     .transition(.opacity)
             }
         }
+        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: shortPicture != nil)
         .onAppear { reveal() }
         .onDisappear { hideTask?.cancel(); hideTask = nil }
         .onChange(of: watcher.isShowing) { _, _ in reveal() }
@@ -332,6 +406,55 @@ struct DuoMacHalf: View {
         .onChange(of: watcher.phase) { _, _ in reveal() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your Mac")
+    }
+
+    /// The screen: the picture edge to edge with the overlay header over its top and — `floating`
+    /// — the answers or the words you're saying over its foot (the picture's foot scrolls up above
+    /// the answers: `footInset`).
+    private func screen(footInset: CGFloat, floating: Bool, header: Bool = true) -> some View {
+        let live = watcher.phase == .live
+        return WatchWindow(watcher: watcher, interactive: true, bezelWidth: DuoLook.halfBezel, corner: DuoLook.halfCorner, fill: true, footInset: footInset)
+            .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
+            .overlay(alignment: .bottom) {
+                if floating {
+                    if main.showLiveWords {
+                        DuoLiveWords(main: main, room: room)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    } else {
+                        WatchActions(watcher: watcher, floating: true)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { floatingHeight = watcher.answers == nil ? 0 : $0 }
+                            .opacity(live ? 1 : 0)
+                            .allowsHitTesting(live)
+                            .accessibilityHidden(!live)
+                    }
+                }
+            }
+            .overlay(alignment: .top) {
+                // Down, it's gone (not merely faded): nothing of it for a finger or
+                // VoiceOver to find over the screen.
+                if header, headerUp {
+                    DuoOverlayHeader(watcher: watcher, twoRows: vertical)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -8)))
+                }
+            }
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: headerUp)
+            // A touch anywhere on the screen brings the header back (the window's own
+            // gestures go on as before).
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })
+    }
+
+    /// The picture's height when it can't fill the half — a window shaped nothing like it (one
+    /// the Mac can't reshape, or hasn't yet; the whole screen) on the book's tall page: the
+    /// width-fit scale times the fill's cap, the bezel round it. Nil when it fills the half (the
+    /// cap doesn't bite), or when what's left under it would be too little to use.
+    private var shortPicture: CGFloat? {
+        guard watcher.hasPicture, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 else { return nil }
+        let width = room.width - 2 * DuoLook.halfBezel
+        let h = width * ViewerScrollView.fillCap * size.height / size.width + 2 * DuoLook.halfBezel
+        // The header's rows above it, the answers and the keys under it.
+        return h < room.height - (vertical ? 250 : 200) ? (h / 2).rounded() * 2 : nil
     }
 
     /// The header shows: lately touched, or always for VoiceOver (and held for a screenshot).
@@ -391,6 +514,8 @@ struct DuoOverlayHeader: View {
 struct DuoLiveWords: View {
     let main: MainView
     var room: CGSize
+    /// Under a picture that doesn't fill the half, not over it: the card takes the room it has.
+    var below = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -405,7 +530,8 @@ struct DuoLiveWords: View {
                 .clipped()
         }
         .frame(maxWidth: 640)
-        .frame(height: max(120, min(room.height * 0.62, 320)))
+        .frame(height: below ? nil : max(120, min(room.height * 0.62, 320)))
+        .frame(maxHeight: below ? 360 : nil)
         .watchGlass(RoundedRectangle(cornerRadius: WatchLook.card, style: .continuous))
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
@@ -446,13 +572,14 @@ struct DuoDeck: View {
                     }
                 }
             } else if vertical {
-                // The book's page: the top bar, Send to, the mic in what's left.
+                // The book's page: the top bar, Send to as a grid (every place, four across),
+                // the mic in what's left.
                 main.topBar
                 if main.showLiveWords {
                     main.transcriptArea
                         .frame(maxHeight: .infinity)
                 } else {
-                    main.sendToPanel(compact: true)
+                    main.sendToPanel(layout: .grid(maxRows: 3))
                         .padding(.top, 8)
                 }
                 GeometryReader { g in
@@ -462,18 +589,24 @@ struct DuoDeck: View {
                 .frame(minHeight: main.showLiveWords ? 150 : 160)
             } else {
                 // The laptop's half is wide and short: Send to (or the transcript) on the left,
-                // the mic with its Thread on the right — as the open screen's band lies — so
-                // neither is cut off in a half of ~320 points.
-                main.topBar
+                // the top bar and the mic with its Thread on the right — as the open screen's
+                // band lies — so neither is cut off in a half of ~320 points. Send to is a grid,
+                // two rows before it scrolls, so every open app is in view with its name.
                 GeometryReader { g in
                     let half = max(0, (g.size.width - DuoLook.foldGap) / 2)
                     HStack(alignment: .top, spacing: DuoLook.foldGap) {
                         Group {
-                            if main.showLiveWords { main.transcriptArea } else { main.sendToPanel(compact: true).padding(.top, 8) }
+                            if main.showLiveWords { main.transcriptArea } else { main.sendToPanel(layout: .grid(maxRows: 2)).padding(.top, 8) }
                         }
                         .frame(width: half, height: g.size.height, alignment: .top)
-                        main.carousel(fill: g.size.height, compact: true)
-                            .frame(width: half, height: g.size.height, alignment: .top)
+                        VStack(spacing: 0) {
+                            main.topBar
+                            GeometryReader { r in
+                                main.carousel(fill: r.size.height, compact: true)
+                                    .frame(width: r.size.width, height: r.size.height, alignment: .top)
+                            }
+                        }
+                        .frame(width: half, height: g.size.height, alignment: .top)
                     }
                 }
             }
@@ -495,6 +628,9 @@ struct DuoGlance: View {
     @ObservedObject var watcher: Watcher
     /// A folded half: the picture fills it, edge to edge.
     var fill: Bool
+    /// A picture that can't fill the half (the book's tall page): this tall, at the top, with
+    /// the bar under it rather than over its foot.
+    var pictureHeight: CGFloat? = nil
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
@@ -502,12 +638,23 @@ struct DuoGlance: View {
         ZStack {
             if watcher.isOpen, watcher.hasPicture {
                 // Live, the pictures still coming: the same screen, without its controls.
-                WatchWindow(watcher: watcher, interactive: false,
-                            bezelWidth: fill ? DuoLook.halfBezel : WatchLook.bezelWidth,
-                            corner: fill ? DuoLook.halfCorner : WatchLook.bezel, fill: fill)
-                    .overlay(alignment: .bottom) { liveBar }
+                let window = WatchWindow(watcher: watcher, interactive: false,
+                                         bezelWidth: fill ? DuoLook.halfBezel : WatchLook.bezelWidth,
+                                         corner: fill ? DuoLook.halfCorner : WatchLook.bezel, fill: fill)
+                if let pictureHeight {
+                    VStack(spacing: 0) {
+                        window.frame(height: pictureHeight)
+                        liveBar
+                        Spacer(minLength: 0)
+                    }
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
+                } else {
+                    window
+                        .overlay(alignment: .bottom) { liveBar }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
+                }
             } else {
                 plate
                 VStack(spacing: 14) {
@@ -553,29 +700,44 @@ struct DuoGlance: View {
             .overlay(SpecularEdge(shape: bezel))
     }
 
-    /// Over the live picture's foot: the app, that it's live (or paused), and Show it here.
+    /// Over the live picture's foot (or under a short picture): the app, that it's live (or
+    /// paused), and Show it here — on one line, or the button on its own line when the page is
+    /// narrow (the book's).
     private var liveBar: some View {
         let target = model.selection.target
-        return HStack(spacing: 12) {
-            icon(target, size: 30)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(watcher.name).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
-                Text(watcher.phase.isPaused ? "Paused · Show it here to go on" : "Live on your Mac")
-                    .font(.caption).foregroundStyle(watcher.phase.isPaused ? Light.ochre : Ink.secondary).lineLimit(1)
+        let under = pictureHeight != nil
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                icon(target, size: 30)
+                liveWords
+                Spacer(minLength: 8)
+                showButton.fixedSize()
             }
-            Spacer(minLength: 8)
-            showButton
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) { icon(target, size: 30); liveWords; Spacer(minLength: 0) }
+                showButton
+            }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 22)
+        .padding(.top, under ? 12 : 22)
         .padding(.bottom, 12)
         .background {
-            LinearGradient(colors: [.clear, Ink.ground.opacity(reduceTransparency ? 0.96 : 0.55), Ink.ground.opacity(reduceTransparency ? 0.96 : 0.86)],
-                           startPoint: .top, endPoint: .bottom)
-                .allowsHitTesting(false)
+            if !under {
+                LinearGradient(colors: [.clear, Ink.ground.opacity(reduceTransparency ? 0.96 : 0.55), Ink.ground.opacity(reduceTransparency ? 0.96 : 0.86)],
+                               startPoint: .top, endPoint: .bottom)
+                    .allowsHitTesting(false)
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: fill ? DuoLook.halfCorner : WatchLook.bezel, style: .continuous))
         .padding(fill ? DuoLook.halfBezel : WatchLook.bezelWidth)
+    }
+
+    private var liveWords: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(watcher.name).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
+            Text(watcher.phase.isPaused ? "Paused · Show it here to go on" : "Live on your Mac")
+                .font(.caption).foregroundStyle(watcher.phase.isPaused ? Light.ochre : Ink.secondary).lineLimit(1)
+        }
     }
 
     private var showButton: some View {
