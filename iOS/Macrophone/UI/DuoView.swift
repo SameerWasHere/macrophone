@@ -308,13 +308,14 @@ struct DuoMacHalf: View {
                         }
                     }
                     .overlay(alignment: .top) {
-                        DuoOverlayHeader(watcher: watcher, twoRows: vertical)
-                            .opacity(headerUp ? 1 : 0)
-                            .offset(y: headerUp || reduceMotion ? 0 : -8)
-                            .allowsHitTesting(headerUp)
-                            .accessibilityHidden(!headerUp)
-                            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: headerUp)
+                        // Down, it's gone (not merely faded): nothing of it for a finger or
+                        // VoiceOver to find over the screen.
+                        if headerUp {
+                            DuoOverlayHeader(watcher: watcher, twoRows: vertical)
+                                .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -8)))
+                        }
                     }
+                    .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: headerUp)
                     // A touch anywhere on the screen brings the header back (the window's own
                     // gestures go on as before).
                     .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })

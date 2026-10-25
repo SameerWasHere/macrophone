@@ -47,7 +47,8 @@ screen and then we need to come up with an epic inside screen experience … lik
 with the window or full screen taking up the full half when partially folded and the bottom half
 being trackpad or keyboard or mic … a Duo version that supports every fold option". The Duo folds
 like a book: a cover screen (466 × 678 pt — wider and shorter than a Pro, its status bar on the
-side) and an inner screen (669 × 951 pt). Nothing changes for any other iPhone.
+side) and an inner screen (669 × 951 pt). Nothing changes for any other iPhone. Two passes the
+same day; the second (below, "the laptop in earnest") wins where they differ.
 - **Poses** (`FoldPose`, MacrophoneKit `Core/FoldPose.swift`, pure, `FoldPoseTests`): `closed`
   (the cover: the phone's layout, `MainView.phoneBody`, compact), `open(landscape:)` (the inner
   screen flat), `laptop` (partly folded, the hinge across), `book` (partly folded, the hinge up
@@ -62,30 +63,62 @@ side) and an inner screen (669 × 951 pt). Nothing changes for any other iPhone.
   size measured with the keyboard ignored so a folded layout never shrinks for it. UIKit's
   `UIHingeInteraction` / `UIView.reservedRegions` are the same facts; the app reads them once, in
   SwiftUI. A pose change: `Haptics.soft()`, a VoiceOver layout announcement (`FoldPose.spoken`),
-  "pose: laptop (112°, 951×669)" in the log.
-- **Layouts** (`UI/DuoView.swift`, extensions of `MainView` — its members are internal now, not
-  private, so the Duo file reaches them): *open, upright* — the top bar, the window view large
-  (`WatchPanel` as the phone has it: header, window, keys/answers), then side by side with the
-  fold's line between them the Send to panel (left; the transcript while the mic is open) and the
-  carousel (right: row · Thread · mic — each half a set width, since the carousel sizes its pages
-  to the width it's given and a flexible split had it chasing itself: the hang of Oct 25);
-  *open, on its side* — the window left, a 352 pt rail right (top bar, panel, the mic at its
-  foot, below the fold's line); *laptop* — `DuoMacHalf` (`WatchWindow` edge to edge, 4 pt inset)
-  on the top half, the fold's band empty, `DuoDeck` on the bottom half: `WatchHeaderBar` (the
-  window view's header, extracted from `WatchPanel`: name menu + dots, Sound | Mac Controls, zoom
-  out | Window, Done), `WatchActions(wide:)` (the answers in one row when they fit, Esc · Keys
-  and Pan | Scroll under them; else the keys row), then the carousel filling the rest
-  (`InputCarousel(fill:)`: the trackpad takes it all, the mic sits in the middle, a Thread slot
-  of 40 — none under 175 pt of room — and a one-line status); the laptop body ignores the
-  keyboard's safe area so the Mac's half never shrinks (the keyboard and its bar rise over the
-  deck); *book* — the Mac on the LEFT page, the deck on the RIGHT (`twoRows` header: name + Done,
-  then the clusters) — the right thumb drives the trackpad, and it reads as a laptop does, the
-  screen then the keys. Not watching on the inner screen: `DuoGlance` on the Mac's plate — the
-  picked app's icon and name, "Show it here" (`AppModel.showWindowForPose`); Pair a Mac / Looking
-  for ‹Mac› when there's none. The split follows the hinge: the deck rises (`offset` + opacity on
-  `Posture.rise`), the Mac's picture settles into its half (`scaleEffect` 0.97 → 1); Reduce
-  Motion: fades. State is kept across poses: the window, its zoom (per app), the carousel's page,
-  a dictation under way (the deck shows the transcript in the actions' place), a sheet.
+  "pose: laptop (112°, 951×669)" in the log; the layouts cross-fade on the settle spring
+  (`MainView.poseBody`), the halves follow the hinge (`Posture.rise`: the deck rises, the picture
+  settles into its half; Reduce Motion fades).
+- **The folded poses are a laptop (`UI/DuoView.swift`, the second pass).** *Laptop* — the top
+  half IS the Mac's screen: `DuoMacHalf` draws `WatchWindow` edge to edge (`bezelWidth` 2,
+  `corner` 14, `fill: true`) with a slim translucent header laid over its top like a menu bar
+  (`DuoOverlayHeader`: `WatchHeaderBar(dragSwitch: true)` — the window's name and menu, the dots,
+  Sound | Mac Controls, Pan | Scroll as glyphs, zoom out | Window, Done — on a gradient that fades
+  into the picture) that fades 3.5 s after a touch and comes back on any touch of the half
+  (`DuoLook.headerHold`; never fades for VoiceOver, while the window isn't live, or under
+  `MACROPHONE_DUO_HEADER=held`); the question's answers float over the picture's foot
+  (`WatchActions(floating: true)`: Esc, then the answers in one row, a column when too long —
+  no key row on the deck: Esc · ⇥ · the arrows ride the keyboard page's bar). The bottom half
+  is the deck, all of it (`DuoDeck`): the carousel fills it with its row hidden
+  (`InputCarousel(rowHidden:)`) and the three pages as one small cluster of glass cells in the
+  deck's top-right corner (`InputCornerSwitcher`, the same `input-pages` adjustable element); the
+  trackpad is the whole half (`TrackpadPage(big:)`: an even inset, the faint outline of a pad);
+  the mic page is the Thread across the half (an 84 pt slot) with the mic under it, the pair
+  centred — and while the mic is open the words show over the picture above on a card of glass
+  (`DuoLiveWords`: the destination line and `LiveWords`, up to 62% of the half); the keyboard
+  page is the iOS keyboard rising over the deck with `MacKeyboardBar` on it. *Book* — the same,
+  the Mac on the LEFT page and the deck on the RIGHT (the right thumb drives the trackpad); the
+  header takes two rows (`twoRows`); the iOS keyboard is the screen's width, so it rises over the
+  foot of both pages (nothing to do about that: the Mac's page keeps its height).
+- **The picture fills a folded half** (`Watcher.fillsView`, set by the pose; `ViewerScrollView.fill`):
+  the start scale covers the half (`max(fitWidth, fillHeight)`, capped at the usual 1.8 × the
+  width-fit so a window shaped nothing like the half — one the Mac can't reshape on the book's
+  tall page — never zooms onto a sliver), the zoom's top end at least that; the zoom-out button
+  still shows it whole; the whole screen fills too (its `wholeWindow` start is off while
+  `fillsView`). **And a window the Mac can reshape takes the half's shape by itself**
+  (`Watcher.applyHalfFit`, quietly: once per entry into a folded pose, once the window is live
+  and the view measured, never the whole screen; `shapeSent` set so `followShape` doesn't
+  re-send; the app's fitted flag and Scroll as Fit to iPhone sets them). `mpctl serve`'s demo
+  window is fixed at 1400 × 900 whatever shape is asked, so on the simulator it fills by zoom.
+- **Done on the inner screen is the glance, not a closed window** (`Watcher.glance()` /
+  `done()` / `glanceOnDone`, set by the pose; `isShowing` = open and not glancing; the cover and
+  every other iPhone close as ever, and a glance closes with the inner screen): the pictures keep
+  coming, the controls are put away (the pointer hidden, the pages back to the mic), and
+  `DuoGlance` draws the live window big with a bar over its foot — the app's icon and name, "Live
+  on your Mac" (or "Paused · Show it here to go on"), **Show it here**
+  (`AppModel.showWindowForPose`, which opens it again — `Watcher.open` clears the glance). Nothing
+  watched yet: the picked app on a plate and the same button; Pair a Mac / Looking for ‹Mac›.
+  While two viewers overlap in the cross-fade, a `ViewerScrollView` leaving the window hands the
+  video canvas to the newest one that wants it (`wantedVideo` / `newest`) — the one on its way out
+  used to take the canvas with it and leave the glance black.
+- **Open, upright** (669 × 951): the top bar, the window large (`DuoMacArea` → `WatchPanel(duo:
+  true)`: the answers float over the picture's foot there too, `WatchActions(keysOnly: true)`
+  under it; a first-run tip keeps to the window's top-right corner at 340 pt, `WatchTipCard(corner:)`),
+  then side by side with the fold's line between them the Send to panel (left; the transcript
+  while the mic is open) and the carousel (right, tight: a 48 pt Thread slot, a one-line status) —
+  each half a set width (a flexible split had the carousel chasing its own measure: the hang of
+  Oct 25). The window gets ~58% of the height. *Open, on its side* (951 × 669): the window left
+  at full height, a 316 pt rail right — the top bar, Send to (the transcript while the mic is
+  open), then the deck filling the rest (the trackpad whole, the mic in the middle). The rail
+  rather than a bottom deck: it keeps the window near-square, so a window fitted to it reads like
+  a laptop's, puts the controls under the right thumb, and only the picture crosses the fold.
 - **Rules:** opening the inner screen opens the pick's window by itself (`AppModel.poseChanged` →
   `openWindowForPose`: the Whole Screen for the Clipboard / Where I'm typing; waits for the Mac
   when it isn't connected yet — `linkClient(_:stateChanged:)`); closing the phone closes a window
@@ -104,20 +137,34 @@ side) and an inner screen (669 × 951 pt). Nothing changes for any other iPhone.
   runs on the cover with the inner dark, and nothing in CoreSimulator / DeviceHub / backboardd
   names a hinge. So: `MACROPHONE_POSTURE=closed|portrait|landscape|laptop|book[@<angle>]` forces
   the pose (a fold band in the middle stands for the region) and `MACROPHONE_FRAME=951x669` /
-  `669x951` draws the inner screen's frame to scale on the cover (the frame's own keyboard is
-  the cover's, rising over everything); the real APIs are wired and untested on hardware.
-  `MACROPHONE_WATCH_ACTIONS=…,done` closes the window view (the glance). Frames:
-  `docs/screens/duo/<pose>/` (main · window on each page · Mac Controls · Settings · the glance,
-  a contact sheet each). UI tests `DuoUITests` (a paired `mpctl serve`): the laptop pose opens on
-  the trackpad, a drag moves the pointer, the row switches pages, typing reaches the Mac, hide
-  comes back to the mic, Done leaves the glance; the book's deck is on the right page; the open
-  screen keeps the mic and the panel off the fold. `TEST_RUNNER_MACROPHONE_DUO_SHOTS=<dir>`.
+  `669x951` draws the inner screen's frame to scale on the cover (`duo-frame` for the tests; the
+  cover's side status bar leaves it 375 pt wide); the real APIs are wired and untested on hardware.
+  **The keyboard-frame finding:** the first pass's keyboard frames looked wrong because the
+  cover's own portrait keyboard rises at 1:1 over the scaled frame — the simulation, not the
+  layout. `MACROPHONE_FAKE_KEYBOARD=<height>` draws a stand-in keyboard of that height inside the
+  frame at its scale, with `MacKeyboardBar` above it (`DebugKeyboard` in RootView; the real field
+  never takes the keyboard then): at 216 pt (a landscape iPhone keyboard) the bar and keys cover
+  the laptop's deck exactly and the Mac's half is untouched. `MACROPHONE_WATCH_ACTIONS` gained
+  `say@<words>` (the mic opening with those words while the window shows) and `done` is
+  `watcher.done()` (the glance on the inner screen). Frames: `docs/screens/duo/<pose>/` (main · the
+  window on each page · Mac Controls · Settings · the glance · the live words; a before | after
+  contact sheet each). UI tests `DuoUITests` (a paired `mpctl serve`; the springboard's
+  notifications prompt tapped away on a fresh simulator): the laptop pose opens on the trackpad
+  which takes ≥ 80% of the bottom half, the answers sit over the top half, the header fades and a
+  touch brings it back, a drag moves the pointer, the corner switcher brings the keyboard and
+  typing reaches the Mac, hide comes back to the mic on the deck, Done leaves the glance ("Live on
+  your Mac", the pages put away) and Show it here brings the deck back; the book's deck is the
+  right page and its answers float on the left; the open screen keeps the mic and the panel off
+  the fold under a large window; on its side the rail holds Send to, the mic and the trackpad.
+  `TEST_RUNNER_MACROPHONE_DUO_SHOTS=<dir>`.
 - **Needs a real Duo:** the hinge's angle range and update rate (the deck's rise is tuned to
   165°→120°), the division region's frame and margins, which display the scene lands on when
-  folding, the inner keyboard's height in the laptop pose (the deck is 321 pt; the bar + keys
-  should cover it, not the Mac), the Mac's picture at the inner screen's size (the stream is
-  already up to 2,560 px wide; `watchShape` carries the view's points — nothing on the Mac
-  changes).
+  folding, the inner keyboard's height in the laptop pose (the deck is ~320 pt; the bar + keys
+  should cover it, not the Mac — the stand-in says they would at 216 pt), whether a SwiftUI
+  touch over the window's UIKit viewer reveals the header on hardware as it does on the
+  simulator, the Mac's picture at the inner screen's size (the stream is already up to 2,560 px
+  wide; `watchShape` carries the view's points — nothing on the Mac changes), and a real Mac
+  window taking the half's shape (the demo can't).
 
 ## Several Macs on one iPhone (Oct 19 2026)
 

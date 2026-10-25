@@ -60,6 +60,17 @@ final class DuoUITests: XCTestCase {
         if switcher.value as? String != "Trackpad" { switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.5)).tap() }
         XCTAssertTrue(trackpad.waitForExistence(timeout: 5), "the laptop deck opens on the trackpad")
         XCTAssertEqual(switcher.value as? String, "Trackpad")
+        // The header comes up on a touch of the Mac's half, fades a few seconds later, and comes
+        // back on the next touch.
+        let done = app.buttons["watch-done"]
+        let screen = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: inner.midX, dy: inner.minY + inner.height * 0.2))
+        screen.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 2), "a touch on the Mac's half brings the overlay header up")
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: done)
+        waitForExpectations(timeout: 8)
+        shot("laptop-faded")
+        screen.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 2), "and the next touch brings it back")
         dismissTips(app)
         // The trackpad is the whole bottom half.
         XCTAssertGreaterThan(trackpad.frame.minY, inner.midY - 2, "the trackpad is in the bottom half")
@@ -69,15 +80,6 @@ final class DuoUITests: XCTestCase {
         XCTAssertTrue(answer.waitForExistence(timeout: 8), "the demo Mac's question is up")
         XCTAssertLessThan(answer.frame.maxY, inner.midY, "the answers sit over the picture's foot")
         shot("laptop-trackpad")
-
-        // The header fades after a few seconds; a touch on the screen brings it back.
-        let done = app.buttons["watch-done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 2), "the overlay header is up at first")
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: done)
-        waitForExpectations(timeout: 8)
-        shot("laptop-faded")
-        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: inner.midX, dy: inner.height * 0.2)).tap()
-        XCTAssertTrue(done.waitForExistence(timeout: 2), "a touch on the Mac's half brings the header back")
 
         // A drag on the trackpad moves the pointer.
         let before = pointer(trackpad)
@@ -111,7 +113,7 @@ final class DuoUITests: XCTestCase {
         // and Show it here takes it back in hand.
         switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.5)).tap()
         XCTAssertTrue(trackpad.waitForExistence(timeout: 3))
-        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: inner.midX, dy: inner.height * 0.2)).tap()
+        screen.tap()
         XCTAssertTrue(done.waitForExistence(timeout: 2))
         done.tap()
         XCTAssertTrue(app.buttons["duo-show"].waitForExistence(timeout: 5), "Done leaves the glance, with Show it here")
@@ -130,7 +132,9 @@ final class DuoUITests: XCTestCase {
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
         if switcher.value as? String != "Trackpad" { switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.5)).tap() }
         XCTAssertTrue(trackpad.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["watch-done"].waitForExistence(timeout: 3))
+        // A touch on the left page brings its header up.
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: inner.minX + inner.width * 0.25, dy: inner.midY)).tap()
+        XCTAssertTrue(app.buttons["watch-done"].waitForExistence(timeout: 3), "a touch on the Mac's page brings the header up")
         dismissTips(app)
         // The deck is the right page, the trackpad nearly all of it; the answers on the left.
         XCTAssertGreaterThan(trackpad.frame.minX, inner.midX - 2, "the trackpad is on the right page")
