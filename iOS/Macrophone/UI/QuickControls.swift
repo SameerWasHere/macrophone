@@ -109,6 +109,12 @@ struct QuickControls: View {
     /// The iPhone Duo's open inner screen (Oct 25 2026, the third pass): room for each place's
     /// name under its icon, so the row reads at a glance rather than by the one name above it.
     var named = false
+    /// How the places lie: the phone's one scrolling row, or — the Duo's inner screen, the
+    /// fourth pass — a grid that wraps, every place in view with its name.
+    var layout: PlacesLayout = .row
+    /// Send after pasting and Cleanup under the places (off where the screen lays them out
+    /// beside the mic instead: the Duo's open screen).
+    var options = true
     /// The Thread's light, under the panel: the plate's foot takes a breath of it.
     var glow: Color = Light.cyan
     @AppStorage("onboarding.macNudgeDismissed") private var macNudgeDismissed = false
@@ -121,9 +127,11 @@ struct QuickControls: View {
             // pasting and Cleanup share one row under the places; what a choice does is said by the
             // status line under the mic when it's made, and by each Cleanup level in its menu.
             if model.isPaired {
-                PlacesRow(current: target, compact: compact, named: named)
-                PanelDivider()
-                OptionsRow(settings: settings, target: target, compact: compact) { model.sheet = .customCleanup }
+                PlacesRow(current: target, compact: compact, named: named, layout: layout)
+                if options {
+                    PanelDivider()
+                    OptionsRow(settings: settings, target: target, compact: compact) { model.sheet = .customCleanup }
+                }
             } else {
                 if showNudge {
                     MacAppNudge { withAnimation(Motion.pick(Motion.depart, reduce: reduceMotion)) { macNudgeDismissed = true } }
@@ -144,6 +152,18 @@ struct QuickControls: View {
     private var showNudge: Bool { !model.isPaired && model.latest?.delivery == .copiedOnPhone && !macNudgeDismissed }
 }
 
+/// How the places lie in the Send to panel.
+enum PlacesLayout: Equatable {
+    /// One row, scrolling sideways (the phone).
+    case row
+    /// A grid that wraps to as many rows as it takes, every place in view (the Duo's inner
+    /// screen, Oct 25 2026). `gutter`: a band in the middle of the width no cell sits on — the
+    /// fold's line, on the open screen; `maxRows`: past these it scrolls down (a rail).
+    case grid(gutter: CGFloat? = nil, maxRows: Int? = nil)
+
+    var isGrid: Bool { if case .grid = self { return true } else { return false } }
+}
+
 /// A hairline between the panel's rows, inset like a grouped list's.
 struct PanelDivider: View {
     var body: some View { Divider().overlay(Ink.line).padding(.leading, Space.inset) }
@@ -162,6 +182,10 @@ struct PlacesRow: View {
     var compact = false
     /// Each place's name under its icon (the Duo's open inner screen).
     var named = false
+    /// One scrolling row, or a grid that wraps (the Duo's inner screen).
+    var layout: PlacesLayout = .row
+    /// The grid's own height (a capped grid is as tall as its rows, then scrolls).
+    @State private var gridHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -204,49 +228,85 @@ struct PlacesRow: View {
             }
             .padding(.horizontal, Space.inset)
 
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(places.enumerated()), id: \.element.id) { i, p in
-                            // The apps with somewhere to type, then a line, then every other open app.
-                            if p.kind == .app, !p.canType, i > 0, places[i - 1].canType {
-                                OtherAppsRule(compact: compact, named: named)
-                            }
-                            PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact, named: named,
-                                        watchable: p.id == selected && current != .clipboard && model.isConnected && !notOpen,
-                                        needs: model.isConnected ? model.needs(p) : nil,
-                                        windowNeeds: { model.needs($0) != nil },
-                                        onWatch: { watch(current) }) { pick($0) }
-                                .id(p.id)
-                        }
-                        // Any app on the Mac, open or not (Open an app).
-                        MoreAppsButton(compact: compact, named: named) { model.sheet = .openApp }
+            if case .grid(let gutter, let maxRows) = layout {
+                // The Duo's inner screen: every place in view with its name, in rows that wrap —
+                // none on the fold's line; past `maxRows` (a rail) the grid scrolls down.
+                let grid = FoldFlow(spacing: 8, rowSpacing: 8, gutter: gutter) {
+                    cells(places, selected: selected, notOpen: notOpen)
+                }
+                .padding(.horizontal, Space.inset)
+                .padding(.vertical, 4)
+                .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: places.map(\.id))
+                if let maxRows {
+                    // As tall as its rows, up to the cap (a scroll view would take whatever the
+                    // deck under it left), then scrolling down with its edge dissolving.
+                    let cap = CGFloat(maxRows) * PlacesLook.cellHeight + CGFloat(maxRows - 1) * 8 + 8
+                    ScrollView(.vertical) {
+                        grid.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { gridHeight = $0 }
                     }
-                    .padding(.horizontal, Space.inset)
-                    .padding(.vertical, 4)
+                    .scrollIndicators(.hidden)
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(height: min(gridHeight > 0 ? gridHeight : cap, cap))
+                    .edgeFade(bottom: gridHeight > cap ? 10 : 0)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Places on your Mac")
+                        .accessibilityIdentifier("places")
+                } else {
+                    grid
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Places on your Mac")
+                        .accessibilityIdentifier("places")
                 }
-                .scrollIndicators(.hidden)
-                // A pressed or held icon grows past the row (Oct 19 2026, Sameer: "when I press and
-                // hold on an app icon the button also gets cut off at top and bottom"): the row
-                // draws past its top and bottom, and is trimmed only at its sides.
-                .scrollClipDisabled()
-                .mask(Rectangle().padding(.vertical, -40))
-                // Only as far as it takes to bring the pick into view (Clipboard stays put when it's visible).
-                .onAppear { if let selected { proxy.scrollTo(selected) } }
-                .onChange(of: selected) { _, id in
-                    guard let id else { return }
-                    withAnimation(Motion.pick(.snappy(duration: 0.35), reduce: reduceMotion)) { proxy.scrollTo(id) }
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            cells(places, selected: selected, notOpen: notOpen)
+                        }
+                        .padding(.horizontal, Space.inset)
+                        .padding(.vertical, 4)
+                    }
+                    .scrollIndicators(.hidden)
+                    // A pressed or held icon grows past the row (Oct 19 2026, Sameer: "when I press and
+                    // hold on an app icon the button also gets cut off at top and bottom"): the row
+                    // draws past its top and bottom, and is trimmed only at its sides.
+                    .scrollClipDisabled()
+                    .mask(Rectangle().padding(.vertical, -40))
+                    // Only as far as it takes to bring the pick into view (Clipboard stays put when it's visible).
+                    .onAppear { if let selected { proxy.scrollTo(selected) } }
+                    .onChange(of: selected) { _, id in
+                        guard let id else { return }
+                        withAnimation(Motion.pick(.snappy(duration: 0.35), reduce: reduceMotion)) { proxy.scrollTo(id) }
+                    }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Places on your Mac")
+                .accessibilityIdentifier("places")
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Places on your Mac")
-            .accessibilityIdentifier("places")
         }
         .padding(.top, compact ? 8 : 12)
         .padding(.bottom, compact ? 4 : 8)
         .opacity(model.isConnected ? 1 : 0.8)
     }
 
+
+    /// The places themselves: the apps with somewhere to type, then a line, then every other open
+    /// app, then + (Open an App) — the same cells in the row and in the grid.
+    @ViewBuilder private func cells(_ places: [PlaceOption], selected: String?, notOpen: Bool) -> some View {
+        ForEach(Array(places.enumerated()), id: \.element.id) { i, p in
+            if p.kind == .app, !p.canType, i > 0, places[i - 1].canType {
+                OtherAppsRule(compact: compact, named: named)
+            }
+            PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact, named: named,
+                        watchable: p.id == selected && current != .clipboard && model.isConnected && !notOpen,
+                        needs: model.isConnected ? model.needs(p) : nil,
+                        windowNeeds: { model.needs($0) != nil },
+                        onWatch: { watch(current) }) { pick($0) }
+                .id(p.id)
+        }
+        // Any app on the Mac, open or not (Open an app).
+        MoreAppsButton(compact: compact, named: named) { model.sheet = .openApp }
+    }
 
     /// The app's one kicker voice (mono, tracked) — the same as "TO CLAUDE · SENDS" over the
     /// transcript and the times in History.
@@ -398,16 +458,20 @@ private struct PlaceButton: View {
                 }
                 .frame(width: named ? 44 : compact ? 40 : 44, height: named ? 40 : compact ? 40 : 44)
                 if named {
+                    // Whole, on a second line when it needs one ("Where I'm typing"): never cut.
                     Text(place.shortName)
                         .font(.caption2.weight(selected ? .semibold : .regular))
                         .foregroundStyle(selected ? Ink.ground : Ink.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                        .multilineTextAlignment(.center)
                         .frame(width: PlacesLook.namedWidth - 4)
                         .accessibilityHidden(true)
                 }
             }
-            .frame(width: named ? PlacesLook.namedWidth : nil, height: named ? PlacesLook.namedHeight : nil)
+            // A set width; as tall as its name (a second line only where one is needed).
+            .frame(width: named ? PlacesLook.namedWidth : nil, alignment: .top)
+            .padding(.top, named ? 4 : 0)
         }
         .placeButtonStyle(selected: selected)
         .controlSize(.small)
@@ -444,11 +508,15 @@ private struct PlaceButton: View {
     }
 }
 
-/// The named row's cell (the Duo's open inner screen): wide enough for most app names whole
-/// ("Messages", "Terminal"), tight enough for four or five places across half the screen.
+/// The named cell (the Duo's inner screen): wide enough for most app names whole ("Messages",
+/// "Terminal"), two lines for one that isn't ("Where I'm typing"), four across a book's page.
 enum PlacesLook {
-    static let namedWidth: CGFloat = 60
+    static let namedWidth: CGFloat = 62
+    /// The rule between the typeable apps and the rest, as tall as a one-line cell's label.
     static let namedHeight: CGFloat = 60
+    /// A cell as the button draws it, its glass round the label (measured): what a capped grid's
+    /// rows are counted in.
+    static let cellHeight: CGFloat = 82
 }
 
 /// The line in the Send to row between the apps with somewhere to type and every other open app
@@ -489,7 +557,8 @@ private struct MoreAppsButton: View {
                     Text("Open…").font(.caption2).foregroundStyle(Ink.secondary).lineLimit(1).accessibilityHidden(true)
                 }
             }
-            .frame(width: named ? PlacesLook.namedWidth : nil, height: named ? PlacesLook.namedHeight : nil)
+            .frame(width: named ? PlacesLook.namedWidth : nil, alignment: .top)
+            .padding(.top, named ? 4 : 0)
         }
         .placeButtonStyle(selected: false)
         .controlSize(.small)

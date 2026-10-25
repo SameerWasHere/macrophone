@@ -9,12 +9,16 @@ struct StatusLine: View {
     /// The live words (a spoken app name changes the line as it's heard).
     @ObservedObject private var words: LiveTranscript
     var holding: Bool
+    /// The line's size: the phone's subheadline, or the body on the iPhone Duo's deck (Oct 25
+    /// 2026), where it reads from further away.
+    var font: Font = .subheadline
     @ScaledMetric(relativeTo: .subheadline) private var dotSize: CGFloat = 7
 
-    init(recorder: Recorder, holding: Bool) {
+    init(recorder: Recorder, holding: Bool, font: Font = .subheadline) {
         self.recorder = recorder
         self.words = recorder.words
         self.holding = holding
+        self.font = font
     }
 
     var body: some View {
@@ -57,7 +61,7 @@ struct StatusLine: View {
         var t = mark + Text("\u{2002}") + (miss ? Text(text).foregroundColor(color) : Text(text))
         if link { t = t + Text("  Open Settings").foregroundColor(Light.cyan).fontWeight(.semibold) }
         return t
-            .font(.subheadline)
+            .font(font)
             .foregroundStyle(Ink.secondary)
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.6)

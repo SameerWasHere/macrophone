@@ -134,8 +134,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         case .mic:
             mic()
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { micHeight = $0 }
-                // The deck: the mic in the middle of the room.
-                .frame(maxHeight: fill != nil ? .infinity : nil)
+                // The deck: the mic in the middle of the room — or, on a folded deck, right under
+                // the Thread, the two as one group (the Thread's slot carries the room above).
+                .frame(maxHeight: fill != nil ? .infinity : nil, alignment: rowHidden ? .top : .center)
         case .trackpad:
             TrackpadPage(input: input, watcher: watcher, big: rowHidden)
                 .frame(height: fill != nil ? pagesHeight : micHeight > 0 ? micHeight + threadHeight : nil)
@@ -180,8 +181,8 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The mic's own ground, in the middle of the page under the Thread: a touch there is the mic's.
     private func onMic(_ p: CGPoint) -> Bool {
         var top = threadShown ? threadHeight : 0
-        // The deck: the mic page sits in the middle of the room.
-        if let pages = pagesHeight, fill != nil, micHeight > 0 { top += max(0, (pages - micHeight) / 2) }
+        // The deck: the mic page sits in the middle of the room (a folded deck's at its top).
+        if let pages = pagesHeight, fill != nil, micHeight > 0, !rowHidden { top += max(0, (pages - micHeight) / 2) }
         return abs(p.x - width / 2) < 70 && p.y > top - 6 && p.y < top + (compact ? 130 : 150)
     }
 }

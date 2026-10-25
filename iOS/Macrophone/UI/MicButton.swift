@@ -40,6 +40,9 @@ struct MicButton: View {
     /// Touch-up, with how long it was held.
     var onUp: (TimeInterval) -> Void
     var onAccessibilityToggle: () -> Void
+    /// The disc's size: the phone's 92, or larger on the iPhone Duo's deck (Oct 25 2026), where
+    /// the mic has a half of the inner screen to itself.
+    var size: CGFloat = 92
 
     static let holdThreshold: TimeInterval = 0.3
     @State private var pressedAt: Date?
@@ -54,7 +57,6 @@ struct MicButton: View {
     @State private var opened = 0
     /// Bumped when a dictation lands: one ring of light arrives.
     @State private var landed = 0
-    private let size: CGFloat = 92
 
     private var reduceMotion: Bool { reduceMotionSetting || Self.debugA11y.contains("motion") }
     private var reduceTransparency: Bool { reduceTransparencySetting || Self.debugA11y.contains("transparency") }
@@ -144,6 +146,8 @@ struct MicButton: View {
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
         }
+        // The glyph grows with the disc (the Duo's deck).
+        .scaleEffect(size / 92)
         .allowsHitTesting(false)
     }
 
