@@ -179,8 +179,9 @@ struct MainView: View {
                 InputCarousel(input: input, watcher: watcher, compact: compact,
                               // The cover: no Thread while a window shows; the trackpad page
                               // takes a thumb's worth of room instead.
-                              threadHeight: coverWatching ? (input.page == .trackpad ? 96 : 0) : filamentSlot,
-                              rowHidden: isCover && watcher.isOpen) {
+                              threadHeight: coverWatching ? (input.page == .trackpad ? 116 : 0) : filamentSlot,
+                              rowHidden: isCover && watcher.isOpen,
+                              trackpadBar: coverWatching) {
                     if coverWatching {
                         // One row under the thumb: the keyboard, the mic, the trackpad.
                         VStack(spacing: 2) {
@@ -204,12 +205,6 @@ struct MainView: View {
                 } thread: {
                     if !coverWatching {
                         threadBand
-                    }
-                }
-                // The trackpad's way back on the cover (the row is gone): the pages' cluster.
-                .overlay(alignment: .topTrailing) {
-                    if coverWatching, input.page == .trackpad {
-                        InputCornerSwitcher(input: input).padding(.trailing, 14).padding(.top, 8)
                     }
                 }
             }
@@ -372,14 +367,31 @@ struct MainView: View {
     // MARK: The Thread — fixed above the mic
 
     var filamentHeight: CGFloat { compact ? 56 : 96 }
-    var filamentSlot: CGFloat { compact ? 56 : 84 }
+    /// A short screen (the Duo's cover, an SE) gives the recording's clock a line of its own
+    /// under the Thread while the mic is open — in the Thread's 56 pt the crests ran through it
+    /// (Oct 31 2026). The room comes from the transcript above; the mic never moves.
+    var timerLine: CGFloat { compact && isRecording ? 24 : 0 }
+    var filamentSlot: CGFloat { compact ? 56 + timerLine : 84 }
 
     var threadBand: some View {
-        ZStack {
-            Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
-                .frame(height: filamentSlot)
-            DeliveredCheck(visible: showCheck, color: checkColor)
-            timer.frame(maxHeight: .infinity, alignment: .bottom)
+        Group {
+            if compact {
+                VStack(spacing: 0) {
+                    ZStack {
+                        Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
+                        DeliveredCheck(visible: showCheck, color: checkColor)
+                    }
+                    .frame(height: 56)
+                    if timerLine > 0 { timer.frame(height: timerLine).transition(.opacity) }
+                }
+            } else {
+                ZStack {
+                    Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
+                        .frame(height: filamentSlot)
+                    DeliveredCheck(visible: showCheck, color: checkColor)
+                    timer.frame(maxHeight: .infinity, alignment: .bottom)
+                }
+            }
         }
         .frame(height: filamentSlot)
         .padding(.horizontal, -4)

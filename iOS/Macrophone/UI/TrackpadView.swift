@@ -16,6 +16,8 @@ struct TrackpadPage: View {
     /// A folded Duo's deck (Oct 25 2026): the trackpad is the whole half, like a laptop's — an
     /// even inset all round and the faint inner outline of a trackpad.
     var big = false
+    /// The plate's room at the sides.
+    var inset: CGFloat = WatchLook.sideMargin
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -54,7 +56,7 @@ struct TrackpadPage: View {
                 .transition(.opacity)
             }
         }
-        .padding(.horizontal, WatchLook.sideMargin)
+        .padding(.horizontal, inset)
         .padding(.top, big ? 8 : 0)
         .padding(.bottom, 8)
         .animation(.easeOut(duration: 0.3), value: input.trackpadUsed)

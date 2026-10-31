@@ -44,6 +44,10 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The page row isn't drawn here (a folded Duo's deck draws the switcher in a corner,
     /// `InputCornerSwitcher`, so the trackpad is the whole half).
     var rowHidden = false
+    /// The Duo's cover (Oct 31 2026, Sameer: "there's no way to close the trackpad"): the trackpad
+    /// page carries its own row under the plate — the keyboard, back to the mic, close — in the
+    /// places the mic page's row has them.
+    var trackpadBar = false
     /// The mic page: the mic button and the status line, built by the mic screen.
     @ViewBuilder var mic: () -> Mic
     /// The Thread's band, between the row and the pages.
@@ -95,7 +99,10 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: pagesHeight, alignment: .top)
-                .clipped()
+                // Clipped at the sides only: the pages slide in from there, but the mic's glow
+                // runs past the page above and below (Oct 31 2026: "the glow of the orange mic
+                // indicator is getting cut off").
+                .clipShape(SidesOnly())
             }
             // Without a shape of its own the empty room beside the mic and under the Thread
             // would take no touch at all.
@@ -138,7 +145,12 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                 // the Thread, the two as one group (the Thread's slot carries the room above).
                 .frame(maxHeight: fill != nil ? .infinity : nil, alignment: rowHidden ? .top : .center)
         case .trackpad:
-            TrackpadPage(input: input, watcher: watcher, big: rowHidden)
+            VStack(spacing: 0) {
+                TrackpadPage(input: input, watcher: watcher, big: rowHidden && !trackpadBar,
+                             inset: trackpadBar ? 16 : WatchLook.sideMargin)
+                    .frame(maxHeight: .infinity)
+                if trackpadBar { TrackpadBar(input: input) }
+            }
                 .frame(height: fill != nil ? pagesHeight : micHeight > 0 ? micHeight + threadHeight : nil)
                 // The way back: the row above, or a swipe in from the plate's left edge.
                 .overlay(alignment: .leading) {
@@ -184,6 +196,44 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         // The deck: the mic page sits in the middle of the room (a folded deck's at its top).
         if let pages = pagesHeight, fill != nil, micHeight > 0, !rowHidden { top += max(0, (pages - micHeight) / 2) }
         return abs(p.x - width / 2) < 70 && p.y > top - 6 && p.y < top + (compact ? 130 : 150)
+    }
+}
+
+/// A clip at the sides alone: tall enough above and below for any glow.
+private struct SidesOnly: Shape {
+    func path(in rect: CGRect) -> Path { Path(rect.insetBy(dx: 0, dy: -160)) }
+}
+
+/// The cover's trackpad row (Oct 31 2026): the keyboard on the left, back to the mic in the
+/// middle, close on the right — where the mic page's row had the keyboard, the mic and the
+/// trackpad, so the thumb that opened the trackpad closes it in the same place.
+struct TrackpadBar: View {
+    @ObservedObject var input: MacInput
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Group {
+                if input.pages.contains(.keyboard) {
+                    button("keyboard", "Keyboard", "trackpad-bar-keyboard") { input.show(.keyboard) }
+                } else { Color.clear }
+            }
+            .frame(maxWidth: .infinity)
+            button("mic.fill", "Back to the mic", "trackpad-bar-mic") { input.show(.mic) }
+                .frame(width: 84)
+            button("xmark", "Close the trackpad", "trackpad-bar-close") { input.show(.mic) }
+                .frame(maxWidth: .infinity)
+        }
+        .frame(height: 56)
+        .padding(.bottom, 4)
+    }
+
+    private func button(_ symbol: String, _ label: String, _ id: String, _ action: @escaping () -> Void) -> some View {
+        Button { Haptics.tick(); action() } label: {
+            Image(systemName: symbol).font(.title3.weight(.semibold)).frame(width: 30, height: 30)
+        }
+        .circleGlassButton()
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(id)
     }
 }
 
