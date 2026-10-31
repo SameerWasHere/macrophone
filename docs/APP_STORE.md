@@ -66,7 +66,7 @@ Readiness was audited on Oct 13 2026: a Release archive built with no warnings, 
 | Field | Text | Length / limit |
 | --- | --- | --- |
 | Name | Macrophone | 10 / 30 |
-| Subtitle | Control your Mac by voice | 25 / 30 |
+| Subtitle | Control your computer by voice | 30 / 30 |
 | Promotional text | Your agents never wait on you again. See any app on your Mac live, tap and swipe it like you're there, and say what's next. Free, private, no account. | 150 / 170 |
 
 Positioning: `docs/POSITIONING.md` (the people, the jobs, the words).

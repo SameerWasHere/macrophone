@@ -125,7 +125,7 @@ struct OnboardingView: View {
                 note("The microphone is off for Macrophone. Turn it on in Settings, then come back — or skip for now.")
                 openSettingsButton
             } else {
-                Button("Allow Microphone") {
+                Button("Continue") {
                     Task {
                         _ = await Recorder.requestMic()
                         if Recorder.micStatus == .granted { advance() } else { denied = "mic" }
@@ -147,7 +147,7 @@ struct OnboardingView: View {
                      : "Speech recognition is off for Macrophone. Turn it on in Settings, then come back — or skip for now.")
                 if Recorder.speechStatus == .denied { openSettingsButton }
             } else {
-                Button("Allow Speech Recognition") {
+                Button("Continue") {
                     Task {
                         _ = await Recorder.requestSpeech()
                         if Recorder.speechStatus == .authorized { advance() } else { denied = "speech" }
