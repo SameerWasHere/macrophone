@@ -300,9 +300,17 @@ This section wins over the four passes above where they differ.
   the window menu); answers are one sideways-scrolling row of chips (`WatchActions(oneLine:)`) and
   the key row steps aside while they show; the mic row is ⌨︎ · mic · trackpad (no page row; the
   trackpad page gets 116 pt more, sits 16 pt in from the sides, and has its own row under the plate —
-  ⌨︎ · back to the mic · ✕ where the mic row's buttons were, `InputCarousel(trackpadBar:)`, `TrackpadBar`;
-  Oct 31: "there's no way to close the trackpad"); the carousel clips its pages at the sides only
-  (`SidesOnly`), so the mic's glow is never cut; on a short screen the recording clock has its own
+  ⌨︎ · "Two fingers scroll" · ✕ where the mic row's keyboard and trackpad were, `InputCarousel(trackpadBar:)`,
+  `TrackpadBar`; Oct 31: "there's no way to close the trackpad", and a mic in its middle that only went
+  back was "useless"); the carousel clips its pages at the sides only (`SidesOnly`), so the mic's glow is
+  never cut; **the pages never set the carousel's width** (`PagesLayout`: the room offered does — on his
+  Duo a page measured wide on the first pass and the carousel kept that width, the trackpad ran off both
+  sides and the keyboard's button sat off screen); **one `MicButton` in every state** (MainView's mic
+  page: a hold flips the cover to the live words, and two branches made that a new button mid-press, so
+  the release was lost and the mic stayed open — `DuoShotsTests.testCoverMicHold` fails on the old code);
+  the area above the mic is clipped at its foot only (`FootOnly`), so the window's glow spills under the
+  vertical bar instead of being cut into a box, and the answers' one-line row masks its own sides (a
+  fade at the far end) so it never runs under the bar; on a short screen the recording clock has its own
   line under the Thread while the mic is open (`MainView.timerLine`); keyboard up: no name, no row,
   the Mac's keys in **one row** on the keyboard (`MacKeyboardBar.oneRow`, the cover's keyboard is
   466 wide), the bar flush on the keys (`safeAreaRegions = []`). Tips are the inline strip.

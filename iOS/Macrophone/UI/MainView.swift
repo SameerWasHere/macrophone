@@ -167,7 +167,10 @@ struct MainView: View {
                 }
                 // Whatever is above takes the room that's left — it can never push the mic.
                 .frame(minHeight: 0, maxHeight: .infinity)
-                .clipped()
+                // Clipped at the foot alone, so nothing above runs into the mic — the window's
+                // glow spills past the sides and the top as it should (Oct 31 2026, Sameer: "the
+                // glow around the window looks cut off on the sidebar").
+                .clipShape(FootOnly())
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isOpen)
                 // The Thread, one band in the same place in every state, and the mic under it —
@@ -182,22 +185,24 @@ struct MainView: View {
                               threadHeight: coverWatching ? (input.page == .trackpad ? 116 : 0) : filamentSlot,
                               rowHidden: isCover && watcher.isOpen,
                               trackpadBar: coverWatching) {
-                    if coverWatching {
-                        // One row under the thumb: the keyboard, the mic, the trackpad.
-                        VStack(spacing: 2) {
-                            HStack(spacing: 0) {
-                                coverPageButton(.keyboard).frame(maxWidth: .infinity)
-                                micButton(size: 64)
-                                coverPageButton(.trackpad).frame(maxWidth: .infinity)
-                            }
-                            .padding(.top, 4)
+                    // One mic button in every state: a hold on the cover's small mic flips the
+                    // screen to the live words, and two branches made that a different button
+                    // mid-press — the hold was lost (Oct 31 2026, Sameer: "press and hold on the
+                    // mic button is not working").
+                    VStack(spacing: coverWatching ? 2 : 0) {
+                        if !coverWatching { Color.clear.frame(height: compact ? 14 : 30) }
+                        // The cover, watching: one row under the thumb — the keyboard, the mic,
+                        // the trackpad.
+                        HStack(spacing: 0) {
+                            if coverWatching { coverPageButton(.keyboard).frame(maxWidth: .infinity) }
+                            micButton(size: coverWatching ? 64 : 92)
+                            if coverWatching { coverPageButton(.trackpad).frame(maxWidth: .infinity) }
+                        }
+                        .padding(.top, coverWatching ? 4 : 0)
+                        if coverWatching {
                             StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2)
                                 .frame(height: 18)
-                        }
-                    } else {
-                        VStack(spacing: 0) {
-                            Color.clear.frame(height: compact ? 14 : 30)
-                            micButton(size: 92)
+                        } else {
                             statusSlot
                                 .padding(.bottom, compact ? 6 : 18)
                         }
@@ -887,5 +892,12 @@ struct MacAppNudge: View {
         }
         .padding(.vertical, 6)
         .padding(.trailing, 4)
+    }
+}
+
+/// A clip at the foot alone: room above and at the sides for any glow.
+private struct FootOnly: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX - 200, y: rect.minY - 200, width: rect.width + 400, height: rect.height + 200))
     }
 }

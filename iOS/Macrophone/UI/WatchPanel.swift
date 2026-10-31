@@ -1079,6 +1079,17 @@ struct WatchActions: View {
                 }
                 .scrollIndicators(.hidden)
                 .scrollClipDisabled()
+                // Cut at the row's own sides (the glass's shadows still spill above and below),
+                // the far end fading so the row reads as one that scrolls — never running on
+                // under the cover's side bar.
+                .mask {
+                    HStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: 28)
+                    }
+                    .padding(.vertical, -24)
+                }
             } else {
                 FoldFlow(spacing: 8, rowSpacing: 8) { floatingCells(p) }
             }

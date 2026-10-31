@@ -125,6 +125,31 @@ final class DuoShotsTests: XCTestCase {
         }
     }
 
+    /// A hold on the cover's mic while a window shows (Oct 31 2026, Sameer: "press and hold on
+    /// the mic button is not working"): the hold flips the screen to the live words, and the mic
+    /// must still be the button under the finger — let go, and the mic closes.
+    func testCoverMicHold() throws { try micHold(watching: true) }
+
+    /// The same hold with no window: the mic alone.
+    func testCoverMicHoldAtRest() throws { try micHold(watching: false) }
+
+    private func micHold(watching: Bool) throws {
+        guard ProcessInfo.processInfo.environment["MACROPHONE_DUO_COVER"] == "1" else { throw XCTSkip("MACROPHONE_DUO_COVER not set") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Terminal", "MACROPHONE_SIM_RECORD": "holding the button down while I talk"]
+            .merging(watching ? ["MACROPHONE_WATCH": "1"] : [:]) { $1 }
+        app.launch()
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
+        if allow.waitForExistence(timeout: 1.5) { allow.tap() }
+        if watching { XCTAssertTrue(app.buttons["cover-page-trackpad"].waitForExistence(timeout: 10), "the window's mic row") }
+        let mic = app.buttons["Start dictation"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 5))
+        mic.press(forDuration: 2.5)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertFalse(app.buttons["Stop and send"].exists, "the hold's release reached the mic")
+        app.terminate()
+    }
+
     /// The regular iPhone's main screen and window view, for `docs/screens/duo/regular-iphone`
     /// (unchanged by the Duo work; the proof is the frame).
     func testRegularFrames() throws {

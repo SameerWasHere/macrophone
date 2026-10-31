@@ -88,7 +88,11 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                     .frame(height: threadShown ? threadHeight : 0)
                     .opacity(threadShown ? 1 : 0)
                     .allowsHitTesting(threadShown)
-                ZStack(alignment: .top) {
+                // The pages never set the carousel's width — the room offered does (Oct 31 2026:
+                // on Sameer's Duo a page measured wider than the screen on the first pass, the
+                // carousel took that width and kept it, and the trackpad ran off both sides with
+                // the keyboard's button out of sight).
+                PagesLayout {
                     ForEach(input.pages) { page in
                         pageView(page)
                             .frame(width: width > 0 ? width : nil)
@@ -97,7 +101,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                             .allowsHitTesting(page == input.page)
                     }
                 }
-                .frame(maxWidth: .infinity)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .frame(height: pagesHeight, alignment: .top)
                 // Clipped at the sides only: the pages slide in from there, but the mic's glow
                 // runs past the page above and below (Oct 31 2026: "the glow of the orange mic
@@ -108,7 +112,6 @@ struct InputCarousel<Mic: View, Thread: View>: View {
             // would take no touch at all.
             .contentShape(Rectangle())
             .simultaneousGesture(swipe, including: multi && input.page == .mic ? .all : .subviews)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
         .animation(motion, value: input.page)
         .animation(motion, value: input.pages)
@@ -204,9 +207,27 @@ private struct SidesOnly: Shape {
     func path(in rect: CGRect) -> Path { Path(rect.insetBy(dx: 0, dy: -160)) }
 }
 
-/// The cover's trackpad row (Oct 31 2026): the keyboard on the left, back to the mic in the
-/// middle, close on the right — where the mic page's row had the keyboard, the mic and the
-/// trackpad, so the thumb that opened the trackpad closes it in the same place.
+/// The pages side by side in one place: each offered the room's width, the room's width whatever
+/// a page would like (a ZStack takes its widest child's).
+private struct PagesLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let h = subviews.map { $0.sizeThatFits(ProposedViewSize(width: w, height: proposal.height)).height }.max() ?? 0
+        return CGSize(width: w, height: h)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for s in subviews {
+            s.place(at: CGPoint(x: bounds.midX, y: bounds.minY), anchor: .top,
+                    proposal: ProposedViewSize(width: bounds.width, height: proposal.height))
+        }
+    }
+}
+
+/// The cover's trackpad row (Oct 31 2026): the keyboard on the left, close on the right — where
+/// the mic page's row has the keyboard and the trackpad, so the thumb that opened the trackpad
+/// closes it in the same place. (A mic in the middle only went back to the mic page, as close
+/// does — Sameer: "useless"; the middle says what two fingers do.)
 struct TrackpadBar: View {
     @ObservedObject var input: MacInput
 
@@ -218,8 +239,13 @@ struct TrackpadBar: View {
                 } else { Color.clear }
             }
             .frame(maxWidth: .infinity)
-            button("mic.fill", "Back to the mic", "trackpad-bar-mic") { input.show(.mic) }
-                .frame(width: 84)
+            Text("Two fingers scroll")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(Ink.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: 96)
+                .accessibilityHidden(true)
             button("xmark", "Close the trackpad", "trackpad-bar-close") { input.show(.mic) }
                 .frame(maxWidth: .infinity)
         }
