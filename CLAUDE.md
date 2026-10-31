@@ -299,7 +299,11 @@ This section wins over the four passes above where they differ.
   Thread and the mic under the thumb. **Watching:** the window's name floats over its corner (still
   the window menu); answers are one sideways-scrolling row of chips (`WatchActions(oneLine:)`) and
   the key row steps aside while they show; the mic row is ⌨︎ · mic · trackpad (no page row; the
-  trackpad page gets 96 pt more and the pages' cluster to go back); keyboard up: no name, no row,
+  trackpad page gets 116 pt more, sits 16 pt in from the sides, and has its own row under the plate —
+  ⌨︎ · back to the mic · ✕ where the mic row's buttons were, `InputCarousel(trackpadBar:)`, `TrackpadBar`;
+  Oct 31: "there's no way to close the trackpad"); the carousel clips its pages at the sides only
+  (`SidesOnly`), so the mic's glow is never cut; on a short screen the recording clock has its own
+  line under the Thread while the mic is open (`MainView.timerLine`); keyboard up: no name, no row,
   the Mac's keys in **one row** on the keyboard (`MacKeyboardBar.oneRow`, the cover's keyboard is
   466 wide), the bar flush on the keys (`safeAreaRegions = []`). Tips are the inline strip.
 - **The hide button froze the app** (Oct 30): `KeyboardTextView.applyFocus` resigned the keyboard
