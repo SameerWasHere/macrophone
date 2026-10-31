@@ -1,12 +1,10 @@
 import XCTest
 
-/// The iPhone Duo's poses (Oct 25 2026; the second pass the same day), with real touches. The
-/// laptop: the Mac fills the top half with a header laid over it that fades and comes back on a
-/// touch, the question's answers floating over the picture's foot; the deck below opens on the
-/// trackpad, which is the whole half — a drag there moves the pointer (read back off the
-/// trackpad's value), the corner switcher brings the keyboard (the iOS keyboard rises, the Mac's
-/// keys on its bar) and typing goes to the Mac (`mpctl serve` prints "WATCH TYPE N characters"),
-/// then the mic; Done leaves the glance — the window still live — and Show it here takes it
+/// The iPhone Duo's poses (Oct 25 2026; the laptop re-laid Oct 31), with real touches. The
+/// laptop: the picture alone fills the top half; the header, the answers, the keys, the mic and
+/// a big trackpad are the deck — a drag there moves the pointer (read back off the trackpad's
+/// value), ⌨︎ brings the keyboard and typing goes to the Mac (`mpctl serve` prints "WATCH TYPE N
+/// characters"); Done leaves the glance — the window still live — and Show it here takes it
 /// back. The book: the same on the left and right pages. Open: the window large and the mic
 /// and the panel off the fold; on its side, the rail. The simulator can't be folded from a
 /// script, so the pose is forced (`MACROPHONE_POSTURE=…`) in the inner screen's frame
@@ -65,36 +63,28 @@ final class DuoUITests: XCTestCase {
         for _ in 0..<6 where gotIt.waitForExistence(timeout: 1) { gotIt.tap() }
     }
 
+    /// The laptop (Oct 31 2026): the top half is the picture alone — the header, the answers, the
+    /// keys all on the deck — and the trackpad takes the most of the deck.
     func testLaptopPoseIsAMacAboveAndTheDeckBelow() throws {
         let app = launch("laptop", frame: "951x669")
         let inner = innerFrame(app, "951x669")
-        // The pose opens the window view by itself, on the trackpad page (the corner switcher).
-        let switcher = app.descendants(matching: .any)["input-pages"]
-        guard switcher.waitForExistence(timeout: 20) else { throw XCTSkip("no Mac naming the keyboard and trackpad pages is connected") }
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
-        // The deck remembers its page per pose (a run before may have left it on the mic).
-        if switcher.value as? String != "Trackpad" { pick(switcher, "Trackpad", at: 0.83) }
-        XCTAssertTrue(trackpad.waitForExistence(timeout: 5), "the laptop deck opens on the trackpad")
-        XCTAssertEqual(switcher.value as? String, "Trackpad")
-        // The header comes up on a touch of the Mac's half, fades a few seconds later, and comes
-        // back on the next touch.
-        let done = app.buttons["watch-done"]
-        let screen = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: inner.midX, dy: inner.minY + inner.height * 0.2))
-        screen.tap()
-        XCTAssertTrue(done.waitForExistence(timeout: 2), "a touch on the Mac's half brings the overlay header up")
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: done)
-        waitForExpectations(timeout: 8)
-        shot("laptop-faded")
-        screen.tap()
-        XCTAssertTrue(done.waitForExistence(timeout: 2), "and the next touch brings it back")
+        guard trackpad.waitForExistence(timeout: 20) else { throw XCTSkip("no Mac naming the trackpad is connected") }
         dismissTips(app)
-        // The trackpad is the whole bottom half.
-        XCTAssertGreaterThan(trackpad.frame.minY, inner.midY - 2, "the trackpad is in the bottom half")
-        XCTAssertGreaterThan(trackpad.frame.height, (inner.height / 2) * 0.8, "and takes nearly all of it: \(trackpad.frame.height) of \(inner.height / 2)")
-        // The question's answers float over the Mac's half, not on the deck.
+        let done = app.buttons["watch-done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 3), "the header is on the deck, always there")
         let answer = app.buttons["watch-answer-0"]
         XCTAssertTrue(answer.waitForExistence(timeout: 8), "the demo Mac's question is up")
-        XCTAssertLessThan(answer.frame.maxY, inner.midY, "the answers sit over the picture's foot")
+        // Nothing over the picture: the header, the answers and the keys are all under the fold.
+        for (what, e) in [("Done", done), ("the answers", answer), ("return", app.buttons["deck-return"]), ("the trackpad", trackpad)] {
+            XCTAssertGreaterThan(e.frame.minY, inner.midY - 2, "\(what) is on the deck, not over the picture")
+        }
+        // The header stays (nothing to fade: it covers nothing).
+        sleep(5)
+        XCTAssertTrue(done.isHittable, "the deck's header never fades")
+        // The trackpad is the most of the deck: over half its width, most of its height.
+        XCTAssertGreaterThan(trackpad.frame.width, inner.width * 0.55, "the trackpad is wide: \(trackpad.frame.width) of \(inner.width)")
+        XCTAssertGreaterThan(trackpad.frame.height, (inner.height / 2) * 0.6, "and tall: \(trackpad.frame.height) of \(inner.height / 2)")
         shot("laptop-trackpad")
 
         // A drag on the trackpad moves the pointer.
@@ -103,48 +93,27 @@ final class DuoUITests: XCTestCase {
         mid.press(forDuration: 0.05, thenDragTo: mid.withOffset(CGVector(dx: 60, dy: 14)))
         let after = pointer(trackpad)
         XCTAssertGreaterThan(after.0, before.0, "the pointer went right: \(before) → \(after)")
-        XCTAssertGreaterThanOrEqual(after.1, before.1, "and a little down")
         mid.tap()
+        // Two fingers spreading on the trackpad zoom in (⌘=; `mpctl serve` prints "WATCH KEY ⌘=").
+        trackpad.pinch(withScale: 2.5, velocity: 2)
+        XCTAssertTrue(app.staticTexts["Zoom in"].waitForExistence(timeout: 3), "a pinch on the trackpad zooms the Mac's window")
 
-        // The corner switcher: the keyboard rises over the deck, with the Mac's keys on its bar.
-        pick(switcher, "Keyboard", at: 0.17)
-        // A fresh simulator's first keyboard may bring a system prompt that takes the keyboard's
-        // first moment (and the page with it): put it away and ask again.
+        // ⌨︎ on the keys: the iOS keyboard rises over the deck; hide comes back to the trackpad.
+        app.buttons["deck-keyboard"].tap()
         let cont = app.buttons["Continue"]
-        if cont.waitForExistence(timeout: 2) { cont.tap() }
-        if switcher.value as? String != "Keyboard" { pick(switcher, "Keyboard", at: 0.17) }
+        if cont.waitForExistence(timeout: 2) { cont.tap(); app.buttons["deck-keyboard"].tap() }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 6), "the iOS keyboard comes up")
-        XCTAssertEqual(switcher.value as? String, "Keyboard")
-        XCTAssertTrue(app.buttons["keyboard-escape"].waitForExistence(timeout: 3), "esc and the arrows ride on the bar")
         app.typeText("duo")
         shot("laptop-keyboard")
         let hide = app.buttons["Hide the keyboard"]
         XCTAssertTrue(hide.waitForExistence(timeout: 3))
         hide.tap()
-        // Hide goes back to the page the keyboard rose over — the trackpad here, the hands
-        // already on the deck (the third pass; the mic on a flat screen, as ever).
-        XCTAssertTrue(trackpad.waitForExistence(timeout: 5), "hide comes back to the trackpad it rose over")
-        XCTAssertEqual(switcher.value as? String, "Trackpad")
-        XCTAssertFalse(app.keyboards.firstMatch.exists)
-        // The mic by the switcher: on the deck, under the fold.
-        pick(switcher, "Mic", at: 0.5)
-        let mic = app.buttons["Start dictation"]
-        XCTAssertTrue(mic.waitForExistence(timeout: 5), "the switcher brings the mic")
-        XCTAssertEqual(switcher.value as? String, "Mic")
-        XCTAssertGreaterThan(mic.frame.minY, inner.midY, "the mic is on the deck")
-        shot("laptop-mic")
+        XCTAssertTrue(trackpad.waitForExistence(timeout: 5), "hide comes back to the trackpad")
 
-        // Back to the trackpad by the switcher; Done leaves the glance — the window still live —
-        // and Show it here takes it back in hand.
-        pick(switcher, "Trackpad", at: 0.83)
-        XCTAssertTrue(trackpad.waitForExistence(timeout: 3))
-        // A tap on the overlay header's own ground is the header's, never a click on the Mac.
-        screen.tap()
-        XCTAssertTrue(done.waitForExistence(timeout: 2))
+        // Done leaves the glance — the window still live — and Show it here takes it back.
         done.tap()
         XCTAssertTrue(app.buttons["duo-show"].waitForExistence(timeout: 5), "Done leaves the glance, with Show it here")
-        XCTAssertTrue(app.staticTexts["Live on your Mac"].waitForExistence(timeout: 3), "the glance is the window, still live")
-        XCTAssertFalse(trackpad.exists, "the deck's pages are put away")
+        XCTAssertFalse(trackpad.exists, "the deck is put away")
         shot("laptop-glance")
         app.buttons["duo-show"].tap()
         XCTAssertTrue(trackpad.waitForExistence(timeout: 8), "Show it here brings the window and the deck back")

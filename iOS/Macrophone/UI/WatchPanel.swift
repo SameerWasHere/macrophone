@@ -196,6 +196,9 @@ struct WatchHeaderBar: View {
     var dragSwitch = false
     /// The window's name alone: the Duo cover's buttons are in its vertical bar.
     var nameOnly = false
+    /// What sits between the name and the clusters on the one row (the laptop's deck: the
+    /// question's answers, so they never take a row of their own from the trackpad).
+    var middle: AnyView? = nil
     /// A window picked from the menu, and the side it came from (1 next, -1 previous).
     var onSwitched: (LiveTarget, Int) -> Void = { _, _ in }
 
@@ -221,7 +224,11 @@ struct WatchHeaderBar: View {
         } else {
             HStack(spacing: 10) {
                 name
-                Spacer(minLength: 8)
+                if let middle {
+                    middle.frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 8)
+                }
                 clusters
                 done
             }
@@ -600,7 +607,7 @@ struct WatchWindow: View {
                                  // Where the trackpad's pointer starts: the middle of what shows.
                                  input.visibleCenter = { [weak v] in v?.visibleCenter }
                              })
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill) }
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill, interactive: interactive) }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."

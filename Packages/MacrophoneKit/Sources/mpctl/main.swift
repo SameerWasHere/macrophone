@@ -322,6 +322,11 @@ final class ServeDelegate: LinkServerDelegate {
         lock.sync { watched[peerID] }?.fit(fit)
     }
 
+    /// Fit to iPhone, or a window taking the view's shape by itself (the demo window keeps its own).
+    func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {
+        stdout("WATCH SHAPE \(String(format: "%.2f", aspect))")
+    }
+
     /// A Window menu command. Close (Oct 19 2026) closes the demo window as the Mac would: the
     /// frames stop, and a beat later the phone hears the window is closed for good.
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID) {

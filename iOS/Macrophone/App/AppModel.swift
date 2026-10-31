@@ -1087,9 +1087,8 @@ final class AppModel: ObservableObject {
         if !client.listApps() { macAppsLoaded = true }
     }
 
-    /// Open an app on the Mac, bring it forward, and send there from now on. An app that wasn't
-    /// running opens with the iPhone's shape when its window shows here (Oct 19 2026); one that
-    /// was keeps its window as it is.
+    /// Open an app on the Mac, bring it forward, and send there from now on. Its window takes the
+    /// view's shape when it shows here, as every window does (Oct 31 2026).
     func openOnMac(_ app: MacApp) {
         guard client.openApp(app.bundleID) else {
             explain("Your Mac isn't connected — open \(app.name) when it is")
@@ -1098,10 +1097,9 @@ final class AppModel: ObservableObject {
         }
         Haptics.tick()
         justOpened[app.bundleID] = Date()
-        if !app.running { watcher.fitNextOpen(of: app.bundleID) }
         pick(.app(bundleID: app.bundleID, windowKey: nil, name: app.name))
         explain("Opening \(app.name) on your Mac", for: 6)
-        log.add("asked the Mac to open an app\(app.running ? "" : " (its window will fit the iPhone)")")
+        log.add("asked the Mac to open an app")
     }
 
     /// The watched window closed (on the Mac, or from here) and the window view has gone: the

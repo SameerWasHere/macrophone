@@ -55,8 +55,6 @@ final class Watcher: ObservableObject {
     /// rather than letterboxing, and a window the Mac can reshape is quietly given the half's
     /// shape as the pose settles.
     @Published private(set) var fillsView = false
-    /// The half's shape still to be sent (once the window is live and the view has its size).
-    private var wantsHalfFit = false
     /// The three ways in (Oct 19 2026): the keyboard, the mic, the trackpad — the page, the sticky
     /// modifiers, the pointer.
     let input = MacInput()
@@ -186,6 +184,9 @@ final class Watcher: ObservableObject {
         // (A folded Duo's half fills with it instead: the middle of the screen, scrolling.)
         if DesktopWatch.isDesktop(target), switching || !isOpen { wholeWindow = !fillsView }
         if switching { front = nil }
+        // The window this view gave its shape to by itself goes back as it was (before the Mac
+        // hears of the next one).
+        if switching || !isOpen { putBackAutoFit() }
         if switching {
             // The last window's picture stays on screen, dimmed, until the new one's first frame:
             // the viewer never tears down to an empty plate between two windows.
@@ -201,9 +202,14 @@ final class Watcher: ObservableObject {
             shapeSent = nil
         }
         let opening = !isOpen || glancing
+        if switching || !isOpen {
+            // A new window takes this view's shape once it's live (Oct 31 2026).
+            sizedByHand = false
+            askedForFit = false
+            wantsAutoFit = true
+        }
         isOpen = true
-        if glancing { glancing = false }
-        if fillsView, switching || opening { wantsHalfFit = true }
+        if glancing { glancing = false; wantsAutoFit = true }
         start()
         // The mic, every time the window view opens (a switch keeps the page).
         if opening { input.opened() }
@@ -225,38 +231,21 @@ final class Watcher: ObservableObject {
         log?.add("watching: the glance")
     }
 
-    /// A folded pose (the laptop, the book) or not: the picture fills its half, and a window the
-    /// Mac can reshape takes the half's shape as the pose settles.
+    /// A folded pose (the laptop, the book) or not: the picture fills its half (the pose change
+    /// that comes with it gives the window the half's shape — `poseSettled`).
     func setFillsView(_ on: Bool) {
         guard on != fillsView else { return }
         fillsView = on
-        if on, isOpen { wantsHalfFit = true }
-    }
-
-    /// The half's shape, quietly: once per entry into a folded pose, once the window is live and
-    /// the view measured. Never the whole screen (nothing to reshape), never a Mac that can't.
-    private func applyHalfFit() {
-        // Never while glancing: the Mac's window is reshaped only once it's in hand (Show it here
-        // asks again).
-        guard wantsHalfFit, fillsView, viewerFills, isOpen, !glancing, phase == .live, canFitToPhone, !isDesktop, let target,
-              viewerSize.width > 40, viewerSize.height > 40 else { return }
-        wantsHalfFit = false
-        guard sendShape(viewerSize) else { return }
-        shapeSent = viewerSize
-        if fit != .normal { setFitLocally(.normal) }
-        Self.setFitted(target, true)
-        drag = .scroll
-        if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
-        log?.add("watching: the window takes the half's shape (\(Int(viewerSize.width))×\(Int(viewerSize.height)))")
     }
 
     func close() {
         guard isOpen else { return }
+        putBackAutoFit()
         isOpen = false
         glancing = false
-        wantsHalfFit = false
+        wantsAutoFit = false
         shapeSent = nil
-        followTask?.cancel()
+        autoFitTask?.cancel()
         input.closed()
         idleTask?.cancel()
         _ = sendWatch(nil)
@@ -389,64 +378,125 @@ final class Watcher: ObservableObject {
 
     /// A view of the window has its size. `fill`: it is a folded half's (the half's shape is what
     /// the Mac is given, never the phone layout's that may still be on screen as the poses
-    /// cross-fade).
-    func viewerMeasured(_ size: CGSize, fill: Bool = false) {
-        guard size != viewerSize || fill != viewerFills else { return }
+    /// cross-fade). Only the window in hand measures: the strip over the live words and the
+    /// glance are other sizes for a moment.
+    func viewerMeasured(_ size: CGSize, fill: Bool = false, interactive: Bool = true) {
+        guard interactive, size != viewerSize || fill != viewerFills else { return }
         viewerSize = size
         viewerFills = fill
-        applyFitWhenShown()
-        applyHalfFit()
-        followShape()
+        autoFitSoon()
     }
 
-    /// The shape last sent to the Mac (Fit to iPhone), to tell a real change of shape from a jitter.
+    // MARK: The window takes the view's shape (Oct 31 2026)
+
+    // Sameer: "when an app is opened or the view window dimensions is changed the app should
+    // default to resize to fill the view window. This should not be true for temp view window
+    // changes such as when the keyboard or trackpad are opened." Every window the view opens, and
+    // every pose change (the Duo folding, opening, turning), gives the Mac's window this view's
+    // shape — measured only at rest, so the keyboard, the cover's trackpad or the mic never
+    // reshape it. A window he sized himself (a Window menu size, a text size) is left as he
+    // made it until the next window; Back to How It Was or a text size keeps that app's own size
+    // from then on. A window shaped by itself goes back as it was when the view leaves it (one he
+    // asked Fit to iPhone for stays, like any size he picked).
+
+    /// The shape last sent to the Mac, to tell a real change of shape from a jitter.
     private var shapeSent: CGSize?
-    private var followTask: Task<Void, Never>?
-    /// A pose change is what a fitted window follows (the third pass): never the view growing or
-    /// shrinking on the phone for the keyboard, a question's answers or a tip, which reshaped
-    /// the Mac's window on every one of them. Armed by `poseSettled`, spent by the next follow or
-    /// after a few seconds.
-    private var followArmedAt: Date?
+    private var autoFitTask: Task<Void, Never>?
+    /// This window's shape is still to be given (a new window, a pose change).
+    private var wantsAutoFit = false
+    /// He picked a size for this window himself: nothing reshapes it until the next window.
+    private var sizedByHand = false
+    /// He asked for Fit to iPhone on this window: its shape stays when the view leaves.
+    private var askedForFit = false
+    /// The Mac's window has the view's shape because this view gave it, unasked.
+    private var autoFitted = false
 
-    /// The Duo's pose changed (the laptop, the book, flat, turned): the next measure of the view
-    /// may reshape a fitted window.
+    /// The input page changed: back at rest, a shape still owed goes now.
+    func inputPageChanged() { autoFitSoon() }
+
+    /// The Duo's pose changed (the laptop, the book, flat, turned): the window takes the new
+    /// layout's shape once the view settles.
     func poseSettled() {
-        followArmedAt = Date()
-        followShape()
+        guard isOpen else { return }
+        wantsAutoFit = true
+        autoFitSoon()
     }
 
-    /// A window fitted to the phone follows the view's shape when the pose changes shape — the
-    /// Duo folding into the laptop or the book, opening flat, turning (Oct 25 2026): a moment
-    /// after the view settles, the Mac gives the window the new shape. Only a window that was
-    /// fitted (never one he sized himself), only when the shape really differs, only after a
-    /// pose change, and quietly.
-    private func followShape() {
-        followTask?.cancel()
-        guard let armed = followArmedAt, Date().timeIntervalSince(armed) < 4 else { followArmedAt = nil; return }
-        guard isOpen, let target, Self.isFitted(target), canFitToPhone, viewerSize.width > 40, viewerSize.height > 40 else { return }
-        let size = viewerSize
-        let before = shapeSent ?? size
-        let aspect = size.width / size.height, was = before.width / before.height
-        guard shapeSent == nil || abs(aspect - was) / was > 0.06 else { return }
-        followTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            guard let self, !Task.isCancelled, self.isOpen, self.viewerSize == size, self.phase == .live else { return }
-            self.followArmedAt = nil
-            guard self.sendShape(size) else { return }
-            self.shapeSent = size
-            if let viewKey = self.viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
-            self.log?.add("watching: the fitted window follows the view's shape (\(Int(size.width))×\(Int(size.height)))")
+    /// The view at rest: the window in hand with nothing up that's only there for a moment — not
+    /// the keyboard, not the trackpad where it takes the window's room (the cover, a regular
+    /// iPhone; the inner screen's deck is a trackpad all the time).
+    private var viewAtRest: Bool {
+        switch input.page {
+        case .keyboard: return false
+        case .trackpad: return input.pose.isInner
+        case .mic: return true
         }
     }
 
+    /// Apps whose own size is kept (Back to How It Was, or a text size, picked for it).
+    private static func ownSizeKey(_ t: TargetRef) -> String? { t.bundleID.map { "watch.ownSize." + $0 } }
+    private static func keepsOwnSize(_ t: TargetRef) -> Bool {
+        ownSizeKey(t).map { UserDefaults.standard.bool(forKey: $0) } ?? false || rememberedFit(for: t) != .normal
+    }
+    private static func setKeepsOwnSize(_ t: TargetRef, _ on: Bool) {
+        guard let k = ownSizeKey(t) else { return }
+        if on { UserDefaults.standard.set(true, forKey: k) } else { UserDefaults.standard.removeObject(forKey: k) }
+    }
+
+    /// A moment after the view stops changing, give the window its shape if it still wants one.
+    private func autoFitSoon() {
+        autoFitTask?.cancel()
+        guard wantsAutoFit, isOpen, !glancing, !sizedByHand, let target, !isDesktop,
+              canFitToPhone, !Self.keepsOwnSize(target) else { return }
+        autoFitTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.applyAutoFit()
+        }
+    }
+
+    private func applyAutoFit() {
+        guard wantsAutoFit, isOpen, !glancing, !sizedByHand, phase == .live, viewAtRest, let target, !isDesktop,
+              canFitToPhone, !Self.keepsOwnSize(target) else { return }
+        // Folded, the half's own measure, never the phone layout's still fading out.
+        guard !fillsView || viewerFills, viewerSize.width > 40, viewerSize.height > 40 else { return }
+        let size = viewerSize
+        wantsAutoFit = false
+        if let was = shapeSent {
+            let aspect = size.width / size.height, before = was.width / was.height
+            guard abs(aspect - before) / before > 0.04 else { return }
+        }
+        guard sendShape(size) else { return }
+        shapeSent = size
+        if !askedForFit { autoFitted = true }
+        if wholeWindow { wholeWindow = false }
+        if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
+        // All of it shows: one finger scrolls the Mac's window (nothing to pan to).
+        Self.setFitted(target, true)
+        drag = .scroll
+        log?.add("watching: the window takes the view's shape (\(Int(size.width))×\(Int(size.height)))")
+    }
+
+    /// The view leaves a window it shaped by itself: the Mac puts it back as it was.
+    private func putBackAutoFit() {
+        defer { autoFitted = false }
+        guard autoFitted, !sizedByHand, !askedForFit, canWindowCommands else { return }
+        _ = sendWindow(.restore)
+        log?.add("watching: the window goes back to its own size")
+    }
+
     /// Fit to iPhone: the Mac gives the window this view's shape, as big as its screen allows, so
-    /// the whole window fills the view. Takes over from Aa, like the Window menu's sizes.
-    /// `opened`: the phone opened this app itself, so its window starts this way (Oct 19 2026).
-    func fitToPhone(opened: Bool = false) {
+    /// the whole window fills the view. Takes over from Aa, like the Window menu's sizes, and
+    /// stays when the view leaves (it was asked for); it follows the view's shape as the pose
+    /// changes, as every window does.
+    func fitToPhone() {
         touch()
         guard viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
         shapeSent = viewerSize
-        wantsHalfFit = false
+        wantsAutoFit = false
+        sizedByHand = false
+        askedForFit = true
+        autoFitted = false
         Haptics.tick()
         if fit != .normal { setFitLocally(.normal) }
         if wholeWindow { toggleWholeWindow() }
@@ -454,27 +504,10 @@ final class Watcher: ObservableObject {
         if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
         // All of it shows, so there's nothing to pan to: one finger scrolls the Mac's window, now
         // and whenever this app's window opens while it keeps this shape.
-        if let target { Self.setFitted(target, true) }
+        if let target { Self.setFitted(target, true); Self.setKeepsOwnSize(target, false) }
         drag = .scroll
-        say(opened ? "\(name) opened with your iPhone's shape — the Window menu has other sizes"
-                   : "\(name)'s window now has your iPhone's shape — all of it fits here, and one finger scrolls it", symbol: "iphone.gen3")
-        log?.add("watching: fit to iPhone\(opened ? " (opened from here)" : "")")
-    }
-
-    /// An app the phone opened (Oct 19 2026, Sameer: "when a new window is opened via the app, it
-    /// should by default be opened to fit iPhone window mode"): its window is fitted once its first
-    /// picture is here and the view has its size. Windows he already had keep their remembered
-    /// choice. Forgotten after ten minutes unused.
-    private var fitWhenShown: (bundleID: String, at: Date)?
-    func fitNextOpen(of bundleID: String) { fitWhenShown = (bundleID, Date()) }
-
-    private func applyFitWhenShown() {
-        guard let pending = fitWhenShown else { return }
-        guard Date().timeIntervalSince(pending.at) < 600 else { fitWhenShown = nil; return }
-        guard isOpen, phase == .live, hasPicture, let target, target.bundleID == pending.bundleID,
-              canFitToPhone, viewerSize.width > 40, viewerSize.height > 40 else { return }
-        fitWhenShown = nil
-        fitToPhone(opened: true)
+        say("\(name)'s window now has your iPhone's shape — all of it fits here, and one finger scrolls it", symbol: "iphone.gen3")
+        log?.add("watching: fit to iPhone")
     }
 
     /// The Mac confirmed the window is gone: this view closes as Done does, and the main screen
@@ -523,8 +556,15 @@ final class Watcher: ObservableObject {
         Haptics.tick()
         inputSeq &+= 1
         if c.frame(in: .zero) != nil || c == .restore, fit != .normal { setFitLocally(.normal) }
-        // Another size: no longer the phone's shape.
-        if c.frame(in: .zero) != nil || c == .restore, let target { Self.setFitted(target, false) }
+        // Another size: no longer the phone's shape, and nothing reshapes it by itself until the
+        // next window — Back to How It Was keeps this app's own size from now on.
+        if c.frame(in: .zero) != nil || c == .restore, let target {
+            Self.setFitted(target, false)
+            sizedByHand = true
+            autoFitted = false
+            wantsAutoFit = false
+            if c == .restore { Self.setKeepsOwnSize(target, true) }
+        }
         log?.add("watching: window \(c.rawValue)")
     }
 
@@ -606,6 +646,9 @@ final class Watcher: ObservableObject {
         Haptics.tick()
         fit = f
         if let target { Self.remember(f, for: target); Self.setFitted(target, false) }
+        sizedByHand = true
+        autoFitted = false
+        wantsAutoFit = false
         // A new text size reshapes the window: start from its fit, not the old zoom.
         if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
         if sendFit(f) {
@@ -744,8 +787,7 @@ final class Watcher: ObservableObject {
             awaitingFirstPicture = false
             cameAlive &+= 1
             log?.add("watching: first \(frame.keyframe ? "keyframe" : "frame") \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(frame.data.count / 1024) KB")
-            applyFitWhenShown()
-            applyHalfFit()
+            autoFitSoon()
         }
     }
 
@@ -785,8 +827,7 @@ final class Watcher: ObservableObject {
             awaitingFirstPicture = false
             cameAlive &+= 1
             log?.add("watching: first \(how) \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(bytes / 1024) KB")
-            applyFitWhenShown()
-            applyHalfFit()
+            autoFitSoon()
         }
     }
 

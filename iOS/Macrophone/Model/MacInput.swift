@@ -189,6 +189,7 @@ final class MacInput: ObservableObject {
         // Folded: the deck remembers the page he picked for this pose (the mic or the trackpad).
         if pose.isFolded, !quiet, p != .keyboard { UserDefaults.standard.set(p.rawValue, forKey: Self.deckKey(pose)) }
         watcher?.log?.add("watching: input page \(p.rawValue)")
+        watcher?.inputPageChanged()
     }
 
     /// The next page to the left or right of this one (a swipe, VoiceOver's adjust).
@@ -291,6 +292,26 @@ final class MacInput: ObservableObject {
         watcher?.say(words, symbol: symbol)
         watcher?.inputSent()
         watcher?.log?.add("watching: three-finger \(words)")
+    }
+
+    /// The trackpad's other moves (Oct 31 2026): a pinch is ⌘+ / ⌘− (what zooms in a browser, a
+    /// terminal, an editor — a posted magnify gesture isn't something a Mac takes), three fingers
+    /// tapped are Look Up (⌃⌘D, the word under the pointer), four fingers spread show the desktop.
+    func trackpadGesture(_ g: TrackpadGesture) {
+        let (key, words, symbol): (WatchKey, String, String) = {
+            switch g {
+            case .zoomIn: return (WatchKey("equal", command: true), "Zoom in", "plus.magnifyingglass")
+            case .zoomOut: return (WatchKey("minus", command: true), "Zoom out", "minus.magnifyingglass")
+            case .lookUp: return (WatchKey("d", command: true, control: true), "Look Up", "character.book.closed")
+            case .showDesktop: return (WatchKey("f11"), "Show Desktop", "menubar.dock.rectangle")
+            }
+        }()
+        watcher?.touch()
+        guard sendKey(key) else { return }
+        Haptics.soft()
+        watcher?.say(words, symbol: symbol)
+        watcher?.inputSent()
+        watcher?.log?.add("watching: trackpad \(words)")
     }
 
     // MARK: Typing

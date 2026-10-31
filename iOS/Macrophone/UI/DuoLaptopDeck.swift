@@ -33,15 +33,20 @@ struct DuoLaptopDeck: View {
     let main: MainView
     /// Down a column (the book's page, the open screen's rail) rather than across.
     var vertical = false
+    /// The laptop (Oct 31 2026): the window's header and its question's answers sit on the deck's
+    /// top row, the words you're saying where the trackpad was, so the Mac's half is the
+    /// picture alone; the trackpad takes the most of what's left.
+    var menuBar = false
     @ObservedObject private var watcher: Watcher
     @ObservedObject private var input: MacInput
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
-    init(main: MainView, vertical: Bool = false) {
+    init(main: MainView, vertical: Bool = false, menuBar: Bool = false) {
         self.main = main
         self.vertical = vertical
+        self.menuBar = menuBar
         _watcher = ObservedObject(wrappedValue: main.watcher)
         _input = ObservedObject(wrappedValue: main.watcher.input)
     }
@@ -74,7 +79,50 @@ struct DuoLaptopDeck: View {
 
     // MARK: Layouts
 
-    private var across: some View {
+    @ViewBuilder private var across: some View {
+        if menuBar { laptop } else { band }
+    }
+
+    /// The laptop's deck: the window's header across the top (its name and menu, Sound, Mac
+    /// Controls, Pan | Scroll, zoom out, Window, Done) with the question's answers between the
+    /// name and the buttons while one is up (one row that scrolls sideways), then the mic on the left, the trackpad as big as it can be, the keys on
+    /// the right. While the mic is open the words take the trackpad's place.
+    private var laptop: some View {
+        let live = watcher.phase == .live
+        return VStack(spacing: 8) {
+            WatchHeaderBar(watcher: watcher, dragSwitch: true, middle: live && !main.showLiveWords
+                           ? AnyView(WatchActions(watcher: watcher, floating: true, oneLine: true)) : nil) { t, _ in
+                watcher.say(t.title, symbol: "arrow.left.and.right")
+            }
+            HStack(spacing: 12) {
+                VStack(spacing: 6) {
+                    DeckSendTo(watcher: watcher, compact: true)
+                    Spacer(minLength: 0)
+                    main.micButton(size: 64)
+                    StatusLine(recorder: main.recorder, holding: main.holding, font: .caption2)
+                        .frame(height: 16)
+                }
+                .frame(width: 112)
+                if main.showLiveWords {
+                    GeometryReader { g in
+                        DuoLiveWords(main: main, room: g.size, below: true)
+                            .padding(.horizontal, -12)
+                            .padding(.bottom, -12)
+                            .frame(width: g.size.width, height: g.size.height, alignment: .top)
+                    }
+                    .transition(.opacity)
+                } else {
+                    pad
+                }
+                DeckKeys(input: input, watcher: watcher, width: DeckLook.key)
+                    .frame(maxHeight: .infinity)
+            }
+        }
+        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.answers?.id)
+        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: main.showLiveWords)
+    }
+
+    private var band: some View {
         GeometryReader { g in
             // A laptop's wide deck has room for the Thread over the mic; the open screen's
             // narrower band gives the trackpad that room instead.
@@ -121,7 +169,8 @@ struct DuoLaptopDeck: View {
 
     @ViewBuilder private var pad: some View {
         if input.pages.contains(.trackpad) {
-            TrackpadPage(input: input, watcher: watcher, big: true)
+            // The stacks beside it keep their own gap: the plate runs to it (no inset of its own).
+            TrackpadPage(input: input, watcher: watcher, big: true, inset: 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             RoundedRectangle(cornerRadius: WatchLook.bezel, style: .continuous)

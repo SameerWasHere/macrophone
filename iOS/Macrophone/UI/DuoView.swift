@@ -412,7 +412,14 @@ struct DuoMacHalf: View {
         let live = watcher.phase == .live
         ZStack {
             if watcher.isShowing {
-                if let short = shortPicture {
+                if !vertical {
+                    // The laptop (Oct 31 2026, Sameer: "the view window fully filling one half …
+                    // the hot keys to all be the bottom half … so that nothing blocks the view
+                    // window"): the picture is the whole half and nothing lies over it — the
+                    // header, the answers and the words you're saying are on the deck.
+                    screen(footInset: 0, floating: false, header: false)
+                        .transition(.opacity)
+                } else if let short = shortPicture {
                     // A window that can't fill the half (the fourth pass — the Mac can't reshape
                     // it, or hasn't yet: the whole screen, a window on the book's tall page):
                     // the picture at the top at the scale that fills the width, and the room
@@ -613,8 +620,9 @@ struct DuoDeck: View {
     var body: some View {
         VStack(spacing: 6) {
             if watcher.isShowing {
-                // A laptop's lower half: the trackpad, the keys and the mic, all at once.
-                DuoLaptopDeck(main: main, vertical: vertical)
+                // A laptop's lower half: the trackpad, the keys and the mic, all at once — and on
+                // the laptop the window's header and answers too, so nothing covers the picture.
+                DuoLaptopDeck(main: main, vertical: vertical, menuBar: !vertical)
             } else if vertical {
                 // The book's page: the top bar, Send to as a grid (every place, four across),
                 // the mic in what's left.

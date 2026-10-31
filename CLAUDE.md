@@ -66,7 +66,7 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
   "pose: laptop (112°, 951×669)" in the log; the layouts cross-fade on the settle spring
   (`MainView.poseBody`), the halves follow the hinge (`Posture.rise`: the deck rises, the picture
   settles into its half; Reduce Motion fades).
-- **The folded poses are a laptop (`UI/DuoView.swift`, the second pass).** *Laptop* — the top
+- **The folded poses are a laptop (`UI/DuoView.swift`, the second pass) [the laptop half is superseded Oct 31 2026: the picture alone, the header and answers on the deck — see below].** *Laptop* — the top
   half IS the Mac's screen: `DuoMacHalf` draws `WatchWindow` edge to edge (`bezelWidth` 2,
   `corner` 14, `fill: true`) with a slim translucent header laid over its top like a menu bar
   (`DuoOverlayHeader`: `WatchHeaderBar(dragSwitch: true)` — the window's name and menu, the dots,
@@ -341,6 +341,46 @@ This section wins over the four passes above where they differ.
   On his phone `xcrun devicectl device capture screenshot --device <udid> --destination x.png`
   takes the real cover — but launching the app there takes his phone from him; ask first.
 
+## The window takes the view's shape; the laptop is the picture alone (Oct 31 2026)
+
+Sameer: "when an app is opened or the view window dimensions is changed the app should default to
+resize to fill the view window. This should not be true for temp view window changes such as when
+the keyboard or trackpad are opened", then on the laptop: "the view window fully filling one half",
+"the hot keys to all be the bottom half … so that nothing blocks the view window", "the trackpad to
+take up a big portion of the bottom half … enable all the Mac multi finger track pad gestures".
+This wins over the older sections where they differ (fitNextOpen, followShape, applyHalfFit, the
+laptop's overlay header and floating answers are gone).
+- **Auto-fit** (`Watcher`, "The window takes the view's shape"): every window the view opens (a
+  switch too) and every pose change (`poseSettled`) owes a shape (`wantsAutoFit`); it's sent 0.5 s
+  after the view stops changing (`autoFitSoon` → `applyAutoFit`, `sendShape`), only with the view
+  **at rest** (`viewAtRest`: not the keyboard page; not the trackpad except on the inner screen,
+  where the deck is a trackpad all the time; only the interactive window measures —
+  `viewerMeasured(_:fill:interactive:)`, so the mic's strip and the glance never count), never the
+  whole screen, folded only from the half's own measure, and not when the aspect moved < 4%. A
+  page change back to rest sends a shape still owed (`MacInput.show` → `inputPageChanged`).
+  He sizing it himself (a Window menu size, a text size) stops it until the next window
+  (`sizedByHand`); **Back to How It Was or a text size keeps that app's own size from then on**
+  (`watch.ownSize.<bundle id>`, or a remembered `watch.fit`); Fit to iPhone clears that. A window
+  shaped by itself **goes back as it was** when the view leaves it (`putBackAutoFit`: `.restore`
+  sent before the next watch / `watch(nil)`; the Mac's `beforeWindowChanges` already holds the
+  frame) — one he asked Fit to iPhone for stays (`askedForFit`). Proven against `mpctl serve`
+  (which now prints `WATCH SHAPE <aspect>`): one shape at open, none for the keyboard, typing,
+  the trackpad or the mic, `WATCH WINDOW restore` on Done.
+- **The laptop** (`DuoMacHalf`, `!vertical`): the top half is `WatchWindow` alone, edge to edge — no
+  overlay header, no floating answers, no live-words card, no short-picture layout. The deck
+  (`DuoLaptopDeck(menuBar: true)`, `laptop`): `WatchHeaderBar` across the top (always there, never
+  fades) with the question's answers in its middle (`WatchHeaderBar(middle:)` ←
+  `WatchActions(floating:oneLine:)`, one sideways-scrolling row), then Send to + the mic (112 pt,
+  no Thread) · the trackpad (no inset of its own — `TrackpadPage(inset: 0)`; ~590 × 240 pt) · the
+  keys. While the mic is open the words (`DuoLiveWords(below:)`) take the trackpad's place. The
+  book is unchanged (its overlay header and floating answers stay).
+- **More trackpad gestures** (`TrackpadTouchView.onGesture`, `MacInput.trackpadGesture`): two
+  fingers pinching = ⌘= / ⌘− a step per 25% (a pinch is decided as the fingers leave the slop:
+  the spread changing more than 1.5× the midpoint travel, and > 18 pt; a posted magnify gesture
+  isn't something a Mac takes); three fingers tapped (< 0.5 s, none moved) = Look Up ⌃⌘D; four
+  fingers spread 40% = Show Desktop (F11); four fingers sweeping = the three-finger sweeps. Each
+  says its name over the window with a soft haptic.
+
 ## Several Macs on one iPhone (Oct 19 2026)
 
 Sameer: "I should also be able to pair multiple Macs to my phone and switch easily by swiping up
@@ -435,7 +475,7 @@ Mac Controls button and panel, Close Window → the main screen.
   finger (a radial glow that follows and fades). Mac diagnostics: "watch input: N clicks, M
   pointer moves (K didn't land, warped there)" — `InputPoster.missed` reads the cursor back before
   each move while the trackpad is up and warps when it isn't at the last target.
-- **An app opened from the phone opens fitted to the iPhone** (`AppModel.openOnMac` →
+- **[superseded Oct 31 2026: every window opens fitted — auto-fit above]** **An app opened from the phone opens fitted to the iPhone** (`AppModel.openOnMac` →
   `Watcher.fitNextOpen`, only for an app that wasn't running; applied on its first picture once the
   viewer has its size, `fitToPhone(opened: true)`, forgotten after 10 min). Windows he had keep
   their remembered choice.
