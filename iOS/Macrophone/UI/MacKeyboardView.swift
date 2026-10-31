@@ -157,6 +157,11 @@ final class KeyboardTextView: UITextView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        // The cover's keyboard spans its whole width: the bar takes one row there.
+        if #available(iOS 27.1, *), let w = window {
+            let one = w.traitCollection.verticalBarEdge != .unspecified
+            if bar?.oneRow != one { bar?.oneRow = one; if isFirstResponder { reloadInputViews() } }
+        }
         if window == nil, wantsKeyboard {
             // Gone from the screen while the page still wants the keyboard: a field that's
             // still there (the arriving layout's) takes it.
@@ -179,7 +184,13 @@ final class KeyboardTextView: UITextView {
                 self.becomeFirstResponder()
             }
         } else if !wantsKeyboard, isFirstResponder {
-            resignFirstResponder()
+            // Never inside SwiftUI's update (this runs from `updateUIView`): the keyboard's
+            // tracking re-renders the same graph and it spins in a cycle — the hide button froze
+            // the app on the Duo's cover (Oct 30 2026). Next turn of the run loop, like taking it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.wantsKeyboard, self.isFirstResponder else { return }
+                _ = self.resignFirstResponder()
+            }
         }
     }
 }
@@ -192,14 +203,29 @@ final class KeyboardBarHost: UIView {
 
     var rootView: MacKeyboardBar {
         get { host.rootView }
-        set { host.rootView = newValue }
+        set { var r = newValue; r.oneRow = oneRow; host.rootView = r }
     }
+
+    /// The bar in one row (the Duo's cover): its height follows.
+    var oneRow = false {
+        didSet {
+            guard oneRow != oldValue else { return }
+            host.rootView.oneRow = oneRow
+            frame.size.height = barHeight
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    private var barHeight: CGFloat { oneRow ? MacKeyboardBar.oneRowHeight : Self.height }
 
     init(rootView: MacKeyboardBar) {
         host = UIHostingController(rootView: rootView)
         super.init(frame: CGRect(x: 0, y: 0, width: 320, height: Self.height))
         autoresizingMask = .flexibleWidth
         backgroundColor = .clear
+        // The bar sits flush on the keys: a safe area here (the cover's vertical bar, the
+        // screen's foot) only pushed its cells up off the keyboard.
+        host.safeAreaRegions = []
         host.view.backgroundColor = .clear
         host.view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host.view)
@@ -213,7 +239,7 @@ final class KeyboardBarHost: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: Self.height) }
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: barHeight) }
 }
 
 /// The keys a phone's keyboard lacks — one bar on the keyboard itself, two rows, fitting every
@@ -232,61 +258,48 @@ struct MacKeyboardBar: View {
 
     /// Two rows of cells, the room between and around.
     static let height: CGFloat = WatchLook.control * 2 + 6 * 3
+    /// One row: the iPhone Duo's cover, whose keyboard spans the whole 466 pt (Oct 30 2026 —
+    /// the two rows left the window a sliver).
+    static let oneRowHeight: CGFloat = WatchLook.control + 6 * 2
+    var oneRow = false
+
+    private var cell: CGFloat { oneRow ? 32 : 38 }
 
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 8) {
-                HStack(spacing: 0) {
-                    MacKeyboardCell(input: input, watcher: watcher, key: WatchKey("escape"), label: Text("esc"), width: 44)
-                    WatchCellDivider()
-                    MacKeyboardCell(input: input, watcher: watcher, key: WatchKey("tab"), label: Text("⇥"), width: 36)
+        Group {
+            if oneRow {
+                HStack(spacing: 6) {
+                    escTab
+                    arrows
+                    Spacer(minLength: 0)
+                    mods
+                    fnHide
                 }
-                .watchGlass(Capsule())
-                HStack(spacing: 0) {
-                    repeatKey(WatchKey("left"), symbol: "arrow.left")
-                    WatchCellDivider()
-                    repeatKey(WatchKey("up"), symbol: "arrow.up")
-                    WatchCellDivider()
-                    repeatKey(WatchKey("down"), symbol: "arrow.down")
-                    WatchCellDivider()
-                    repeatKey(WatchKey("right"), symbol: "arrow.right")
-                }
-                .watchGlass(Capsule())
-                // Where the typing goes, when there's room for it (the kicker at the top says
-                // the window too); a modifier waiting or the app switcher held says so instead.
-                ViewThatFits(in: .horizontal) {
-                    status.fixedSize()
-                    Color.clear.frame(width: 0, height: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityHidden(true)
-            }
-            HStack(spacing: 8) {
-                HStack(spacing: 0) {
-                    ForEach(WatchModifier.allCases, id: \.self) { m in
-                        if m != .command { WatchCellDivider() }
-                        modifier(m)
+            } else {
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        escTab
+                        arrows
+                        // Where the typing goes, when there's room for it (the kicker at the top says
+                        // the window too); a modifier waiting or the app switcher held says so instead.
+                        ViewThatFits(in: .horizontal) {
+                            status.fixedSize()
+                            Color.clear.frame(width: 0, height: 0)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilityHidden(true)
+                    }
+                    HStack(spacing: 8) {
+                        mods
+                        Spacer(minLength: 0)
+                        fnHide
                     }
                 }
-                .watchGlass(Capsule())
-                Spacer(minLength: 0)
-                HStack(spacing: 0) {
-                    moreKeys
-                    WatchCellDivider()
-                    Button { input.hideKeyboard() } label: {
-                        Image(systemName: "keyboard.chevron.compact.down").font(.subheadline.weight(.semibold))
-                    }
-                    .buttonStyle(WatchCellStyle(width: 40, tint: Ink.secondary))
-                    .accessibilityLabel("Hide the keyboard")
-                    .accessibilityHint(input.pose.isFolded ? "Back to the deck." : "Back to the mic.")
-                    .accessibilityIdentifier("keyboard-hide")
-                }
-                .watchGlass(Capsule())
             }
         }
         .padding(.horizontal, WatchLook.sideMargin)
         .padding(.vertical, 6)
-        .frame(height: Self.height)
+        .frame(height: oneRow ? Self.oneRowHeight : Self.height)
         // The way back on the open room (a key keeps its own press).
         .background {
             Color.clear
@@ -299,6 +312,53 @@ struct MacKeyboardBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Keys for \(watcher.name) on your Mac")
         .accessibilityIdentifier("keyboard-bar")
+    }
+
+    private var escTab: some View {
+        HStack(spacing: 0) {
+            MacKeyboardCell(input: input, watcher: watcher, key: WatchKey("escape"), label: Text("esc"), width: oneRow ? 36 : 44)
+            WatchCellDivider()
+            MacKeyboardCell(input: input, watcher: watcher, key: WatchKey("tab"), label: Text("⇥"), width: oneRow ? 30 : 36)
+        }
+        .watchGlass(Capsule())
+    }
+
+    private var arrows: some View {
+        HStack(spacing: 0) {
+            repeatKey(WatchKey("left"), symbol: "arrow.left")
+            WatchCellDivider()
+            repeatKey(WatchKey("up"), symbol: "arrow.up")
+            WatchCellDivider()
+            repeatKey(WatchKey("down"), symbol: "arrow.down")
+            WatchCellDivider()
+            repeatKey(WatchKey("right"), symbol: "arrow.right")
+        }
+        .watchGlass(Capsule())
+    }
+
+    private var mods: some View {
+        HStack(spacing: 0) {
+            ForEach(WatchModifier.allCases, id: \.self) { m in
+                if m != .command { WatchCellDivider() }
+                modifier(m)
+            }
+        }
+        .watchGlass(Capsule())
+    }
+
+    private var fnHide: some View {
+        HStack(spacing: 0) {
+            moreKeys
+            WatchCellDivider()
+            Button { input.hideKeyboard() } label: {
+                Image(systemName: "keyboard.chevron.compact.down").font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(WatchCellStyle(width: oneRow ? 34 : 40, tint: Ink.secondary))
+            .accessibilityLabel("Hide the keyboard")
+            .accessibilityHint(input.pose.isFolded ? "Back to the deck." : "Back to the mic.")
+            .accessibilityIdentifier("keyboard-hide")
+        }
+        .watchGlass(Capsule())
     }
 
     private var status: some View {
@@ -322,7 +382,7 @@ struct MacKeyboardBar: View {
     }
 
     private func repeatKey(_ k: WatchKey, symbol: String) -> some View {
-        RepeatKey(label: Image(systemName: symbol), name: k.name, watcherName: watcher.name) { input.press(k) }
+        RepeatKey(label: Image(systemName: symbol), name: k.name, watcherName: watcher.name, width: cell) { input.press(k) }
             .accessibilityIdentifier("keyboard-\(k.key)")
     }
 
@@ -332,12 +392,12 @@ struct MacKeyboardBar: View {
         return Button { input.toggle(m) } label: {
             Text(m.glyph)
                 .font(.system(size: 17, weight: .semibold))
-                .frame(width: 38, height: WatchLook.control - 6)
+                .frame(width: cell, height: WatchLook.control - 6)
                 .background(Capsule().fill(on ? Light.cyan : .clear).padding(.horizontal, 2))
                 .foregroundStyle(on ? Ink.ground : Ink.ink)
         }
         .buttonStyle(.plain)
-        .frame(width: 38, height: WatchLook.control)
+        .frame(width: cell, height: WatchLook.control)
         .contentShape(Rectangle())
         .accessibilityLabel(m.name)
         .accessibilityValue(on ? "on" : "off")
@@ -379,7 +439,7 @@ struct MacKeyboardBar: View {
             Text("fn")
                 .font(.subheadline.weight(.semibold))
         }
-        .buttonStyle(WatchCellStyle(width: 40, tint: Ink.secondary))
+        .buttonStyle(WatchCellStyle(width: oneRow ? 32 : 40, tint: Ink.secondary))
         .accessibilityLabel("Function keys and more")
         .accessibilityHint("F1 to F20, Home, End, Page Up and Down, and your Mac's own moves: Spotlight, Switch App, Mission Control.")
         .accessibilityIdentifier("keyboard-fn")
@@ -409,6 +469,7 @@ struct RepeatKey<L: View>: View {
     var label: L
     var name: String
     var watcherName: String
+    var width: CGFloat = 38
     var press: () -> Void
     @State private var holding = false
     @State private var timer: Timer?
@@ -418,7 +479,7 @@ struct RepeatKey<L: View>: View {
         label
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(Ink.ink)
-            .frame(width: 38, height: WatchLook.control)
+            .frame(width: width, height: WatchLook.control)
             .background(Capsule().fill(WatchLook.press).opacity(holding ? 1 : 0).padding(3))
             .contentShape(Rectangle())
             .scaleEffect(holding && !reduceMotion ? 0.95 : 1)

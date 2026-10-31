@@ -279,6 +279,56 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
   <udid> defaults write com.sameer.macrophone settings.agentAlerts -bool false`): the demo Mac's
   question raises a banner over the frame's top.
 
+## The Duo, done properly: the cover's vertical bar and the mini MacBook (Oct 30–31 2026)
+
+Sameer, on his Duo: "None of the controls have been put in the side bar … lots of empty space …
+make the app easy to use with one hand", then "nail the laptop fold view … make the duo function
+like a mini laptop … the app picker [doesn't] need to always be on the screen when unfolded".
+This section wins over the four passes above where they differ.
+- **The cover is not a wide phone.** Its usable area is **382 × 653 pt**: the status bar turns
+  into Apple's **vertical bar**, an 84 pt column on the camera side (trailing on his phone; it can
+  flip). Only real toolbar items go in it, so on the cover MainView sits in a `NavigationStack`
+  (`coverBody`, `UI/CoverBar.swift`) and the buttons are `ToolbarItem`s. The cover is spotted by
+  `UITraitCollection.verticalBarEdge != .unspecified` (`VerticalBarProbe`, iOS 27.1), never by
+  width (a `> 440` check never fired on hardware). At rest the bar holds Mac (`CoverMacItem`, the
+  pill's tap) · History · Settings, then (`.bottomBar`, nearer the thumb) Whole Screen · Mac
+  Controls · ⋯ (Refresh, photo, file, clipboard); watching it holds Done (`visibilityPriority(.high)`,
+  it never folds into the overflow) · Sound · Mac Controls · Pan|Scroll · zoom out · Window.
+- **Cover, at rest:** no Mac pill row while connected; Send to's name on one line, the places as a
+  named grid (`QuickControls(cover:)`, three rows), Send after pasting and Cleanup on one row; the
+  Thread and the mic under the thumb. **Watching:** the window's name floats over its corner (still
+  the window menu); answers are one sideways-scrolling row of chips (`WatchActions(oneLine:)`) and
+  the key row steps aside while they show; the mic row is ⌨︎ · mic · trackpad (no page row; the
+  trackpad page gets 96 pt more and the pages' cluster to go back); keyboard up: no name, no row,
+  the Mac's keys in **one row** on the keyboard (`MacKeyboardBar.oneRow`, the cover's keyboard is
+  466 wide), the bar flush on the keys (`safeAreaRegions = []`). Tips are the inline strip.
+- **The hide button froze the app** (Oct 30): `KeyboardTextView.applyFocus` resigned the keyboard
+  inside SwiftUI's `updateUIView`; the keyboard's tracking re-rendered the same graph and
+  AttributeGraph spun in a cycle (`sample` on the simulator's process showed it). The resign is now
+  on the next run-loop turn, like taking the keyboard always was. Never resign or become first
+  responder synchronously from `updateUIView`.
+- **The mini MacBook** (`UI/DuoLaptopDeck.swift`): while a window shows on the inner screen the
+  deck is a laptop's lower half, all at once — Send to as a menu (every open app with its icon; a
+  pick shows its window), the Thread and the mic on the "palm rest", the trackpad in the middle,
+  keycaps on the right (esc ⇥ ⌫ ⌨︎ · ⌘ ⌥ ⌃ ⇧ lit when waiting · return · fn and the inverted-T
+  arrows with half-height ▲▼, repeating while held). Across on the laptop's deck and under the
+  window open upright (270 pt; it folds away while the keyboard is up); down a column on the
+  book's page and the open screen's rail. The deck keeps the input page on the trackpad (the
+  pointer always live; ⌨︎ raises the keyboard, hide comes back). The grid of places shows only
+  when no window does (the open poses at rest, the glance). `WatchPanel(deck:)`: Pan | Scroll in
+  the header, no key row.
+- **Three fingers on the trackpad** (`TrackpadTouchView.onThreeSwipe`, `MacInput.threeFingerSwipe`):
+  up Mission Control (⌃↑), down App Exposé (⌃↓), left the desktop to the right (⌃→), right the one
+  to the left (⌃←) — once per sweep, a soft haptic and the name over the window.
+- **The Thread rolls** (`Filament.restingWave`, `waveSpeed` 2.5 rad/s): the crests travel left to
+  right at rest (one about every 2.5 s), faster and taller with his voice, and while sending.
+- **Testing the cover without his phone:** the Duo simulator has the vertical bar too.
+  `DuoShotsTests.testCoverFrames` (`TEST_RUNNER_MACROPHONE_DUO_COVER=1`, with `…_DUO_SHOTS=<dir>`)
+  shoots it as it really runs (no frame, no forced pose); turn the tips off first (`simctl spawn
+  <udid> defaults write com.sameer.macrophone watch.tips.seen "click,input,keys,scroll,swipe,zoom"`).
+  On his phone `xcrun devicectl device capture screenshot --device <udid> --destination x.png`
+  takes the real cover — but launching the app there takes his phone from him; ask first.
+
 ## Several Macs on one iPhone (Oct 19 2026)
 
 Sameer: "I should also be able to pair multiple Macs to my phone and switch easily by swiping up

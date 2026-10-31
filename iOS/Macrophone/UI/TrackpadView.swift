@@ -44,7 +44,7 @@ struct TrackpadPage: View {
                     Text("Move a finger to point · tap to click")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Ink.ink)
-                    Text("Two fingers scroll, or tap for a right-click. Tap, then hold and move, to drag.")
+                    Text(big ? "Two fingers scroll or right-click. Three fingers: up for Mission Control, sideways for your desktops." : "Two fingers scroll, or tap for a right-click. Tap, then hold and move, to drag.")
                         .font(.caption)
                         .foregroundStyle(Ink.secondary)
                 }
@@ -61,7 +61,7 @@ struct TrackpadPage: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Trackpad")
         .accessibilityValue("Pointer \(Int((input.pointer.x * 100).rounded())) percent across, \(Int((input.pointer.y * 100).rounded())) percent down")
-        .accessibilityHint("Moves the pointer in \(watcher.name)'s window on your Mac. One finger points, a tap clicks, two fingers scroll or right-click.")
+        .accessibilityHint("Moves the pointer in \(watcher.name)'s window on your Mac. One finger points, a tap clicks, two fingers scroll or right-click, three fingers sweep to Mission Control or another desktop.")
         .accessibilityIdentifier("input-trackpad")
     }
 }
@@ -89,10 +89,14 @@ struct TrackpadSurface: UIViewRepresentable {
         v.onDragEnded = { input.dragEnded() }
         v.onScroll = { d in watcher.scroll(at: input.pointer.point, by: d) }
         v.onScrollPhase = { p in watcher.scrollPhase(p, at: input.pointer.point) }
+        v.onThreeSwipe = { dir in input.threeFingerSwipe(dir) }
         v.phased = watcher.macCanScroll
         v.windowPoints = input.windowPoints
     }
 }
+
+/// A sweep of three fingers, as the Mac's trackpad has them.
+enum TrackpadSwipe { case up, down, left, right }
 
 final class TrackpadTouchView: UIView {
     var onMove: (CGVector, TimeInterval) -> Void = { _, _ in }
@@ -106,6 +110,14 @@ final class TrackpadTouchView: UIView {
     var onScrollPhase: (WatchScrollPhase) -> Void = { _ in }
     var phased = false
     var windowPoints = CGSize(width: 1400, height: 900)
+    /// Three fingers swept (the Mac's own trackpad moves): Mission Control, App Exposé, the
+    /// desktops either side.
+    var onThreeSwipe: (TrackpadSwipe) -> Void = { _ in }
+    /// Three fingers down: everything else waits until every finger has lifted.
+    private var third: UITouch?
+    private var threeStart = CGPoint.zero
+    private var threeFired = false
+    private var held: Set<ObjectIdentifier> = []
 
     /// A tap within this of the last is its double (then triple); a touch that lands within it
     /// and moves is a drag.
@@ -207,6 +219,21 @@ final class TrackpadTouchView: UIView {
         let now = CACurrentMediaTime()
         for t in touches {
             glowBegan(t)
+            held.insert(ObjectIdentifier(t))
+            if third != nil { continue }
+            if touch != nil, second != nil {
+                // A third finger: a sweep of three. A scroll under way ends first.
+                third = t
+                holdTimer?.invalidate()
+                if twoMoved {
+                    flushScroll()
+                    if phased { onScrollPhase(.ended) }
+                    stopLink()
+                }
+                threeStart = threeCentroid()
+                threeFired = false
+                continue
+            }
             if touch == nil {
                 touch = t
                 downAt = now
@@ -237,6 +264,13 @@ final class TrackpadTouchView: UIView {
         }
     }
 
+    private func threeCentroid() -> CGPoint {
+        let ts = [touch, second, third].compactMap { $0 }
+        guard !ts.isEmpty else { return .zero }
+        let ps = ts.map(point)
+        return CGPoint(x: ps.map(\.x).reduce(0, +) / CGFloat(ps.count), y: ps.map(\.y).reduce(0, +) / CGFloat(ps.count))
+    }
+
     private func midpoint() -> CGPoint {
         guard let a = touch, let b = second else { return last }
         let p = point(a), q = point(b)
@@ -246,6 +280,15 @@ final class TrackpadTouchView: UIView {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         let now = CACurrentMediaTime()
         touches.forEach(glowMoved)
+        if third != nil {
+            guard !threeFired else { return }
+            let c = threeCentroid()
+            let dx = c.x - threeStart.x, dy = c.y - threeStart.y
+            guard max(abs(dx), abs(dy)) > 50 else { return }
+            threeFired = true
+            onThreeSwipe(abs(dy) > abs(dx) ? (dy < 0 ? .up : .down) : (dx < 0 ? .left : .right))
+            return
+        }
         if second != nil {
             // Two fingers: a scroll, once they've moved past the slop.
             let m = midpoint()
@@ -287,6 +330,19 @@ final class TrackpadTouchView: UIView {
     private func lift(_ touches: Set<UITouch>, cancelled: Bool) {
         let now = CACurrentMediaTime()
         touches.forEach(glowEnded)
+        touches.forEach { held.remove(ObjectIdentifier($0)) }
+        if third != nil {
+            // A sweep of three is over only when every finger is up; nothing else comes of it.
+            if held.isEmpty {
+                third = nil
+                second = nil
+                touch = nil
+                moved = false
+                twoMoved = false
+                lastTapAt = -10
+            }
+            return
+        }
         if let s = second, touches.contains(s) || touches.contains(where: { $0 === touch }) {
             // The two-finger gesture ends when either lifts.
             second = nil

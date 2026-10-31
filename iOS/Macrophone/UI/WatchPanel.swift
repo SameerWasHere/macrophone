@@ -47,6 +47,14 @@ struct WatchPanel: View {
     /// The iPhone Duo's open inner screen (Oct 25 2026): the answers go across in a row, and a
     /// first-run tip keeps to the window's top corner, off its middle.
     var duo = false
+    /// The Duo's cover screen (Oct 30 2026): floating answers and keys-only actions like the
+    /// inner screen, but tips stay as overlays (the cover has no room for an extra row).
+    var cover = false
+    /// The window alone, nothing over it (the cover with the keyboard up: every point counts).
+    var bare = false
+    /// The Duo's inner screen with the laptop deck under it: the keys are the deck's, so no key
+    /// row; Pan | Scroll joins the header.
+    var deck = false
     /// The window just switched to, named for a moment ("Terminal — codex ~/api").
     @State private var switchedTo: String?
     @State private var switchedTask: Task<Void, Never>?
@@ -60,20 +68,22 @@ struct WatchPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let floats = duo || cover
         VStack(spacing: compact ? 6 : 8) {
-            WatchHeaderBar(watcher: watcher, onSwitched: announce)
-            WatchWindow(watcher: watcher, interactive: true, footInset: duo && watcher.phase == .live ? floatingHeight : 0)
+            // The cover: the name floats over the window's corner instead of taking a row.
+            if !cover { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce) }
+            WatchWindow(watcher: watcher, interactive: true, footInset: floats && watcher.phase == .live ? floatingHeight : 0)
                 .frame(maxHeight: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
                 // The first times: what a tap, a hold, a pinch and the side swipe do (on the Duo's
                 // inner screen the tip is a strip under the window instead: never over its words).
-                .overlay(alignment: .top) { if !duo { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight) } }
-                // The Duo's inner screen: the question's answers float over the picture's foot,
-                // so the window keeps its room; the key row stays under it. The picture's foot
+                .overlay(alignment: .top) { if !duo, !cover { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight) } }
+                // The Duo (inner screen or cover): the question's answers float over the picture's
+                // foot, so the window keeps its room; the key row stays under it. The picture's foot
                 // scrolls up above them (`footInset`), so the question is never under its answers.
                 .overlay(alignment: .bottom) {
-                    if duo {
-                        WatchActions(watcher: watcher, floating: true)
+                    if floats {
+                        WatchActions(watcher: watcher, floating: true, oneLine: cover)
                             .padding(.horizontal, WatchLook.bezelWidth + 10)
                             .padding(.vertical, WatchLook.bezelWidth + 10)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { floatingHeight = watcher.answers == nil ? 0 : $0 }
@@ -84,15 +94,32 @@ struct WatchPanel: View {
                 }
                 // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
                 .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
+                .overlay(alignment: .topLeading) {
+                    if cover, !bare {
+                        WatchHeaderBar(watcher: watcher, nameOnly: true, onSwitched: announce)
+                            .padding(.leading, 12)
+                            .padding(.trailing, 8)
+                            .fixedSize()
+                            .watchGlass(Capsule())
+                            .padding(WatchLook.bezelWidth + 6)
+                    }
+                }
                 .offset(x: slide)
-            if duo {
+            // A strip under the window, never a card over it (the inner screen, and the cover —
+            // whose window is too short to lose to a card).
+            if (duo || cover), !bare {
                 WatchTipCard(watcher: watcher, sessions: sessions.count, inline: true)
             }
-            WatchActions(watcher: watcher, keysOnly: duo)
-                .opacity(watcher.phase == .live ? 1 : 0)
-                .allowsHitTesting(watcher.phase == .live)
-                .accessibilityHidden(watcher.phase != .live)
+            // The cover: the answers carry Esc, and Pan | Scroll is in the vertical bar — the key
+            // row steps aside while a question is up, and the window takes its room.
+            if !deck, !(cover && watcher.answers != nil) {
+                WatchActions(watcher: watcher, keysOnly: floats, dragElsewhere: cover)
+                    .opacity(watcher.phase == .live ? 1 : 0)
+                    .allowsHitTesting(watcher.phase == .live)
+                    .accessibilityHidden(watcher.phase != .live)
+            }
         }
+        .animation(reduceMotion ? nil : Motion.settle, value: watcher.answers?.id)
         .padding(.horizontal, WatchLook.sideMargin)
         .padding(.top, 4)
         .padding(.bottom, compact ? 6 : 8)
@@ -167,11 +194,19 @@ struct WatchHeaderBar: View {
     var twoRows = false
     /// Pan | Scroll among the clusters (a folded Duo's overlay header: its deck has no key row).
     var dragSwitch = false
+    /// The window's name alone: the Duo cover's buttons are in its vertical bar.
+    var nameOnly = false
     /// A window picked from the menu, and the side it came from (1 next, -1 previous).
     var onSwitched: (LiveTarget, Int) -> Void = { _, _ in }
 
     var body: some View {
-        if twoRows {
+        if nameOnly {
+            HStack(spacing: 10) {
+                name
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: WatchLook.header)
+        } else if twoRows {
             VStack(spacing: 6) {
                 HStack(spacing: 10) {
                     name
@@ -365,6 +400,8 @@ struct WatchWholeButton: View {
 struct WatchWindowMenu: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
+    /// A toolbar item (the Duo cover's vertical bar): the system draws it, not a glass cell.
+    var bar = false
     @State private var confirmClose = false
     @State private var pickingPhoto = false
     @State private var pickingFile = false
@@ -405,10 +442,14 @@ struct WatchWindowMenu: View {
                 Button { WatchTips.reset() } label: { Label("Show Tips Again", systemImage: "lightbulb") }
             }
         } label: {
-            Image(systemName: "macwindow")
-                .font(.subheadline.weight(.semibold))
+            if bar {
+                Label("Window", systemImage: "macwindow")
+            } else {
+                Image(systemName: "macwindow")
+                    .font(.subheadline.weight(.semibold))
+            }
         }
-        .buttonStyle(WatchCellStyle(width: 42, height: WatchLook.header, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
+        .modifier(WatchCellUnlessBar(bar: bar, width: 42, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
         .disabled(watcher.phase != .live)
         .accessibilityLabel("Window")
         .accessibilityHint("Fit to iPhone and the text size here; the window's size, minimize and close on your Mac; a photo, a file or the clipboard into its chat; the tips again.")
@@ -419,6 +460,17 @@ struct WatchWindowMenu: View {
         } message: {
             Text("If it has unsaved work, your Mac asks first.")
         }
+    }
+}
+
+/// A header cell's look, except in a toolbar, where the system draws the item.
+struct WatchCellUnlessBar: ViewModifier {
+    var bar: Bool
+    var width: CGFloat
+    var tint: Color = Ink.ink
+
+    func body(content: Content) -> some View {
+        if bar { content } else { content.buttonStyle(WatchCellStyle(width: width, height: WatchLook.header, tint: tint)) }
     }
 }
 
@@ -951,13 +1003,20 @@ struct WatchActions: View {
     /// The keys alone (Esc · ↑ · ↓ · Return · ··· and Pan | Scroll), whatever the window asks —
     /// its answers float over the picture instead (the Duo's open inner screen).
     var keysOnly = false
+    /// Floating, in one row that scrolls sideways (the Duo's cover: the window is short, and a
+    /// stack of answers would bury it).
+    var oneLine = false
+    /// Pan | Scroll lives elsewhere (the Duo cover's vertical bar): the keys alone, centred.
+    var dragElsewhere = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(watcher: Watcher, wide: Bool = false, floating: Bool = false, keysOnly: Bool = false) {
+    init(watcher: Watcher, wide: Bool = false, floating: Bool = false, keysOnly: Bool = false, oneLine: Bool = false, dragElsewhere: Bool = false) {
+        self.dragElsewhere = dragElsewhere
         self.watcher = watcher
         self.wide = wide
         self.floating = floating
         self.keysOnly = keysOnly
+        self.oneLine = oneLine
         _input = ObservedObject(wrappedValue: watcher.input)
     }
 
@@ -1011,18 +1070,31 @@ struct WatchActions: View {
     /// Over the picture's foot: Esc, then the answers, each on its own glass, in rows that wrap
     /// (the fourth pass — as many to a row as fit, so three long answers take two rows of the
     /// picture, not three; one longer than the row wraps its words).
-    private func floatingRow(_ p: WatchPrompt) -> some View {
-        FoldFlow(spacing: 8, rowSpacing: 8) {
-            key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
-                .watchGlass(Capsule())
-                .fixedSize()
-            ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
-                answer(p, i, c).fixedSize(horizontal: true, vertical: false)
+    @ViewBuilder private func floatingRow(_ p: WatchPrompt) -> some View {
+        Group {
+            if oneLine {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) { floatingCells(p) }
+                        .padding(.vertical, 2)
+                }
+                .scrollIndicators(.hidden)
+                .scrollClipDisabled()
+            } else {
+                FoldFlow(spacing: 8, rowSpacing: 8) { floatingCells(p) }
             }
         }
         .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
+    }
+
+    @ViewBuilder private func floatingCells(_ p: WatchPrompt) -> some View {
+        key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
+            .watchGlass(Capsule())
+            .fixedSize()
+        ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+            answer(p, i, c).fixedSize(horizontal: true, vertical: false)
+        }
     }
 
     /// Esc · Keys, and Pan | Scroll, under (or beside) the answers.
@@ -1125,9 +1197,12 @@ struct WatchActions: View {
             .watchGlass(Capsule())
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Keys")
-            WatchDragSwitch(watcher: watcher, style: style)
-                .fixedSize()
+            if !dragElsewhere {
+                WatchDragSwitch(watcher: watcher, style: style)
+                    .fixedSize()
+            }
         }
+        .frame(maxWidth: dragElsewhere ? .infinity : nil)
     }
 
     /// More keys, from a menu (a Mac that can): what each does, with its keys under it, by section;

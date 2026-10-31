@@ -314,31 +314,39 @@ final class ThreadView: UIView {
                     let a = v.level
                     let bell = exp(-pow((u - 0.5) / 0.26, 2))
                     let shape = e * (0.25 + 0.75 * bell)
-                    let weave = A * (0.07 + 0.62 * a) * (1 + 0.12 * spread) * shape * sin(2 * .pi * 1.6 * f * u - v.phase + phi)
-                    let stand = A * 0.38 * a * shape * sin(3 * .pi * u) * cos(0.45 * v.phase + phi * 0.5)
-                    y = rest * (0.6 - 0.3 * a) + weave + stand
+                    // The peaks travel left to right, faster and taller with his voice (Oct 30
+                    // 2026, Sameer: "moves like a wave with the peaks flowing from left to right").
+                    let weave = A * (0.22 + 0.55 * a) * (1 + 0.12 * spread) * shape * sin(2 * .pi * 1.4 * f * u - (v.phase + Self.waveSpeed * t) + phi)
+                    let stand = A * 0.14 * a * shape * sin(3 * .pi * u) * cos(0.45 * v.phase + phi * 0.5)
+                    y = rest * (0.3 - 0.15 * a) + weave + stand
                 }
             case .sending:
                 let tt = still ? 0 : t
-                let stand = A * 0.3 * e * sin(3 * .pi * u) * cos(2 * .pi * tt / 3.4)
-                let weave = A * (0.15 + 0.05 * spread) * e * sin(2 * .pi * 2.1 * f * u - 2 * (2 * .pi / 6.8) * tt + phi)
-                y = rest * 0.45 + stand + weave
+                let stand = A * 0.1 * e * sin(3 * .pi * u) * cos(2 * .pi * tt / 3.4)
+                let weave = A * (0.3 + 0.05 * spread) * e * sin(2 * .pi * 1.8 * f * u - 2 * Self.waveSpeed * tt + phi)
+                y = rest * 0.3 + stand + weave
             case .delivered, .queued:
                 let q = still ? 1 : min(max(t / Self.settleTime, 0), 1)
                 let settle = 1 - pow(1 - q, 3)
+                let tt = still ? 0 : t
                 let lively = rest * 0.5 + A * 0.12 * e * sin(2 * .pi * 1.5 * f * u + phi)
-                let drift = still ? 0 : Self.flowSpeed * max(0, t - Self.settleTime)
-                y = lively * (1 - settle) + A * 0.03 * e * sin(2 * .pi * 1.5 * f * u + phi - drift) * settle
+                y = lively * (1 - settle) + restingWave(u: u, e: e, phi: phi, f: f, A: A, rest: rest, t: tt) * settle
             case .error:
                 y = rest * 0.35
             case .ready:
                 // The idle flow: the weave travels along the ribbon and the S breathes.
-                let tt = still ? 0 : t
-                let swell = 1 + 0.08 * sin(2 * .pi * tt / Self.breath + phi * 0.4)
-                y = rest * swell + A * 0.11 * e * sin(2 * .pi * 1.5 * f * u + phi - Self.flowSpeed * tt)
+                y = restingWave(u: u, e: e, phi: phi, f: f, A: A, rest: rest, t: still ? 0 : t)
             }
             return CGPoint(x: Double(r.minX) + u * w, y: Double(r.midY) + y)
         }
+    }
+
+    /// At rest: a gentle S with a wave rolling through it, left to right, one crest about every
+    /// two and a half seconds; each strand a touch out of step, so the braid ripples.
+    private func restingWave(u: Double, e: Double, phi: Double, f: Double, A: Double, rest: Double, t: Double) -> Double {
+        let swell = 1 + 0.1 * sin(2 * .pi * t / Self.breath + phi * 0.4)
+        let crest = A * 0.26 * e * sin(2 * .pi * 1.25 * f * u - Self.waveSpeed * t + phi * 0.6)
+        return rest * 0.45 * swell + crest * swell
     }
 
     private func ribbon(_ pts: [CGPoint], half: CGFloat) -> CGPath {
@@ -456,6 +464,8 @@ final class ThreadView: UIView {
     /// The idle flow: radians a second the weave travels (a cycle about every eleven seconds), and
     /// the seconds of one breath of the S and its light.
     static let flowSpeed = 0.55
+    /// How fast the crests roll left to right (radians a second: one about every 2.5 s at rest).
+    static let waveSpeed = 2.5
     static let breath = 7.0
 
     /// At rest, flowing: Ready, and Delivered or Queued once settled — not in Low Power Mode or

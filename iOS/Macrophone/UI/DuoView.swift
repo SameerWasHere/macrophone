@@ -69,6 +69,31 @@ extension MainView {
     // MARK: Open, upright (669 × 951 points)
 
     var openPortraitBody: some View {
+        ZStack {
+            if watcher.isShowing {
+                // A window in hand: it takes the screen, the laptop deck under it — Send to is the
+                // deck's menu now, the grid of places back when the window is put away.
+                VStack(spacing: 4) {
+                    DuoMacArea(main: self, deck: true)
+                        .padding(.top, 4)
+                        .frame(maxHeight: .infinity)
+                    // The keyboard takes the deck's place while it's up (its field stays in the
+                    // deck, so the deck folds to nothing rather than going).
+                    DuoLaptopDeck(main: self)
+                        .frame(height: input.page == .keyboard ? 0 : 270, alignment: .top)
+                        .clipped()
+                }
+                .transition(.opacity)
+            } else {
+                openPortraitRest.transition(.opacity)
+            }
+        }
+        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(FoldPose.open(landscape: false).spoken)
+    }
+
+    private var openPortraitRest: some View {
         GeometryReader { geo in
             // Each half a set width (the carousel sizes its pages to the width it's given — a
             // flexible split would have it chasing its own measure), the fold's line between.
@@ -107,14 +132,32 @@ extension MainView {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
-        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(FoldPose.open(landscape: false).spoken)
     }
 
     // MARK: Open, on its side (951 × 669 points)
 
     var openLandscapeBody: some View {
+        ZStack {
+            if watcher.isShowing {
+                // The window tall on the left; the deck down the rail under the right thumb.
+                HStack(alignment: .top, spacing: DuoLook.foldGap) {
+                    DuoMacArea(main: self, deck: true)
+                        .padding(.top, 6)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    DuoLaptopDeck(main: self, vertical: true)
+                        .frame(width: DuoLook.rail)
+                }
+                .transition(.opacity)
+            } else {
+                openLandscapeRest.transition(.opacity)
+            }
+        }
+        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(FoldPose.open(landscape: true).spoken)
+    }
+
+    private var openLandscapeRest: some View {
         HStack(alignment: .top, spacing: DuoLook.foldGap) {
             DuoMacArea(main: self)
                 .padding(.top, 6)
@@ -137,9 +180,6 @@ extension MainView {
             .frame(width: DuoLook.rail)
         }
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
-        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(FoldPose.open(landscape: true).spoken)
     }
 
     // MARK: The laptop (the hinge across)
@@ -307,17 +347,30 @@ extension MainView {
 /// the keys or the answers in a row), or — Done, or nothing watched — the glance.
 struct DuoMacArea: View {
     let main: MainView
+    /// The laptop deck is under or beside it (the keys are there).
+    var deck = false
     @ObservedObject private var watcher: Watcher
 
-    init(main: MainView) {
+    init(main: MainView, deck: Bool = false) {
         self.main = main
+        self.deck = deck
         _watcher = ObservedObject(wrappedValue: main.watcher)
     }
 
     var body: some View {
         ZStack {
             if watcher.isShowing {
-                WatchPanel(watcher: watcher, compact: false, duo: true)
+                WatchPanel(watcher: watcher, compact: false, duo: true, deck: deck)
+                    .overlay(alignment: .bottom) {
+                        // The words you're saying over the picture's foot, as on a folded half.
+                        if deck, main.showLiveWords {
+                            GeometryReader { g in
+                                DuoLiveWords(main: main, room: g.size)
+                                    .frame(maxHeight: .infinity, alignment: .bottom)
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
+                    }
                     .transition(.opacity)
             } else {
                 DuoGlance(watcher: watcher, fill: false)
@@ -377,7 +430,8 @@ struct DuoMacHalf: View {
                             DuoLiveWords(main: main, room: room, below: true)
                                 .transition(.opacity)
                         } else {
-                            WatchActions(watcher: watcher)
+                            // The answers alone (the deck beside it has the keys).
+                            WatchActions(watcher: watcher, floating: true)
                                 .padding(.horizontal, 12)
                                 .opacity(live ? 1 : 0)
                                 .allowsHitTesting(live)
@@ -559,18 +613,8 @@ struct DuoDeck: View {
     var body: some View {
         VStack(spacing: 6) {
             if watcher.isShowing {
-                // The pages take the whole half; the switcher sits in the corner over them.
-                GeometryReader { g in
-                    main.carousel(fill: g.size.height, compact: true, rowHidden: true)
-                        .frame(width: g.size.width, height: g.size.height, alignment: .top)
-                }
-                .overlay(alignment: .topTrailing) {
-                    if input.pages.count > 1 {
-                        InputCornerSwitcher(input: input)
-                            .padding(.top, 16)
-                            .padding(.trailing, WatchLook.sideMargin + 8)
-                    }
-                }
+                // A laptop's lower half: the trackpad, the keys and the mic, all at once.
+                DuoLaptopDeck(main: main, vertical: vertical)
             } else if vertical {
                 // The book's page: the top bar, Send to as a grid (every place, four across),
                 // the mic in what's left.

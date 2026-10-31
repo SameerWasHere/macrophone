@@ -117,6 +117,9 @@ struct QuickControls: View {
     var options = true
     /// The Thread's light, under the panel: the plate's foot takes a breath of it.
     var glow: Color = Light.cyan
+    /// The iPhone Duo's cover (Oct 30 2026): Send to's round buttons are in its vertical bar, and
+    /// the panel runs nearer the edges so four places fit across.
+    var cover = false
     @AppStorage("onboarding.macNudgeDismissed") private var macNudgeDismissed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -127,10 +130,10 @@ struct QuickControls: View {
             // pasting and Cleanup share one row under the places; what a choice does is said by the
             // status line under the mic when it's made, and by each Cleanup level in its menu.
             if model.isPaired {
-                PlacesRow(current: target, compact: compact, named: named, layout: layout)
+                PlacesRow(current: target, compact: compact, named: named, layout: layout, cover: cover)
                 if options {
                     PanelDivider()
-                    OptionsRow(settings: settings, target: target, compact: compact) { model.sheet = .customCleanup }
+                    OptionsRow(settings: settings, target: target, compact: compact, inset: cover ? 12 : Space.inset) { model.sheet = .customCleanup }
                 }
             } else {
                 if showNudge {
@@ -144,7 +147,7 @@ struct QuickControls: View {
             }
         }
         .controlPanel(glow: glow)
-        .padding(.horizontal, Space.margin)
+        .padding(.horizontal, cover ? 8 : Space.margin)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
@@ -184,6 +187,9 @@ struct PlacesRow: View {
     var named = false
     /// One scrolling row, or a grid that wraps (the Duo's inner screen).
     var layout: PlacesLayout = .row
+    /// The Duo's cover: the name alone up top (the round buttons are in the vertical bar).
+    var cover = false
+    private var inset: CGFloat { cover ? 12 : Space.inset }
     /// The grid's own height (a capped grid is as tall as its rows, then scrolls).
     @State private var gridHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -197,6 +203,14 @@ struct PlacesRow: View {
             // The name beside Watch and ⋯ when it fits on one line; a longer one (a Terminal
             // window's title) takes the whole width under them instead of wrapping to six
             // lines beside them (Oct 18 2026).
+            if cover {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    kicker.fixedSize()
+                    title(current, notOpen: notOpen, answered: answered).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, inset)
+            } else {
             ViewThatFits(in: .horizontal) {
                 // One line: SEND TO Claude, then the round icons.
                 HStack(alignment: .center, spacing: 10) {
@@ -226,7 +240,8 @@ struct PlacesRow: View {
                     title(current, notOpen: notOpen, answered: answered)
                 }
             }
-            .padding(.horizontal, Space.inset)
+            .padding(.horizontal, inset)
+            }
 
             if case .grid(let gutter, let maxRows) = layout {
                 // The Duo's inner screen: every place in view with its name, in rows that wrap —
@@ -234,7 +249,7 @@ struct PlacesRow: View {
                 let grid = FoldFlow(spacing: 8, rowSpacing: 8, gutter: gutter) {
                     cells(places, selected: selected, notOpen: notOpen)
                 }
-                .padding(.horizontal, Space.inset)
+                .padding(.horizontal, inset)
                 .padding(.vertical, 4)
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: places.map(\.id))
                 if let maxRows {
@@ -263,7 +278,7 @@ struct PlacesRow: View {
                         HStack(spacing: 8) {
                             cells(places, selected: selected, notOpen: notOpen)
                         }
-                        .padding(.horizontal, Space.inset)
+                        .padding(.horizontal, inset)
                         .padding(.vertical, 4)
                     }
                     .scrollIndicators(.hidden)
@@ -626,6 +641,7 @@ struct OptionsRow: View {
     /// The place picked; nil while unpaired (no Send after pasting).
     var target: TargetRef?
     var compact = false
+    var inset: CGFloat = Space.inset
     var onEditCustom: () -> Void
 
     var body: some View {
@@ -655,7 +671,7 @@ struct OptionsRow: View {
                 }
             }
         }
-        .padding(.horizontal, Space.inset)
+        .padding(.horizontal, inset)
         .padding(.vertical, compact ? 6 : 9)
     }
 

@@ -92,6 +92,39 @@ final class DuoShotsTests: XCTestCase {
         try? app.debugDescription.write(to: folder.appendingPathComponent("hierarchy.txt"), atomically: true, encoding: .utf8)
     }
 
+    /// The cover screen as it really runs (no frame, no forced pose — the simulator's cover, with
+    /// its vertical bar): `MACROPHONE_DUO_COVER=1`. Names can be filtered: `MACROPHONE_DUO_ONLY=a,b`.
+    func testCoverFrames() throws {
+        guard let dir, ProcessInfo.processInfo.environment["MACROPHONE_DUO_COVER"] == "1" else { throw XCTSkip("MACROPHONE_DUO_COVER not set") }
+        let only = ProcessInfo.processInfo.environment["MACROPHONE_DUO_ONLY"].map { Set($0.split(separator: ",").map(String.init)) }
+        let shots: [(String, [String: String], TimeInterval)] = [
+            ("1-main", [:], 6),
+            ("2-window-mic", ["MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "page@mic"], 9),
+            ("3-window-keyboard", ["MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "page@keyboard"], 9),
+            ("4-window-keyboard-hidden", ["MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "page@keyboard,page@mic"], 12),
+            ("5-window-trackpad", ["MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "page@trackpad"], 9),
+            ("6-live-words", ["MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "say@Fix the login bug where the token expires early"], 10),
+        ]
+        for (name, env, wait) in shots where only?.contains(name) ?? true {
+            let app = XCUIApplication()
+            app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Terminal"].merging(env) { $1 }
+            app.launch()
+            let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
+            if allow.waitForExistence(timeout: 1.5) { allow.tap() }
+            let gotIt = app.buttons["Got it"]
+            let deadline = Date().addingTimeInterval(wait)
+            while Date() < deadline {
+                if gotIt.exists { gotIt.tap() }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+            }
+            let folder = URL(fileURLWithPath: dir).appendingPathComponent("cover")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: folder.appendingPathComponent("\(name).png"))
+            if name.hasPrefix("4") { try? app.debugDescription.write(to: folder.appendingPathComponent("4-hierarchy.txt"), atomically: true, encoding: .utf8) }
+            app.terminate()
+        }
+    }
+
     /// The regular iPhone's main screen and window view, for `docs/screens/duo/regular-iphone`
     /// (unchanged by the Duo work; the proof is the frame).
     func testRegularFrames() throws {

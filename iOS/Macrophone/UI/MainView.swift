@@ -34,6 +34,12 @@ struct MainView: View {
     @State var settleTask: Task<Void, Never>?
     /// iPhone SE-class heights: a shorter stage and card; History lives in the top bar only.
     @State var compact = false
+    /// The system puts a vertical bar on this screen (the iPhone Duo's cover, iOS 27.1).
+    @State var verticalBar = false
+    @State var coverPickingPhoto = false
+    @State var coverPickingFile = false
+    /// The iPhone Duo's cover: its buttons go in the vertical bar, the window takes the room.
+    var isCover: Bool { verticalBar && posture.pose == .closed }
 
     var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting || look == "starting" }
 
@@ -75,6 +81,7 @@ struct MainView: View {
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: posture.pose)
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         .background(GroundBackground(glow: skyGlow).animation(.easeInOut(duration: 0.7), value: filamentMode))
+        .background(VerticalBarProbe(present: $verticalBar).frame(width: 0, height: 0).accessibilityHidden(true))
         #if DEBUG
         .overlay(alignment: .topLeading) {
             if DebugHooks.env["MACROPHONE_ROUTE_PROBE"] == "1" {
@@ -98,7 +105,7 @@ struct MainView: View {
     /// The pose's layout: the phone's (the cover screen, every other iPhone), or the Duo's.
     @ViewBuilder private var poseBody: some View {
         switch posture.pose {
-        case .closed: phoneBody.transition(.opacity)
+        case .closed: if isCover { coverBody.transition(.opacity) } else { phoneBody.transition(.opacity) }
         case .open(let landscape): if landscape { openLandscapeBody.transition(.opacity) } else { openPortraitBody.transition(.opacity) }
         case .laptop: laptopBody.transition(.opacity)
         case .book: bookBody.transition(.opacity)
@@ -123,7 +130,9 @@ struct MainView: View {
                                 // No header (Oct 19 2026, Sameer: "the speak and it's on your Mac and
                                 // sub header are also useless"): the top bar, then the panel in thumb
                                 // reach above the Thread.
-                                topBar
+                                // The cover: the Mac is in the vertical bar; its pill only while
+                                // it isn't connected (to say so, and to wake it).
+                                if !isCover || !model.isConnected { topBar }
                                 Spacer(minLength: compact ? 10 : 20)
                                 quickControls
                             }
@@ -141,7 +150,8 @@ struct MainView: View {
                     .accessibilityHidden(!showSettings)
                     // Watching: the window takes the area (Done brings the settings back).
                     if watcher.isOpen && !showLiveWords {
-                        WatchPanel(watcher: watcher, compact: compact).transition(.opacity)
+                        WatchPanel(watcher: watcher, compact: compact, cover: isCover,
+                                   bare: isCover && input.page == .keyboard).transition(.opacity)
                     }
                     if showLiveWords {
                         VStack(spacing: 0) {
@@ -165,23 +175,42 @@ struct MainView: View {
                 // the trackpad beside the mic (the Thread folds away on those pages: the trackpad
                 // takes its room, the keyboard the foot of the screen). The mic page is the same
                 // view on every page, so a hold on it is never lost.
-                InputCarousel(input: input, watcher: watcher, compact: compact, threadHeight: filamentSlot) {
-                    VStack(spacing: 0) {
-                        // Room between the Thread and the mic.
-                        Color.clear.frame(height: compact ? 14 : 30)
-                        MicButton(recording: isRecording,
-                                  finishing: isFinishing,
-                                  mode: filamentMode,
-                                  disabled: micOff,
-                                  meter: recorder.meter,
-                                  onDown: pressDown,
-                                  onUp: pressUp,
-                                  onAccessibilityToggle: { model.toggleRecording() })
-                        statusSlot
-                            .padding(.bottom, compact ? 6 : 18)
+                let coverWatching = isCover && watcher.isOpen && !showLiveWords
+                InputCarousel(input: input, watcher: watcher, compact: compact,
+                              // The cover: no Thread while a window shows; the trackpad page
+                              // takes a thumb's worth of room instead.
+                              threadHeight: coverWatching ? (input.page == .trackpad ? 96 : 0) : filamentSlot,
+                              rowHidden: isCover && watcher.isOpen) {
+                    if coverWatching {
+                        // One row under the thumb: the keyboard, the mic, the trackpad.
+                        VStack(spacing: 2) {
+                            HStack(spacing: 0) {
+                                coverPageButton(.keyboard).frame(maxWidth: .infinity)
+                                micButton(size: 64)
+                                coverPageButton(.trackpad).frame(maxWidth: .infinity)
+                            }
+                            .padding(.top, 4)
+                            StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2)
+                                .frame(height: 18)
+                        }
+                    } else {
+                        VStack(spacing: 0) {
+                            Color.clear.frame(height: compact ? 14 : 30)
+                            micButton(size: 92)
+                            statusSlot
+                                .padding(.bottom, compact ? 6 : 18)
+                        }
                     }
                 } thread: {
-                    threadBand
+                    if !coverWatching {
+                        threadBand
+                    }
+                }
+                // The trackpad's way back on the cover (the row is gone): the pages' cluster.
+                .overlay(alignment: .topTrailing) {
+                    if coverWatching, input.page == .trackpad {
+                        InputCornerSwitcher(input: input).padding(.trailing, 14).padding(.top, 8)
+                    }
                 }
             }
             // The keyboard and the trackpad are the window's: while the mic is open, the mic
@@ -190,6 +219,109 @@ struct MainView: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }
+        }
+    }
+
+    // MARK: The iPhone Duo's cover: the buttons in the vertical bar
+
+    func micButton(size: CGFloat) -> some View {
+        MicButton(recording: isRecording,
+                  finishing: isFinishing,
+                  mode: filamentMode,
+                  disabled: micOff,
+                  meter: recorder.meter,
+                  onDown: pressDown,
+                  onUp: pressUp,
+                  onAccessibilityToggle: { model.toggleRecording() },
+                  size: size)
+    }
+
+    /// The keyboard or the trackpad, a round glass button beside the cover's mic.
+    @ViewBuilder func coverPageButton(_ p: MacInput.Page) -> some View {
+        if input.pages.contains(p) {
+            Button { input.show(p) } label: {
+                Image(systemName: p.symbol).font(.title3.weight(.semibold)).frame(width: 30, height: 30)
+            }
+            .circleGlassButton()
+            .accessibilityLabel(p.title)
+            .accessibilityIdentifier("cover-page-\(p.rawValue)")
+        }
+    }
+
+    var coverBody: some View {
+        NavigationStack {
+            phoneBody
+                .toolbar { coverToolbar }
+                .navigationBarTitleDisplayMode(.inline)
+                .coverBarStyle()
+                .macSharePickers(photo: $coverPickingPhoto, file: $coverPickingFile, model: model)
+        }
+    }
+
+    var coverDone: some View {
+        Button { Haptics.tick(); watcher.done() } label: { Label("Done", systemImage: "checkmark") }
+            .accessibilityHint(watcher.glanceOnDone ? "Puts the controls away; the window stays in view." : "Stops showing the window and brings back Send to and Cleanup.")
+            .accessibilityIdentifier("watch-done")
+    }
+
+    /// Done first, then the window's own buttons (Apple's order for the bar); at rest History and
+    /// Settings. While the mic is open nothing: the transcript has the screen.
+    @ToolbarContentBuilder var coverToolbar: some ToolbarContent {
+        if watcher.isOpen && !showLiveWords {
+            // Done is the last to fold into the bar's overflow (the keyboard leaves it short).
+            if #available(iOS 27.0, *) {
+                ToolbarItem(placement: .topBarLeading) { coverDone }.visibilityPriority(.high)
+            } else {
+                ToolbarItem(placement: .topBarLeading) { coverDone }
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if model.macAudio.macCanPlay { CoverSoundItem(player: model.macAudio) }
+                if model.canMacControls {
+                    Button { Haptics.tick(); model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
+                        .accessibilityIdentifier("mac-controls")
+                }
+                if watcher.phase == .live {
+                    Button { Haptics.tick(); watcher.setDrag(watcher.drag == .pan ? .scroll : .pan) } label: {
+                        Label(watcher.drag == .pan ? "Pan" : "Scroll", systemImage: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down")
+                    }
+                    .tint(watcher.drag == .scroll ? Light.cyan : nil)
+                    .accessibilityLabel("What one finger does")
+                    .accessibilityValue(watcher.drag == .pan ? "Pan" : "Scroll")
+                    .accessibilityHint("Switches between moving the picture and scrolling the window on your Mac.")
+                    .accessibilityIdentifier("cover-drag")
+                }
+                if watcher.macCanFit, watcher.target != .clipboard {
+                    Button { watcher.toggleWholeWindow() } label: {
+                        Label(watcher.wholeWindow ? "Zoom Back In" : "Whole Window",
+                              systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                    }
+                    .disabled(watcher.phase != .live)
+                    .accessibilityIdentifier("watch-whole")
+                    if !watcher.isDesktop { WatchWindowMenu(watcher: watcher, bar: true) }
+                }
+            }
+        } else if showSettings {
+            // The upper group: the Mac and the app's own pages.
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                CoverMacItem()
+                Button { model.sheet = .history } label: { Label("History", systemImage: "clock.arrow.circlepath") }
+                Button { model.sheet = .settings } label: { Label("Settings", systemImage: "gearshape") }
+            }
+            // The lower group, nearer the thumb: what Send to's round buttons did.
+            ToolbarItemGroup(placement: .bottomBar) {
+                if model.isConnected, watcher.canWatchDesktop { CoverWholeScreenItem(watcher: watcher) }
+                if model.canMacControls {
+                    Button { Haptics.tick(); model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
+                        .accessibilityIdentifier("mac-controls")
+                }
+                Menu {
+                    if model.isConnected {
+                        Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+                    }
+                    MacShareItems(pickingPhoto: $coverPickingPhoto, pickingFile: $coverPickingFile)
+                } label: { Label("More", systemImage: "ellipsis") }
+                    .accessibilityIdentifier("send-to-more")
+            }
         }
     }
 
@@ -218,6 +350,11 @@ struct MainView: View {
     }
 
     @ViewBuilder var topButtons: some View {
+        // The cover's are in its vertical bar.
+        if !isCover { drawnTopButtons }
+    }
+
+    @ViewBuilder var drawnTopButtons: some View {
         Button { model.sheet = .history } label: {
             Image(systemName: "clock.arrow.circlepath").topBarGlyph()
         }
@@ -287,8 +424,15 @@ struct MainView: View {
     // MARK: Quick controls, the mic, the status line
 
     var quickControls: some View {
-        QuickControls(settings: model.settings, compact: compact, glow: skyGlow)
-            .padding(.bottom, compact ? 10 : 18)
+        Group {
+            // The cover: the room the top bar's buttons left goes to every place, by name.
+            if isCover {
+                QuickControls(settings: model.settings, compact: true, named: true, layout: .grid(maxRows: 3), glow: skyGlow, cover: true)
+            } else {
+                QuickControls(settings: model.settings, compact: compact, glow: skyGlow)
+            }
+        }
+        .padding(.bottom, compact ? 10 : 18)
     }
 
     var statusSlot: some View {

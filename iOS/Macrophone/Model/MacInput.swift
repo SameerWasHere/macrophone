@@ -272,6 +272,27 @@ final class MacInput: ObservableObject {
         if !now { watcher?.inputSent() }
     }
 
+    // MARK: Three fingers (Oct 30 2026: the Duo's deck is a laptop's trackpad)
+
+    /// Three fingers swept on the trackpad: what they do on a Mac — up Mission Control, down App
+    /// Exposé, left the desktop on the right, right the desktop on the left.
+    func threeFingerSwipe(_ d: TrackpadSwipe) {
+        let (key, words, symbol): (WatchKey, String, String) = {
+            switch d {
+            case .up: return (WatchKey("up", control: true), "Mission Control", "rectangle.3.group")
+            case .down: return (WatchKey("down", control: true), "App Exposé", "rectangle.stack")
+            case .left: return (WatchKey("right", control: true), "Desktop to the right", "arrow.right.square")
+            case .right: return (WatchKey("left", control: true), "Desktop to the left", "arrow.left.square")
+            }
+        }()
+        watcher?.touch()
+        guard sendKey(key) else { return }
+        Haptics.soft()
+        watcher?.say(words, symbol: symbol)
+        watcher?.inputSent()
+        watcher?.log?.add("watching: three-finger \(words)")
+    }
+
     // MARK: Typing
 
     /// What the hidden field did. With a modifier waiting, one typed character goes as that
