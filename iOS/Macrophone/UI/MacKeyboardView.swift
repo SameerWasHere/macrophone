@@ -38,11 +38,16 @@ struct MacKeyboardField: UIViewRepresentable {
         // Only a small hide button at the right edge stays, so the keyboard can always be put away.
         let pose = Posture.shared.pose
         if v.hideOnly == nil { v.hideOnly = HideKeyboardBar { [weak input] in input?.hideKeyboard() } }
-        let accessory: UIView? = pose == .laptop || pose == .open(landscape: false) ? v.hideOnly : v.bar
-        if v.inputAccessoryView !== accessory {
-            v.inputAccessoryView = accessory
-            if v.isFirstResponder { v.reloadInputViews() }
-        }
+        let upright = pose == .laptop || pose == .open(landscape: false)
+        let accessory: UIView? = upright ? v.hideOnly : v.bar
+        var reload = false
+        if v.inputAccessoryView !== accessory { v.inputAccessoryView = accessory; reload = true }
+        // Upright the keyboard is as short as it goes, so it and Hide fit the deck: no predictions
+        // row (Siri's and Apple Intelligence's suggestions, autocorrect's bar), no shortcuts row
+        // (Nov 1 2026, Sameer: "suppress the Siri part of the keyboard so that it saves us even
+        // more room"). Elsewhere autocorrect stays, as ever.
+        if v.compact != upright { v.compact = upright; reload = true }
+        if reload, v.isFirstResponder { v.reloadInputViews() }
         v.wantsKeyboard = active
         v.applyFocus()
     }
@@ -88,6 +93,21 @@ final class KeyboardTextView: UITextView {
     /// Upright on the Duo's inner screen: a hide button alone over the keys.
     var hideOnly: HideKeyboardBar?
     var wantsKeyboard = false
+    /// The shortest keyboard: no predictions or shortcuts row.
+    var compact = false {
+        didSet {
+            guard compact != oldValue else { return }
+            _ = (savedLeading, savedTrailing)  // kept before they're cleared
+            autocorrectionType = compact ? .no : .default
+            spellCheckingType = compact ? .no : .default
+            inlinePredictionType = compact ? .no : .default
+            if #available(iOS 18.0, *) { writingToolsBehavior = compact ? .none : .default }
+            inputAssistantItem.leadingBarButtonGroups = compact ? [] : savedLeading
+            inputAssistantItem.trailingBarButtonGroups = compact ? [] : savedTrailing
+        }
+    }
+    private lazy var savedLeading = inputAssistantItem.leadingBarButtonGroups
+    private lazy var savedTrailing = inputAssistantItem.trailingBarButtonGroups
     private var goneCheck: DispatchWorkItem?
 
     init() {
@@ -534,14 +554,14 @@ final class HideKeyboardBar: UIInputView {
 
     init(action: @escaping () -> Void) {
         self.action = action
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 48), inputViewStyle: .default)
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 36), inputViewStyle: .default)
         backgroundColor = .clear
         allowsSelfSizing = true
         var config: UIButton.Configuration = if #available(iOS 26.0, *) { .glass() } else { .gray() }
         config.image = UIImage(systemName: "keyboard.chevron.compact.down")
         config.title = "Hide"
         config.imagePadding = 6
-        config.buttonSize = .medium
+        config.buttonSize = .small
         let button = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.action() })
         button.accessibilityLabel = "Hide Keyboard"
         button.accessibilityIdentifier = "keyboard-hide"
@@ -550,7 +570,7 @@ final class HideKeyboardBar: UIInputView {
         NSLayoutConstraint.activate([
             button.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -10),
             button.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 48),
+            heightAnchor.constraint(equalToConstant: 36),
         ])
     }
 
