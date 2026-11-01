@@ -99,12 +99,21 @@ final class Posture: ObservableObject {
             r.angle = f.angle
             // The inner screen is drawn to scale on the cover: the scene's size is the one to go by.
             r.screen = .zero
-            // A band across the middle (the laptop) or down it (the book) stands for the fold.
-            if f.pose.isFolded, size != .zero {
+            // A band stands for the fold, at the *screen's* middle (the frame's bars are stood
+            // in for, so the scene starts under them): across it when the frame is upright
+            // (the laptop, flat portrait), down it on its side (the book, flat landscape) —
+            // active while folded, there but inactive when flat, as the real region is.
+            if size != .zero, f.pose.isInner {
                 let w = FoldHalves.defaultFold
-                let frame = f.pose == .laptop ? CGRect(x: 0, y: (size.height - w) / 2, width: size.width, height: w)
-                                              : CGRect(x: (size.width - w) / 2, y: 0, width: w, height: size.height)
-                r.division = FoldDivision(frame: frame, isActive: true)
+                let insets = DebugHooks.frameInsets ?? EdgeInsets()
+                let screen = DebugHooks.frame ?? size
+                // The bar above the scene is whatever the frame leaves now (the laptop in hand
+                // gives the status bar's room back): read off the scene's own height, so the
+                // fold stays at the screen's middle either way.
+                let top = max(0, screen.height - size.height - insets.bottom)
+                let frame = f.pose.foldAcross ? CGRect(x: 0, y: screen.height / 2 - top - w / 2, width: size.width, height: w)
+                                              : CGRect(x: screen.width / 2 - insets.leading - w / 2, y: 0, width: w, height: size.height)
+                r.division = FoldDivision(frame: frame, isActive: f.pose.isFolded)
             } else if size != .zero {
                 r.division = nil
             }
@@ -130,6 +139,17 @@ final class Posture: ObservableObject {
     var foldLine: CGRect? {
         guard let d = reading.division, pose.isInner else { return nil }
         return d.frame
+    }
+
+    /// The two halves either side of the fold for a layout laid out as the laptop or the book,
+    /// folded or flat (Nov 1 2026: the open screen upright is the laptop laid flat): the
+    /// layout's own size split at the fold's region (active or not), else at its middle. The
+    /// layout's size, not the scene's: on the phone they are one and the same, but in the
+    /// simulator's frame a NavigationStack draws its own vertical bar inside the scene, and a
+    /// page measured from the scene ran under it.
+    func halves(for pose: FoldPose, in size: CGSize) -> FoldHalves {
+        FoldHalves.split(size, pose: pose, division: reading.division)
+            ?? FoldHalves(mac: CGRect(origin: .zero, size: size), deck: .zero)
     }
 }
 

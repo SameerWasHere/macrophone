@@ -68,10 +68,12 @@ import UIKit
 ///                                            key@cmd+shift+f5, appswitch (⌘ held, Tab)
 /// MACROPHONE_VIDEO=0                         a phone from before video: the Mac sends pictures (to compare the two)
 /// MACROPHONE_FRAME=375x667                   the mic screen in a smaller phone's frame (an SE: compact < 700pt) on this simulator
-///                                            — or the Duo's inner screen (951x669, 669x951), drawn to scale on a smaller one
+///                                            — or the Duo's inner screen (951x669 on its side, 669x951 upright), drawn to
+///                                            scale on a smaller one with its bars stood in for (`frameInsets`)
 /// MACROPHONE_POSTURE=closed|portrait|landscape|laptop|book[@<angle>]  the iPhone Duo held that way (the hinge and the fold's
-///                                            region stood in for; laptop and book split the frame in the middle), e.g.
-///                                            MACROPHONE_FRAME=951x669 MACROPHONE_POSTURE=laptop@112
+///                                            region stood in for; the fold runs across an upright frame — the laptop,
+///                                            portrait — and down one on its side — the book, landscape — at the screen's
+///                                            middle), e.g. MACROPHONE_FRAME=669x951 MACROPHONE_POSTURE=laptop@112
 /// MACROPHONE_FAKE_KEYBOARD=<height>          the keyboard page draws a stand-in keyboard of that height inside the frame
 ///                                            (with the Mac's bar above it) instead of raising the simulator's own — the
 ///                                            inner screen's layout at its real proportions, since the cover's keyboard
@@ -118,6 +120,19 @@ enum DebugHooks {
         guard let v = env["MACROPHONE_FRAME"] else { return nil }
         let p = v.split(separator: "x").compactMap { Double($0) }
         return p.count == 2 ? CGSize(width: p[0], height: p[1]) : nil
+    }
+
+    /// The system's bars on the frame's screen, as his Duo reports them (Nov 1 2026, from its
+    /// diagnostics log): on its side the vertical bar takes 84 pt on the trailing side and the
+    /// home indicator 34 at the foot (`landscape (180°, 867×635)`); upright, 116 pt go top and
+    /// bottom (`laptop (105°, 669×835)`) — read here as the camera side's status bar, 82, and the
+    /// home indicator, 34 (which is which needs a real Duo; the scene's size is right either
+    /// way). A smaller phone's frame keeps an SE's 20 pt status bar.
+    static var frameInsets: EdgeInsets? {
+        guard let f = frame else { return nil }
+        guard min(f.width, f.height) >= 600 else { return EdgeInsets(top: 20, leading: 0, bottom: 0, trailing: 0) }
+        return f.width > f.height ? EdgeInsets(top: 0, leading: 0, bottom: 34, trailing: 84)
+                                  : EdgeInsets(top: 82, leading: 0, bottom: 34, trailing: 0)
     }
 
     /// Runs before the model exists.

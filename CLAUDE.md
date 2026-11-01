@@ -48,7 +48,10 @@ with the window or full screen taking up the full half when partially folded and
 being trackpad or keyboard or mic … a Duo version that supports every fold option". The Duo folds
 like a book: a cover screen (466 × 678 pt — wider and shorter than a Pro, its status bar on the
 side) and an inner screen (669 × 951 pt). Nothing changes for any other iPhone. Two passes the
-same day; the second (below, "the laptop in earnest") wins where they differ.
+same day; the second (below, "the laptop in earnest") wins where they differ. **[Nov 1 2026: the
+inner screen's fold runs along its long side — upright (669 × 951) the laptop and flat portrait,
+on its side (951 × 669) the book and flat landscape; the passes below had the laptop 951 wide
+and the book 669 wide, and every frame with them. "The Duo at its real shape" (below) wins.]**
 - **Poses** (`FoldPose`, MacrophoneKit `Core/FoldPose.swift`, pure, `FoldPoseTests`): `closed`
   (the cover: the phone's layout, `MainView.phoneBody`, compact), `open(landscape:)` (the inner
   screen flat), `laptop` (partly folded, the hinge across), `book` (partly folded, the hinge up
@@ -108,7 +111,7 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
   While two viewers overlap in the cross-fade, a `ViewerScrollView` leaving the window hands the
   video canvas to the newest one that wants it (`wantedVideo` / `newest`) — the one on its way out
   used to take the canvas with it and leave the glance black.
-- **Open, upright** (669 × 951) **[the fourth pass, below, re-laid the lower part]**: the top bar,
+- **Open, upright** (669 × 951) **[the fourth pass, below, re-laid the lower part; superseded Nov 1 2026: flat upright is the laptop's layout, the fold across its middle — and on its side the right page is the cover's view]**: the top bar,
   the window large (`DuoMacArea` → `WatchPanel(duo: true)`: the answers float over the picture's
   foot there too, `WatchActions(keysOnly: true)` under it; a first-run tip is a strip under the
   window, `WatchTipCard(inline:)`), then Send to across the whole width (a grid of every place
@@ -121,7 +124,7 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
   trackpad whole, the mic in the middle). The rail rather than a bottom deck: it keeps the window
   near-square, so a window fitted to it reads like a laptop's, puts the controls under the right
   thumb, and only the picture crosses the fold.
-- **Rules:** opening the inner screen opens the pick's window by itself (`AppModel.poseChanged` →
+- **Rules** **[Nov 1 2026: opened flat it's the glance, folded it comes in hand — see "The Duo at its real shape"]:** opening the inner screen opens the pick's window by itself (`AppModel.poseChanged` →
   `openWindowForPose`: the Whole Screen for the Clipboard / Where I'm typing; waits for the Mac
   when it isn't connected yet — `linkClient(_:stateChanged:)`); closing the phone closes a window
   view the pose opened (`openedByPose`), never one he opened. The deck remembers its page per
@@ -132,7 +135,7 @@ same day; the second (below, "the laptop in earnest") wins where they differ.
   moved > 6%, quiet). Orientation: `AppDelegate.application(_:supportedInterfaceOrientationsFor:)`
   — every way on a screen ≥ 600 pt on its short side (the inner), upright on the cover and every
   other iPhone (Info.plist lists all four; the delegate narrows).
-- **The simulator can't be folded from a script.** Xcode 27.1's Device Hub folds and rotates a
+- **The simulator can't be folded from a script** **[the frames' shapes and bars are corrected Nov 1 2026 — `MACROPHONE_FRAME=669x951` is the laptop and flat portrait, `951x669` the book and flat landscape, each with its bars stood in for].** Xcode 27.1's Device Hub folds and rotates a
   simulated Duo, but opening it the first time asks for an admin password ("DevicesSystemUpdater
   is trying to install Apple software") — not done; `simctl` has no hinge command, the Duo's
   `io enumerate` lists the cover (1398 × 2034) and the inner (2007 × 2853) displays but the app
@@ -319,7 +322,7 @@ This section wins over the four passes above where they differ.
   AttributeGraph spun in a cycle (`sample` on the simulator's process showed it). The resign is now
   on the next run-loop turn, like taking the keyboard always was. Never resign or become first
   responder synchronously from `updateUIView`.
-- **The mini MacBook** (`UI/DuoLaptopDeck.swift`): while a window shows on the inner screen the
+- **The mini MacBook** (`UI/DuoLaptopDeck.swift`) **[superseded Nov 1 2026 on the laptop: its deck is one mode at a time, each the whole half; this column stays on the book's page and the open screen's right page]**: while a window shows on the inner screen the
   deck is a laptop's lower half, all at once — Send to as a menu (every open app with its icon; a
   pick shows its window), the Thread and the mic on the "palm rest", the trackpad in the middle,
   keycaps on the right (esc ⇥ ⌫ ⌨︎ · ⌘ ⌥ ⌃ ⇧ lit when waiting · return · fn and the inverted-T
@@ -366,7 +369,7 @@ laptop's overlay header and floating answers are gone).
   frame) — one he asked Fit to iPhone for stays (`askedForFit`). Proven against `mpctl serve`
   (which now prints `WATCH SHAPE <aspect>`): one shape at open, none for the keyboard, typing,
   the trackpad or the mic, `WATCH WINDOW restore` on Done.
-- **The laptop** (`DuoMacHalf`, `!vertical`): the top half is `WatchWindow` alone, edge to edge — no
+- **The laptop** (`DuoMacHalf`, `!vertical`) **[the deck is superseded Nov 1 2026: modes, the answers on a row of their own; the picture alone above stands]**: the top half is `WatchWindow` alone, edge to edge — no
   overlay header, no floating answers, no live-words card, no short-picture layout. The deck
   (`DuoLaptopDeck(menuBar: true)`, `laptop`): `WatchHeaderBar` across the top (always there, never
   fades) with the question's answers in its middle (`WatchHeaderBar(middle:)` ←
@@ -380,6 +383,92 @@ laptop's overlay header and floating answers are gone).
   isn't something a Mac takes); three fingers tapped (< 0.5 s, none moved) = Look Up ⌃⌘D; four
   fingers spread 40% = Show Desktop (F11); four fingers sweeping = the three-finger sweeps. Each
   says its name over the window with a soft haptic.
+
+## The Duo at its real shape: the cover goes on, the laptop is a little Mac (Nov 1 2026)
+
+Sameer, on his Duo: (1) "The app selector looks bad, especially on the front screen as there
+weird empty space on the right … more compact and take the design to the next level"; (2) "When I
+am on this selector screen and open the phone, the app is not taking up the full screen … the view
+that is on the out screen should be what I see on the right half on the open duo screen with more
+content on the left side"; (3) "it's all about consistency … the same toggles in the side bar …
+The only thing that changes is that there is now more to view"; (4) "in laptop mode the trackpad
+is really small … select mic mode, keyboard mode to trackpad mode and have each of those modes
+take up the full half"; (5) "in laptop view the view window should take up the whole top half …
+Almost as if the duo was a mini Mac." This section wins over every Duo section above where they
+differ. Frames: `docs/screens/duo/nov1/` (before | after sheets per pose and the cover).
+- **The screen's real shape** (from his phone's diagnostics log — `pose: laptop (105°, 669×835)`,
+  `book (174°, 867×635)`, `landscape (180°, 867×635)`, `portrait (180°, 669×835)`, `closed (180°,
+  951×553)`): the inner screen is 669 × 951 with **the fold along the middle of its long side**,
+  so a half is the cover's size (475 × 669). Upright the fold runs *across*: the laptop, and flat
+  portrait. On its side it runs *down*: the book, and flat landscape — the phone's natural way
+  open, the cover becoming the right half. Every pass before had the laptop 951 wide (halves of
+  951 × 320 — impossible) and the book 669 wide, and every frame with them. Now: `FoldPose
+  .foldAcross` / `.hasVerticalBar` (the vertical bar, 84 pt on the camera side, is there on the
+  cover, the book and flat landscape; upright the inner screen has a status bar on top instead),
+  `derive`'s no-region fallback flipped (upright folds as a laptop), `FoldPoseTests
+  .testTheFoldLiesAlongTheLongSide` with the log's numbers. **The simulator's frames** are
+  `MACROPHONE_FRAME=669x951` (the laptop, portrait) and `951x669` (the book, landscape) with the
+  bars stood in for (`DebugHooks.frameInsets`: on its side trailing 84 + bottom 34 → 867 × 635;
+  upright top 82 + bottom 34 → 669 × 835 — which of the 116 is which needs a real Duo; plain
+  padding, not `safeAreaPadding`, which a NavigationStack's content took back; and on a barred
+  pose no trailing padding at all, since a NavigationStack inside a frame draws its own ~82 pt
+  vertical bar with the items in it — the stand-in for the system's) and the forced fold at the
+  *screen's* middle (`Posture.recompute`), inactive when flat so `foldLine` is known. A layout
+  splits its *own* measure at the fold (`Posture.halves(for:in:)`), never the scene's.
+  "Not expanding" (2) was `FoldReading.screen` (the whole screen says which screen; commit
+  8f02801); the rest of (2) and (3) is the layout below.
+- **One rule for every inner pose: the half that was the cover goes on being the cover, and the
+  other half is the Mac** (`UI/DuoView.swift`, `MainView.poseBody`). Nothing in hand — the phone
+  just opened, or Done — the cover's half shows `phoneBody` whole (Send to, Send after pasting
+  and Cleanup, the Thread, the mic; the vertical bar's buttons where the screen has one, its own
+  top bar where it hasn't) and the Mac's half the glance (the picked app's window live, Show it
+  here). Flat on its side: the glance on the left page, the cover on the right (`openLandscape
+  Body`, split at `Posture.foldLine`; `DuoLook.rail` 377 is only the fallback without a line).
+  Flat upright and the laptop are **one layout** (`laptopBody`, `Posture.halves(for:in:)` — the
+  real halves folded, the inactive fold's line flat): the Mac above the fold, the cover's view
+  below; folding moves nothing. The book: the Mac on the left page, the cover on the right. In
+  hand: the laptop's modes (below) or, down a page (the book, flat on its side), the
+  `DuoLaptopDeck` column (its `band` across is gone). `openWindowForPose`: opened **flat** the
+  window is the glance; **folded** (the laptop, the book) it comes in hand at once — and folding
+  while glancing takes it in hand (`poseChanged`). The old open-upright layout (the grid across
+  the width, `optionsPanel`, `sendToPanel`, `lowerPanel`) is gone.
+- **The same bar on both screens (3)** — `MainView.barUsed` = the vertical-bar trait *and* a pose
+  that has one (on the simulator the inner screen is a frame on the cover, whose trait would
+  otherwise speak for every pose): the cover, flat landscape and the book are `barred` — one
+  NavigationStack, the same `coverToolbar` (Mac · History · Settings; Whole Screen · Mac Controls
+  · ⋯; watching: Done · Sound · Mac Controls · Pan|Scroll · zoom out · Window), the window's
+  header name-only (`controlsInVerticalBar`). Upright (the laptop, flat portrait) draws its own:
+  the deck's header carries the clusters and Done, `phoneBody` its top bar. `quickControls` is the
+  tile grid on every Duo screen (`barUsed || pose.isInner`).
+- **The laptop is a little Mac (4, 5)** (`laptopBody`, `DuoMacHalf(edge: true)`, `DuoDeck
+  .laptopModes`): the top half is `WatchWindow` with **no bezel and no corner** (`bezelWidth` 0,
+  `corner` 0 — `DuoGlance(edge:)` the same at rest), filling the half (`fill`; auto-fit gives the
+  Mac's window the half's shape, so a window the Mac reshapes has no bands; the demo's fixed
+  1400 × 900 fills a 669 × 393 half by zoom), **the status bar hidden while a window is in hand**
+  (`.statusBarHidden`, folded or laid flat; the frame gives its top 82 back then — whether the
+  real screen does, with the camera on that edge, needs a real Duo), nothing over it. The deck: `WatchHeaderBar` across
+  the top (name, Sound|Mac Controls, Pan|Scroll, zoom out|Window, Done — never fades), **the
+  question's answers on a row of their own under it only while one is up** (in the header's
+  middle they had room for one digit at 669 pt), then **one mode at a time, the whole of the
+  rest** — the trackpad edge to edge (~645 × 330), the mic with the Thread across the half, or
+  the iOS keyboard with the Mac's keys on its bar — picked by the `InputCornerSwitcher` cluster
+  overlaid in the deck's top-right corner (it had been written and never placed: the modes had
+  no way between them). The deck remembers its mode (the trackpad first; `MacInput.deckPage`).
+  While you talk the words sit over the Thread (`DuoLiveWords(below:)`); the mic never moves.
+- **The cover's picker (1)** is commit 8f02801's `PlacesLayout.tiles` (icon-only tiles in even
+  columns across the width, five on the cover and nine on a 669 pt half, the pick a lit plate
+  that slides — `PlaceTileStyle`), now seen: no hole on the right, two rows for nine places.
+- **Tests:** `DuoUITests` rewritten for the real shapes (the laptop: every mode takes the deck,
+  the trackpad ≥ 80% of its width, a pinch zooms, typing reaches the Mac, Done leaves the glance
+  with Send to under the fold; the book's column on the right page; flat upright and on its side:
+  the glance in the Mac's half, Send to and the mic in the cover's, nothing on the fold).
+  `DuoShotsTests` shoots every pose's `0-rest` and uses a 300 pt stand-in keyboard upright.
+- **Needs a real Duo** (added to the list above): the top inset upright with the status bar
+  hidden (82 pt back, or a camera's cutout kept); which of the 116 upright points is the top;
+  the iOS keyboard's height on a 669 pt-wide portrait screen (the deck's mode area is ~390 pt);
+  `verticalBarEdge` on the inner screen on its side (assumed trailing, as on his cover) and that
+  it is `.unspecified` upright; the fold's region frame flat (`.includeInactive`) — the flat
+  layouts split at it and fall back to the middle.
 
 ## Several Macs on one iPhone (Oct 19 2026)
 

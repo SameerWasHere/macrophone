@@ -13,6 +13,8 @@ final class DuoShotsTests: XCTestCase {
 
     private func shoot(_ pose: String, frame: String, name: String, wait: TimeInterval, extra: [String: String] = [:], keepTips: Bool = false) {
         guard let dir else { return }
+        // `MACROPHONE_DUO_ONLY=a,b`: these names alone (a look at one frame while iterating).
+        if let only = ProcessInfo.processInfo.environment["MACROPHONE_DUO_ONLY"].map({ Set($0.split(separator: ",").map(String.init)) }), !only.contains(name) { return }
         let app = XCUIApplication()
         var env = ["MACROPHONE_SCREEN": "main", "MACROPHONE_FRAME": frame, "MACROPHONE_POSTURE": pose,
                    "MACROPHONE_SEND_TO": "Terminal", "MACROPHONE_DUO_HEADER": "held", "MACROPHONE_WATCH": "1"]
@@ -35,19 +37,25 @@ final class DuoShotsTests: XCTestCase {
         app.terminate()
     }
 
+    /// The frames: the Duo's inner screen is upright (669 × 951) for the laptop and flat
+    /// portrait — the fold across — and on its side (951 × 669) for the book and flat landscape
+    /// (Nov 1 2026, from his phone's log; the frames had been the other way round).
     private func pose(_ pose: String, frame: String) {
-        // Open on its side with nothing in hand: the cover's view on the right half, the window
-        // live on the left (the pose opens it as the glance).
-        if pose == "landscape" { shoot(pose, frame: frame, name: "0-rest", wait: 8, extra: ["MACROPHONE_WATCH": "0"]) }
+        let upright = frame.hasPrefix("669")
+        // Nothing in hand: the cover's view in its half, the picked app's window live in the
+        // other (the glance — a flat pose opens it so; folded, the window is in hand at once).
+        shoot(pose, frame: frame, name: "0-rest", wait: 8, extra: ["MACROPHONE_WATCH": "0"])
         shoot(pose, frame: frame, name: "1-main", wait: 7)
         shoot(pose, frame: frame, name: "2-window-mic", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@mic"])
-        shoot(pose, frame: frame, name: "3-window-keyboard", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@keyboard", "MACROPHONE_FAKE_KEYBOARD": "216"])
+        // A stand-in keyboard at the frame's scale: an iPhone's landscape keyboard is 216 pt;
+        // upright at 669 pt wide it's about 300 (the real one needs a real Duo).
+        shoot(pose, frame: frame, name: "3-window-keyboard", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@keyboard", "MACROPHONE_FAKE_KEYBOARD": upright ? "300" : "216"])
         shoot(pose, frame: frame, name: "4-window-trackpad", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@trackpad"])
         shoot(pose, frame: frame, name: "7-glance", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "done"])
         shoot(pose, frame: frame, name: "8-live-words", wait: 10, extra: ["MACROPHONE_WATCH_ACTIONS": "say@Fix the login bug where the token expires early"])
-        // The first-run tip, where the open screens show one (a strip under the window since the
-        // fourth pass); the folded halves show none.
-        if pose == "portrait" || pose == "landscape" {
+        // The first-run tip, where the open screen on its side shows one (a strip under the
+        // window); the folded halves and the laptop's screen show none.
+        if pose == "landscape" {
             shoot(pose, frame: frame, name: "9-first-run-tip", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@mic"], keepTips: true)
         }
     }
@@ -64,12 +72,12 @@ final class DuoShotsTests: XCTestCase {
 
     func testLaptopFrames() throws {
         guard dir != nil else { throw XCTSkip("MACROPHONE_DUO_SHOTS not set") }
-        pose("laptop", frame: "951x669")
+        pose("laptop", frame: "669x951")
     }
 
     func testBookFrames() throws {
         guard dir != nil else { throw XCTSkip("MACROPHONE_DUO_SHOTS not set") }
-        pose("book", frame: "669x951")
+        pose("book", frame: "951x669")
     }
 
     /// A look at the real keyboard rising on the laptop's deck (what the simulator does with it),

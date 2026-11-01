@@ -89,7 +89,9 @@ struct RootView: View {
             // inner screen (951 × 669, 669 × 951 — bigger than the cover, so drawn to scale).
             GeometryReader { geo in
                 let scale = min(1, geo.size.width / size.width, geo.size.height / size.height)
-                sized.safeAreaPadding(.top, scale < 1 ? 0 : 20)
+                // The frame's own bars (the Duo's vertical bar, its status bar and home
+                // indicator), so the scene inside is the size his phone reports.
+                sized.modifier(DebugFrameInsets(watcher: model.watcher))
                     .frame(width: size.width, height: size.height)
                     // MACROPHONE_FAKE_KEYBOARD: a stand-in keyboard at the frame's own scale on
                     // the keyboard page (the cover's real one rises over the frame at 1:1).
@@ -141,6 +143,27 @@ struct InnerScreenSheet: ViewModifier {
 }
 
 #if DEBUG
+/// The frame's bars as insets (`DebugHooks.frameInsets`). The laptop (folded or flat) with a
+/// window in hand hides the status bar, and the frame gives the top back then, as a screen with
+/// no cutout at that edge would (whether the Duo's does needs a real Duo).
+private struct DebugFrameInsets: ViewModifier {
+    @ObservedObject var watcher: Watcher
+    @ObservedObject private var posture = Posture.shared
+
+    func body(content: Content) -> some View {
+        var insets = DebugHooks.frameInsets ?? EdgeInsets()
+        if posture.pose.foldAcross, watcher.isShowing { insets.top = 0 }
+        // A pose with a vertical bar sits in a NavigationStack, which — inside a frame that
+        // stops short of the screen's trailing edge — draws its own vertical bar at its trailing
+        // edge, ~82 pt wide with the items in it: that stands in for the system's (the same
+        // width), so only a sliver of padding there, enough to keep the stack off the edge
+        // (flush with it, the stack drew no bar and the items went nowhere). Plain padding, not
+        // `safeAreaPadding`, which the stack's content took back.
+        if posture.pose.hasVerticalBar { insets.trailing = 20 }
+        return content.padding(insets)
+    }
+}
+
 /// `MACROPHONE_FAKE_KEYBOARD=<height>`: what the keyboard page looks like inside a to-scale
 /// frame — the Mac's bar over a plate of keys of that height, rising when the page is up.
 private struct DebugKeyboard: View {

@@ -6,48 +6,44 @@ import UIKit
 // screen and then we need to come up with an epic inside screen experience … like a little
 // MacBook with the window or full screen taking up the full half when partially folded and the
 // bottom half being trackpad or keyboard or mic to control it"). The cover screen keeps the
-// phone's layout (`MainView.phoneBody`). The inner screen is the Mac, in four poses, each laid
-// out from the same pieces — the top bar, the window, the Send to panel, the transcript, the
-// mic · keyboard · trackpad carousel. The second pass (the same day) made the folded poses a
-// laptop in earnest:
+// phone's layout (`MainView.phoneBody`). The inner screen is 669 × 951 with the fold along the
+// middle of its long side, so a half is the cover's size (his phone's log, Nov 1 2026: `laptop
+// (105°, 669×835)`, `book (174°, 867×635)`): upright the fold runs across, on its side it runs
+// down. Four poses, one rule (Nov 1 2026, Sameer: "it's all about consistency … the same toggles
+// … The only thing that changes is that there is now more to view"): **the half that was the
+// cover goes on being the cover** — the same Send to, switches, Thread and mic, the same buttons
+// in the vertical bar where there is one — **and the other half is the more there is to see: the
+// Mac.**
 //
-//   laptop               the hinge across — the top half IS the Mac's screen: the picture edge to
-//                        edge, filling the half (a window the Mac can reshape takes the half's
-//                        shape by itself; one it can't is zoomed to cover it, scrolling), a slim
-//                        translucent header laid over its top like a menu bar (the window's name
-//                        and menu, Sound, Mac Controls, Pan | Scroll, zoom out, Window, Done)
-//                        that fades after a few seconds and comes back on a touch, the question's
-//                        answers floating over its foot. The bottom half is the deck, all of it:
-//                        the trackpad the whole half (the three pages as a small cluster in its
-//                        corner), the keyboard rising over it with the Mac's keys on its bar, or
-//                        the mic with the Thread across the half — the words you say shown over
-//                        the picture above while you talk
-//   book                 the hinge up and down — the same, the Mac on the left page and the deck
-//                        on the right (the right thumb drives the trackpad)
-//   open, upright        the window large across the top (most of the height, the whole width;
-//                        a first-run tip keeps to its corner); under it, side by side with the
-//                        fold's line between them, Send to as a row of icons (left) and the mic
-//                        with its pages (right)
-//   open, on its side    the window tall on the left; a rail on the right: the top bar, Send to,
-//                        then the deck filling the rest (the trackpad whole, or the mic, or the
-//                        keyboard) — the rail keeps the window near-square, so a window fitted to
-//                        it reads like a laptop's, puts the controls under the right thumb, and
-//                        only the picture crosses the fold
+//   laptop               upright, the hinge across — a little MacBook. The top half IS the Mac's
+//   (and flat, upright)  screen: the picture alone, edge to edge, the status bar gone; nothing
+//                        over it. The bottom half is the deck: the window's header across its top
+//                        (the name and menu, the question's answers, Sound, Mac Controls,
+//                        Pan | Scroll, zoom out, Window, Done), then one mode at a time taking
+//                        the whole of the rest — the trackpad, the mic with the Thread across the
+//                        half, or the iOS keyboard with the Mac's keys on its bar — the three as a
+//                        cluster in the corner. Nothing in hand: the picked app's window live on
+//                        top (the glance), the cover's own view below. Flat and upright it is the
+//                        same layout (the fold is in the same place), so folding it moves nothing
+//   book                 on its side, the hinge up and down — the Mac on the left page, the deck
+//                        down the right (the keys, the trackpad, Send to and the mic: the right
+//                        thumb's); nothing in hand: the glance left, the cover's view right
+//   open, on its side    the window tall on the left page; the deck down the right as the book's;
+//                        nothing in hand: the glance left, the cover's view right — what the
+//                        phone opens to (the cover becomes the right half as it opens)
 //
 // Done on the inner screen is the glance, not a closed window (`Watcher.glance`): the picked
-// app's window stays live and big, its controls put away, Show it here to take it in hand again.
-// Nothing sits on the fold: the folded poses split at the fold's region (`FoldHalves`), the flat
-// ones keep a gap each side of its line. The split follows the hinge: the deck rises and the Mac's
-// picture settles into its half as the angle closes (`Posture.rise`), and the poses cross-fade.
-// Every pose keeps the state — the window, the zoom (kept per app), the carousel's page, a
-// dictation under way, a sheet.
+// app's window stays live and big, its controls put away, Show it here to take it in hand again —
+// and folding the screen (the laptop, the book) takes it in hand by itself. Nothing sits on the
+// fold: every pose splits at the fold's region (`FoldHalves`, the inactive region when flat). The
+// book's split follows the hinge (the deck rises as the angle closes, `Posture.rise`); the poses
+// cross-fade. Every pose keeps the state — the window, the zoom (kept per app), the carousel's
+// page, a dictation under way, a sheet.
 
 /// The Duo's measures.
 enum DuoLook {
     /// The room kept clear each side of the fold's line on a flat inner screen.
     static let foldGap: CGFloat = 14
-    /// The band over the fold's line no cell of a grid sits on (the gap each side, and a hair).
-    static let creaseBand: CGFloat = 2 * foldGap + 8
     /// The mic on a folded deck: a half of the screen to itself, so the disc is a size up from the
     /// phone's 92 (not a cartoon — the glyph and the ring grow with it).
     static let deckMic: CGFloat = 112
@@ -55,10 +51,12 @@ enum DuoLook {
     /// cluster in the corner.
     static let deckThread: CGFloat = 96
     static let deckThreadTop: CGFloat = 46
-    /// The rail beside the window when the screen is open on its side: three named places
-    /// across its Send to grid, with the panel's margins.
-    static let rail: CGFloat = 344
-    /// A folded half's screen: a hair of bezel, the corner tight to the half's.
+    /// The rail beside the window when the screen is open on its side and the fold's line isn't
+    /// known: the right page's width less the bar (his phone names the line; a frame without
+    /// one falls back to this).
+    static let rail: CGFloat = 377
+    /// A folded half's screen: a hair of bezel, the corner tight to the half's (the book's page;
+    /// the laptop's screen has none — `DuoMacHalf.edge`).
     static let halfBezel: CGFloat = 2
     static let halfCorner: CGFloat = 14
     /// How long the overlay header stays after a touch.
@@ -66,91 +64,32 @@ enum DuoLook {
 }
 
 extension MainView {
-    // MARK: Open, upright (669 × 951 points)
-
-    var openPortraitBody: some View {
-        ZStack {
-            if watcher.isShowing {
-                // A window in hand: it takes the screen, the laptop deck under it — Send to is the
-                // deck's menu now, the grid of places back when the window is put away.
-                VStack(spacing: 4) {
-                    DuoMacArea(main: self, deck: true)
-                        .padding(.top, 4)
-                        .frame(maxHeight: .infinity)
-                    // The keyboard takes the deck's place while it's up (its field stays in the
-                    // deck, so the deck folds to nothing rather than going).
-                    DuoLaptopDeck(main: self)
-                        .frame(height: input.page == .keyboard ? 0 : 270, alignment: .top)
-                        .clipped()
-                }
-                .transition(.opacity)
-            } else {
-                openPortraitRest.transition(.opacity)
-            }
-        }
-        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(FoldPose.open(landscape: false).spoken)
-    }
-
-    private var openPortraitRest: some View {
-        GeometryReader { geo in
-            // Each half a set width (the carousel sizes its pages to the width it's given — a
-            // flexible split would have it chasing its own measure), the fold's line between.
-            let half = max(0, (geo.size.width - DuoLook.foldGap) / 2)
-            VStack(spacing: 0) {
-                topBar
-                DuoMacArea(main: self)
-                    .padding(.top, 8)
-                    .frame(maxHeight: .infinity)
-                // Across the whole width (the fourth pass): Send to as a grid of every open app
-                // with its name, Clipboard and Where I'm typing and + among them, no cell on the
-                // fold's line — or the words you're saying, while the mic is open.
-                if showLiveWords {
-                    transcriptArea
-                        .frame(minHeight: 230, alignment: .top)
-                        .transition(.opacity)
-                } else {
-                    sendToPanel(layout: .grid(gutter: DuoLook.creaseBand), options: false)
-                        .padding(.top, 8)
-                        .transition(.opacity)
-                }
-                // The band under it, split at the fold: Send after pasting and Cleanup on the
-                // left, level with the mic; the mic with its pages and the Thread on the right,
-                // under the right thumb.
-                HStack(alignment: .center, spacing: DuoLook.foldGap) {
-                    optionsPanel
-                        .frame(width: half)
-                        .opacity(showLiveWords ? 0 : 1)
-                        .allowsHitTesting(!showLiveWords)
-                        .accessibilityHidden(showLiveWords)
-                    carousel(fill: nil, compact: true)
-                        .frame(width: half)
-                }
-                .padding(.top, 4)
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-        }
-        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
-    }
-
-    // MARK: Open, on its side (951 × 669 points)
+    // MARK: Open, on its side (951 × 669 points, the vertical bar on the trailing side)
 
     var openLandscapeBody: some View {
-        ZStack {
-            if watcher.isShowing {
-                // The window tall on the left; the deck down the rail under the right thumb.
-                HStack(alignment: .top, spacing: DuoLook.foldGap) {
-                    DuoMacArea(main: self, deck: true)
-                        .padding(.top, 6)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    DuoLaptopDeck(main: self, vertical: true)
-                        .frame(width: DuoLook.rail)
+        GeometryReader { geo in
+            // The pages either side of the fold's line (the screen's middle, 84 pt of bar on
+            // the right): the window, or the glance, on the left; the right page the cover's.
+            let split = posture.foldLine.map { $0.midX } ?? (geo.size.width - DuoLook.rail - DuoLook.foldGap)
+            let left = max(0, split - DuoLook.foldGap)
+            let right = max(0, geo.size.width - left - 2 * DuoLook.foldGap)
+            ZStack {
+                if watcher.isShowing {
+                    // The window tall on the left page; the deck down the right as the book's.
+                    HStack(spacing: 0) {
+                        DuoMacArea(main: self, deck: true)
+                            .padding(.top, 6)
+                            .frame(width: left, height: geo.size.height)
+                        Color.clear.frame(width: 2 * DuoLook.foldGap)
+                        DuoLaptopDeck(main: self, vertical: true)
+                            .frame(width: right, height: geo.size.height)
+                    }
+                    .transition(.opacity)
+                } else {
+                    openLandscapeRest(left: left, right: right).transition(.opacity)
                 }
-                .transition(.opacity)
-            } else {
-                openLandscapeRest.transition(.opacity)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
         .accessibilityElement(children: .contain)
@@ -163,58 +102,47 @@ extension MainView {
     /// the mic, the same buttons in the vertical bar — and the left half is what the cover had no
     /// room for: the picked app's window, live (the glance; Show it here, or the picked place
     /// tapped again, takes it in hand).
-    private var openLandscapeRest: some View {
-        GeometryReader { geo in
-            // The fold's line when the screen names it, else the middle.
-            let split = posture.foldLine.map { $0.midX } ?? geo.size.width / 2
-            let left = max(0, split - DuoLook.foldGap)
-            HStack(spacing: 0) {
-                DuoMacArea(main: self)
-                    .padding(.top, 6)
-                    .frame(width: left)
-                Color.clear.frame(width: 2 * DuoLook.foldGap)
-                phoneBody
-                    .frame(width: max(0, geo.size.width - left - 2 * DuoLook.foldGap))
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
+    private func openLandscapeRest(left: CGFloat, right: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            DuoMacArea(main: self)
+                .padding(.top, 6)
+                .frame(width: left)
+            Color.clear.frame(width: 2 * DuoLook.foldGap)
+            phoneBody
+                .frame(width: right)
         }
     }
 
-    // MARK: The laptop (the hinge across)
+    // MARK: The laptop (upright: the hinge across — folded, or flat)
 
     var laptopBody: some View {
         GeometryReader { geo in
-            let h = posture.halves ?? FoldHalves.split(geo.size, pose: .laptop, division: nil)!
-            let rise = posture.rise
+            let h = posture.halves(for: .laptop, in: geo.size)
             VStack(spacing: 0) {
-                DuoMacHalf(main: self, vertical: false, room: h.mac.size)
+                // The Mac's screen: the picture to the half's every edge (Nov 1 2026, Sameer:
+                // "the view window should take up the whole top half … as if the duo was a
+                // mini Mac").
+                DuoMacHalf(main: self, vertical: false, room: h.mac.size, edge: true)
                     .frame(height: max(0, h.mac.height))
-                    // The picture settles into its half as the hinge closes.
-                    .scaleEffect(reduceMotion ? 1 : 0.97 + 0.03 * rise, anchor: .top)
-                    .opacity(0.6 + 0.4 * rise)
                 // The fold: nothing sits here.
                 Color.clear.frame(height: max(0, h.deck.minY - h.mac.maxY))
                 DuoDeck(main: self, vertical: false)
                     .frame(height: max(0, h.deck.height))
-                    // The deck rises as the hinge folds.
-                    .offset(y: reduceMotion ? 0 : (1 - rise) * 36)
-                    .opacity(0.2 + 0.8 * rise)
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: rise)
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
         }
         // The keyboard rises over the deck's half; the Mac's half never shrinks for it.
         .ignoresSafeArea(.keyboard)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(FoldPose.laptop.spoken)
+        .accessibilityLabel(posture.pose == .laptop ? FoldPose.laptop.spoken : FoldPose.open(landscape: false).spoken)
     }
 
-    // MARK: The book (the hinge up and down)
+    // MARK: The book (on its side: the hinge up and down)
 
     var bookBody: some View {
         GeometryReader { geo in
-            let h = posture.halves ?? FoldHalves.split(geo.size, pose: .book, division: nil)!
+            let h = posture.halves(for: .book, in: geo.size)
             let rise = posture.rise
             HStack(spacing: 0) {
                 DuoMacHalf(main: self, vertical: true, room: h.mac.size)
@@ -239,48 +167,6 @@ extension MainView {
     }
 
     // MARK: The pieces
-
-    /// Under or beside the window on a flat inner screen: the Send to panel, or the transcript
-    /// while the mic is open (and until the words have gone out).
-    @ViewBuilder func lowerPanel(layout: PlacesLayout) -> some View {
-        if showLiveWords {
-            transcriptArea
-                .transition(.opacity)
-        } else {
-            sendToPanel(layout: layout)
-                .transition(.opacity)
-        }
-    }
-
-    /// The Send to panel on the inner screen: each place named under its icon, laid as a row or
-    /// a grid; `options`: Send after pasting and Cleanup under the places, or laid out elsewhere.
-    func sendToPanel(layout: PlacesLayout, options: Bool = true) -> some View {
-        QuickControls(settings: model.settings, compact: true, named: true, layout: layout, options: options, glow: skyGlow)
-            .padding(.bottom, 8)
-    }
-
-    /// Send after pasting and Cleanup as a small panel of their own (the open screen's band, on
-    /// the left of the fold, level with the mic): the two rows stacked, each whole.
-    var optionsPanel: some View {
-        VStack(spacing: 0) {
-            if model.isPaired {
-                SendAfterPastingRow(target: model.selection.target, compact: true)
-                PanelDivider()
-            }
-            HStack {
-                Text("Cleanup").font(.body).foregroundStyle(Ink.ink)
-                Spacer(minLength: 8)
-                CleanupMenu(settings: model.settings, short: true) { model.sheet = .customCleanup }
-            }
-            .padding(.horizontal, Space.inset)
-            .padding(.vertical, 8)
-        }
-        .controlPanel(glow: skyGlow)
-        .padding(.horizontal, Space.margin)
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Send after pasting and Cleanup")
-    }
 
     /// The carousel — the page row, the Thread, the mic · keyboard · trackpad pages — as the phone
     /// builds it. `fill`: the room the pages take whole (the trackpad fills it, the mic sits in
@@ -390,18 +276,24 @@ struct DuoMacHalf: View {
     var vertical: Bool
     /// The half's size (what the words over the picture may take).
     var room: CGSize
+    /// The laptop's screen (Nov 1 2026): no bezel, no corner — the picture is the half.
+    var edge = false
     @ObservedObject private var watcher: Watcher
     @State private var headerShown = true
     @State private var hideTask: Task<Void, Never>?
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(main: MainView, vertical: Bool, room: CGSize) {
+    init(main: MainView, vertical: Bool, room: CGSize, edge: Bool = false) {
         self.main = main
         self.vertical = vertical
         self.room = room
+        self.edge = edge
         _watcher = ObservedObject(wrappedValue: main.watcher)
     }
+
+    private var bezel: CGFloat { edge ? 0 : DuoLook.halfBezel }
+    private var corner: CGFloat { edge ? 0 : DuoLook.halfCorner }
 
     /// What floats over the picture's foot (the answers): the picture's newest lines stay above it.
     @State private var floatingHeight: CGFloat = 0
@@ -450,10 +342,10 @@ struct DuoMacHalf: View {
                         .transition(.opacity)
                 }
             } else if let short = shortPicture {
-                DuoGlance(watcher: watcher, fill: true, pictureHeight: short)
+                DuoGlance(watcher: watcher, fill: true, pictureHeight: short, edge: edge)
                     .transition(.opacity)
             } else {
-                DuoGlance(watcher: watcher, fill: true)
+                DuoGlance(watcher: watcher, fill: true, edge: edge)
                     .transition(.opacity)
             }
         }
@@ -472,7 +364,7 @@ struct DuoMacHalf: View {
     /// the answers: `footInset`).
     private func screen(footInset: CGFloat, floating: Bool, header: Bool = true) -> some View {
         let live = watcher.phase == .live
-        return WatchWindow(watcher: watcher, interactive: true, bezelWidth: DuoLook.halfBezel, corner: DuoLook.halfCorner, fill: true, footInset: footInset)
+        return WatchWindow(watcher: watcher, interactive: true, bezelWidth: bezel, corner: corner, fill: true, footInset: footInset)
             .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
             .overlay(alignment: .bottom) {
                 if floating {
@@ -509,7 +401,8 @@ struct DuoMacHalf: View {
     /// width-fit scale times the fill's cap, the bezel round it. Nil when it fills the half (the
     /// cap doesn't bite), or when what's left under it would be too little to use.
     private var shortPicture: CGFloat? {
-        guard watcher.hasPicture, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 else { return nil }
+        // The laptop's screen is the picture, whatever its shape (it fills, scrolling).
+        guard !edge, watcher.hasPicture, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 else { return nil }
         let width = room.width - 2 * DuoLook.halfBezel
         let h = width * ViewerScrollView.fillCap * size.height / size.width + 2 * DuoLook.halfBezel
         // The header's rows above it, the answers and the keys under it.
@@ -598,10 +491,11 @@ struct DuoLiveWords: View {
     }
 }
 
-/// The deck of a folded screen, all of it: the trackpad the whole half (the three pages as a
-/// cluster in its corner), the keyboard rising over it with the Mac's keys on its bar, or the mic
-/// with the Thread across the half. Not watching: the main screen's top bar and the Send to panel
-/// over the mic. `vertical`: the book's page (narrow and tall).
+/// The deck of a folded screen (and of the open screen upright): with a window in hand, the
+/// laptop's modes — the trackpad the whole half, the keyboard rising over it with the Mac's keys
+/// on its bar, or the mic with the Thread across the half — or, down the book's page, the keys,
+/// the trackpad and the mic all at once. Nothing in hand: the cover's own view, whole (Nov 1
+/// 2026: the half that was the cover goes on being the cover). `vertical`: the book's page.
 struct DuoDeck: View {
     let main: MainView
     var vertical: Bool
@@ -616,57 +510,23 @@ struct DuoDeck: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        ZStack {
             if watcher.isShowing, vertical {
                 // The book's page: the trackpad, the keys and the mic, all at once.
-                DuoLaptopDeck(main: main, vertical: true)
+                DuoLaptopDeck(main: main, vertical: true).transition(.opacity)
             } else if watcher.isShowing {
-                laptopModes
-            } else if vertical {
-                // The book's page: the top bar, Send to as a grid (every place, four across),
-                // the mic in what's left.
-                main.topBar
-                if main.showLiveWords {
-                    main.transcriptArea
-                        .frame(maxHeight: .infinity)
-                } else {
-                    main.sendToPanel(layout: .grid(maxRows: 3))
-                        .padding(.top, 8)
-                }
-                GeometryReader { g in
-                    main.carousel(fill: g.size.height, compact: true)
-                        .frame(width: g.size.width, height: g.size.height, alignment: .top)
-                }
-                .frame(minHeight: main.showLiveWords ? 150 : 160)
+                laptopModes.transition(.opacity)
             } else {
-                // The laptop's half is wide and short: Send to (or the transcript) on the left,
-                // the top bar and the mic with its Thread on the right — as the open screen's
-                // band lies — so neither is cut off in a half of ~320 points. Send to is a grid,
-                // two rows before it scrolls, so every open app is in view with its name.
-                GeometryReader { g in
-                    let half = max(0, (g.size.width - DuoLook.foldGap) / 2)
-                    HStack(alignment: .top, spacing: DuoLook.foldGap) {
-                        Group {
-                            if main.showLiveWords { main.transcriptArea } else { main.sendToPanel(layout: .grid(maxRows: 2)).padding(.top, 8) }
-                        }
-                        .frame(width: half, height: g.size.height, alignment: .top)
-                        VStack(spacing: 0) {
-                            main.topBar
-                            GeometryReader { r in
-                                main.carousel(fill: r.size.height, compact: true)
-                                    .frame(width: r.size.width, height: r.size.height, alignment: .top)
-                            }
-                        }
-                        .frame(width: half, height: g.size.height, alignment: .top)
-                    }
-                }
+                // The cover's view, as it is on the cover: Send to, the switches, the Thread,
+                // the mic (its buttons in the vertical bar where the screen has one, else its
+                // own top bar).
+                main.phoneBody.transition(.opacity)
             }
         }
-        .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: main.showLiveWords)
         .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.isShowing)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("The deck: trackpad, keyboard and mic")
+        .accessibilityLabel(watcher.isShowing ? "The deck: trackpad, keyboard and mic" : "Send to and the mic")
     }
 
     /// The laptop's deck while a window shows (Nov 1 2026, Sameer: "the trackpad is really small …
@@ -674,18 +534,27 @@ struct DuoDeck: View {
     /// those modes take up the full half"): the window's header across the top (its question's
     /// answers in its middle, so nothing lies over the picture), then one mode at a time, the
     /// whole of the rest — the trackpad edge to edge, the mic with the Thread across the half,
-    /// or the iOS keyboard with the Mac's keys on its bar — the three as a cluster in the corner.
-    /// The deck remembers its mode (the trackpad the first time). While you talk, the words sit
-    /// over the Thread; the mic under them never moves (a hold on it is never lost).
+    /// or the iOS keyboard with the Mac's keys on its bar — the three as a cluster of glass
+    /// cells in the deck's top-right corner (`InputCornerSwitcher`; the mic page keeps the room
+    /// over its Thread for it). The deck remembers its mode (the trackpad the first time). While
+    /// you talk, the words sit over the Thread; the mic under them never moves (a hold on it is
+    /// never lost).
     private var laptopModes: some View {
         let live = watcher.phase == .live
         return VStack(spacing: 4) {
-            WatchHeaderBar(watcher: watcher, dragSwitch: true, middle: live && !main.showLiveWords
-                           ? AnyView(WatchActions(watcher: watcher, floating: true, oneLine: true)) : nil) { t, _ in
+            WatchHeaderBar(watcher: watcher, dragSwitch: true) { t, _ in
                 watcher.say(t.title, symbol: "arrow.left.and.right")
             }
             .padding(.horizontal, 12)
             .padding(.top, 6)
+            // The question's answers on a row of their own under the header, only while one is
+            // up: the header has the name, the clusters and Done across the half's 669 points,
+            // and the answers squeezed between them showed one digit of the first.
+            if live, !main.showLiveWords, watcher.answers != nil {
+                WatchActions(watcher: watcher, floating: true, oneLine: true)
+                    .padding(.horizontal, 12)
+                    .transition(.opacity)
+            }
             GeometryReader { g in
                 main.carousel(fill: g.size.height, compact: true, rowHidden: true)
                     .frame(width: g.size.width, height: g.size.height, alignment: .top)
@@ -695,6 +564,15 @@ struct DuoDeck: View {
                                 .frame(height: max(96, g.size.height - DuoLook.deckMic * 1.25 - 52))
                                 .allowsHitTesting(false)
                                 .transition(.opacity)
+                        }
+                    }
+                    // The modes, in the corner: over the trackpad's plate or the room above the
+                    // Thread; the keyboard rises over it (hide comes back here).
+                    .overlay(alignment: .topTrailing) {
+                        if input.pages.count > 1 {
+                            InputCornerSwitcher(input: input)
+                                .padding(.top, 8)
+                                .padding(.trailing, 12)
                         }
                     }
             }
@@ -715,16 +593,19 @@ struct DuoGlance: View {
     /// A picture that can't fill the half (the book's tall page): this tall, at the top, with
     /// the bar under it rather than over its foot.
     var pictureHeight: CGFloat? = nil
+    /// The laptop's screen: no bezel, no corner.
+    var edge = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var bezelWidth: CGFloat { edge ? 0 : fill ? DuoLook.halfBezel : WatchLook.bezelWidth }
+    private var corner: CGFloat { edge ? 0 : fill ? DuoLook.halfCorner : WatchLook.bezel }
 
     var body: some View {
         let target = model.selection.target
         ZStack {
             if watcher.isOpen, watcher.hasPicture {
                 // Live, the pictures still coming: the same screen, without its controls.
-                let window = WatchWindow(watcher: watcher, interactive: false,
-                                         bezelWidth: fill ? DuoLook.halfBezel : WatchLook.bezelWidth,
-                                         corner: fill ? DuoLook.halfCorner : WatchLook.bezel, fill: fill)
+                let window = WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: fill)
                 if let pictureHeight {
                     VStack(spacing: 0) {
                         window.frame(height: pictureHeight)
@@ -776,10 +657,10 @@ struct DuoGlance: View {
 
     /// The empty screen: a plate of the window's bezel.
     private var plate: some View {
-        let bezel = RoundedRectangle(cornerRadius: fill ? DuoLook.halfCorner : WatchLook.bezel, style: .continuous)
+        let bezel = RoundedRectangle(cornerRadius: corner, style: .continuous)
         return bezel.fill(Ink.sunk)
             .overlay(bezel.strokeBorder(Color.black.opacity(0.55), lineWidth: 1))
-            .padding(fill ? DuoLook.halfBezel : WatchLook.bezelWidth)
+            .padding(bezelWidth)
             .background { bezel.fill(Ink.raised).shadow(color: .black.opacity(reduceTransparency ? 0 : 0.5), radius: 16, y: 10) }
             .overlay(SpecularEdge(shape: bezel))
     }
@@ -812,8 +693,8 @@ struct DuoGlance: View {
                     .allowsHitTesting(false)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: fill ? DuoLook.halfCorner : WatchLook.bezel, style: .continuous))
-        .padding(fill ? DuoLook.halfBezel : WatchLook.bezelWidth)
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .padding(bezelWidth)
     }
 
     private var liveWords: some View {

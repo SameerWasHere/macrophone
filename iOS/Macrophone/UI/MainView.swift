@@ -39,7 +39,13 @@ struct MainView: View {
     @State var coverPickingPhoto = false
     @State var coverPickingFile = false
     /// The iPhone Duo's cover: its buttons go in the vertical bar, the window takes the room.
-    var isCover: Bool { verticalBar && posture.pose == .closed }
+    var isCover: Bool { barUsed && posture.pose == .closed }
+    /// This layout's buttons are in the vertical bar: the cover, and the inner screen on its side
+    /// (open, or the book — the bar is on the camera side there too, 84 pt). Upright, the inner
+    /// screen has a status bar on top and no vertical bar, so the laptop and flat portrait draw
+    /// their own (the trait says so on his phone; on the simulator the inner screen is a frame
+    /// drawn on the cover, whose trait would otherwise speak for every pose — Nov 1 2026).
+    var barUsed: Bool { verticalBar && posture.pose.hasVerticalBar }
 
     var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting || look == "starting" }
 
@@ -79,6 +85,11 @@ struct MainView: View {
         poseBody
         // A pose settling: the layouts cross-fade (the halves' own motion follows the hinge).
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: posture.pose)
+        // The laptop with a window in hand is a little Mac (Nov 1 2026, Sameer: "the view window
+        // should take up the whole top half of the duo. Almost as if the duo was a mini Mac"):
+        // the status bar goes, so the picture has the top edge too — folded or laid flat, the
+        // same layout.
+        .statusBarHidden(posture.pose.foldAcross && watcher.isShowing)
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         .background(GroundBackground(glow: skyGlow).animation(.easeInOut(duration: 0.7), value: filamentMode))
         .background(VerticalBarProbe(present: $verticalBar).frame(width: 0, height: 0).accessibilityHidden(true))
@@ -107,8 +118,10 @@ struct MainView: View {
         switch posture.pose {
         case .closed: if isCover { coverBody.transition(.opacity) } else { phoneBody.transition(.opacity) }
         // The inner screen's vertical bar (open on its side, the book) holds the cover's buttons.
-        case .open(let landscape): if landscape { barred(openLandscapeBody).transition(.opacity) } else { barred(openPortraitBody).transition(.opacity) }
-        case .laptop: barred(laptopBody).transition(.opacity)
+        case .open(landscape: true): barred(openLandscapeBody).transition(.opacity)
+        // Upright the fold runs across the middle, flat or folded: the laptop's layout either
+        // way (one view, so folding it moves nothing — the halves follow the hinge).
+        case .open(landscape: false), .laptop: barred(laptopBody).transition(.opacity)
         case .book: barred(bookBody).transition(.opacity)
         }
     }
@@ -133,7 +146,7 @@ struct MainView: View {
                                 // reach above the Thread.
                                 // The cover: the Mac is in the vertical bar; its pill only while
                                 // it isn't connected (to say so, and to wake it).
-                                if !verticalBar || !model.isConnected { topBar }
+                                if !barUsed || !model.isConnected { topBar }
                                 Spacer(minLength: compact ? 10 : 20)
                                 quickControls
                             }
@@ -254,7 +267,7 @@ struct MainView: View {
     /// A screen with a vertical bar (the cover; the inner screen on its side, open or a book): the
     /// same buttons in it on both screens — only the room beside them changes (Nov 1 2026).
     @ViewBuilder func barred<Content: View>(_ content: Content) -> some View {
-        if verticalBar {
+        if barUsed {
             NavigationStack {
                 content
                     .toolbar { coverToolbar }
@@ -361,7 +374,7 @@ struct MainView: View {
 
     @ViewBuilder var topButtons: some View {
         // A screen with a vertical bar has them there.
-        if !verticalBar { drawnTopButtons }
+        if !barUsed { drawnTopButtons }
     }
 
     @ViewBuilder var drawnTopButtons: some View {
@@ -452,9 +465,9 @@ struct MainView: View {
 
     var quickControls: some View {
         Group {
-            // The cover: every place's icon in even columns across the width (the pick's name is
-            // the line above them).
-            if verticalBar {
+            // The Duo (the cover, and the same view on the inner screen's half): every place's
+            // icon in even columns across the width (the pick's name is the line above them).
+            if barUsed || posture.pose.isInner {
                 QuickControls(settings: model.settings, compact: true, layout: .tiles(maxRows: 3), glow: skyGlow, cover: true)
             } else {
                 QuickControls(settings: model.settings, compact: compact, glow: skyGlow)

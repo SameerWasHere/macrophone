@@ -24,9 +24,24 @@ final class FoldPoseTests: XCTestCase {
         // The book: the hinge runs up and down.
         let upDown = FoldDivision(frame: CGRect(x: 320, y: 0, width: 28, height: 951), isActive: true)
         XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: innerUp, division: upDown)), .book)
-        // No region to read: the scene's shape stands in.
-        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: innerSide)), .laptop)
-        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: innerUp)), .book)
+        // No region to read: the scene's shape stands in — the fold lies along the long side.
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: innerSide)), .book)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: innerUp)), .laptop)
+    }
+
+    /// What his Duo reported (Nov 1 2026): the laptop on the upright scene, 669 × 835 inside the
+    /// bars, the fold across it; the book on its side, 867 × 635, the fold down it. Which poses
+    /// carry the vertical bar follows from the same facts.
+    func testTheFoldLiesAlongTheLongSide() {
+        let upright = CGSize(width: 669, height: 835), side = CGSize(width: 867, height: 635)
+        let across = FoldDivision(frame: CGRect(x: 0, y: 380, width: 669, height: 28), isActive: true)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 105, size: upright, division: across, screen: innerUp)), .laptop)
+        let down = FoldDivision(frame: CGRect(x: 461, y: 0, width: 28, height: 635), isActive: true)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 174, size: side, division: down, screen: innerSide)), .book)
+        XCTAssertTrue(FoldPose.laptop.foldAcross && FoldPose.open(landscape: false).foldAcross)
+        XCTAssertFalse(FoldPose.book.foldAcross || FoldPose.open(landscape: true).foldAcross)
+        XCTAssertTrue(FoldPose.closed.hasVerticalBar && FoldPose.book.hasVerticalBar && FoldPose.open(landscape: true).hasVerticalBar)
+        XCTAssertFalse(FoldPose.laptop.hasVerticalBar || FoldPose.open(landscape: false).hasVerticalBar)
     }
 
     func testAnInnerPoseNeedsTheInnerScreen() {
@@ -40,7 +55,7 @@ final class FoldPoseTests: XCTestCase {
         XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .fullyOpen, angle: 180, size: pro)), .closed)
         // Nothing measured yet: the hinge's word stands (the size follows in the same layout pass).
         XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .fullyOpen, angle: 180, size: .zero)), .open(landscape: false))
-        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: .zero)), .book)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .partiallyOpen, angle: 110, size: .zero)), .laptop)
         // The hinge says closed while the scene is still the inner screen's: closed (the cover is next).
         XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .closed, angle: 0, size: innerUp)), .closed)
     }

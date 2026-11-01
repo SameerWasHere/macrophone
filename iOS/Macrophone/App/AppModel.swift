@@ -1472,6 +1472,11 @@ extension AppModel: LinkClientDelegate {
         }
         if pose.isInner, !was.isInner {
             openWindowForPose()
+        } else if pose.isFolded, !was.isFolded, watcher.glancing, let t = watcher.target {
+            // Folding the open screen into a laptop or a book is picking the Mac up: the window
+            // it was glancing at comes in hand, with the deck (Nov 1 2026).
+            watcher.open(t)
+            log.add("pose: \(pose.name) — the glanced window comes in hand")
         } else if !pose.isInner, was.isInner {
             if openedByPose, watcher.isOpen { watcher.close(); log.add("pose: closed — the window view the pose opened closes with it") }
             // A glance has no place on the cover (Done there closes): it closes with the screen.
@@ -1496,10 +1501,10 @@ extension AppModel: LinkClientDelegate {
         }
         guard watcher.isOpen else { return }
         openedByPose = true
-        // Open on its side, the phone's natural way open: the cover's view goes on, now on the
-        // right half, and the window is the more there is to see on the left — live, not yet in
-        // hand (Nov 1 2026).
-        if lastPose == .open(landscape: true) { watcher.glance() }
+        // Opened flat (on its side, the phone's natural way open; or upright): the cover's view
+        // goes on in its half and the window is the more there is to see in the other — live,
+        // not yet in hand (Nov 1 2026). Folded, it's a laptop or a book: in hand at once.
+        if !lastPose.isFolded { watcher.glance() }
         log.add("pose: \(lastPose.name) — opened the window view\(watcher.glancing ? " (the glance)" : "")")
     }
 

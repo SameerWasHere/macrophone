@@ -13,13 +13,13 @@ import SwiftUI
 //   │ Ready        │                              │                     │
 //   └──────────────┴──────────────────────────────┴─────────────────────┘
 //
-// laid across under the window on the open screen (the laptop's deck is one mode at a time since
-// Nov 1 2026, each the whole half — DuoDeck.laptopModes), and down a column
-// (the keys, the trackpad, the mic under the thumb) on the book's page and the open screen's
-// rail. The pointer is always live; the keycaps press in the window shown; ⌘ ⌥ ⌃ ⇧ light up
-// and go on the next key or click; ⌨︎ brings the whole keyboard up over the deck (hide comes
-// back here); the Send to menu picks another app and shows its window, so the grid of places is
-// only there when no window is.
+// — that was the laptop's deck; since Nov 1 2026 the laptop's deck is one mode at a time, each
+// the whole half (`DuoDeck.laptopModes`), and this is the column down the book's page and the
+// open screen's right page (the keys, the trackpad, Send to and the mic under the thumb). The
+// pointer is always live; the keycaps press in the window shown; ⌘ ⌥ ⌃ ⇧ light up and go on the
+// next key or click; ⌨︎ brings the whole keyboard up over the deck (hide comes back here); the
+// Send to menu picks another app and shows its window, so the grid of places is only there when
+// no window is.
 
 enum DeckLook {
     static let key: CGFloat = 46
@@ -32,15 +32,15 @@ enum DeckLook {
 
 struct DuoLaptopDeck: View {
     let main: MainView
-    /// Down a column (the book's page, the open screen's rail) rather than across.
-    var vertical = false
+    /// Down a column (the book's page, the open screen's right page).
+    var vertical = true
     @ObservedObject private var watcher: Watcher
     @ObservedObject private var input: MacInput
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
-    init(main: MainView, vertical: Bool = false) {
+    init(main: MainView, vertical: Bool = true) {
         self.main = main
         self.vertical = vertical
         _watcher = ObservedObject(wrappedValue: main.watcher)
@@ -48,9 +48,7 @@ struct DuoLaptopDeck: View {
     }
 
     var body: some View {
-        Group {
-            if vertical { column } else { band }
-        }
+        column
         .padding(12)
         // The field that takes the iOS keyboard when ⌨︎ is pressed (a clear point, never seen).
         .background(alignment: .topLeading) { KeyboardPage(input: input, watcher: watcher).frame(width: 1, height: 1) }
@@ -73,35 +71,7 @@ struct DuoLaptopDeck: View {
         if input.page == .mic, input.pages.contains(.trackpad) { input.show(.trackpad, quiet: true) }
     }
 
-    // MARK: Layouts
-
-    private var band: some View {
-        GeometryReader { g in
-            // A laptop's wide deck has room for the Thread over the mic; the open screen's
-            // narrower band gives the trackpad that room instead.
-            let wide = g.size.width >= 760
-            HStack(spacing: 14) {
-                VStack(spacing: wide ? 8 : 10) {
-                    DeckSendTo(watcher: watcher, compact: !wide)
-                    Spacer(minLength: 0)
-                    if wide {
-                        Filament(mode: main.filamentMode, meter: main.recorder.meter, height: 44)
-                            .frame(height: 44)
-                            .padding(.horizontal, -6)
-                            .accessibilityHidden(true)
-                    }
-                    main.micButton(size: wide ? 76 : 70)
-                    StatusLine(recorder: main.recorder, holding: main.holding, font: .caption)
-                        .frame(height: 30)
-                }
-                .frame(width: wide ? 168 : 112)
-                pad
-                DeckKeys(input: input, watcher: watcher, width: DeckLook.key)
-                    .frame(maxHeight: .infinity)
-            }
-            .frame(width: g.size.width, height: g.size.height)
-        }
-    }
+    // MARK: Layout
 
     private var column: some View {
         VStack(spacing: 12) {

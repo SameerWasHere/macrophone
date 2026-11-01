@@ -22,6 +22,14 @@ public enum FoldPose: Equatable, Hashable, Sendable {
     public var isInner: Bool { self != .closed }
     /// Partly folded: two halves with the fold between them.
     public var isFolded: Bool { self == .laptop || self == .book }
+    /// The fold runs across the screen (upright: the laptop, flat portrait) rather than down it
+    /// (on its side: the book, flat landscape). The Duo's inner screen is 669 × 951 with the
+    /// fold along its long side's middle, so a half is the cover's size, 475 × 669 (Nov 1 2026,
+    /// from his phone's log: `laptop (105°, 669×835)`, `book (174°, 867×635)`).
+    public var foldAcross: Bool { self == .laptop || self == .open(landscape: false) }
+    /// The system puts its vertical bar on this pose's screen: the cover, and the inner screen
+    /// on its side (84 pt on the camera side); upright it has a status bar instead.
+    public var hasVerticalBar: Bool { self == .closed || self == .book || self == .open(landscape: true) }
 
     /// The pose in a word, for the log and the debug hooks.
     public var name: String {
@@ -112,7 +120,10 @@ extension FoldPose {
         case .partiallyOpen?:
             if onCover { return .closed }
             if let d = r.division { return d.isAcross ? .laptop : .book }
-            return landscape ? .laptop : .book
+            // No region to read: the fold lies along the screen's long side, so an upright scene
+            // folds as a laptop and one on its side as a book (Nov 1 2026 — it had been the
+            // other way round, from a guess at the screen before his phone's log said).
+            return landscape ? .book : .laptop
         case nil:
             // No hinge (a regular iPhone, or nothing read yet): the size tells the screen.
             guard measure != .zero, !onCover else { return .closed }
