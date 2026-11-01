@@ -163,6 +163,8 @@ extension MainView {
                 Color.clear.frame(height: max(0, gap))
                 DuoDeck(main: self, vertical: false)
                     .frame(height: max(0, deckHeight))
+                    // At no height (typing) nothing of it may spill up over the window.
+                    .clipped()
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
@@ -577,11 +579,6 @@ struct DuoDeck: View {
     private var laptopModes: some View {
         let live = watcher.phase == .live
         return VStack(spacing: 4) {
-            WatchHeaderBar(watcher: watcher, dragSwitch: true) { t, _ in
-                watcher.say(t.title, symbol: "arrow.left.and.right")
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 6)
             // The question's answers on a row of their own under the header, only while one is
             // up: the header has the name, the clusters and Done across the half's 669 points,
             // and the answers squeezed between them showed one digit of the first.
@@ -611,7 +608,16 @@ struct DuoDeck: View {
                         }
                     }
             }
+            // The window's controls at the deck's foot (Nov 1 2026, Sameer: "move all of the Mac
+            // controls and … window selection tools to the bottom so that they don't interfere"):
+            // the keyboard rises over them, and nothing sits between the window and the deck.
+            WatchHeaderBar(watcher: watcher, dragSwitch: true) { t, _ in
+                watcher.say(t.title, symbol: "arrow.left.and.right")
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
         }
+        .padding(.top, 6)
         .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.answers?.id)
     }
 }
