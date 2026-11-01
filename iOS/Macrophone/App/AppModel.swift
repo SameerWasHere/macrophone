@@ -1167,6 +1167,7 @@ final class AppModel: ObservableObject {
 
     func pick(_ target: TargetRef) {
         setSelection(SendSelection(target: target, send: settings.rememberedSend(for: target)))
+        glanceFollowsPick()
     }
 
     /// Paste only, or paste and press send. Remembered for this target.
@@ -1495,7 +1496,26 @@ extension AppModel: LinkClientDelegate {
         }
         guard watcher.isOpen else { return }
         openedByPose = true
-        log.add("pose: \(lastPose.name) — opened the window view")
+        // Open on its side, the phone's natural way open: the cover's view goes on, now on the
+        // right half, and the window is the more there is to see on the left — live, not yet in
+        // hand (Nov 1 2026).
+        if lastPose == .open(landscape: true) { watcher.glance() }
+        log.add("pose: \(lastPose.name) — opened the window view\(watcher.glancing ? " (the glance)" : "")")
+    }
+
+    /// A pick while the inner screen glances: the window beside Send to follows it.
+    private func glanceFollowsPick() {
+        guard watcher.glancing, lastPose.isInner, isConnected, !recorder.isActive else { return }
+        let pick = settings.selection.target
+        switch pick {
+        case .app:
+            guard !isNotOpen(pick), watcher.target != pick else { return }
+            watcher.open(pick)
+        case .clipboard, .frontApp:
+            guard watcher.canWatchDesktop, !watcher.isDesktop else { return }
+            watcher.open(reach.wholeScreenTarget)
+        }
+        watcher.glance()
     }
 
     /// The window view, from the inner screen's glance (after Done): the same window the pose opens.

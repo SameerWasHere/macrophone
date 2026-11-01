@@ -37,6 +37,7 @@ final class Posture: ObservableObject {
     private var hinge: HingeStatus?
     private var angle: Double = 180
     private var size: CGSize = .zero
+    private var screen: CGSize = .zero
     private var division: FoldDivision?
     private var derivedOnce = false
 
@@ -83,12 +84,21 @@ final class Posture: ObservableObject {
         recompute()
     }
 
+    /// The whole screen the scene is on (the system's bars included): which screen it is.
+    func screen(size: CGSize) {
+        guard size != screen else { return }
+        screen = size
+        recompute()
+    }
+
     private func recompute() {
-        var r = FoldReading(hinge: hinge, angle: angle, size: size, division: division)
+        var r = FoldReading(hinge: hinge, angle: angle, size: size, division: division, screen: screen)
         #if DEBUG
         if let f = Self.forced {
             r.hinge = f.pose == .closed ? .closed : f.pose.isFolded ? .partiallyOpen : .fullyOpen
             r.angle = f.angle
+            // The inner screen is drawn to scale on the cover: the scene's size is the one to go by.
+            r.screen = .zero
             // A band across the middle (the laptop) or down it (the book) stands for the fold.
             if f.pose.isFolded, size != .zero {
                 let w = FoldHalves.defaultFold
@@ -110,7 +120,7 @@ final class Posture: ObservableObject {
         previous = pose
         pose = p
         if derivedOnce { settleSeq &+= 1 }
-        log?.add("pose: \(p.name) (\(Int(r.angle))°, \(Int(r.size.width))×\(Int(r.size.height)))")
+        log?.add("pose: \(p.name) (\(Int(r.angle))°, \(Int(r.size.width))×\(Int(r.size.height)) on \(Int(r.screen.width))×\(Int(r.screen.height)))")
         // The first pose derived after the first measure is the one the app opened in.
         if size != .zero { derivedOnce = true }
     }
@@ -138,6 +148,13 @@ struct PostureReader: ViewModifier {
                         .onChange(of: FoldSnapshot(geo), initial: true) { _, s in posture.scene(size: s.size, division: s.division) }
                 }
                 .ignoresSafeArea(.keyboard)
+            }
+            // The whole screen, bars and all: which screen the scene is on.
+            .background {
+                GeometryReader { geo in
+                    Color.clear.onChange(of: geo.size, initial: true) { _, s in posture.screen(size: s) }
+                }
+                .ignoresSafeArea()
             }
             .modifier(HingeReader(posture: posture))
     }

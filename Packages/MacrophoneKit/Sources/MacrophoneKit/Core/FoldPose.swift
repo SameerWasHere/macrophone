@@ -69,15 +69,21 @@ public struct FoldReading: Equatable, Sendable {
     public var hinge: HingeStatus?
     /// Degrees: 0 closed, 180 flat.
     public var angle: Double
-    /// The scene's size in points.
+    /// The scene's size in points (inside the safe area: what a layout has).
     public var size: CGSize
     public var division: FoldDivision?
+    /// The whole screen the scene is on, the system's bars included (zero: not measured). Which
+    /// screen it is is read from this: on the inner screen held sideways the safe area can be
+    /// 951 × 553 — under the inner screen's short side, and it was taken for the cover (Nov 1
+    /// 2026, on Sameer's Duo: the cover's layout drawn across the open screen).
+    public var screen: CGSize
 
-    public init(hinge: HingeStatus?, angle: Double, size: CGSize, division: FoldDivision? = nil) {
+    public init(hinge: HingeStatus?, angle: Double, size: CGSize, division: FoldDivision? = nil, screen: CGSize = .zero) {
         self.hinge = hinge
         self.angle = angle
         self.size = size
         self.division = division
+        self.screen = screen
     }
 
     public static let none = FoldReading(hinge: nil, angle: 180, size: .zero)
@@ -96,7 +102,8 @@ extension FoldPose {
         // An inner pose is laid out for the inner screen: a scene the cover's size (the hinge
         // partly open while the app is still on the cover, as the phone opens or closes) stays
         // the phone's layout. Nothing measured yet: the hinge's word stands.
-        let onCover = r.size != .zero && min(r.size.width, r.size.height) < innerShortSide
+        let measure = r.screen != .zero ? r.screen : r.size
+        let onCover = measure != .zero && min(measure.width, measure.height) < innerShortSide
         switch r.hinge {
         case .closed?:
             return .closed
@@ -108,7 +115,7 @@ extension FoldPose {
             return landscape ? .laptop : .book
         case nil:
             // No hinge (a regular iPhone, or nothing read yet): the size tells the screen.
-            guard r.size != .zero, !onCover else { return .closed }
+            guard measure != .zero, !onCover else { return .closed }
             return .open(landscape: landscape)
         }
     }

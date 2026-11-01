@@ -157,29 +157,27 @@ extension MainView {
         .accessibilityLabel(FoldPose.open(landscape: true).spoken)
     }
 
+    /// Open on its side, nothing in hand (Nov 1 2026, Sameer: "the view that is on the out screen
+    /// should be what I see on the right half on the open duo screen with more content on the left
+    /// side"): the right half IS the cover — the same Send to, the same switches, the Thread and
+    /// the mic, the same buttons in the vertical bar — and the left half is what the cover had no
+    /// room for: the picked app's window, live (the glance; Show it here, or the picked place
+    /// tapped again, takes it in hand).
     private var openLandscapeRest: some View {
-        HStack(alignment: .top, spacing: DuoLook.foldGap) {
-            DuoMacArea(main: self)
-                .padding(.top, 6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            VStack(spacing: 0) {
-                topBar
-                // Send to as a grid down the rail: every open app with its name, three across,
-                // two rows before it scrolls (the fourth pass; it was one row showing three) —
-                // the deck under it keeps the room the mic and the trackpad need.
-                lowerPanel(layout: .grid(maxRows: 2))
-                    .padding(.top, 12)
-                    .frame(height: showLiveWords ? 250 : nil)
-                // The deck takes the rest of the rail: the trackpad whole, the mic in the middle.
-                GeometryReader { g in
-                    carousel(fill: g.size.height, compact: true)
-                        .frame(width: g.size.width, height: g.size.height, alignment: .top)
-                }
-                .padding(.top, 6)
+        GeometryReader { geo in
+            // The fold's line when the screen names it, else the middle.
+            let split = posture.foldLine.map { $0.midX } ?? geo.size.width / 2
+            let left = max(0, split - DuoLook.foldGap)
+            HStack(spacing: 0) {
+                DuoMacArea(main: self)
+                    .padding(.top, 6)
+                    .frame(width: left)
+                Color.clear.frame(width: 2 * DuoLook.foldGap)
+                phoneBody
+                    .frame(width: max(0, geo.size.width - left - 2 * DuoLook.foldGap))
             }
-            .frame(width: DuoLook.rail)
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
     }
 
     // MARK: The laptop (the hinge across)
@@ -619,10 +617,11 @@ struct DuoDeck: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            if watcher.isShowing {
-                // A laptop's lower half: the trackpad, the keys and the mic, all at once — and on
-                // the laptop the window's header and answers too, so nothing covers the picture.
-                DuoLaptopDeck(main: main, vertical: vertical, menuBar: !vertical)
+            if watcher.isShowing, vertical {
+                // The book's page: the trackpad, the keys and the mic, all at once.
+                DuoLaptopDeck(main: main, vertical: true)
+            } else if watcher.isShowing {
+                laptopModes
             } else if vertical {
                 // The book's page: the top bar, Send to as a grid (every place, four across),
                 // the mic in what's left.
@@ -668,6 +667,39 @@ struct DuoDeck: View {
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("The deck: trackpad, keyboard and mic")
+    }
+
+    /// The laptop's deck while a window shows (Nov 1 2026, Sameer: "the trackpad is really small …
+    /// I should still be able to select mic mode, keyboard mode to trackpad mode and have each of
+    /// those modes take up the full half"): the window's header across the top (its question's
+    /// answers in its middle, so nothing lies over the picture), then one mode at a time, the
+    /// whole of the rest — the trackpad edge to edge, the mic with the Thread across the half,
+    /// or the iOS keyboard with the Mac's keys on its bar — the three as a cluster in the corner.
+    /// The deck remembers its mode (the trackpad the first time). While you talk, the words sit
+    /// over the Thread; the mic under them never moves (a hold on it is never lost).
+    private var laptopModes: some View {
+        let live = watcher.phase == .live
+        return VStack(spacing: 4) {
+            WatchHeaderBar(watcher: watcher, dragSwitch: true, middle: live && !main.showLiveWords
+                           ? AnyView(WatchActions(watcher: watcher, floating: true, oneLine: true)) : nil) { t, _ in
+                watcher.say(t.title, symbol: "arrow.left.and.right")
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+            GeometryReader { g in
+                main.carousel(fill: g.size.height, compact: true, rowHidden: true)
+                    .frame(width: g.size.width, height: g.size.height, alignment: .top)
+                    .overlay(alignment: .top) {
+                        if main.showLiveWords {
+                            DuoLiveWords(main: main, room: g.size, below: true)
+                                .frame(height: max(96, g.size.height - DuoLook.deckMic * 1.25 - 52))
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
+            }
+        }
+        .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.answers?.id)
     }
 }
 

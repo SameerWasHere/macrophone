@@ -36,6 +36,9 @@ final class DuoShotsTests: XCTestCase {
     }
 
     private func pose(_ pose: String, frame: String) {
+        // Open on its side with nothing in hand: the cover's view on the right half, the window
+        // live on the left (the pose opens it as the glance).
+        if pose == "landscape" { shoot(pose, frame: frame, name: "0-rest", wait: 8, extra: ["MACROPHONE_WATCH": "0"]) }
         shoot(pose, frame: frame, name: "1-main", wait: 7)
         shoot(pose, frame: frame, name: "2-window-mic", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@mic"])
         shoot(pose, frame: frame, name: "3-window-keyboard", wait: 9, extra: ["MACROPHONE_WATCH_ACTIONS": "page@keyboard", "MACROPHONE_FAKE_KEYBOARD": "216"])

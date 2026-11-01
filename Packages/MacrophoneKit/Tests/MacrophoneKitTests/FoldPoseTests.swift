@@ -45,6 +45,17 @@ final class FoldPoseTests: XCTestCase {
         XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .closed, angle: 0, size: innerUp)), .closed)
     }
 
+    /// The inner screen sideways with its bars taken off is 951 × 553 (seen on the Duo): the whole
+    /// screen says which screen it is, the safe area only how the layout lies.
+    func testTheWholeScreenSaysWhichScreen() {
+        let safe = CGSize(width: 951, height: 553)
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .fullyOpen, angle: 180, size: safe)), .closed, "the safe area alone reads as the cover")
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .fullyOpen, angle: 180, size: safe, screen: innerSide)), .open(landscape: true))
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: nil, angle: 180, size: safe, screen: innerSide)), .open(landscape: true))
+        // The cover's whole screen is still the cover, whatever the hinge says.
+        XCTAssertEqual(FoldPose.derive(FoldReading(hinge: .fullyOpen, angle: 180, size: CGSize(width: 382, height: 653), screen: cover)), .closed)
+    }
+
     func testTheRiseIsInSteps() {
         // A hinge trembling by a fraction of a degree moves the deck by nothing.
         XCTAssertEqual(FoldPose.deckRise(angle: 142.5), FoldPose.deckRise(angle: 142.2))

@@ -188,6 +188,14 @@ struct WatchPanel: View {
 /// (Oct 25 2026, `twoRows`) the name and Done on one row and the clusters under them. The panel
 /// draws it over the window; a folded Duo draws it at the top of the deck, the window filling
 /// the other half.
+extension EnvironmentValues {
+    /// The iPhone Duo (Nov 1 2026, Sameer: "the same toggles in the side bar … when I open it"):
+    /// a screen with a vertical bar keeps Done, Sound, Mac Controls, Pan | Scroll, zoom out and
+    /// Window there, on the cover and the inner screen alike — the window's own header shows its
+    /// name alone.
+    @Entry var controlsInVerticalBar = false
+}
+
 struct WatchHeaderBar: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
@@ -202,11 +210,18 @@ struct WatchHeaderBar: View {
     /// A window picked from the menu, and the side it came from (1 next, -1 previous).
     var onSwitched: (LiveTarget, Int) -> Void = { _, _ in }
 
+    /// The screen's vertical bar holds Done and the window's buttons (the Duo, cover or inner).
+    @Environment(\.controlsInVerticalBar) private var inBar
+
     var body: some View {
-        if nameOnly {
+        if nameOnly || inBar {
             HStack(spacing: 10) {
                 name
-                Spacer(minLength: 0)
+                if let middle, !nameOnly {
+                    middle.frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
             }
             .frame(minHeight: WatchLook.header)
         } else if twoRows {

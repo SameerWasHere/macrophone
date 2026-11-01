@@ -163,8 +163,12 @@ enum PlacesLayout: Equatable {
     /// screen, Oct 25 2026). `gutter`: a band in the middle of the width no cell sits on — the
     /// fold's line, on the open screen; `maxRows`: past these it scrolls down (a rail).
     case grid(gutter: CGFloat? = nil, maxRows: Int? = nil)
+    /// The Duo's cover (Nov 1 2026, Sameer: "weird empty space on the right … more compact"): the
+    /// icons alone in even columns that take the whole width, as many rows as it takes up to
+    /// `maxRows` (then it scrolls down); the pick is a lit plate that slides to the next pick.
+    case tiles(maxRows: Int)
 
-    var isGrid: Bool { if case .grid = self { return true } else { return false } }
+    var isGrid: Bool { if case .row = self { return false } else { return true } }
 }
 
 /// A hairline between the panel's rows, inset like a grouped list's.
@@ -192,6 +196,8 @@ struct PlacesRow: View {
     private var inset: CGFloat { cover ? 12 : Space.inset }
     /// The grid's own height (a capped grid is as tall as its rows, then scrolls).
     @State private var gridHeight: CGFloat = 0
+    /// The pick's plate, sliding from tile to tile (the cover's tiles).
+    @Namespace private var pickPlate
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -243,7 +249,29 @@ struct PlacesRow: View {
             .padding(.horizontal, inset)
             }
 
-            if case .grid(let gutter, let maxRows) = layout {
+            if case .tiles(let maxRows) = layout {
+                // Columns of one width that fill the row (five across the cover), no rule
+                // between the kinds of app — a gap at the end of a row read as a hole.
+                let cap = CGFloat(maxRows) * PlacesLook.tileHeight + CGFloat(maxRows - 1) * PlacesLook.tileSpacing
+                ScrollView(.vertical) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: PlacesLook.tileMin), spacing: PlacesLook.tileSpacing)],
+                              spacing: PlacesLook.tileSpacing) {
+                        cells(places, selected: selected, notOpen: notOpen, tiles: true)
+                    }
+                    .padding(.horizontal, 6)
+                    .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: places.map(\.id))
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { gridHeight = $0 }
+                }
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.basedOnSize)
+                // A pressed icon grows past its tile: trimmed only at the sides.
+                .scrollClipDisabled(gridHeight <= cap)
+                .frame(height: min(gridHeight > 0 ? gridHeight : cap, cap))
+                .edgeFade(bottom: gridHeight > cap ? 10 : 0)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Places on your Mac")
+                .accessibilityIdentifier("places")
+            } else if case .grid(let gutter, let maxRows) = layout {
                 // The Duo's inner screen: every place in view with its name, in rows that wrap —
                 // none on the fold's line; past `maxRows` (a rail) the grid scrolls down.
                 let grid = FoldFlow(spacing: 8, rowSpacing: 8, gutter: gutter) {
@@ -307,12 +335,13 @@ struct PlacesRow: View {
 
     /// The places themselves: the apps with somewhere to type, then a line, then every other open
     /// app, then + (Open an App) — the same cells in the row and in the grid.
-    @ViewBuilder private func cells(_ places: [PlaceOption], selected: String?, notOpen: Bool) -> some View {
+    @ViewBuilder private func cells(_ places: [PlaceOption], selected: String?, notOpen: Bool, tiles: Bool = false) -> some View {
         ForEach(Array(places.enumerated()), id: \.element.id) { i, p in
-            if p.kind == .app, !p.canType, i > 0, places[i - 1].canType {
+            if !tiles, p.kind == .app, !p.canType, i > 0, places[i - 1].canType {
                 OtherAppsRule(compact: compact, named: named)
             }
             PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact, named: named,
+                        tile: tiles ? pickPlate : nil,
                         watchable: p.id == selected && current != .clipboard && model.isConnected && !notOpen,
                         needs: model.isConnected ? model.needs(p) : nil,
                         windowNeeds: { model.needs($0) != nil },
@@ -320,7 +349,7 @@ struct PlacesRow: View {
                 .id(p.id)
         }
         // Any app on the Mac, open or not (Open an app).
-        MoreAppsButton(compact: compact, named: named) { model.sheet = .openApp }
+        MoreAppsButton(compact: compact, named: named, tile: tiles) { model.sheet = .openApp }
     }
 
     /// The app's one kicker voice (mono, tracked) — the same as "TO CLAUDE · SENDS" over the
@@ -418,6 +447,9 @@ private struct PlaceButton: View {
     var compact = false
     /// The name under the icon (the Duo's open inner screen): one line, the short name.
     var named = false
+    /// A tile in the cover's grid: the icon alone, the column's width; the pick's plate slides
+    /// between tiles in this namespace.
+    var tile: Namespace.ID? = nil
     /// The pick, and its window can be shown: the eye on its icon says another tap watches it.
     var watchable = false
     /// One of its windows answered you: the mark on its icon.
@@ -439,7 +471,7 @@ private struct PlaceButton: View {
             // every icon's name is its VoiceOver label, and a long press lists an app's windows.
             VStack(spacing: 5) {
                 ZStack {
-                    TargetIcon(target: place.target, icon: place.icon, size: named ? 36 : compact ? 32 : 36, onTint: selected)
+                    TargetIcon(target: place.target, icon: place.icon, size: tile != nil ? PlacesLook.tileIcon : named ? 36 : compact ? 32 : 36, onTint: selected)
                         .saturation(place.kind == .closed ? 0 : 1)
                         .overlay(alignment: .topTrailing) {
                             if needs != nil {
@@ -471,8 +503,10 @@ private struct PlaceButton: View {
                     // On its way (just opened from Open an App): a turn over its icon.
                     if place.kind == .opening { ProgressView().controlSize(.small).tint(Ink.ink) }
                 }
-                .frame(width: named ? 44 : compact ? 40 : 44, height: named ? 40 : compact ? 40 : 44)
-                if named {
+                .frame(width: tile != nil ? nil : named ? 44 : compact ? 40 : 44, height: tile != nil ? nil : named ? 40 : compact ? 40 : 44)
+                .frame(maxWidth: tile != nil ? .infinity : nil)
+                .frame(height: tile != nil ? PlacesLook.tileHeight : nil)
+                if named, tile == nil {
                     // Whole, on a second line when it needs one ("Where I'm typing"): never cut.
                     Text(place.shortName)
                         .font(.caption2.weight(selected ? .semibold : .regular))
@@ -485,11 +519,10 @@ private struct PlaceButton: View {
                 }
             }
             // A set width; as tall as its name (a second line only where one is needed).
-            .frame(width: named ? PlacesLook.namedWidth : nil, alignment: .top)
-            .padding(.top, named ? 4 : 0)
+            .frame(width: named && tile == nil ? PlacesLook.namedWidth : nil, alignment: .top)
+            .padding(.top, named && tile == nil ? 4 : 0)
         }
-        .placeButtonStyle(selected: selected)
-        .controlSize(.small)
+        .placeStyle(selected: selected, tile: tile)
         .opacity(place.kind == .closed && !selected ? 0.55 : 1)
         // The held icon lifts as its own rounded button, whole.
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -532,6 +565,38 @@ enum PlacesLook {
     /// A cell as the button draws it, its glass round the label (measured): what a capped grid's
     /// rows are counted in.
     static let cellHeight: CGFloat = 82
+    /// The cover's tiles: at least this wide (five across its 382 pt), this tall, the icon this big.
+    static let tileMin: CGFloat = 56
+    static let tileHeight: CGFloat = 56
+    static let tileIcon: CGFloat = 40
+    static let tileSpacing: CGFloat = 6
+}
+
+/// The cover's tile: the icon on the panel itself, no box round it (a grid of glass boxes was
+/// heavy); the pick on a lit cyan plate that slides to the next pick; a press sinks the icon.
+private struct PlaceTileStyle: ButtonStyle {
+    var selected: Bool
+    var plate: Namespace.ID
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        configuration.label
+            .background {
+                if selected {
+                    shape
+                        .fill(LinearGradient(colors: [Light.cyan, Light.cyan.opacity(0.78)], startPoint: .top, endPoint: .bottom))
+                        .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05)],
+                                                                   startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                        .shadow(color: Light.cyan.opacity(0.45), radius: 10, y: 2)
+                        .matchedGeometryEffect(id: "pick", in: plate)
+                } else if configuration.isPressed {
+                    shape.fill(Ink.ink.opacity(0.10))
+                }
+            }
+            .contentShape(shape)
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.7), value: configuration.isPressed)
+    }
 }
 
 /// The line in the Send to row between the apps with somewhere to type and every other open app
@@ -556,10 +621,24 @@ private struct OtherAppsRule: View {
 private struct MoreAppsButton: View {
     var compact = false
     var named = false
+    /// A tile in the cover's grid: the + alone, the column's width.
+    var tile = false
     var action: () -> Void
+    @Namespace private var none
 
     var body: some View {
         Button(action: action) {
+            if tile {
+                Image(systemName: "plus")
+                    .font(.system(size: PlacesLook.tileIcon * 0.4, weight: .semibold))
+                    .foregroundStyle(Ink.secondary)
+                    .frame(width: PlacesLook.tileIcon, height: PlacesLook.tileIcon)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Ink.ink.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Ink.line, style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: PlacesLook.tileHeight)
+            } else {
             VStack(spacing: 5) {
                 Image(systemName: "plus")
                     .font(.system(size: (named ? 36 : compact ? 32 : 36) * 0.42, weight: .semibold))
@@ -574,9 +653,9 @@ private struct MoreAppsButton: View {
             }
             .frame(width: named ? PlacesLook.namedWidth : nil, alignment: .top)
             .padding(.top, named ? 4 : 0)
+            }
         }
-        .placeButtonStyle(selected: false)
-        .controlSize(.small)
+        .placeStyle(selected: false, tile: tile ? none : nil)
         .accessibilityLabel("More apps")
         .accessibilityHint("Opens any app on your Mac, even one that isn't open, and sends there.")
         .accessibilityIdentifier("more-apps")
@@ -584,6 +663,12 @@ private struct MoreAppsButton: View {
 }
 
 private extension View {
+    /// A tile (the cover's grid) or a native glass button.
+    @ViewBuilder func placeStyle(selected: Bool, tile: Namespace.ID?) -> some View {
+        if let tile { buttonStyle(PlaceTileStyle(selected: selected, plate: tile)) }
+        else { placeButtonStyle(selected: selected).controlSize(.small) }
+    }
+
     /// Native glass buttons on iOS 26+ (the pick `.glassProminent`, tinted cyan); bordered below.
     @ViewBuilder func placeButtonStyle(selected: Bool) -> some View {
         let shape = ButtonBorderShape.roundedRectangle(radius: 16)

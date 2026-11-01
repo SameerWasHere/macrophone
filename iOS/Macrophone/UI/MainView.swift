@@ -68,7 +68,7 @@ struct MainView: View {
     }
 
     /// The top bar, header and controls: at rest, when nothing else has the area.
-    var showSettings: Bool { !showLiveWords && !watcher.isOpen }
+    var showSettings: Bool { !showLiveWords && !watcher.isShowing }
 
 
     /// How the iPhone Duo is held (Oct 25 2026): the cover screen keeps this layout; the inner
@@ -106,9 +106,10 @@ struct MainView: View {
     @ViewBuilder private var poseBody: some View {
         switch posture.pose {
         case .closed: if isCover { coverBody.transition(.opacity) } else { phoneBody.transition(.opacity) }
-        case .open(let landscape): if landscape { openLandscapeBody.transition(.opacity) } else { openPortraitBody.transition(.opacity) }
-        case .laptop: laptopBody.transition(.opacity)
-        case .book: bookBody.transition(.opacity)
+        // The inner screen's vertical bar (open on its side, the book) holds the cover's buttons.
+        case .open(let landscape): if landscape { barred(openLandscapeBody).transition(.opacity) } else { barred(openPortraitBody).transition(.opacity) }
+        case .laptop: barred(laptopBody).transition(.opacity)
+        case .book: barred(bookBody).transition(.opacity)
         }
     }
 
@@ -132,7 +133,7 @@ struct MainView: View {
                                 // reach above the Thread.
                                 // The cover: the Mac is in the vertical bar; its pill only while
                                 // it isn't connected (to say so, and to wake it).
-                                if !isCover || !model.isConnected { topBar }
+                                if !verticalBar || !model.isConnected { topBar }
                                 Spacer(minLength: compact ? 10 : 20)
                                 quickControls
                             }
@@ -149,13 +150,13 @@ struct MainView: View {
                     .allowsHitTesting(showSettings)
                     .accessibilityHidden(!showSettings)
                     // Watching: the window takes the area (Done brings the settings back).
-                    if watcher.isOpen && !showLiveWords {
+                    if watcher.isShowing && !showLiveWords {
                         WatchPanel(watcher: watcher, compact: compact, cover: isCover,
                                    bare: isCover && input.page == .keyboard).transition(.opacity)
                     }
                     if showLiveWords {
                         VStack(spacing: 0) {
-                            if watcher.isOpen {
+                            if watcher.isShowing {
                                 WatchStrip(watcher: watcher, compact: compact)
                                     .padding(.horizontal, Space.margin)
                                     .padding(.top, 8)
@@ -172,7 +173,7 @@ struct MainView: View {
                 // glow around the window looks cut off on the sidebar").
                 .clipShape(FootOnly())
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
-                .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isOpen)
+                .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
                 // The Thread, one band in the same place in every state, and the mic under it —
                 // and, while a window shows, the page row above the Thread and the keyboard and
                 // the trackpad beside the mic (the Thread folds away on those pages: the trackpad
@@ -248,13 +249,22 @@ struct MainView: View {
         }
     }
 
-    var coverBody: some View {
-        NavigationStack {
-            phoneBody
-                .toolbar { coverToolbar }
-                .navigationBarTitleDisplayMode(.inline)
-                .coverBarStyle()
-                .macSharePickers(photo: $coverPickingPhoto, file: $coverPickingFile, model: model)
+    var coverBody: some View { barred(phoneBody) }
+
+    /// A screen with a vertical bar (the cover; the inner screen on its side, open or a book): the
+    /// same buttons in it on both screens — only the room beside them changes (Nov 1 2026).
+    @ViewBuilder func barred<Content: View>(_ content: Content) -> some View {
+        if verticalBar {
+            NavigationStack {
+                content
+                    .toolbar { coverToolbar }
+                    .navigationBarTitleDisplayMode(.inline)
+                    .coverBarStyle()
+                    .macSharePickers(photo: $coverPickingPhoto, file: $coverPickingFile, model: model)
+            }
+            .environment(\.controlsInVerticalBar, true)
+        } else {
+            content
         }
     }
 
@@ -267,7 +277,7 @@ struct MainView: View {
     /// Done first, then the window's own buttons (Apple's order for the bar); at rest History and
     /// Settings. While the mic is open nothing: the transcript has the screen.
     @ToolbarContentBuilder var coverToolbar: some ToolbarContent {
-        if watcher.isOpen && !showLiveWords {
+        if watcher.isShowing && !showLiveWords {
             // Done is the last to fold into the bar's overflow (the keyboard leaves it short).
             if #available(iOS 27.0, *) {
                 ToolbarItem(placement: .topBarLeading) { coverDone }.visibilityPriority(.high)
@@ -350,8 +360,8 @@ struct MainView: View {
     }
 
     @ViewBuilder var topButtons: some View {
-        // The cover's are in its vertical bar.
-        if !isCover { drawnTopButtons }
+        // A screen with a vertical bar has them there.
+        if !verticalBar { drawnTopButtons }
     }
 
     @ViewBuilder var drawnTopButtons: some View {
@@ -442,9 +452,10 @@ struct MainView: View {
 
     var quickControls: some View {
         Group {
-            // The cover: the room the top bar's buttons left goes to every place, by name.
-            if isCover {
-                QuickControls(settings: model.settings, compact: true, named: true, layout: .grid(maxRows: 3), glow: skyGlow, cover: true)
+            // The cover: every place's icon in even columns across the width (the pick's name is
+            // the line above them).
+            if verticalBar {
+                QuickControls(settings: model.settings, compact: true, layout: .tiles(maxRows: 3), glow: skyGlow, cover: true)
             } else {
                 QuickControls(settings: model.settings, compact: compact, glow: skyGlow)
             }
