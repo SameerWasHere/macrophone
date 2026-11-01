@@ -310,6 +310,11 @@ struct MainView: View {
                 ToolbarItem(placement: .topBarLeading) { coverDone }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // The keyboard up: putting it away is the first thing in the bar.
+                if input.page == .keyboard {
+                    Button { Haptics.tick(); input.hideKeyboard() } label: { Label("Hide Keyboard", systemImage: "keyboard.chevron.compact.down") }
+                        .accessibilityIdentifier("bar-keyboard-hide")
+                }
                 if model.macAudio.macCanPlay { CoverSoundItem(player: model.macAudio) }
                 if model.canMacControls {
                     Button { Haptics.tick(); model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }

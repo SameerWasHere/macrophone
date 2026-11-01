@@ -35,8 +35,10 @@ struct MacKeyboardField: UIViewRepresentable {
         // Upright on the Duo's inner screen (the laptop, flat) the keyboard rises over the deck and
         // its bar would sit on the window: no bar there (Nov 1 2026, Sameer: "I don't want any
         // controls on that half when in laptop mode").
+        // Only a small hide button at the right edge stays, so the keyboard can always be put away.
         let pose = Posture.shared.pose
-        let accessory: UIView? = pose == .laptop || pose == .open(landscape: false) ? nil : v.bar
+        if v.hideOnly == nil { v.hideOnly = HideKeyboardBar { [weak input] in input?.hideKeyboard() } }
+        let accessory: UIView? = pose == .laptop || pose == .open(landscape: false) ? v.hideOnly : v.bar
         if v.inputAccessoryView !== accessory {
             v.inputAccessoryView = accessory
             if v.isFirstResponder { v.reloadInputViews() }
@@ -83,6 +85,8 @@ final class KeyboardTextView: UITextView {
     /// The keyboard left while the page still wanted it.
     var onKeyboardGone: () -> Void = {}
     var bar: KeyboardBarHost?
+    /// Upright on the Duo's inner screen: a hide button alone over the keys.
+    var hideOnly: HideKeyboardBar?
     var wantsKeyboard = false
     private var goneCheck: DispatchWorkItem?
 
@@ -520,4 +524,35 @@ struct RepeatKey<L: View>: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { press() }
     }
+}
+
+/// Over the keys upright on the Duo's inner screen: one hide button at the right edge and nothing
+/// else, so the window above keeps its view (Nov 1 2026, Sameer: "there's no way to close the
+/// keyboard … make it easy to close").
+final class HideKeyboardBar: UIInputView {
+    private let action: () -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 48), inputViewStyle: .default)
+        backgroundColor = .clear
+        allowsSelfSizing = true
+        var config = UIButton.Configuration.glass()
+        config.image = UIImage(systemName: "keyboard.chevron.compact.down")
+        config.title = "Hide"
+        config.imagePadding = 6
+        config.buttonSize = .medium
+        let button = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.action() })
+        button.accessibilityLabel = "Hide Keyboard"
+        button.accessibilityIdentifier = "keyboard-hide"
+        button.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(button)
+        NSLayoutConstraint.activate([
+            button.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -10),
+            button.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 48),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 }
