@@ -40,11 +40,8 @@ struct MacKeyboardField: UIViewRepresentable {
         if v.hideOnly == nil { v.hideOnly = HideKeyboardBar { [weak input] in input?.hideKeyboard() } }
         v.onHide = { [weak input] in input?.hideKeyboard() }
         let upright = pose == .laptop || pose == .open(landscape: false)
-        // A wide keyboard (the inner screen's) carries Hide in its own top row, at the right end:
-        // no row of ours over it (Nov 1 2026, Sameer: "the hide button … is on the top half of the
-        // screen"). A narrow one never shows those buttons, so it keeps the slim Hide row.
-        let wide = v.traitCollection.horizontalSizeClass == .regular
-        let accessory: UIView? = upright ? (wide ? nil : v.hideOnly) : v.bar
+        // (The keyboard's own top row never showed Hide on his Duo: the row stays, always.)
+        let accessory: UIView? = upright ? v.hideOnly : v.bar
         var reload = false
         if v.inputAccessoryView !== accessory { v.inputAccessoryView = accessory; reload = true }
         // Upright the keyboard is as short as it goes, so it and Hide fit the deck: no predictions
@@ -108,7 +105,7 @@ final class KeyboardTextView: UITextView {
             inlinePredictionType = compact ? .no : .default
             if #available(iOS 18.0, *) { writingToolsBehavior = compact ? .none : .default }
             inputAssistantItem.leadingBarButtonGroups = compact ? [] : savedLeading
-            inputAssistantItem.trailingBarButtonGroups = compact ? [hideGroup] : savedTrailing
+            inputAssistantItem.trailingBarButtonGroups = compact ? [] : savedTrailing
         }
     }
     var onHide: () -> Void = {}
@@ -566,8 +563,8 @@ final class HideKeyboardBar: UIInputView {
 
     init(action: @escaping () -> Void) {
         self.action = action
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 36), inputViewStyle: .default)
-        backgroundColor = .clear
+        // The keyboard's own material: the row reads as the keyboard's top, not a strip over the window.
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 40), inputViewStyle: .keyboard)
         allowsSelfSizing = true
         var config: UIButton.Configuration = if #available(iOS 26.0, *) { .glass() } else { .gray() }
         config.image = UIImage(systemName: "keyboard.chevron.compact.down")
@@ -582,7 +579,7 @@ final class HideKeyboardBar: UIInputView {
         NSLayoutConstraint.activate([
             button.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -10),
             button.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(equalToConstant: 36),
+            heightAnchor.constraint(equalToConstant: 40),
         ])
     }
 
