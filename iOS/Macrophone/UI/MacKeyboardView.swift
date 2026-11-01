@@ -537,7 +537,7 @@ final class HideKeyboardBar: UIInputView {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 48), inputViewStyle: .default)
         backgroundColor = .clear
         allowsSelfSizing = true
-        var config = UIButton.Configuration.glass()
+        var config: UIButton.Configuration = if #available(iOS 26.0, *) { .glass() } else { .gray() }
         config.image = UIImage(systemName: "keyboard.chevron.compact.down")
         config.title = "Hide"
         config.imagePadding = 6
