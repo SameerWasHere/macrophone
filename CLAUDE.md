@@ -1184,6 +1184,31 @@ Hooks: `mpctl serve --busy` / `--no-lane`, any phone command `--no-lane` / `--on
 wrong proof, a dropped lane, over loopback on ports 47916–47919). Still needs a real phone on
 cellular with Tailscale: the lane's log lines ("video lane open in N ms") on both sides.
 
+## The Duo, shipped for his review (Nov 1 2026, evening)
+
+Sameer: "ship, I'll review and tell you what I want to be done better". Built and installed, not
+yet seen on his phone:
+- **The box on the open screen** was `UIRequiresFullScreen` (deprecated in iOS 26): iOS treated
+  the app as fixed-size and kept it at the size it launched at (his log: `469×553 on 669×951`).
+  Gone; `AppDelegate`'s orientations follow the hinge (`Posture.hingeOpen` = every way), asked
+  again the moment the hinge opens or closes. The simulator never showed the box.
+- **The laptop's picture** sits in from the screen's rounded corners (`DuoLook.edgeInset` =
+  r·(1 − 1/√2) of the display's corner, read from the screen, else 40; its corner concentric,
+  `edgeCorner`). **Upright, the keyboard has no bar** (`MacKeyboardField` drops its accessory in
+  the laptop and flat upright): nothing over the window; the system keyboard's own hide key.
+- **Flat upright is no longer the laptop's halves:** the window takes all but a deck of
+  `DuoLook.flatDeck` 300 (360 at rest, at most 45%), and the controls go in the bar —
+  `MainView.barUsed` is true for `.open(landscape: false)` (where iOS puts the items upright
+  needs his phone).
+- **Settings and History take the inner screen.** On the inner screen they are no longer a form card:
+  `InnerScreenSheet(size: .screen)` sizes them with `InnerScreenFill` (the window's safe area less
+  16 pt a side). Settings is iPad Settings (`SettingsView.split`, `NavigationSplitView`: the Mac
+  banner, then `SettingsGroup` — Send to · Cleanup · Watching and alerts · Recording · Appearance ·
+  Your Macs · History · About; pages push in the detail column; it opens on Send to). History is
+  Mail on an iPad (`HistoryView.split`: the list left, `HistoryPage(onDelete:)` right, the newest
+  open). The cover and every other iPhone keep the one list. Unverified: that a sheet there gets a
+  regular width (else one column), and that each group fits without scrolling.
+
 ## The Mac's wallpaper on the iPhone (Nov 1 2026)
 
 Sameer: "imagine if Apple built a Mac controller for the iPhone" — the phone is being drawn as a
