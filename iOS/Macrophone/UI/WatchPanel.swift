@@ -637,7 +637,10 @@ struct WatchWindow: View {
             if watcher.stale {
                 Ink.ground.opacity(0.5).transition(.opacity).allowsHitTesting(false).accessibilityHidden(true)
             }
-            if interactive && watcher.movedAway && watcher.phase == .live {
+            // The whole screen on the Duo's inner screen is the Mac's screen and nothing else
+            // (Nov 1 2026, Sameer: "I don't want any overlays over it"): no Newest, no app chip.
+            let bare = fill && watcher.isDesktop
+            if interactive && watcher.movedAway && watcher.phase == .live && !bare {
                 Button { watcher.showNewest() } label: {
                     Label("Newest", systemImage: "arrow.down.to.line").font(.footnote.weight(.semibold))
                 }
@@ -651,7 +654,7 @@ struct WatchWindow: View {
             }
             // The whole screen: the app in front, a tap from its own window (tap a window on the
             // screen to bring it forward, then here).
-            if interactive, watcher.isDesktop, watcher.phase == .live, let front = watcher.front {
+            if interactive, !bare, watcher.isDesktop, watcher.phase == .live, let front = watcher.front {
                 WatchFrontChip(front: front)
                     .padding(10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)

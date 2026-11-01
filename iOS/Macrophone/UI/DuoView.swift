@@ -155,10 +155,20 @@ extension MainView {
                 // The Mac's screen: the picture as big as the half allows, in from the screen's
                 // rounded corners so none of it is cut (Nov 1 2026, Sameer: "the view window
                 // should take up the whole top half … as if the duo was a mini Mac").
-                DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * inset, height: macHeight - inset), edge: true)
-                    .padding(.horizontal, inset)
-                    .padding(.top, inset)
-                    .frame(height: max(0, macHeight))
+                if let whole = wholeScreenSize(in: CGSize(width: geo.size.width, height: macHeight)) {
+                    // The whole screen: all of it, as big as it goes — the half's own shape is
+                    // taller than a Mac's display, so the frame takes the picture's shape (no
+                    // bars), its foot on the fold, its top corners clear of the screen's.
+                    DuoMacHalf(main: self, vertical: false, room: whole, edge: true)
+                        .frame(width: whole.width, height: whole.height)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .frame(height: max(0, macHeight))
+                } else {
+                    DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * inset, height: macHeight - inset), edge: true)
+                        .padding(.horizontal, inset)
+                        .padding(.top, inset)
+                        .frame(height: max(0, macHeight))
+                }
                 // The fold: nothing sits here.
                 Color.clear.frame(height: max(0, gap))
                 DuoDeck(main: self, vertical: false)
@@ -173,6 +183,27 @@ extension MainView {
         .ignoresSafeArea(keyboardUp ? [] : .keyboard)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(posture.pose == .laptop ? FoldPose.laptop.spoken : FoldPose.open(landscape: false).spoken)
+    }
+
+    /// The whole screen in the laptop's upper half (Nov 1 2026, Sameer: "white bars on the top and
+    /// the bottom … maximize that screen size as much as possible … without getting cut off"):
+    /// the widest picture of the Mac's display, centred across with its foot on the fold, whose
+    /// top corners stay clear of the screen's rounded ones. Nil for a window (it fills the half).
+    func wholeScreenSize(in room: CGSize) -> CGSize? {
+        guard watcher.isShowing, watcher.isDesktop, let size = watcher.videoSize ?? watcher.image?.size,
+              size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return nil }
+        let aspect = size.width / size.height
+        // A hair more than the corner's circle: the display's corner is a continuous curve.
+        let r = DuoLook.displayCorner + 2
+        func fits(_ w: CGFloat) -> Bool {
+            let m = (room.width - w) / 2
+            let top = m >= r ? 0 : r - (max(0, r * r - (r - m) * (r - m))).squareRoot()
+            return top + w / aspect <= room.height
+        }
+        var lo: CGFloat = 0, hi = room.width
+        if fits(hi) { lo = hi } else { for _ in 0..<24 { let w = (lo + hi) / 2; if fits(w) { lo = w } else { hi = w } } }
+        let w = lo.rounded(.down)
+        return CGSize(width: w, height: (w / aspect).rounded(.down))
     }
 
     // MARK: The book (on its side: the hinge up and down)
