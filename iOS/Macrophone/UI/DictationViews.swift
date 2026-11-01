@@ -27,7 +27,7 @@ struct VersionToggle: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(minHeight: 32)
-                .foregroundStyle(on ? Ink.ground : Ink.secondary)
+                .foregroundStyle(on ? Ink.onTint : Ink.secondary)
                 .background(Capsule().fill(on ? Ink.ink : .clear))
                 .contentShape(Capsule().inset(by: -6))
         }
@@ -225,9 +225,8 @@ struct LastDictationCard: View {
         // The paper plane when it was sent, the arrow when it was pasted or copied.
         let glyph = Text(Image(systemName: item.dictation.send == true ? "paperplane.fill" : "arrow.right"))
             .foregroundColor(item.dictation.send == true ? Light.cyan : Ink.tertiary)
-        return (isTemplate ? Text("A\nB") : glyph + Text(" " + shortKicker.uppercased()))
-            .font(.mono(.caption2, weight: .semibold))
-            .tracking(1.2)
+        return (isTemplate ? Text("A\nB") : glyph + Text(" " + shortKicker))
+            .font(.caption.weight(.medium))
             .foregroundStyle(Ink.tertiary)
             .lineLimit(2)
             .minimumScaleFactor(0.8)

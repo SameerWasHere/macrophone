@@ -523,9 +523,8 @@ struct WatchKicker: View {
 
     /// `fits`: measured at its full width (a rung of the ladder); the last rung may shrink instead.
     private func label(_ text: String, fits: Bool = true) -> some View {
-        Text(text.uppercased())
-            .font(.mono(.caption, weight: .semibold))
-            .tracking(1.1)
+        Text(text)
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(watcher.phase == .live ? Ink.ink : Ink.tertiary)
             .lineLimit(1)
             .fixedSize(horizontal: fits, vertical: false)
@@ -970,7 +969,7 @@ struct WatchDragSwitch: View {
             }
                 .font(.footnote.weight(.semibold))
                 .lineLimit(1)
-                .foregroundStyle(on ? Ink.ground : Ink.secondary)
+                .foregroundStyle(on ? Ink.onTint : Ink.secondary)
                 .padding(.horizontal, style == .glyphs ? 13 : 12)
                 .frame(minHeight: WatchLook.control - 6)
                 .background {
@@ -1169,26 +1168,26 @@ struct WatchActions: View {
                         if let n = c.number {
                             Text("\(n)")
                                 .font(.mono(.caption, weight: .semibold))
-                                .foregroundStyle(lit ? Ink.ground.opacity(0.8) : Ink.secondary)
+                                .foregroundStyle(lit ? Ink.onTint.opacity(0.8) : Ink.secondary)
                                 .frame(width: 22, height: 22)
-                                .background(Circle().fill(lit ? Ink.ground.opacity(0.14) : Ink.ink.opacity(0.08)))
+                                .background(Circle().fill(lit ? Ink.onTint.opacity(0.14) : Ink.ink.opacity(0.08)))
                         } else if let k = c.key {
                             Text(k)
                                 .font(.mono(.caption, weight: .semibold))
-                                .foregroundStyle(lit ? Ink.ground.opacity(0.8) : Ink.secondary)
+                                .foregroundStyle(lit ? Ink.onTint.opacity(0.8) : Ink.secondary)
                                 .frame(width: 22, height: 22)
-                                .background(Circle().fill(lit ? Ink.ground.opacity(0.14) : Ink.ink.opacity(0.08)))
+                                .background(Circle().fill(lit ? Ink.onTint.opacity(0.14) : Ink.ink.opacity(0.08)))
                         }
                         Text(c.label)
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(lit ? Ink.ground : Ink.ink)
+                            .foregroundStyle(lit ? Ink.onTint : Ink.ink)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                         if lit {
                             Image(systemName: "return")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(Ink.ground.opacity(0.55))
+                                .foregroundStyle(Ink.onTint.opacity(0.7))
                         }
                     }
                     .padding(.horizontal, 12)
@@ -1323,9 +1322,9 @@ private struct WatchAnswerStyle: ButtonStyle {
 private extension View {
     @ViewBuilder func watchProminentButton() -> some View {
         if #available(iOS 26.0, *) {
-            buttonStyle(.glassProminent).tint(Light.cyan).foregroundStyle(Ink.ground)
+            buttonStyle(.glassProminent).tint(Light.cyan).foregroundStyle(Ink.onTint)
         } else {
-            buttonStyle(.borderedProminent).tint(Light.cyan).foregroundStyle(Ink.ground)
+            buttonStyle(.borderedProminent).tint(Light.cyan).foregroundStyle(Ink.onTint)
         }
     }
 }

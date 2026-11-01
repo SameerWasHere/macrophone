@@ -728,9 +728,9 @@ struct DuoGlance: View {
 private extension View {
     @ViewBuilder func duoProminentButton() -> some View {
         if #available(iOS 26.0, *) {
-            buttonStyle(.glassProminent).tint(Light.cyan).foregroundStyle(Ink.ground)
+            buttonStyle(.glassProminent).tint(Light.cyan).foregroundStyle(Ink.onTint)
         } else {
-            buttonStyle(.borderedProminent).tint(Light.cyan).foregroundStyle(Ink.ground)
+            buttonStyle(.borderedProminent).tint(Light.cyan).foregroundStyle(Ink.onTint)
         }
     }
 }

@@ -91,7 +91,12 @@ struct MainView: View {
         // same layout.
         .statusBarHidden(posture.pose.foldAcross && watcher.isShowing)
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
-        .background(GroundBackground(glow: skyGlow).animation(.easeInOut(duration: 0.7), value: filamentMode))
+        // The Mac's own wallpaper behind everything; the state's light washes in from the foot —
+        // orange while the mic is open, green when the words land; nothing at rest.
+        .background(DesktopBackground(wallpaper: model.wallpaper, glow: filamentMode == .ready ? .clear : skyGlow)
+            .animation(.easeInOut(duration: 0.7), value: filamentMode))
+        // Siri's signal: the screen's edge glows while the mic listens.
+        .overlay(ListeningEdge(active: isRecording && look == nil || look == "holding", meter: recorder.meter))
         .background(VerticalBarProbe(present: $verticalBar).frame(width: 0, height: 0).accessibilityHidden(true))
         #if DEBUG
         .overlay(alignment: .topLeading) {
@@ -140,15 +145,20 @@ struct MainView: View {
                     // don't fit, they scroll instead of being cut off at the Thread.
                     GeometryReader { area in
                         ScrollView(.vertical) {
-                            VStack(spacing: 0) {
-                                // No header (Oct 19 2026, Sameer: "the speak and it's on your Mac and
-                                // sub header are also useless"): the top bar, then the panel in thumb
-                                // reach above the Thread.
-                                // The cover: the Mac is in the vertical bar; its pill only while
-                                // it isn't connected (to say so, and to wake it).
-                                if !barUsed || !model.isConnected { topBar }
-                                Spacer(minLength: compact ? 10 : 20)
-                                quickControls
+                            Group {
+                                if barUsed || posture.pose.isInner {
+                                    VStack(spacing: 0) {
+                                        // The cover: the Mac is in the vertical bar; its pill only
+                                        // while it isn't connected (to say so, and to wake it).
+                                        if !barUsed || !model.isConnected { topBar }
+                                        Spacer(minLength: compact ? 10 : 20)
+                                        quickControls
+                                    }
+                                } else {
+                                    // The phone: a little Mac desktop — the menu bar, the last
+                                    // dictation as a widget, the Dock over the Thread (Nov 1 2026).
+                                    PhoneDesktop(settings: model.settings, watcher: watcher, compact: compact, glow: skyGlow)
+                                }
                             }
                             .frame(minHeight: area.size.height)
                         }
@@ -596,9 +606,8 @@ struct DestinationLine: View {
         let where_ = live.byVoice ? "You said \(name)" : "To \(name)"
         let parts = [where_, live.target.canSend && live.send ? "sends" : nil,
                      model.effectiveCleanupLevel == .off ? "no cleanup" : "\(model.effectiveCleanupLevel.title) cleanup"].compactMap { $0 }
-        return Text(parts.joined(separator: " · ").uppercased())
-            .font(.mono(.caption2, weight: .medium))
-            .tracking(1.1)
+        return Text(parts.joined(separator: " · "))
+            .font(.footnote.weight(.medium))
             .foregroundStyle(live.byVoice ? Light.ember : Ink.tertiary)
             // A long window name wraps to a second line rather than being cut with "…".
             .lineLimit(2)
@@ -677,6 +686,8 @@ extension Image {
 /// same spring, so the top bar never jumps.
 struct MacPill: View {
     @EnvironmentObject var model: AppModel
+    /// The bold name at the menu bar's left (the phone's desktop, Nov 1 2026), not a glass pill.
+    var menuBar = false
     /// One width for every connection sign (Wi-Fi, globe, shield), so none moves the pill.
     @ScaledMetric(relativeTo: .caption) private var iconSlot: CGFloat = 18
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -689,9 +700,22 @@ struct MacPill: View {
             model.sheet = several ? .macs : model.isPaired ? .settings : .pairing
         } label: {
             HStack(spacing: 8) {
-                Circle().fill(dot).frame(width: 8, height: 8).shadow(color: dot.opacity(0.8), radius: 4)
-                    .accessibilityHidden(true)
-                RollingName(name: title, key: model.pairedMac?.id.uuidString ?? "none", reduceMotion: reduceMotion)
+                if menuBar {
+                    // The menu bar's bold name, the light as a mark before it.
+                    Image(systemName: "laptopcomputer").font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.ink)
+                        .overlay(alignment: .bottomTrailing) {
+                            Circle().fill(dot).frame(width: 7, height: 7)
+                                .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground).opacity(0.8), lineWidth: 1.2))
+                                .offset(x: 3, y: 2)
+                        }
+                        .accessibilityHidden(true)
+                } else {
+                    Circle().fill(dot).frame(width: 8, height: 8).shadow(color: dot.opacity(0.8), radius: 4)
+                        .accessibilityHidden(true)
+                }
+                RollingName(name: title, key: model.pairedMac?.id.uuidString ?? "none", reduceMotion: reduceMotion,
+                            font: menuBar ? .subheadline.weight(.bold) : .footnote.weight(.semibold),
+                            color: menuBar ? Ink.ink : Ink.secondary)
                     .offset(y: several ? pull : 0)
                 // The way it's connected, in a slot that's always there: the pill keeps its width
                 // from launch to connected instead of growing when the sign arrives.
@@ -707,11 +731,10 @@ struct MacPill: View {
                         .accessibilityHidden(true)
                 }
             }
-            .padding(.horizontal, 2)
-            .frame(minHeight: 37)
+            .padding(.horizontal, menuBar ? 8 : 2)
+            .frame(minHeight: menuBar ? MacOSLook.menuBar : 37)
         }
-        .nativeGlassButton()
-        .buttonBorderShape(.capsule)
+        .modifier(PillLook(menuBar: menuBar))
         // The width follows the name's on the roll's own spring.
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: model.pairedMac?.id)
         .simultaneousGesture(swipe, including: several ? .all : .subviews)
@@ -789,6 +812,14 @@ struct MacPill: View {
     }
 }
 
+/// The pill's glass, or — in the menu bar — a Mac menu title's pressed highlight.
+private struct PillLook: ViewModifier {
+    var menuBar: Bool
+    func body(content: Content) -> some View {
+        if menuBar { content.buttonStyle(MenuBarNameStyle()) } else { content.nativeGlassButton().buttonBorderShape(.capsule) }
+    }
+}
+
 /// The Mac's name on the pill. On a switch the old name rolls out (up for the next Mac, down for
 /// the one before) and the new one rolls in behind it on the settle spring; under Reduce Motion
 /// the two cross-fade. The slot is the current name's size, so the pill's width animates with it
@@ -799,6 +830,8 @@ struct RollingName: View {
     /// Changes with the Mac (not the name: two Macs can share one).
     var key: String
     var reduceMotion: Bool
+    var font: Font = .footnote.weight(.semibold)
+    var color: Color = Ink.secondary
     /// What's drawn as the current name, by Mac.
     @State private var shown: (key: String, name: String)?
     /// The name on its way out, and how far the roll has got (0 = just started, 1 = done).
@@ -816,11 +849,10 @@ struct RollingName: View {
     #endif
 
     var body: some View {
-        let font = Font.footnote.weight(.semibold)
         let rolling = leaving != nil && progress < 1
         Text(shown?.name ?? name)
             .font(font)
-            .foregroundStyle(Ink.secondary)
+            .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
             .opacity(rolling ? (reduceMotion ? Double(progress) : Double(0.2 + 0.8 * progress)) : 1)
@@ -829,7 +861,7 @@ struct RollingName: View {
                 if let leaving, rolling {
                     Text(leaving.name)
                         .font(font)
-                        .foregroundStyle(Ink.secondary)
+                        .foregroundStyle(color)
                         .lineLimit(1)
                         .fixedSize()
                         .opacity(reduceMotion ? Double(1 - progress) : max(0, 1 - Double(progress) * 1.6))

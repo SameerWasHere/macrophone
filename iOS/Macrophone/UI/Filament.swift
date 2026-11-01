@@ -649,9 +649,11 @@ final class ThreadView: UIView {
 }
 
 extension RGB {
-    static let coral = RGB(r: 0.914, g: 0.502, b: 0.416)
-    /// The Thread's spectrum, cool to warm — violet, cyan, mint, gold, coral (as in SameerOS).
-    static let thread: [RGB] = [.violet, .cyan, .mint, .gold, .coral]
+    static let coral = RGB(r: 1.0, g: 0.596, b: 0.341)
+    /// The Thread's spectrum — Apple Intelligence's: blue, violet, pink, coral (Nov 1 2026; the
+    /// SameerOS violet · cyan · mint · gold · coral before).
+    static let thread: [RGB] = [RGB(r: 0.271, g: 0.604, b: 1.0), RGB(r: 0.737, g: 0.510, b: 0.953),
+                                RGB(r: 0.961, g: 0.447, b: 0.718), .coral, RGB(r: 1.0, g: 0.733, b: 0.341)]
 
     static func threadAt(_ u: Double) -> RGB {
         let x = min(max(u, 0), 1) * Double(thread.count - 1)

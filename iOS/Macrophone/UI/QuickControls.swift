@@ -490,7 +490,7 @@ private struct PlaceButton: View {
                                 // Tap again to watch: the eye, on a small glass disc at the icon's corner.
                                 Image(systemName: "eye.fill")
                                     .font(.system(size: compact ? 8 : 9, weight: .bold))
-                                    .foregroundStyle(Ink.ground)
+                                    .foregroundStyle(Ink.onTint)
                                     .frame(width: compact ? 16 : 18, height: compact ? 16 : 18)
                                     .background(Circle().fill(Ink.ink))
                                     .overlay(Circle().stroke(Ink.ground, lineWidth: 1.5))
@@ -510,7 +510,7 @@ private struct PlaceButton: View {
                     // Whole, on a second line when it needs one ("Where I'm typing"): never cut.
                     Text(place.shortName)
                         .font(.caption2.weight(selected ? .semibold : .regular))
-                        .foregroundStyle(selected ? Ink.ground : Ink.secondary)
+                        .foregroundStyle(selected ? Ink.onTint : Ink.secondary)
                         .lineLimit(2)
                         .minimumScaleFactor(0.85)
                         .multilineTextAlignment(.center)

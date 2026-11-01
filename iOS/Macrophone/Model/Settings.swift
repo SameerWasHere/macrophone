@@ -30,6 +30,8 @@ final class Settings: ObservableObject {
             CleanupPrompts.setCustomInstructions(t.isEmpty ? nil : customInstructions)
         }
     }
+    /// Light, dark, or the system's (Nov 1 2026 — the app was dark only before).
+    @Published var appearance: Appearance { didSet { d.set(appearance.rawValue, forKey: K.appearance) } }
     /// What this iPhone calls itself to the Mac. iOS only gives apps "iPhone", so the person can rename it.
     @Published var deviceName: String { didSet { d.set(deviceName, forKey: K.deviceName) } }
     /// The Send-to choice on the active Mac (synced with it both ways; the phone's wins on
@@ -60,6 +62,7 @@ final class Settings: ObservableObject {
         customInstructions = custom
         CleanupPrompts.setCustomInstructions(custom)
         deviceName = defaults.string(forKey: K.deviceName) ?? UIDevice.current.name
+        appearance = defaults.string(forKey: K.appearance).flatMap(Appearance.init(rawValue:)) ?? .automatic
         prefs = MacPreferences(defaults: defaults)
         selection = Self.storedSelection(defaults, mac: nil)
     }
@@ -119,6 +122,7 @@ final class Settings: ObservableObject {
         static let watchAfterSending = "settings.watchAfterSending"
         static let agentAlerts = "settings.agentAlerts"
         static let deviceName = "settings.deviceName"
+        static let appearance = "settings.appearance"
         /// The one Mac's keys from before Oct 19 2026 (now per Mac: MacPreferences.key(_:mac:)).
         static let selection = MacPreferences.selectionKey
         static let sendByTarget = MacPreferences.sendByTargetKey
@@ -127,6 +131,27 @@ final class Settings: ObservableObject {
         static let oldSendTo = "settings.sendTo"
         static let oldHoldHint = "settings.showHoldHint"
         static let oldProfiles = "profiles.cache"
+    }
+}
+
+/// Settings › Appearance: the system's choice, or always light, or always dark.
+enum Appearance: String, CaseIterable, Identifiable {
+    case automatic, light, dark
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+    /// For `preferredColorScheme`: nil follows the system.
+    var scheme: ColorScheme? {
+        switch self {
+        case .automatic: nil
+        case .light: .light
+        case .dark: .dark
+        }
     }
 }
 

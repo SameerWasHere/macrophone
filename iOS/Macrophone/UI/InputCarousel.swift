@@ -313,9 +313,8 @@ struct InputPageRow: View {
                     VStack(spacing: 3) {
                         HStack(spacing: 5) {
                             Image(systemName: page.symbol).font(.system(size: 9, weight: .bold))
-                            Text(page.title.uppercased())
-                                .font(.mono(.caption2, weight: .semibold))
-                                .tracking(1.1)
+                            Text(page.title.capitalized)
+                                .font(.caption.weight(.semibold))
                         }
                         .foregroundStyle(on ? Light.cyan : Ink.tertiary)
                         Capsule().fill(on ? Light.cyan : .clear).frame(width: 14, height: 3)

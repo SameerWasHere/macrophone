@@ -17,9 +17,8 @@ struct MacrophoneApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(recorder: model.recorder)
+            RootView(recorder: model.recorder, settings: model.settings)
                 .environmentObject(model)
-                .preferredColorScheme(.dark)
                 .onOpenURL { model.handleURL($0) }
                 .onChange(of: scenePhase, initial: true) { _, phase in model.scenePhaseChanged(phase) }
                 .task {
@@ -35,6 +34,7 @@ struct MacrophoneApp: App {
 struct RootView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
+    @ObservedObject var settings: Settings
     #if DEBUG
     @State private var settingsPath: [SettingsRoute] = DebugHooks.settingsPath
     #else
@@ -62,13 +62,13 @@ struct RootView: View {
                 case .customCleanup: CustomCleanupSheet()
                 case .openApp: OpenAppSheet()
                 case .macControls:
-                    // A compact panel, not a page: the window stays in sight behind it.
-                    MacControlsPanel() // sizes itself to its contents
+                    // The Mac's own Control Center, a compact panel: the window stays in sight
+                    // behind it (sizes itself to its contents).
+                    MacControlCenter()
                 }
             }
             .environmentObject(model)
-            .preferredColorScheme(.dark)
-            .presentationBackground(Ink.ground)
+            .preferredColorScheme(settings.appearance.scheme)
             .presentationDragIndicator(.visible)
             // The Duo's inner screen (Oct 25 2026): a sheet is a form in the middle of the
             // screen, not a phone's sheet stretched to its width; the Mac Controls panel takes

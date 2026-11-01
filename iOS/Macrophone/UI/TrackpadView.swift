@@ -24,10 +24,9 @@ struct TrackpadPage: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: WatchLook.bezel, style: .continuous)
         ZStack {
-            shape.fill(Ink.raised)
-                .overlay(shape.fill(LinearGradient(colors: [Ink.ink.opacity(0.05), .clear], startPoint: .top, endPoint: .bottom)))
-                .overlay(SpecularEdge(shape: shape))
-                .overlay(shape.strokeBorder(contrast == .increased ? Ink.ink.opacity(0.45) : Ink.lineStrong, lineWidth: 1))
+            // A Force Touch trackpad's glass: aluminium in light, space black in dark (Nov 1 2026).
+            ForceTouchSurface(corner: WatchLook.bezel)
+                .overlay { if contrast == .increased { shape.strokeBorder(Ink.ink.opacity(0.45), lineWidth: 1) } }
             if big {
                 // The outline of the pad itself, a step in from the plate's edge, barely there.
                 RoundedRectangle(cornerRadius: WatchLook.bezel - 6, style: .continuous)

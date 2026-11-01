@@ -1,5 +1,99 @@
 # Macrophone — design language
 
+## Macrophone, as Apple would make it (Nov 1 2026) — this wins over everything below
+
+Sameer: "The goal here is to be able to use my Mac from anywhere. I want this to feel like a
+native Apple app … It should feel like it was designed by Apple. It should have a light and dark
+mode. It should borrow elements from macOS … imagine if Apple built a Mac controller for the
+iPhone and iPhone Duo … The main focus should still be the mic and sending text to your Mac with
+your voice. But everything around it should be focused on delivering a macOS experience on
+iPhone." The night-sky, serif-and-mono look below is retired; its mechanics (the mic's states,
+the Thread's moods, the haptics, the voice of the words) stay.
+
+### Principles
+1. **The mic is the hero.** Bottom centre, the biggest thing on the screen, never moves, one tap.
+   Everything else is in service of where the words go.
+2. **The iPhone is a little Mac.** The screen reads as a macOS desktop: a **menu bar** across
+   the top, the Mac's **wallpaper** behind, **windows** in the middle, the **Dock** (Send to) above
+   the mic, **Control Center** for the Mac's sound, screen and music, **keycaps** and a **Force
+   Touch trackpad** for input. macOS Tahoe is the reference (Liquid Glass, the transparent menu
+   bar, the glass Dock, rounder windows).
+3. **Native first.** System colours, SF Pro, SF Symbols, Liquid Glass through the system styles,
+   standard sheets, lists, menus and toolbars. Nothing hand-drawn where Apple ships a control.
+   Custom drawing is only for what has no iOS control and is unmistakably macOS (traffic
+   lights, the Dock, keycaps, the trackpad's surface).
+4. **Light and dark.** Follows the system; Settings › Appearance (Automatic · Light · Dark).
+   Every colour is semantic or adaptive; nothing assumes a dark ground.
+
+### Tokens (`UI/Theme.swift`)
+- `Ink` becomes semantic, adaptive: `ground` = the desktop's base (systemBackground),
+  `raised` = secondarySystemBackground, `sunk` = tertiarySystemBackground, `ink` = label,
+  `secondary` = secondaryLabel, `tertiary` = tertiaryLabel, `line` = separator,
+  `lineStrong` = opaqueSeparator.
+- `Light` becomes Apple's system colours: `cyan` → **the accent, systemBlue** (connected, the
+  pick, prominent buttons), `teal` → systemTeal, `mint` → systemGreen (delivered), `gold` →
+  systemYellow, `ember` → **systemOrange** (the mic is in use — iOS's own orange dot), `violet` →
+  systemPurple, `ochre` → a darker yellow that reads on white (queued / caution), `rose` →
+  systemRed (failure).
+- The Thread's and the mic ring's spectrum is **Apple Intelligence's**: blue · purple · pink ·
+  orange, drawn so it reads on light (saturated, no white-hot cores) and on dark (the glow).
+- Type: **SF Pro everywhere** — no New York, no SF Mono kickers. Section labels are Apple's
+  (`.footnote.weight(.semibold)`, secondary, sentence case); numbers that tick use
+  `.monospacedDigit()`. The transcript is SF Pro `.title3`, settled words in label, pending in
+  secondaryLabel.
+- Radii follow Tahoe: windows 16, widgets / Dock / Control Center modules 22 / 24 / 18,
+  controls by the system. Shadows only where macOS has them (windows, the Dock, popovers).
+
+### The macOS pieces (`UI/MacOS/`)
+- **Menu bar** (`MenuBar.swift`): a slim strip under the status bar, transparent over the
+  wallpaper with vibrant text, like Tahoe's. Left: the Mac (`laptopcomputer` + its name, bold —
+  the Mac pill: tap = the Macs menu, swipe up/down = switch). While a window shows, the bold
+  name is **the app's** ("Terminal ⌄"), and its menu is the Window menu — exactly where macOS
+  puts the frontmost app. Right: monochrome menu extras — the route (Wi-Fi / Tailscale), **Control
+  Center** (`switch.2` → Mac Controls), History, Settings; watching: Sound, Control Center, Done.
+- **Wallpaper** (`Wallpaper.swift`): the Mac's own desktop picture when the Mac sends it
+  (feature `wallpaper`), else a Tahoe-like gradient — pale sky and lilac in light, deep indigo in
+  dark. The state's light (orange while listening, green when it lands) tints it faintly.
+- **Dock** (`Dock.swift`): Send to. A Liquid Glass shelf, the open apps' icons with the running
+  dot under each, a divider, then Clipboard and Where I'm typing (where macOS keeps Downloads and
+  the Trash), then Applications (+ = Open an App). The pick is lifted with its name in a small
+  label over it, as the Dock's hover label; a finger scrubbing along the Dock magnifies the icons
+  under it and picks where it lifts; a long press is the Dock's menu (the app's windows). Tap the
+  pick again to watch it.
+- **Desktop widget** (`DesktopWidget.swift`): the room between the menu bar and the Dock holds a
+  Sonoma-style desktop widget — the last dictation (its first lines, where it went, when; Copy ·
+  Resend), so the desktop is never empty.
+- **Window** (`WindowChrome.swift`): the watched window is a macOS window — a title bar with the
+  **traffic lights** (red = Close Window, asked first; yellow = Minimize; green = Fill the Screen /
+  Back to How It Was), the title centred (a tap lists the windows), Tahoe's corner radius and
+  window shadow, the live picture inside. Pan | Scroll and zoom out sit at the title bar's right,
+  as toolbar items.
+- **Control Center** (`ControlCenter.swift`, the Mac Controls panel): modules as on the Mac —
+  Sound (the speaker, − / mute / +, the level the Mac reports), Display (− / +), Now Playing
+  (⏮ ⏯ ⏭), and Hear Your Mac (the phone's Sound) as a toggle module.
+- **Keycaps and trackpad**: the deck's keys are Magic Keyboard keys (white keys on silver in
+  light, black on space grey in dark; SF Pro labels as printed on a Mac: esc, tab, return, fn,
+  ⌘ command …); the trackpad's surface is a Force Touch trackpad (silver / space black glass).
+- **The mic** (`MicButton.swift`): a Liquid Glass disc with `mic.fill`, ringed by the Apple
+  Intelligence gradient (slowly turning at rest); listening = the disc turns orange with the stop
+  square, and **the screen's edge glows** in the Apple Intelligence gradient, breathing with the
+  voice (Siri's own signal; Reduce Motion = a still glow). The meaning colours (sending, landed,
+  queued, failed) stay on the ring.
+- **Elsewhere**: Settings reads as System Settings (the Mac as the header card, solid colour icon
+  tiles, inset grouped lists); History as a Notes-like list by day with search; onboarding and
+  pairing as Setup Assistant (a big symbol, a large title, one blue Continue).
+
+### The Duo
+The cover is the phone with the vertical bar for a menu bar (the same items). Open on its side:
+the cover's view on the right half, the Mac — its window in its chrome over the wallpaper — on
+the left. The laptop: the top half is the Mac's screen, edge to edge, its menu bar a strip at the
+top of the deck; the deck is the keyboard (keycaps), the trackpad (the Force Touch surface) or
+the mic, one at a time, each the whole half.
+
+---
+
+## The earlier look (Oct 2026) — superseded by the section above
+
 The spec asks for the look of SameerOS's **Hey Claude** voice HUD on both the iPhone mic screen
 and the Mac popup. Macrophone is a public product, so it borrows that *language* but has its
 own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora sky" scenes.

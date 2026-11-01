@@ -1,43 +1,57 @@
 import SwiftUI
 import UIKit
 
-// The Macrophone look (docs/DESIGN.md): near-black blue ink, the Filament's spectrum,
-// meaning colours, serif for the words, mono for the machine. Dark only.
+// The Macrophone look (docs/DESIGN.md, "Macrophone, as Apple would make it", Nov 1 2026): Apple's
+// own semantic colours, so the app follows the system into light and dark (or the choice in
+// Settings › Appearance); the system accent for "your Mac"; SF Pro for everything. The names are
+// the old ones (Ink, Light) so every screen moved with one file.
 
 enum Ink {
-    static let ground = Color(red: 0.020, green: 0.024, blue: 0.051)      // #05060D
-    static let raised = Color(red: 0.075, green: 0.082, blue: 0.125)      // #131520
-    static let sunk = Color(red: 0.008, green: 0.012, blue: 0.031)
-    static let ink = Color(red: 0.957, green: 0.949, blue: 0.980)         // #F4F2FA
-    static let secondary = Color(red: 0.788, green: 0.784, blue: 0.812)   // #C9C8CF
-    static let tertiary = Color(red: 0.620, green: 0.616, blue: 0.647)    // #9E9DA5
+    /// A page: grouped background (#F2F2F7 light, black dark) — Settings' ground.
+    static let ground = Color(uiColor: .systemGroupedBackground)
+    /// A row or plate on the page (white light, #1C1C1E dark).
+    static let raised = Color(uiColor: .secondarySystemGroupedBackground)
+    /// Under a picture: the hollow a window sits in.
+    static let sunk = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .black : .systemGray5 })
+    static let ink = Color(uiColor: .label)
+    static let secondary = Color(uiColor: .secondaryLabel)
+    /// Quiet words that still read over a wallpaper (darker than systemGray in light).
+    static let tertiary = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
+        ? .systemGray : UIColor(red: 0.42, green: 0.42, blue: 0.44, alpha: 1) })
     static let faint = ink.opacity(0.08)
-    static let line = ink.opacity(0.14)
+    static let line = Color(uiColor: .separator)
     static let lineStrong = ink.opacity(0.22)
+    /// A glyph or label on a filled accent (a prominent button, a lit key): white, as Apple's are.
+    static let onTint = Color.white
 }
 
+/// The meaning colours — Apple's system colours, each tuned by the system for light and dark.
+/// The old names stay: cyan is the accent (your Mac, a pick, a lit control).
 enum Light {
-    static let cyan = Color(red: 0.345, green: 0.725, blue: 0.871)    // #58B9DE  connected Mac
-    static let teal = Color(red: 0.361, green: 0.827, blue: 0.765)    // #5CD3C3
-    static let mint = Color(red: 0.369, green: 0.839, blue: 0.635)    // #5ED6A2  delivered
-    static let gold = Color(red: 0.910, green: 0.753, blue: 0.424)    // #E8C06C
-    static let ember = Color(red: 0.914, green: 0.443, blue: 0.310)   // #E9714F  mic live / your action
-    static let violet = Color(red: 0.604, green: 0.525, blue: 0.902)  // #9A86E6
-    static let ochre = Color(red: 0.788, green: 0.616, blue: 0.408)   // #C99D68  queued / caution
-    static let rose = Color(red: 0.902, green: 0.431, blue: 0.494)    // #E66E7E  failure
+    static let cyan = Color(uiColor: .systemBlue)       // your Mac / the accent
+    static let teal = Color(uiColor: .systemTeal)       // sending
+    static let mint = Color(uiColor: .systemGreen)      // delivered
+    static let gold = Color(uiColor: .systemYellow)
+    static let ember = Color(uiColor: .systemOrange)    // mic live / your action (iOS's mic-in-use colour)
+    static let violet = Color(uiColor: .systemPurple)
+    /// Queued / caution: yellow in dark, a darker amber in light (yellow text can't be read on white).
+    static let ochre = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
+        ? .systemYellow : UIColor(red: 0.69, green: 0.45, blue: 0.0, alpha: 1) })
+    static let rose = Color(uiColor: .systemRed)        // failure
 }
 
-/// The Filament's spectrum as raw RGB, for per-frame gradient building.
+/// The Filament's colours as raw RGB, for per-frame gradient building (the system colours' dark
+/// variants — they read on both grounds).
 struct RGB: Equatable {
     var r: Double, g: Double, b: Double
-    static let cyan = RGB(r: 0.345, g: 0.725, b: 0.871)
-    static let teal = RGB(r: 0.361, g: 0.827, b: 0.765)
-    static let mint = RGB(r: 0.369, g: 0.839, b: 0.635)
-    static let gold = RGB(r: 0.910, g: 0.753, b: 0.424)
-    static let ember = RGB(r: 0.914, g: 0.443, b: 0.310)
-    static let violet = RGB(r: 0.604, g: 0.525, b: 0.902)
-    static let ochre = RGB(r: 0.788, g: 0.616, b: 0.408)
-    static let rose = RGB(r: 0.902, g: 0.431, b: 0.494)
+    static let cyan = RGB(r: 0.039, g: 0.518, b: 1.0)      // systemBlue
+    static let teal = RGB(r: 0.251, g: 0.784, b: 0.878)    // systemTeal
+    static let mint = RGB(r: 0.188, g: 0.820, b: 0.345)    // systemGreen
+    static let gold = RGB(r: 1.0, g: 0.839, b: 0.039)      // systemYellow
+    static let ember = RGB(r: 1.0, g: 0.624, b: 0.039)     // systemOrange
+    static let violet = RGB(r: 0.749, g: 0.353, b: 0.949)  // systemPurple
+    static let ochre = RGB(r: 0.902, g: 0.690, b: 0.180)
+    static let rose = RGB(r: 1.0, g: 0.271, b: 0.227)      // systemRed
     static let white = RGB(r: 1, g: 1, b: 1)
     static let spectrum: [RGB] = [.cyan, .teal, .mint, .gold, .ember, .violet]
 
@@ -84,25 +98,24 @@ enum Space {
 }
 
 extension Font {
-    /// The words: New York, scaled with Dynamic Type.
+    /// The words: SF Pro, scaled with Dynamic Type (New York until Nov 1 2026 — the name stays).
     static func serif(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
-        .system(style, design: .serif).weight(weight)
+        .system(style).weight(weight)
     }
-    /// Kickers and timers: SF Mono.
+    /// Kickers and timers: SF Pro with figures of one width, so a clock never jitters.
     static func mono(_ style: Font.TextStyle, weight: Font.Weight = .medium) -> Font {
-        .system(style, design: .monospaced).weight(weight)
+        .system(style).weight(weight).monospacedDigit()
     }
 }
 
-/// A small-caps mono kicker: "LISTENING · 00:12".
+/// A small label over a group, as iOS sets one: "Send to", "Listening · 00:12".
 struct Kicker: View {
     var text: String
-    var color: Color = Ink.tertiary
-    init(_ text: String, color: Color = Ink.tertiary) { self.text = text; self.color = color }
+    var color: Color = Ink.secondary
+    init(_ text: String, color: Color = Ink.secondary) { self.text = text; self.color = color }
     var body: some View {
-        Text(text.uppercased())
-            .font(.mono(.caption2, weight: .semibold))
-            .tracking(1.2)
+        Text(text)
+            .font(.footnote.weight(.semibold))
             .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -195,7 +208,7 @@ extension View {
     /// Toolbar confirm buttons (Done): prominent glass on iOS 26+.
     @ViewBuilder func doneButtonStyle() -> some View {
         if #available(iOS 26.0, *) {
-            buttonStyle(.glassProminent).tint(Light.cyan).fontWeight(.semibold).foregroundStyle(Ink.ground)
+            buttonStyle(.glassProminent).tint(Light.cyan).fontWeight(.semibold).foregroundStyle(Ink.onTint)
         } else {
             fontWeight(.semibold)
         }
@@ -239,7 +252,7 @@ struct PillButtonStyle: ButtonStyle {
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
             .frame(minHeight: 50)
-            .foregroundStyle(kind == .primary ? Ink.ground : tint)
+            .foregroundStyle(kind == .primary ? (tint == Ink.ink ? Color(uiColor: .systemBackground) : Ink.onTint) : tint)
             .background {
                 switch kind {
                 case .primary:
@@ -277,7 +290,7 @@ private struct PillStyle: ViewModifier {
                 .multilineTextAlignment(.center)
                 .controlSize(.extraLarge)
             if kind == .primary {
-                label.buttonStyle(.glassProminent).tint(tint).foregroundStyle(tint == Ink.ink ? Ink.ground : Color.white)
+                label.buttonStyle(.glassProminent).tint(tint).foregroundStyle(tint == Ink.ink ? Color(uiColor: .systemBackground) : Ink.onTint)
             } else {
                 label.buttonStyle(.glass).foregroundStyle(tint)
             }

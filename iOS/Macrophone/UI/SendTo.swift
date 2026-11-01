@@ -52,7 +52,7 @@ struct TargetIcon: View {
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {
-            GlyphPlate(symbol: TargetGlyph.symbol(for: target), tint: onTint ? Ink.ground : Self.tint(target), size: size)
+            GlyphPlate(symbol: TargetGlyph.symbol(for: target), tint: onTint ? Ink.onTint : Self.tint(target), size: size)
         }
     }
 

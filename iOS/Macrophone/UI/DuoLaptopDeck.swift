@@ -191,7 +191,7 @@ struct KeycapStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         Keycap(width: width, height: height, lit: lit, pressed: configuration.isPressed, small: small) {
-            configuration.label.foregroundStyle(lit ? Ink.ground : tint)
+            configuration.label.foregroundStyle(lit ? Ink.onTint : tint)
         }
         .opacity(enabled ? 1 : 0.4)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)

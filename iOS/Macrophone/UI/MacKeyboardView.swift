@@ -83,7 +83,7 @@ final class KeyboardTextView: UITextView {
         textColor = .clear
         tintColor = .clear
         isScrollEnabled = false
-        keyboardAppearance = .dark
+        keyboardAppearance = .default
         // A developer's keyboard: no curly quotes or dashes into a terminal, no capital at the
         // start of a command; autocorrect stays (it's the phone's, and it's what the diff is for).
         autocapitalizationType = .none
@@ -394,7 +394,7 @@ struct MacKeyboardBar: View {
                 .font(.system(size: 17, weight: .semibold))
                 .frame(width: cell, height: WatchLook.control - 6)
                 .background(Capsule().fill(on ? Light.cyan : .clear).padding(.horizontal, 2))
-                .foregroundStyle(on ? Ink.ground : Ink.ink)
+                .foregroundStyle(on ? Ink.onTint : Ink.ink)
         }
         .buttonStyle(.plain)
         .frame(width: cell, height: WatchLook.control)

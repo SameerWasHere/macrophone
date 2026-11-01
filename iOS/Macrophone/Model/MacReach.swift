@@ -18,7 +18,13 @@ final class MacReach: ObservableObject {
     /// The Mac's answer to the last Mac Controls key (the panel's readout: "Volume 56%", a meter).
     @Published private(set) var lastControl: MacControlResult?
 
-    func noteControl(_ r: MacControlResult) { lastControl = r }
+    /// The Mac's volume as last read back, kept across keys that don't read it (brightness, music):
+    /// Control Center's slider stands at it (Nov 1 2026).
+    @Published private(set) var lastVolume: Double?
+    func noteControl(_ r: MacControlResult) {
+        lastControl = r
+        if let v = r.volume { lastVolume = r.muted == true ? lastVolume : v }
+    }
 
     private var wakeTask: Task<Void, Never>?
     private static let displayKey = "watch.display"

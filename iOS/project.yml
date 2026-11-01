@@ -73,7 +73,6 @@ targets:
         MacrophoneCloudAlerts: $(MACROPHONE_CLOUD_ALERTS)
         LSRequiresIPhoneOS: true
         ITSAppUsesNonExemptEncryption: false
-        UIUserInterfaceStyle: Dark
         UIRequiresFullScreen: true
         # Every way for the iPhone Duo's inner screen; AppDelegate narrows it to upright on the
         # cover and on every other iPhone (Oct 25 2026).

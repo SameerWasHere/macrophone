@@ -11,7 +11,7 @@ import SwiftUI
 /// screen's Send to panel beside ⋯, as its icon alone (Oct 19 2026, Sameer: "Mac control button can just be the logo"). Only with a Mac that named the feature. A tap opens
 /// `MacControlsPanel`. (It was a submenu in the window's ··· keys menu and Send to's ⋯.)
 struct MacControlsButton: View {
-    enum Style { case cell, round }
+    enum Style { case cell, round, menuExtra }
     @EnvironmentObject var model: AppModel
     var style: Style
 
@@ -31,6 +31,10 @@ struct MacControlsButton: View {
                 .nativeGlassButton()
                 .buttonBorderShape(.circle)
                 .controlSize(.small)
+            case .menuExtra:
+                // Control Center's own glyph, in the menu bar where a Mac keeps it.
+                Button { open() } label: { Image(systemName: "switch.2") }
+                    .buttonStyle(MenuExtraStyle())
             }
         }
         .accessibilityLabel("Mac Controls")
@@ -202,28 +206,42 @@ struct WholeScreenItems: View {
 struct WholeScreenButton: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
+    /// A glyph in the menu bar (the phone's desktop, Nov 1 2026) rather than a round glass button.
+    var menuExtra = false
     @ObservedObject private var reach = MacReach.shared
 
     var body: some View {
         Group {
-            if reach.several {
-                Menu {
-                    WholeScreenItems(watcher: watcher)
-                } label: { icon }
+            if menuExtra {
+                control.buttonStyle(MenuExtraStyle())
             } else {
-                Button { model.watchWholeScreen() } label: { icon }
+                control
+                    .nativeGlassButton()
+                    .buttonBorderShape(.circle)
+                    .controlSize(.small)
             }
         }
-        .nativeGlassButton()
-        .buttonBorderShape(.circle)
-        .controlSize(.small)
         .accessibilityLabel("Whole Screen")
         .accessibilityHint(reach.several ? "Pick a display to see and use, live." : "See and use your Mac's whole screen, live.")
         .accessibilityIdentifier("whole-screen")
     }
 
-    private var icon: some View {
-        Image(systemName: reach.several ? "display.2" : "display").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+    @ViewBuilder private var control: some View {
+        if reach.several {
+            Menu {
+                WholeScreenItems(watcher: watcher)
+            } label: { icon }
+        } else {
+            Button { model.watchWholeScreen() } label: { icon }
+        }
+    }
+
+    @ViewBuilder private var icon: some View {
+        if menuExtra {
+            Image(systemName: reach.several ? "display.2" : "display")
+        } else {
+            Image(systemName: reach.several ? "display.2" : "display").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+        }
     }
 }
 

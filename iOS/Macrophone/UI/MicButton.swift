@@ -123,7 +123,7 @@ struct MicButton: View {
     // MARK: The glyph
 
     @ViewBuilder private var glyph: some View {
-        let inkColor = highContrast ? Color.white : Ink.ink
+        let inkColor = Ink.ink
         Group {
             if recording {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -231,9 +231,15 @@ private struct MicFace: View {
     var ringOpacity: Double
     var reduceTransparency: Bool
     var highContrast: Bool
+    @Environment(\.colorScheme) private var scheme
 
     private static let inkTint = Color(red: 0.13, green: 0.14, blue: 0.20)
-    private static let spectrum = AngularGradient(colors: [Light.cyan, Light.teal, Light.mint, Light.gold, Light.ember, Light.violet, Light.cyan], center: .center)
+    /// Apple Intelligence's colours round the disc (Nov 1 2026): the mic is Siri's cousin.
+    private static let spectrum = AngularGradient(colors: MacOSLook.intelligence, center: .center)
+    /// The disc at rest: dark glass in dark, white glass in light.
+    private var restTint: Color {
+        scheme == .light ? Color.white.opacity(pressed ? 0.55 : 0.8) : Self.inkTint.opacity(pressed ? 0.7 : 0.55)
+    }
 
     var body: some View {
         face
@@ -247,7 +253,8 @@ private struct MicFace: View {
                 }
             }
             .overlay { ring }
-            .shadow(color: (recording ? Light.ember : Light.cyan).opacity(recording ? 0.35 : 0.14), radius: recording ? 18 : 14, y: recording ? 0 : 4)
+            .shadow(color: recording ? Light.ember.opacity(0.35) : (scheme == .light ? Color.black.opacity(0.14) : Light.cyan.opacity(0.14)),
+                    radius: recording ? 18 : 14, y: recording ? 0 : 5)
             .opacity(disabled ? 0.55 : 1)
             .frame(width: size, height: size)
     }
@@ -261,7 +268,7 @@ private struct MicFace: View {
                     .shadow(color: c.opacity(0.55), radius: 6)
             } else {
                 Circle().strokeBorder(Self.spectrum, lineWidth: width)
-                    .shadow(color: Light.cyan.opacity(pressed ? 0.5 : 0.25), radius: 5)
+                    .shadow(color: Color(red: 0.74, green: 0.51, blue: 0.95).opacity(pressed ? 0.5 : 0.25), radius: 5)
             }
         }
         .padding(-6)
@@ -273,13 +280,15 @@ private struct MicFace: View {
             Color.clear
                 .frame(width: size, height: size)
                 .glassEffect(Glass.regular
-                    .tint(recording ? Light.ember.opacity(0.9) : Self.inkTint.opacity(pressed ? 0.7 : 0.55))
+                    .tint(recording ? Light.ember.opacity(0.9) : restTint)
                     .interactive(), in: Circle())
         } else {
             Circle()
                 .fill(recording
                       ? AnyShapeStyle(LinearGradient(colors: [Light.ember, Color(red: 0.80, green: 0.32, blue: 0.24)], startPoint: .top, endPoint: .bottom))
-                      : AnyShapeStyle(LinearGradient(colors: [pressed ? Color(red: 0.18, green: 0.19, blue: 0.26) : Self.inkTint, Ink.raised], startPoint: .top, endPoint: .bottom)))
+                      : scheme == .light
+                        ? AnyShapeStyle(LinearGradient(colors: [Color.white, Color(white: pressed ? 0.88 : 0.94)], startPoint: .top, endPoint: .bottom))
+                        : AnyShapeStyle(LinearGradient(colors: [pressed ? Color(red: 0.18, green: 0.19, blue: 0.26) : Self.inkTint, Ink.raised], startPoint: .top, endPoint: .bottom)))
                 .overlay(Circle().strokeBorder(recording ? Color.white.opacity(0.25) : (highContrast ? Ink.ink.opacity(0.45) : Ink.lineStrong), lineWidth: 1))
         }
     }
