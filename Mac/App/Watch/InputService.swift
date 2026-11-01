@@ -151,12 +151,32 @@ final class InputPoster: @unchecked Sendable {
             missed += 1
             warp = true
         }
-        let ev = CGEvent(mouseEventSource: source, mouseType: dragging ? .leftMouseDragged : .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)
+        // The cursor stays on a screen; what it was asked to go past is its push against the edge,
+        // carried as the event's own movement — that's what shows the hidden Dock or fires a hot
+        // corner (a move with no movement at the edge only sometimes did; Nov 1 2026).
+        let at = Self.onScreen(pt, near: pointer)
+        let from = pointer ?? at
+        var dx = (pt.x - from.x).rounded(), dy = (pt.y - from.y).rounded()
+        if at.y != pt.y, dy == 0 { dy = pt.y > at.y ? 1 : -1 }
+        if at.x != pt.x, dx == 0 { dx = pt.x > at.x ? 1 : -1 }
+        let ev = CGEvent(mouseEventSource: source, mouseType: dragging ? .leftMouseDragged : .mouseMoved, mouseCursorPosition: at, mouseButton: .left)
         if dragging { ev?.setIntegerValueField(.mouseEventClickState, value: 1) }
+        ev?.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx))
+        ev?.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy))
         ev?.flags = flags
         ev?.post(tap: .cghidEventTap)
-        if warp { CGWarpMouseCursorPosition(pt) }
-        pointer = pt
+        if warp { CGWarpMouseCursorPosition(at) }
+        pointer = at
+    }
+
+    /// A point kept on a screen: as it is when one holds it, else pulled to the nearest edge of the
+    /// screen the cursor was on (the last pixel row or column).
+    static func onScreen(_ pt: CGPoint, near last: CGPoint?) -> CGPoint {
+        var id = CGDirectDisplayID(), count: UInt32 = 0
+        if CGGetDisplaysWithPoint(pt, 1, &id, &count) == .success, count > 0 { return pt }
+        var b = CGDisplayBounds(CGMainDisplayID())
+        if let last, CGGetDisplaysWithPoint(last, 1, &id, &count) == .success, count > 0 { b = CGDisplayBounds(id) }
+        return CGPoint(x: min(max(pt.x, b.minX), b.maxX - 1), y: min(max(pt.y, b.minY), b.maxY - 1))
     }
 
     /// queue: the window's frame (looked up at most once a second) and the spot in it on screen.

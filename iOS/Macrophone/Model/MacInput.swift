@@ -347,9 +347,27 @@ final class MacInput: ObservableObject {
         trackpadUsed = true
         untouchedSinceShown = false
         watcher?.touch()
-        pointer.move(by: TrackpadMotion.step(delta, dt: dt), window: windowPoints)
+        let step = TrackpadMotion.step(delta, dt: dt)
+        let before = pointer
+        pointer.move(by: step, window: windowPoints)
         pointerSeq &+= 1
-        _ = sendMouse(WatchMouseEvent(.move, at: pointer.point, modifiers: Array(modifiers)))
+        _ = sendMouse(WatchMouseEvent(.move, at: pushed(from: before, by: step), modifiers: Array(modifiers)))
+    }
+
+    /// Where to send the pointer: where it is — or, pushed on against an edge it already sits on,
+    /// a little past it, so the Mac's cursor presses that edge of the screen as a real trackpad's
+    /// does (the hidden Dock, a hot corner — Nov 1 2026, Sameer: "move the mouse all the way to
+    /// the bottom, it doesn't reliably bring the Mac dock up").
+    private func pushed(from before: TrackpadPointer, by step: CGVector) -> CGPoint {
+        var p = pointer.point
+        let w = windowPoints
+        guard w.width > 0, w.height > 0 else { return p }
+        func past(_ d: CGFloat, _ size: CGFloat) -> CGFloat { min(0.05, max(0.004, abs(d) / size)) }
+        if before.y >= 0.999, step.dy > 0 { p.y = 1 + past(step.dy, w.height) }
+        if before.y <= 0.001, step.dy < 0 { p.y = -past(step.dy, w.height) }
+        if before.x >= 0.999, step.dx > 0 { p.x = 1 + past(step.dx, w.width) }
+        if before.x <= 0.001, step.dx < 0 { p.x = -past(step.dx, w.width) }
+        return p
     }
 
     /// A tap on the trackpad: a click where the pointer is (count 2 for a double-tap's second tap).
