@@ -65,7 +65,7 @@ enum DuoLook {
     /// different view with an even bigger window. The half view rule should only be of the laptop
     /// mode"): the deck under the window is this tall — less while a window is in hand.
     static let flatDeck: CGFloat = 300
-    static let flatDeckAtRest: CGFloat = 360
+    static let flatDeckAtRest: CGFloat = 430
 
     /// The screen's own rounded corner, and how far a picture at the screen's edge sits in from
     /// it so the curve never cuts it — r·(1 − 1/√2) — its corner concentric (Nov 1 2026, Sameer:
@@ -147,7 +147,7 @@ extension MainView {
             // the Mac's window isn't reshaped for it. The deck stays in the tree at no height —
             // the keyboard's field lives in it.
             let typing = keyboardUp
-            let deckHeight = typing ? 0 : flat ? min(geo.size.height * 0.45, watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
+            let deckHeight = typing ? 0 : flat ? min(geo.size.height * 0.52, watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
             let gap: CGFloat = typing ? 0 : flat ? 10 : h.deck.minY - h.mac.maxY
             let macHeight = flat ? geo.size.height - deckHeight - gap : h.mac.height
             let inset = DuoLook.edgeInset

@@ -155,16 +155,15 @@ struct MainView: View {
                                     if barUsed || posture.pose.isInner {
                                         // The cover: the Mac is in the vertical bar; its pill only
                                         // while it isn't connected (to say so, and to wake it).
-                                        if !barUsed || !model.isConnected { topBar } else { Color.clear.frame(height: 0) }
+                                        VStack(spacing: 0) {
+                                            if !barUsed || !model.isConnected { topBar }
+                                        }
                                     } else {
                                         // The phone: a little Mac desktop — the menu bar and the
                                         // last dictation as a widget (Nov 1 2026).
-                                        VStack(spacing: 0) {
-                                            PhoneMenuBar(watcher: watcher)
-                                            LastDictationWidget(lines: compact ? 2 : 3)
-                                                .padding(.horizontal, Space.margin)
-                                                .padding(.top, compact ? 8 : 14)
-                                        }
+                                        // (The last-dictation widget is gone — Nov 1 2026,
+                                        // Sameer: "I don't think is that useful".)
+                                        PhoneMenuBar(watcher: watcher)
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .top)
@@ -493,6 +492,7 @@ struct MainView: View {
                 VStack(spacing: 0) {
                     DockOptions(settings: model.settings)
                         .padding(.horizontal, Space.margin)
+                        .padding(.bottom, 10)
                     SendToDock(current: model.selection.target)
                         .padding(.bottom, compact ? 2 : 6)
                 }
@@ -516,6 +516,7 @@ struct MainView: View {
                 VStack(spacing: 0) {
                     DockOptions(settings: model.settings)
                         .padding(.horizontal, Space.margin)
+                        .padding(.bottom, 10)
                     SendToDock(current: model.selection.target)
                 }
             } else if barUsed || posture.pose.isInner {
