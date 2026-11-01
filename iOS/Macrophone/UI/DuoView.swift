@@ -133,13 +133,22 @@ extension MainView {
 
     // MARK: The laptop (upright: the hinge across — folded, or flat)
 
+    /// The keyboard page is up with a window in hand.
+    var keyboardUp: Bool { watcher.isShowing && input.page == .keyboard }
+
     var laptopBody: some View {
         GeometryReader { geo in
             let h = posture.halves(for: .laptop, in: geo.size)
             // Flat and upright there's no fold to keep to: the window takes all but the deck.
             let flat = posture.pose == .open(landscape: false)
-            let deckHeight = flat ? min(geo.size.height * 0.45, watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
-            let gap: CGFloat = flat ? 10 : h.deck.minY - h.mac.maxY
+            // The keyboard up: it covers the deck, so the window takes everything above it (and
+            // its Hide button) and nothing overlaps the picture (Nov 1 2026, Sameer: "the
+            // keyboard and the hide button … overlap with the view window"). A moment's change:
+            // the Mac's window isn't reshaped for it. The deck stays in the tree at no height —
+            // the keyboard's field lives in it.
+            let typing = keyboardUp
+            let deckHeight = typing ? 0 : flat ? min(geo.size.height * 0.45, watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
+            let gap: CGFloat = typing ? 0 : flat ? 10 : h.deck.minY - h.mac.maxY
             let macHeight = flat ? geo.size.height - deckHeight - gap : h.mac.height
             let inset = DuoLook.edgeInset
             VStack(spacing: 0) {
@@ -158,8 +167,8 @@ extension MainView {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
         }
-        // The keyboard rises over the deck's half; the Mac's half never shrinks for it.
-        .ignoresSafeArea(.keyboard)
+        // The keyboard rises over the deck's half; with it up the window sits above it.
+        .ignoresSafeArea(keyboardUp ? [] : .keyboard)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(posture.pose == .laptop ? FoldPose.laptop.spoken : FoldPose.open(landscape: false).spoken)
     }
