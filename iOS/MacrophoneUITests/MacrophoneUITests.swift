@@ -143,7 +143,9 @@ final class MacrophoneUITests: XCTestCase {
         ]
         for (what, env) in states {
             app = launch(paired.merging(env) { $1 })
-            same(idle, frame(app, "Start dictation"), "\(what) keeps the button in place")
+            // A problem that needs Settings turns the mic off: the same button, its own words.
+            let label = env["MACROPHONE_STATUS"] == "problem" ? "Microphone off" : "Start dictation"
+            same(idle, frame(app, label), "\(what) keeps the button in place")
             app.terminate()
         }
         // Not paired, then the first dictation copied on the iPhone with the Mac-app nudge.

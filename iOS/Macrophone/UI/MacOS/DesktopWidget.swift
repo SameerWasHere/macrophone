@@ -10,6 +10,8 @@ struct LastDictationWidget: View {
     @EnvironmentObject var model: AppModel
     /// How many lines of the words fit in the room it's given.
     var lines = 4
+    /// A body line's height, at the reader's text size.
+    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
     var body: some View {
         Group {
@@ -44,12 +46,16 @@ struct LastDictationWidget: View {
                     .foregroundStyle(Ink.secondary)
                     .lineLimit(1)
             }
+            // The words whole, shown to the widget's lines and fading out under them (as a widget's
+            // long text does) — never cut with "…"; VoiceOver hears all of it with the widget.
             Text(item.text(cleaned: true))
                 .font(.body)
                 .foregroundStyle(Ink.ink)
-                .lineLimit(lines)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, maxHeight: lineHeight * CGFloat(lines), alignment: .topLeading)
+                .clipped()
+                .edgeFade(bottom: 14)
+                .accessibilityHidden(true)
             HStack(spacing: 8) {
                 Button { model.copy(item, cleaned: true); Haptics.tick() } label: { Label("Copy", systemImage: "doc.on.doc") }
                     .accessibilityIdentifier("widget-copy")
@@ -68,7 +74,7 @@ struct LastDictationWidget: View {
             .tint(Ink.ink)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Last dictation, to \(item.targetName ?? "this iPhone")")
+        .accessibilityLabel("Last dictation, to \(item.targetName ?? "this iPhone"): \(item.text(cleaned: true))")
         .accessibilityIdentifier("last-dictation-widget")
     }
 

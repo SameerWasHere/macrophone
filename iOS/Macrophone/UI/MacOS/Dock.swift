@@ -222,15 +222,6 @@ private struct DockIcon: View {
             .scaleEffect(scale, anchor: .bottom)
             .frame(width: size * scale)
             .offset(y: selected ? -5 : 0)
-            .overlay(alignment: .top) {
-                if let label {
-                    DockLabel(text: label, warning: notOpen ? "Not open" : nil)
-                        .fixedSize()
-                        .offset(y: -DockLook.headroom + 2 - (scale - 1) * size)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
-                        .accessibilityIdentifier("send-to")
-                }
-            }
         }
         .buttonStyle(DockPress())
         .animation(Motion.pick(Motion.snap, reduce: reduceMotion), value: selected)
@@ -257,6 +248,22 @@ private struct DockIcon: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint(watchable ? "Tap again to watch its window on your Mac." : selected ? "" : "Sends your dictations here.")
         .accessibilityAction(named: "Watch") { if watchable { onWatch() } }
+        // The pick's name over it: its own element (VoiceOver reads it as the Send to heading),
+        // outside the button so it never becomes the button's own words.
+        .overlay(alignment: .top) {
+            if let label {
+                DockLabel(text: label, warning: notOpen ? "Not open" : nil)
+                    .fixedSize()
+                    .offset(y: -DockLook.headroom + 2 - (scale - 1) * DockLook.icon - (selected ? 5 : 0))
+                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Send to: \(label)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : "")
+                                        + (needs.map { $0.asking ? ", asking you something" : ", answered you" } ?? ""))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("send-to")
+            }
+        }
     }
 
     private var accessibilityName: String {

@@ -27,8 +27,8 @@ struct StatusLine: View {
         let miss = landedMiss
         Group {
             if text.isEmpty {
-                // Nothing to say: the slot stays (the mic never moves), empty.
-                Color.clear.accessibilityHidden(true)
+                // Nothing to say: the slot stays (the mic never moves), empty — and no element.
+                EmptyView()
             } else if settingsLink {
                 // The fix is in Settings: the whole line is the way there (no extra row to make room for).
                 Button {
@@ -45,6 +45,8 @@ struct StatusLine: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, Space.text)
+        // An empty line is no element at all (an empty slot read as one with no words).
+        .accessibilityHidden(text.isEmpty)
         .animation(.easeInOut(duration: 0.2), value: text)
     }
 

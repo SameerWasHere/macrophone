@@ -20,8 +20,8 @@ enum MacOSLook {
     static let iconCorner: CGFloat = 0.2237
 
     // MARK: The menu bar
-    /// The strip's height under the status bar (a Mac's is 24 pt; a finger wants a little more).
-    static let menuBar: CGFloat = 34
+    /// The strip's height under the status bar: a Mac's is 24 pt, but a finger needs iOS's 44.
+    static let menuBar: CGFloat = 44
     /// A menu extra's glyph.
     static let extraGlyph: CGFloat = 15
 

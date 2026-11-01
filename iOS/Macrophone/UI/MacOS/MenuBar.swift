@@ -33,7 +33,7 @@ struct MenuExtraStyle: ButtonStyle {
             .font(.system(size: MacOSLook.extraGlyph, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(on ? Light.cyan : Ink.ink)
-            .frame(minWidth: 36, minHeight: MacOSLook.menuBar)
+            .frame(minWidth: 44, minHeight: MacOSLook.menuBar)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(configuration.isPressed ? Ink.ink.opacity(0.14) : .clear)
                 .padding(.vertical, 4))
@@ -72,7 +72,10 @@ struct MenuBarName: View {
 /// The menu bar's left item pressed: the same rounded highlight as an extra's.
 struct MenuBarNameStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        // The bar's full height is the button's (a finger's 44 pt — and the size VoiceOver reads).
         configuration.label
+            .frame(minHeight: MacOSLook.menuBar)
+            .contentShape(Rectangle())
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(configuration.isPressed ? Ink.ink.opacity(0.14) : .clear)
                 .padding(.vertical, 4))
