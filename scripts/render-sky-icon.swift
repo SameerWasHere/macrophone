@@ -11,8 +11,9 @@
 // scripts/sky-icon.sh runs the whole pipeline.
 //
 // THE PORT. The composition, the strand and the light are SameerOS's number for number: a 1024 canvas,
-// the sky a vertical four-stop gradient with a radial haze behind the thread, a seeded soft-light grain
-// (so the long dark gradient dithers instead of banding), SameerOS's own star field (the same seed, the
+// the sky a vertical four-stop gradient with a radial haze behind the thread (rendered at 2048 in floating
+// point and brought to 8 bits with a one-step triangular dither — no visible grain, no banding; Nov 1
+// 2026, the soft-light grain read as pixelated on the phone), SameerOS's own star field (the same seed, the
 // first 56 stars in the upper 38 % of the sky, each with a faint halo), and the Thread as ThreadMark's
 // idle curve drawn bold: 401 samples across 78 % of the width, y = −0.1275·w·sin(2π(u−½))·sin(πu)^1.2,
 // a ribbon tapered by sin(πu)^0.7 at 36 px half-width; a 150 px stroke of the spine's inner 70 % blurred
@@ -115,9 +116,10 @@ struct IconArt: View {
         static let sky = Parts(rawValue: 1), grain = Parts(rawValue: 2), haze = Parts(rawValue: 4)
         static let stars = Parts(rawValue: 8), halo = Parts(rawValue: 16), glow = Parts(rawValue: 32)
         static let ribbon = Parts(rawValue: 64), core = Parts(rawValue: 128)
-        static let all: Parts = [.sky, .grain, .haze, .stars, .halo, .glow, .ribbon, .core]
+        static let all: Parts = [.sky, .haze, .stars, .halo, .glow, .ribbon, .core]
         /// The bundle's layers: the opaque sky, the translucent light, the strand (glass).
-        static let skyLayer: Parts = [.sky, .grain, .haze]
+        /// (No `.grain`: `render` dithers at the last bit instead.)
+        static let skyLayer: Parts = [.sky, .haze]
         static let lightLayer: Parts = [.stars, .halo, .glow]
         static let threadLayer: Parts = [.ribbon, .core]
     }
@@ -298,13 +300,52 @@ struct IconArt: View {
 
 enum RenderError: Error { case render(String), write(String) }
 
+/// Twice the size in floating point, then down to 1024 and 8 bits with a dither (`dithered`): the
+/// gradients and the glow's long falloff come out smooth instead of banded or grainy.
 @MainActor
 func render(_ variant: IconArt.Variant, parts: IconArt.Parts = .all) throws -> CGImage {
     let renderer = ImageRenderer(content: IconArt(variant: variant, parts: parts))
     renderer.proposedSize = ProposedViewSize(width: IconArt.side, height: IconArt.side)
-    renderer.scale = 1
+    renderer.scale = 2
+    renderer.colorMode = .extendedLinear
     guard let image = renderer.cgImage else { throw RenderError.render("\(variant) \(parts.rawValue)") }
-    return image
+    return dithered(image, px: Int(IconArt.side), seed: UInt64(parts.rawValue) &* 31 &+ UInt64(variant.rawValue.count))
+}
+
+/// Down to `px` in 16 bits a channel, then to 8 with a triangular dither of one step: the average
+/// is the 16-bit value exactly, the noise sits under what an eye can see, and a gradient a few
+/// steps tall across hundreds of pixels never shows its steps. Exact 0 and full stay exact (a
+/// clear area stays clear), and a colour never exceeds its alpha (premultiplied).
+func dithered(_ image: CGImage, px: Int, seed: UInt64) -> CGImage {
+    let n = px * px * 4
+    var wide = [UInt16](repeating: 0, count: n)
+    let wideInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
+    wide.withUnsafeMutableBytes { buf in
+        let ctx = CGContext(data: buf.baseAddress, width: px, height: px, bitsPerComponent: 16, bytesPerRow: px * 8,
+                            space: srgb, bitmapInfo: wideInfo)!
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: px, height: px))
+    }
+    var out = [UInt8](repeating: 0, count: n)
+    var g = SeededGenerator(seed: 0xD17E ^ seed)
+    func step(_ v: UInt16, ceiling: Int) -> UInt8 {
+        if v == 0 { return 0 }
+        if v == 65535 { return UInt8(ceiling) }
+        let a = Double(g.next() >> 11) / Double(1 << 53), b = Double(g.next() >> 11) / Double(1 << 53)
+        let x = (Double(v) / 257 + a - b).rounded()
+        return UInt8(min(Double(ceiling), max(0, x)))
+    }
+    for p in stride(from: 0, to: n, by: 4) {
+        let alpha = step(wide[p + 3], ceiling: 255)
+        out[p] = step(wide[p], ceiling: Int(alpha))
+        out[p + 1] = step(wide[p + 1], ceiling: Int(alpha))
+        out[p + 2] = step(wide[p + 2], ceiling: Int(alpha))
+        out[p + 3] = alpha
+    }
+    let provider = CGDataProvider(data: Data(out) as CFData)!
+    return CGImage(width: px, height: px, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: px * 4, space: srgb,
+                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                   provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)!
 }
 
 /// Flattens onto an alpha-free bitmap (App Store Connect rejects an icon with alpha).
