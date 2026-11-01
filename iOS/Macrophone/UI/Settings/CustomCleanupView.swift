@@ -4,31 +4,35 @@ import SwiftUI
 /// The Custom cleanup level's instructions, in full and editable. Prefilled with the default —
 /// exactly Medium's — saved as he types and applied to the next dictation at once. Emptied, Custom
 /// goes back to the default. Reached from Settings › Cleanup, and from the Custom step by the mic
-/// (tap it again once it's picked, or long-press it).
+/// (tap it again once it's picked, or long-press it). A native grouped page since Nov 1 2026, the
+/// editor a cell as Mail's signature is.
 struct CustomCleanupView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
     @State private var text = ""
     @State private var confirmReset = false
     @FocusState private var focused: Bool
+    @ScaledMetric(relativeTo: .callout) private var editorHeight: CGFloat = 340
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var isDefault: Bool { trimmed.isEmpty || trimmed == CleanupPrompts.defaultCustomInstructions }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("These are the instructions Apple's on-device model follows to clean up your words. It always keeps your words as text — it never answers them.")
-                .font(.footnote)
-                .foregroundStyle(Ink.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        Form {
             if settings.cleanupLevel != .custom { useCustom }
-            editor
-            footer
+            Section {
+                editor
+            } header: {
+                Text("Instructions")
+            } footer: {
+                footer
+            }
+            Section {
+                Button("Reset to Default", role: .destructive) { confirmReset = true }
+                    .disabled(isDefault)
+                    .accessibilityIdentifier("custom-reset")
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
-        .background(Ink.ground.ignoresSafeArea())
         .navigationTitle("Custom Cleanup")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -51,20 +55,23 @@ struct CustomCleanupView: View {
 
     /// Cleanup is on another level: the instructions only apply at Custom.
     private var useCustom: some View {
-        HStack(spacing: 10) {
-            Text("Cleanup is set to \(settings.cleanupLevel.title). These apply when it's set to Custom.")
-                .font(.footnote)
-                .foregroundStyle(Light.ochre)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 4)
-            Button("Use Custom") {
-                Haptics.tick()
-                model.setCleanupLevel(.custom)
+        Section {
+            HStack(spacing: 12) {
+                Text("Cleanup is set to \(settings.cleanupLevel.title). These apply when it's set to Custom.")
+                    .font(.subheadline)
+                    .foregroundStyle(Ink.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button("Use Custom") {
+                    Haptics.tick()
+                    model.setCleanupLevel(.custom)
+                }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .tint(Light.cyan)
+                .accessibilityIdentifier("use-custom")
             }
-            .font(.footnote.weight(.semibold))
-            .buttonStyle(.bordered)
-            .tint(Light.cyan)
-            .accessibilityIdentifier("use-custom")
         }
     }
 
@@ -73,64 +80,51 @@ struct CustomCleanupView: View {
             TextEditor(text: $text)
                 .font(.callout)
                 .foregroundStyle(Ink.ink)
-                .lineSpacing(3)
+                .lineSpacing(2)
                 .scrollContentBackground(.hidden)
                 .focused($focused)
                 .autocorrectionDisabled()
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .frame(height: editorHeight)
                 .accessibilityLabel("Custom cleanup instructions")
                 .accessibilityIdentifier("custom-instructions")
             if trimmed.isEmpty {
                 Text("Empty — Custom follows the default instructions, the same as Medium.")
                     .font(.callout)
                     .foregroundStyle(Ink.tertiary)
-                    .padding(.horizontal, 15)
-                    .padding(.vertical, 16)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 8)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
         }
-        .frame(maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(Ink.sunk))
-        .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
-            .strokeBorder(focused ? Light.cyan.opacity(0.5) : Ink.line, lineWidth: 1))
-        .animation(.easeInOut(duration: 0.2), value: focused)
+        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
     }
 
-    /// The editor's state in the app's kicker voice, beside the mono count.
-    private var status: some View {
-        Kicker(isDefault ? "Default · same as Medium" : "Your own · saved as you type",
-               color: isDefault ? Ink.tertiary : Light.mint)
-    }
-
-    private var count: some View {
-        Text("\(text.count.formatted()) characters")
-            .font(.mono(.caption, weight: .medium))
-            .monospacedDigit()
-            .foregroundStyle(Ink.tertiary)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityIdentifier("custom-count")
-    }
-
+    /// Whose instructions these are, beside the count; then what the model does with them.
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             // Side by side while they fit; stacked at large text sizes, never clipped.
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline) { status; Spacer(minLength: 8); count }
                 VStack(alignment: .leading, spacing: 4) { status; count }
             }
-            Text("Your dictionary words are added automatically.")
-                .font(.footnote)
-                .foregroundStyle(Ink.tertiary)
+            Text("These are the instructions Apple's on-device model follows to clean up your words. It always keeps your words as text — it never answers them. Your dictionary words are added automatically.")
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Reset to Default") { confirmReset = true }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(isDefault ? Ink.tertiary : Light.cyan)
-                .disabled(isDefault)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("custom-reset")
         }
+    }
+
+    private var status: some View {
+        Label(isDefault ? "Default · same as Medium" : "Your own · saved as you type",
+              systemImage: isDefault ? "doc.text" : "checkmark.circle.fill")
+            .foregroundStyle(isDefault ? Ink.secondary : Light.mint)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var count: some View {
+        Text("\(text.count.formatted()) characters")
+            .monospacedDigit()
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("custom-count")
     }
 }
 

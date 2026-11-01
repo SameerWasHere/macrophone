@@ -27,7 +27,8 @@ struct VersionToggle: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(minHeight: 32)
-                .foregroundStyle(on ? Ink.onTint : Ink.secondary)
+                // The picked one inverted in both appearances (label on the page's own ground).
+                .foregroundStyle(on ? Color(uiColor: .systemBackground) : Ink.secondary)
                 .background(Capsule().fill(on ? Ink.ink : .clear))
                 .contentShape(Capsule().inset(by: -6))
         }
@@ -81,41 +82,6 @@ struct FittedText: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
-    }
-}
-
-/// Text that shows whole when short, else the top under a fade with "Show all".
-struct ExpandableText: View {
-    var text: String
-    var font: Font
-    var collapsedHeight: CGFloat = 128
-    @State private var expanded = false
-    @State private var natural: CGFloat = 0
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if expanded || natural <= collapsedHeight + 1 {
-                label
-            } else {
-                label.frame(height: collapsedHeight, alignment: .top).clipped().edgeFade(bottom: 40)
-            }
-            if natural > collapsedHeight + 1 {
-                Button(expanded ? "Show less" : "Show all") { withAnimation(Motion.settle) { expanded.toggle() } }
-                    .font(.footnote.weight(.semibold)).foregroundStyle(Light.cyan)
-                    .buttonStyle(.plain)
-                    .frame(minHeight: 32)
-            }
-        }
-        .background(alignment: .top) { NaturalHeight(content: label, height: $natural) }
-    }
-
-    private var label: some View {
-        Text(text)
-            .font(font)
-            .foregroundStyle(Ink.ink)
-            .lineSpacing(3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -250,6 +216,42 @@ struct LastDictationCard: View {
         if item.dictation.stoppedEarly { parts.append("stopped early") }
         if item.partialCleanup == true { parts.append("partly cleaned") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Wraps chips onto as many lines as they need. A chip wider than the row gets the row's
+/// width and wraps its own words (huge Dynamic Type) instead of running off the edge.
+struct FlowRow: Layout {
+    var spacing: CGFloat = 6
+
+    private func size(of s: LayoutSubview, in width: CGFloat) -> CGSize {
+        let ideal = s.sizeThatFits(.unspecified)
+        guard width.isFinite, ideal.width > width else { return ideal }
+        return s.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxX: CGFloat = 0
+        for s in subviews {
+            let size = size(of: s, in: width)
+            if x > 0, x + size.width > width { x = 0; y += rowH + spacing; rowH = 0 }
+            x += size.width + spacing
+            rowH = max(rowH, size.height)
+            maxX = max(maxX, x - spacing)
+        }
+        return CGSize(width: min(maxX, width), height: y + rowH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        for s in subviews {
+            let size = size(of: s, in: bounds.width)
+            if x > bounds.minX, x + size.width > bounds.maxX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
+            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowH = max(rowH, size.height)
+        }
     }
 }
 

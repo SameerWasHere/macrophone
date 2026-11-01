@@ -11,7 +11,7 @@ struct QRScanner: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: Radius.large, style: .continuous).fill(Ink.sunk)
+            RoundedRectangle(cornerRadius: Radius.large, style: .continuous).fill(Color(uiColor: .secondarySystemBackground))
             #if DEBUG
             if DebugHooks.env["MACROPHONE_FAKE_CAMERA"] == "1" {
                 FakeCameraFeed().clipShape(RoundedRectangle(cornerRadius: Radius.large, style: .continuous))
@@ -35,11 +35,11 @@ struct QRScanner: View {
                     Button("Open Settings") {
                         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                     }
-                    .pillStyle(.secondary, tint: Light.cyan)
+                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(Light.cyan)
                 }
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: Radius.large, style: .continuous).strokeBorder(Ink.line))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.large, style: .continuous))
         // Back from Settings with the camera allowed: show it without leaving the screen.
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { access = AVCaptureDevice.authorizationStatus(for: .video) }
@@ -63,10 +63,10 @@ struct QRScanner: View {
 
     private func message(_ title: String, _ body: String) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: "qrcode.viewfinder").font(.system(size: 34, weight: .light)).foregroundStyle(Ink.tertiary)
+            Image(systemName: "qrcode.viewfinder").font(.system(size: 40, weight: .regular)).foregroundStyle(Ink.secondary)
             Text(title).font(.headline).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(body).font(.subheadline).foregroundStyle(Ink.tertiary).multilineTextAlignment(.center)
+            Text(body).font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(24)

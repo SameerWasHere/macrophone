@@ -1,6 +1,9 @@
 import MacrophoneKit
 import SwiftUI
 
+/// Settings, as an iPhone's own Settings reads (Nov 1 2026): the active Mac as the banner at the
+/// top (a tap opens how it's connected and Away from Home), then inset-grouped sections whose rows
+/// each lead with a Settings icon, and the explanations in the sections' footers.
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
@@ -10,9 +13,6 @@ struct SettingsView: View {
     @State private var confirmClear = false
     @State private var name = ""
     @FocusState private var nameFocused: Bool
-    @State private var address = ""
-    @State private var addressProblem = false
-    @FocusState private var addressFocused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
     var initialPath: [SettingsRoute] = []
     @State private var path: [SettingsRoute] = []
@@ -20,18 +20,24 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Form {
+                bannerSection
+                // Where the words go and how they're cleaned first; then watching and alerts.
                 if model.isPaired { sendToSection }
                 cleanupSection
+                cleanupMoreSection
+                if model.isPaired {
+                    watchSection
+                    alertsSection
+                }
                 recordingSection
+                appearanceSection
                 macSection
-                if model.isPaired { awaySection }
                 historySection
                 aboutSection
             }
-            .scrollContentBackground(.hidden)
-            .background(Ink.ground.ignoresSafeArea())
+            .toggleStyle(.settings)
             .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { commitName(); dismiss() }.doneButtonStyle() }
             }
@@ -43,11 +49,11 @@ struct SettingsView: View {
                 case .pairing: PairingView(embedded: true)
                 case .sendTo: SendToList(settings: settings).navigationTitle("Send to").navigationBarTitleDisplayMode(.inline)
                 case .customCleanup: CustomCleanupView(settings: settings)
+                case .connection: MacConnectionView()
                 }
             }
             .onAppear {
                 name = settings.deviceName
-                address = model.typedAddress?.display ?? ""
                 if path.isEmpty, !initialPath.isEmpty { path = initialPath }
                 model.refreshAvailability()
             }
@@ -55,65 +61,86 @@ struct SettingsView: View {
         .tint(Light.cyan)
     }
 
-    // MARK: Send to (the same choice as the quick controls by the mic)
+    // MARK: The Mac, as the banner
 
-    // Each switch explains itself in its own row (the three explanations used to run together
-    // as one nine-line footer, Oct 18 2026); the footer keeps the one fact about all of them.
+    @ViewBuilder private var bannerSection: some View {
+        Section {
+            if let mac = model.pairedMac {
+                let standing = model.standing(of: mac)
+                NavigationLink(value: SettingsRoute.connection) {
+                    MacBanner(name: mac.name, status: standing.words, routeSymbol: RouteGlyph.symbol(standing))
+                }
+                .accessibilityHint("How this iPhone reaches it, at home and away.")
+                .accessibilityIdentifier("settings-mac")
+            } else {
+                NavigationLink(value: SettingsRoute.pairing) {
+                    MacBanner(name: "Pair Your Mac", status: "Scan the code on your Mac to send your words to it.", paired: false)
+                }
+                .accessibilityIdentifier("settings-mac")
+            }
+        }
+    }
+
+    // MARK: Send to (the same choice as the Dock)
+
     private var sendToSection: some View {
         let target = settings.selection.target
         return Section {
             NavigationLink(value: SettingsRoute.sendTo) {
                 LabeledContent {
-                    Text(target.displayName)
+                    Text(target.displayName).multilineTextAlignment(.trailing)
                 } label: {
-                    HStack(spacing: 12) {
-                        TargetIcon(target: target, icon: model.liveTarget(for: target)?.icon, size: 28)
+                    Label {
                         Text("Send to")
+                    } icon: {
+                        PlaceIcon(target: target, icon: model.liveTarget(for: target)?.icon)
                     }
                 }
             }
-            Toggle(isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
-                row("Send after pasting", symbol: settings.selection.send ? "paperplane.fill" : "paperplane", tint: Light.cyan,
-                    detail: target.canSend
-                        ? "Your Mac presses the app's send key after pasting. If you're at the Mac, you get a moment to cancel first."
-                        : "\(target.displayName) can't send — sending after pasting is for apps.")
+            // Only the switch is disabled for a place that can't send, the label dimmed beside it:
+            // a disabled Toggle's own label read as clipped text to the accessibility audit.
+            HStack {
+                Label { Text("Send after pasting") } icon: { SettingsIcon(symbol: "paperplane.fill", color: Light.cyan) }
+                    .foregroundStyle(target.canSend ? Ink.ink : Ink.secondary)
+                Spacer(minLength: 8)
+                Toggle("Send after pasting", isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) }))
+                    .labelsHidden()
+                    .disabled(!target.canSend)
             }
-            .disabled(!target.canSend)
+            .accessibilityElement(children: .combine)
+        } header: {
+            Text("Send to")
+        } footer: {
+            Text((target.canSend
+                  ? "Your Mac presses the app's send key after pasting. If you're at the Mac, you get a moment to cancel first."
+                  : "\(target.displayName) can't send — sending after pasting is for apps.")
+                 + " The choice is the same on your Mac: change it in either place.")
+        }
+    }
+
+    // Each switch explains itself in its own footer (the three explanations used to run together
+    // as one nine-line footer, Oct 18 2026).
+    private var watchSection: some View {
+        Section {
             Toggle(isOn: $settings.watchAfterSending) {
-                row("Show the app after sending", symbol: "eye", tint: Light.teal,
-                    detail: "Your iPhone shows that app's window live, so you can read the answer, tap to click, swipe to scroll, and press Esc, the arrows or Return. Only that window, and only while you look.")
+                Label { Text("Show the app after sending") } icon: { SettingsIcon(symbol: "eye.fill", color: Color(uiColor: .systemIndigo)) }
             }
+        } footer: {
+            Text("Your iPhone shows that app's window live, so you can read the answer, tap to click, swipe to scroll, and press Esc, the arrows or Return. Only that window, and only while you look.")
+        }
+    }
+
+    private var alertsSection: some View {
+        Section {
             Toggle(isOn: $settings.agentAlerts) {
-                row("Tell me when an agent asks something", symbol: "bell.badge", tint: Light.ember,
-                    detail: "When an agent on your Mac stops to ask something while Macrophone is open here, you get a notification; tap it to answer.")
+                Label { Text("Tell me when an agent asks something") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
             }
             .onChange(of: settings.agentAlerts) { _, on in
                 Task { if on { await AgentAlerts.shared.askIfNeeded() } else { await AgentAlerts.shared.unsubscribeInCloud() } }
             }
-        } header: {
-            Kicker("Send to")
         } footer: {
-            Text("The choice is the same on your Mac: change it in either place.")
+            Text("When an agent on your Mac stops to ask something while Macrophone is open here, you get a notification; tap it to answer.")
         }
-        .listRowBackground(Ink.raised)
-    }
-
-    /// A row's title led by its mark — a symbol on a tinted plate in the same 28pt column as
-    /// the Send to icon, so every label in Settings starts at one x — and, under it, one line
-    /// of what the row does.
-    private func row(_ title: String, symbol: String, tint: Color, detail: String? = nil) -> some View {
-        HStack(alignment: detail == nil ? .center : .top, spacing: 12) {
-            GlyphPlate(symbol: symbol, tint: tint)
-                .padding(.top, detail == nil ? 0 : 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                if let detail {
-                    Text(detail).font(.footnote).foregroundStyle(Ink.tertiary)
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, detail == nil ? 0 : 4)
     }
 
     // MARK: Cleanup
@@ -131,32 +158,33 @@ struct SettingsView: View {
 
     private var cleanupSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 12) {
-                // The same five levels as by the mic.
-                CleanupPicker(settings: settings)
-                Text(cleanupDisabledReason ?? levelSummary)
-                    .font(.footnote)
-                    .foregroundStyle(cleanupDisabledReason == nil ? Ink.secondary : Light.ochre)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.vertical, 6)
+            // The same five levels as by the mic.
+            CleanupPicker(settings: settings)
+                .padding(.vertical, 2)
+        } header: {
+            Text("Cleanup")
+        } footer: {
+            Text(cleanupDisabledReason ?? levelSummary)
+                .foregroundStyle(cleanupDisabledReason == nil ? Ink.secondary : Light.ochre)
+        }
+    }
+
+    private var cleanupMoreSection: some View {
+        Section {
             NavigationLink(value: SettingsRoute.customCleanup) {
                 LabeledContent { Text(model.customInstructionsEdited ? "Your own" : "Default") } label: {
-                    row("Custom instructions", symbol: "text.quote", tint: Light.violet)
+                    Label { Text("Custom instructions") } icon: { SettingsIcon(symbol: "text.quote", color: Light.violet) }
                 }
             }
             .accessibilityIdentifier("custom-instructions-link")
             NavigationLink(value: SettingsRoute.dictionary) {
                 LabeledContent { Text("\(settings.dictionary.count) of \(DictionaryPass.maxTerms)") } label: {
-                    row("Dictionary", symbol: "character.book.closed", tint: Light.gold)
+                    Label { Text("Dictionary") } icon: { SettingsIcon(symbol: "character.book.closed.fill", color: Light.ember) }
                 }
             }
-        } header: {
-            Kicker("Cleanup")
         } footer: {
             Text("Cleanup runs on this iPhone with Apple's on-device model. The raw words are always one tap away.")
         }
-        .listRowBackground(Ink.raised)
     }
 
     // MARK: Recording
@@ -165,34 +193,46 @@ struct SettingsView: View {
         Section {
             NavigationLink(value: SettingsRoute.language) {
                 LabeledContent { Text(Languages.displayName(settings.language)) } label: {
-                    row("Language", symbol: "globe", tint: Light.cyan)
+                    Label { Text("Language") } icon: { SettingsIcon(symbol: "globe", color: Light.cyan) }
                 }
             }
-            Toggle(isOn: $settings.autoStop) { row("Stop when I stop talking", symbol: "ear", tint: Light.teal) }
+            Toggle(isOn: $settings.autoStop) {
+                Label { Text("Stop when I stop talking") } icon: { SettingsIcon(symbol: "waveform", color: Color(uiColor: .systemPink)) }
+            }
             if settings.autoStop {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("After")
-                        Spacer()
-                        Text("\(Int(settings.autoStopDelay)) seconds of quiet")
-                            .foregroundStyle(Ink.secondary)
-                            .monospacedDigit()
+                    LabeledContent("After") {
+                        Text("\(Int(settings.autoStopDelay)) seconds of quiet").monospacedDigit()
                     }
                     Slider(value: $settings.autoStopDelay, in: 2...8, step: 1) { Text("Silence before stopping") }
-                        minimumValueLabel: { Text("2").font(.caption).foregroundStyle(Ink.tertiary) }
-                        maximumValueLabel: { Text("8").font(.caption).foregroundStyle(Ink.tertiary) }
+                        minimumValueLabel: { Text("2").font(.caption).foregroundStyle(Ink.secondary) }
+                        maximumValueLabel: { Text("8").font(.caption).foregroundStyle(Ink.secondary) }
                         .accessibilityValue("\(Int(settings.autoStopDelay)) seconds")
                 }
             }
         } header: {
-            Kicker("Recording")
+            Text("Recording")
         } footer: {
             Text("Tap the button to start and tap again to send, or hold it while you talk and let go to send. Quiet only counts after you've started talking. One dictation can run up to 10 minutes.")
         }
-        .listRowBackground(Ink.raised)
     }
 
-    // MARK: Mac
+    // MARK: Appearance (Nov 1 2026)
+
+    private var appearanceSection: some View {
+        Section {
+            Picker(selection: $settings.appearance) {
+                ForEach(Appearance.allCases) { Text($0.title).tag($0) }
+            } label: {
+                Label { Text("Appearance") } icon: { SettingsIcon(symbol: "circle.lefthalf.filled", color: Light.cyan) }
+            }
+            .accessibilityIdentifier("appearance")
+        } footer: {
+            Text("Automatic follows this iPhone's Light or Dark setting.")
+        }
+    }
+
+    // MARK: Macs
 
     private var macSection: some View {
         Section {
@@ -204,14 +244,16 @@ struct SettingsView: View {
                     }
                     Button("Unpair") { unpairing = mac }
                         .buttonStyle(.borderless)
-                        .font(.footnote.weight(.semibold))
+                        .font(.subheadline)
                         .foregroundStyle(Light.rose)
                         .accessibilityLabel("Unpair \(mac.name)")
                         .accessibilityIdentifier("unpair-\(mac.name)")
                 }
             }
             NavigationLink(value: SettingsRoute.pairing) {
-                row(model.isPaired ? "Pair Another Mac" : "Pair Your Mac", symbol: "qrcode.viewfinder", tint: Light.cyan)
+                Label { Text(model.isPaired ? "Pair Another Mac" : "Pair Your Mac") } icon: {
+                    SettingsIcon(symbol: "qrcode.viewfinder", color: Light.cyan)
+                }
             }
             .accessibilityIdentifier("pair-another-mac")
             let field = TextField("iPhone", text: $name)
@@ -222,29 +264,23 @@ struct SettingsView: View {
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
                 .accessibilityLabel("This iPhone's name")
+            // "This iPhone", its name the value beside it (as Settings › General › About › Name).
+            let label = Label { Text("This iPhone") } icon: { SettingsIcon(symbol: "iphone", color: Color(uiColor: .systemGray)) }
             if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 6) {
-                    row("This iPhone's name", symbol: "iphone", tint: Light.violet)
-                    field
-                }
+                VStack(alignment: .leading, spacing: 6) { label; field }
             } else {
-                HStack {
-                    row("This iPhone's name", symbol: "iphone", tint: Light.violet)
-                    Spacer()
-                    field.multilineTextAlignment(.trailing)
-                }
+                HStack { label; Spacer(); field.multilineTextAlignment(.trailing) }
             }
             if let suggestion = DeviceNameSuggestion.from(macName: model.pairedMac?.name), suggestion != settings.deviceName, !nameFocused {
                 Button("Use “\(suggestion)”") { name = suggestion; commitName() }
-                    .foregroundStyle(Light.cyan)
             }
         } header: {
-            Kicker(model.pairedMacs.count > 1 ? "Macs" : "Mac")
+            Text(model.pairedMacs.count > 1 ? "Macs" : "Mac")
         } footer: {
             Text((model.pairedMacs.count > 1 ? "What you say goes to the active Mac. Tap another to switch, or swipe up or down on the Mac's name at the top. " : "")
-                 + "What your Mac calls this iPhone shows next to each dictation; your Mac picks up a new name the next time this iPhone connects.")
+                 + "What your Mac calls this iPhone shows next to each dictation; your Mac picks up a new name the next time this iPhone connects."
+                 + (model.isPaired ? " To reach your Mac away from home, tap it at the top." : ""))
         }
-        .listRowBackground(Ink.raised)
         .confirmationDialog("Unpair \(unpairing?.name ?? model.macName)?", isPresented: Binding(get: { unpairing != nil }, set: { if !$0 { unpairing = nil } }),
                             titleVisibility: .visible, presenting: unpairing) { mac in
             Button("Unpair", role: .destructive) { Task { await model.unpair(mac.id) } }
@@ -261,41 +297,125 @@ struct SettingsView: View {
         name = settings.deviceName
     }
 
-    // MARK: Away from home
+    // MARK: History
 
-    private var awaySection: some View {
+    private var historySection: some View {
+        Section {
+            Toggle(isOn: Binding(get: { settings.historyEnabled }, set: { model.setHistoryEnabled($0) })) {
+                Label { Text("Keep history") } icon: { SettingsIcon(symbol: "clock.fill", color: Color(uiColor: .systemGray)) }
+            }
+            Button("Clear History", role: .destructive) { confirmClear = true }
+                .disabled(model.historyItems.isEmpty)
+        } header: {
+            Text("History")
+        } footer: {
+            Text("The last 50 dictations, on this iPhone only. Clearing them doesn't touch your Mac's history.")
+        }
+        .confirmationDialog("Clear all history on this iPhone?", isPresented: $confirmClear, titleVisibility: .visible) {
+            Button("Clear All", role: .destructive) { model.clearHistory() }
+        }
+    }
+
+    // MARK: About
+
+    private var aboutSection: some View {
+        Section {
+            NavigationLink(value: SettingsRoute.diagnostics) {
+                Label { Text("Share Diagnostics") } icon: { SettingsIcon(symbol: "stethoscope", color: Light.mint) }
+            }
+            Link(destination: Product.website) {
+                LabeledContent {
+                    Text(Product.macDownloadDisplay)
+                } label: {
+                    Label { Text("Website").foregroundStyle(Ink.ink) } icon: { SettingsIcon(symbol: "safari.fill", color: Light.cyan) }
+                }
+            }
+            LabeledContent {
+                Text("\(Bundle.main.shortVersion) (\(Bundle.main.buildNumber))")
+            } label: {
+                Label { Text("Version") } icon: { SettingsIcon(symbol: "info", color: Color(uiColor: .systemGray)) }
+            }
+        } header: {
+            Text("About")
+        } footer: {
+            Text("Speech is transcribed on this iPhone. No audio is kept. Nothing leaves your devices — at home or away, it travels straight to your Mac. No account, no analytics.")
+        }
+    }
+}
+
+enum SettingsRoute: Hashable {
+    case dictionary, language, diagnostics, pairing, sendTo, customCleanup, connection
+}
+
+/// The active Mac's page, from the banner: how this iPhone reaches it right now, and how to reach
+/// it away from home through Tailscale (or a forwarded port).
+struct MacConnectionView: View {
+    @EnvironmentObject var model: AppModel
+    @State private var address = ""
+    @State private var addressProblem = false
+    @FocusState private var addressFocused: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        Form {
+            if let mac = model.pairedMac {
+                Section {
+                    let standing = model.standing(of: mac)
+                    MacPageHeader(name: mac.name, status: standing.words, routeSymbol: RouteGlyph.symbol(standing))
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
+            }
+            connectionSection
+            awaySection
+        }
+        .navigationTitle(model.pairedMac?.name ?? "Your Mac")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { address = model.typedAddress?.display ?? "" }
+        .onChange(of: addressFocused) { _, focused in if !focused { commitAddress() } }
+    }
+
+    private var connectionSection: some View {
         Section {
             if let route = model.linkRoute {
-                LabeledContent { Text(route.short).foregroundStyle(Ink.ink) } label: {
-                    row("Connected now", symbol: MacPill.symbol(route), tint: Light.cyan)
+                LabeledContent { Text(route.short) } label: {
+                    Label { Text("Connected now") } icon: { SettingsIcon(symbol: RouteGlyph.symbol(route), color: Light.cyan) }
                 }
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Connected now: \(route.words)")
             }
             // Whether this iPhone is on a Tailscale network right now: it has a Tailscale address.
             LabeledContent {
-                Text(TailscaleHere.isOn ? "On" : "Not on").foregroundStyle(TailscaleHere.isOn ? Ink.ink : Light.ochre)
+                Text(TailscaleHere.isOn ? "On" : "Not on").foregroundStyle(TailscaleHere.isOn ? Ink.secondary : Light.ochre)
             } label: {
-                row("Tailscale on this iPhone", symbol: "network.badge.shield.half.filled", tint: TailscaleHere.isOn ? Light.mint : Light.ochre)
+                Label { Text("Tailscale on this iPhone") } icon: {
+                    SettingsIcon(symbol: "network.badge.shield.half.filled", color: TailscaleHere.isOn ? Light.mint : Color(uiColor: .systemGray))
+                }
             }
             if let ts = model.macToldAddresses.first(where: \.isTailscale) {
-                LabeledContent {
-                    Text(ts.display).font(.system(.body, design: .monospaced)).foregroundStyle(Ink.ink)
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                } label: {
-                    row("Over Tailscale", symbol: "laptopcomputer", tint: Light.cyan)
-                }
+                addressRow("Over Tailscale", ts.display)
             } else if let a = model.macToldAddresses.first {
-                LabeledContent {
-                    Text(a.display).font(.system(.body, design: .monospaced)).foregroundStyle(Ink.ink)
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                } label: {
-                    row("From your Mac", symbol: "laptopcomputer", tint: Light.cyan)
-                }
-            } else {
-                Text("Your Mac hasn't shared an address yet. Turn on Remote access in Macrophone on your Mac (Devices), then connect here at home once.")
-                    .font(.footnote).foregroundStyle(Ink.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                addressRow("From your Mac", a.display)
             }
+        } header: {
+            Text("Connection")
+        } footer: {
+            if model.macToldAddresses.isEmpty {
+                Text("Your Mac hasn't shared an address yet. Turn on Remote access in Macrophone on your Mac (Devices), then connect here at home once.")
+            }
+        }
+    }
+
+    private func addressRow(_ title: String, _ value: String) -> some View {
+        LabeledContent {
+            Text(value).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7).textSelection(.enabled)
+        } label: {
+            Label { Text(title) } icon: { SettingsIcon(symbol: "laptopcomputer", color: Light.cyan) }
+        }
+    }
+
+    private var awaySection: some View {
+        Section {
             let field = TextField("name or address:port", text: $address)
                 .foregroundStyle(Ink.secondary)
                 .focused($addressFocused)
@@ -305,17 +425,12 @@ struct SettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityLabel("Your Mac's address from away")
+            // Typed here, it's dialled beside the ones your Mac told (the footer says how).
+            let label = Label { Text("Address") } icon: { SettingsIcon(symbol: "keyboard.fill", color: Light.violet) }
             if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 6) {
-                    row("Or type its address", symbol: "keyboard", tint: Light.violet)
-                    field
-                }
+                VStack(alignment: .leading, spacing: 6) { label; field }
             } else {
-                HStack {
-                    row("Or type its address", symbol: "keyboard", tint: Light.violet)
-                    Spacer()
-                    field.multilineTextAlignment(.trailing)
-                }
+                HStack { label; Spacer(); field.multilineTextAlignment(.trailing) }
             }
             if addressProblem {
                 Text("That doesn't look like an address. Try something like 100.101.2.3 or home.example.com:47821.")
@@ -323,7 +438,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         } header: {
-            Kicker("Away from home")
+            Text("Away from home")
         } footer: {
             Text("""
             When your Mac isn't nearby, this iPhone reaches it through Tailscale — free, and still no server of ours.
@@ -335,8 +450,6 @@ struct SettingsView: View {
             To try it, turn off Wi-Fi and Bluetooth here — otherwise a nearby iPhone talks to the Mac directly. No Tailscale? Forward the port on your router and type your home's address above.
             """)
         }
-        .listRowBackground(Ink.raised)
-        .onChange(of: addressFocused) { _, focused in if !focused { commitAddress() } }
     }
 
     private func commitAddress() {
@@ -345,63 +458,4 @@ struct SettingsView: View {
         addressProblem = !model.setTypedAddress(t)
         if !addressProblem { address = model.typedAddress?.display ?? "" }
     }
-
-    // MARK: History
-
-    private var historySection: some View {
-        Section {
-            Toggle(isOn: Binding(get: { settings.historyEnabled }, set: { model.setHistoryEnabled($0) })) {
-                row("Keep history", symbol: "clock.arrow.circlepath", tint: Light.gold)
-            }
-            Button("Clear History", role: .destructive) { confirmClear = true }
-                .foregroundStyle(Light.rose)
-                .disabled(model.historyItems.isEmpty)
-        } header: {
-            Kicker("History")
-        } footer: {
-            Text("The last 50 dictations, on this iPhone only. Clearing them doesn't touch your Mac's history.")
-        }
-        .listRowBackground(Ink.raised)
-        .confirmationDialog("Clear all history on this iPhone?", isPresented: $confirmClear, titleVisibility: .visible) {
-            Button("Clear All", role: .destructive) { model.clearHistory() }
-        }
-    }
-
-    // MARK: About
-
-    private var aboutSection: some View {
-        Section {
-            NavigationLink(value: SettingsRoute.diagnostics) {
-                row("Share Diagnostics", symbol: "stethoscope", tint: Light.teal)
-            }
-            Link(destination: Product.website) {
-                LabeledContent {
-                    Text(Product.macDownloadDisplay).foregroundStyle(Light.cyan)
-                } label: {
-                    row("Website", symbol: "safari", tint: Light.cyan)
-                }
-            }
-            .foregroundStyle(Ink.ink)
-            LabeledContent {
-                Text("\(Bundle.main.shortVersion) (\(Bundle.main.buildNumber))")
-            } label: {
-                row("Version", symbol: "info.circle", tint: Ink.secondary)
-            }
-        } header: {
-            Kicker("About")
-        } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Speech is transcribed on this iPhone. No audio is kept. Nothing leaves your devices — at home or away, it travels straight to your Mac.")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(Ink.secondary)
-                Text("No account, no analytics.")
-            }
-            .padding(.top, 4)
-        }
-        .listRowBackground(Ink.raised)
-    }
-}
-
-enum SettingsRoute: Hashable {
-    case dictionary, language, diagnostics, pairing, sendTo, customCleanup
 }

@@ -67,7 +67,8 @@ struct TargetIcon: View {
 
 // MARK: The picker
 
-/// Clipboard, Where I'm typing, then the Mac's open apps (newest first) and their windows.
+/// Clipboard, Where I'm typing, then the Mac's open apps (newest first) and their windows —
+/// Settings › Send to, a native list (Nov 1 2026).
 struct SendToList: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
@@ -79,7 +80,6 @@ struct SendToList: View {
                 row(.clipboard, icon: nil, subtitle: "Copies it on your Mac, to paste yourself")
                 row(.frontApp, icon: nil, subtitle: "Pastes into whatever app is in front on your Mac")
             }
-            .listRowBackground(Ink.raised)
 
             Section {
                 if let missing = missingPick {
@@ -98,11 +98,10 @@ struct SendToList: View {
                     row(t.ref, icon: t.icon, subtitle: t.windowTitle == nil ? sendNote(t.ref) : "A window of \(t.appName)" + (sendNote(t.ref).map { " · \($0)" } ?? ""))
                 }
             } header: {
-                Kicker("Open on \(model.macName)")
+                Text("Open on \(model.macName)")
             } footer: {
-                Text(openFooter).padding(.top, 4)
+                Text(openFooter)
             }
-            .listRowBackground(Ink.raised)
 
             // Every other open app (Oct 18 2026): no message box found, so the words go into
             // whatever text box you tap there.
@@ -111,33 +110,26 @@ struct SendToList: View {
                 Section {
                     ForEach(others) { t in row(t.ref, icon: t.icon, subtitle: "Pastes into the text box you tap") }
                 } header: {
-                    Kicker("Other open apps")
+                    Text("Other open apps")
                 } footer: {
-                    Text("Tap into a text box in the app — on your Mac or while watching it here — then talk.").padding(.top, 4)
+                    Text("Tap into a text box in the app — on your Mac or while watching it here — then talk.")
                 }
-                .listRowBackground(Ink.raised)
             }
 
             if settings.selection.target.canSend {
                 Section {
                     Toggle(isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) })) {
-                        HStack(spacing: 10) {
-                    Image(systemName: settings.selection.send ? "paperplane.fill" : "paperplane").foregroundStyle(Light.cyan)
-                        .accessibilityHidden(true)
-                    Text("Send after pasting").fixedSize(horizontal: false, vertical: true)
-                }
+                        Label { Text("Send after pasting") } icon: { SettingsIcon(symbol: "paperplane.fill", color: Light.cyan) }
                     }
                     .accessibilityIdentifier("picker-send")
                 } header: {
-                    Kicker("For \(settings.selection.target.displayName)")
+                    Text("For \(settings.selection.target.displayName)")
                 } footer: {
                     Text("Your Mac presses the app's send key after pasting. If you're at the Mac, you get a moment to cancel first. Remembered for each place.")
                 }
-                .listRowBackground(Ink.raised)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Ink.ground.ignoresSafeArea())
+        .toggleStyle(.settings)
         .tint(Light.cyan)
         .onAppear { model.refreshTargets() }
     }
@@ -164,12 +156,12 @@ struct SendToList: View {
             onPick()
         } label: {
             HStack(spacing: 14) {
-                TargetIcon(target: target, icon: icon, size: 34)
-                    .opacity(dim ? 0.55 : 1)
+                PlaceIcon(target: target, icon: icon, size: 32)
+                    .opacity(dim ? 0.5 : 1)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(target.displayName).font(.body.weight(.semibold)).foregroundStyle(dim ? Ink.secondary : Ink.ink)
+                    Text(target.displayName).foregroundStyle(dim ? Ink.secondary : Ink.ink)
                     if let subtitle {
-                        Text(subtitle).font(.footnote).foregroundStyle(dim ? Light.ochre : Ink.tertiary)
+                        Text(subtitle).font(.footnote).foregroundStyle(dim ? Light.ochre : Ink.secondary)
                     }
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -179,7 +171,7 @@ struct SendToList: View {
                         .accessibilityHidden(true)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
