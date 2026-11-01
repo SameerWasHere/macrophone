@@ -70,10 +70,21 @@ final class Posture: ObservableObject {
     func hinge(_ status: HingeStatus?, angle: Double) {
         let stepped = FoldPose.deckRise(angle: angle) != FoldPose.deckRise(angle: self.angle)
         guard status != hinge || stepped else { self.angle = angle; return }
+        let wasOpen = hingeOpen
         hinge = status
         self.angle = angle
         recompute()
+        if hingeOpen != wasOpen {
+            // Opening or closing the phone: UIKit asks the delegate again which ways the app may
+            // turn — before the scene has moved, so the answer can't wait on the scene's size.
+            for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+                for window in scene.windows { window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
+            }
+        }
     }
+
+    /// The phone is open (flat or partly folded): the app is on, or on its way to, the inner screen.
+    var hingeOpen: Bool { hinge == .partiallyOpen || hinge == .fullyOpen }
 
     /// The scene's size and the fold's region in it (read with the inactive one included, so an
     /// open screen still knows where its fold lies).

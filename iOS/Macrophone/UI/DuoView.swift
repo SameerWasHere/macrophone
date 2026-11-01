@@ -737,10 +737,13 @@ private extension View {
 
 /// Where the inner screen turns (Oct 25 2026): every way on the Duo's inner screen; the cover,
 /// and every other iPhone, stays upright as before (`UISupportedInterfaceOrientations` lists
-/// them all; this narrows it by the screen the window is on).
+/// them all; this narrows it). The hinge decides first: UIKit asks while the phone is opening,
+/// with the window still on the cover, and "upright only" then kept the app upright and boxed on
+/// the open screen (Nov 1 2026).
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        guard let screen = window?.screen else { return .portrait }
+        if Posture.shared.hingeOpen { return .all }
+        guard let screen = window?.windowScene?.screen ?? window?.screen else { return .portrait }
         let b = screen.bounds.size
         return min(b.width, b.height) >= FoldPose.innerShortSide ? .all : .portrait
     }

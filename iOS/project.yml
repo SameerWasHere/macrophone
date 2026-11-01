@@ -73,7 +73,9 @@ targets:
         MacrophoneCloudAlerts: $(MACROPHONE_CLOUD_ALERTS)
         LSRequiresIPhoneOS: true
         ITSAppUsesNonExemptEncryption: false
-        UIRequiresFullScreen: true
+        # No UIRequiresFullScreen (Nov 1 2026): deprecated in iOS 26, and on the Duo it marks the app
+        # as fixed-size — iOS kept it at the size it launched at and boxed it on the other screen
+        # (the cover's 469 pt in the middle of the open screen, seen on Sameer's Duo).
         # Every way for the iPhone Duo's inner screen; AppDelegate narrows it to upright on the
         # cover and on every other iPhone (Oct 25 2026).
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight, UIInterfaceOrientationPortraitUpsideDown]
