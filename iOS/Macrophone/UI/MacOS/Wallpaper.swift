@@ -8,6 +8,8 @@ import SwiftUI
 struct DesktopWallpaper: View {
     /// The Mac's own desktop picture, when it sent one.
     var image: UIImage?
+    /// How much of it shows through the veil (Settings' slider): 1 = the usual veil, less = more veil.
+    var strength: Double = 1
     /// The state's light; clear at rest.
     var glow: Color = .clear
     @Environment(\.colorScheme) private var scheme
@@ -20,7 +22,7 @@ struct DesktopWallpaper: View {
                     .resizable()
                     .scaledToFill()
                     // Glass and text read over any picture: a veil in the appearance's own ground.
-                    .overlay(Ink.ground.opacity(reduceTransparency ? 0.75 : (scheme == .dark ? 0.38 : 0.30)))
+                    .overlay(Ink.ground.opacity(veil))
                     .transition(.opacity)
             } else {
                 field
@@ -32,6 +34,13 @@ struct DesktopWallpaper: View {
         .animation(.easeInOut(duration: 0.5), value: image != nil)
         .ignoresSafeArea()
         .accessibilityHidden(true)
+    }
+
+    /// The veil over the picture: the appearance's usual, thickening as the slider comes down.
+    private var veil: Double {
+        let base = reduceTransparency ? 0.75 : (scheme == .dark ? 0.38 : 0.30)
+        let s = min(1, max(0, strength))
+        return base + (1 - base) * (1 - s)
     }
 
     @ViewBuilder private var field: some View {

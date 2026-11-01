@@ -354,8 +354,23 @@ struct SettingsView: View {
                 Label { Text("Use My Mac's Wallpaper") } icon: { SettingsIcon(symbol: "photo.fill", color: Light.teal) }
             }
             .accessibilityIdentifier("mac-wallpaper")
+            if settings.macWallpaper {
+                HStack(spacing: 12) {
+                    Image(systemName: "circle.dotted").foregroundStyle(Ink.secondary)
+                    Slider(value: $settings.wallpaperStrength, in: 0.1...1)
+                    Image(systemName: "photo.fill").foregroundStyle(Ink.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Wallpaper strength")
+                .accessibilityValue("\(Int((settings.wallpaperStrength * 100).rounded())) percent")
+                .accessibilityAdjustableAction { dir in
+                    let step = dir == .increment ? 0.1 : -0.1
+                    settings.wallpaperStrength = min(1, max(0.1, settings.wallpaperStrength + step))
+                }
+                .accessibilityIdentifier("wallpaper-strength")
+            }
         } footer: {
-            Text("Automatic follows this iPhone's Light or Dark setting. Your Mac's wallpaper sits behind the app; turn it off if it makes things hard to read.")
+            Text("Automatic follows this iPhone's Light or Dark setting. Your Mac's wallpaper sits behind the app; fade it or turn it off if it makes things hard to read.")
         }
     }
 

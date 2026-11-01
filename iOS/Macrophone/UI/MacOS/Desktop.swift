@@ -191,7 +191,7 @@ struct DesktopBackground: View {
     var glow: Color
 
     var body: some View {
-        DesktopWallpaper(image: settings.macWallpaper ? wallpaper.image : nil, glow: glow)
+        DesktopWallpaper(image: settings.macWallpaper ? wallpaper.image : nil, strength: settings.wallpaperStrength, glow: glow)
     }
 }
 

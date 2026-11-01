@@ -35,6 +35,8 @@ final class Settings: ObservableObject {
     /// The Mac's own desktop picture behind the app (on unless turned off — a busy picture can
     /// make things hard to read; off, the soft drawn wash).
     @Published var macWallpaper: Bool { didSet { d.set(macWallpaper, forKey: K.macWallpaper) } }
+    /// How much of the Mac's wallpaper shows through the veil, 0.1–1 (1 = as it was drawn).
+    @Published var wallpaperStrength: Double { didSet { d.set(wallpaperStrength, forKey: K.wallpaperStrength) } }
     /// What this iPhone calls itself to the Mac. iOS only gives apps "iPhone", so the person can rename it.
     @Published var deviceName: String { didSet { d.set(deviceName, forKey: K.deviceName) } }
     /// The Send-to choice on the active Mac (synced with it both ways; the phone's wins on
@@ -67,6 +69,7 @@ final class Settings: ObservableObject {
         deviceName = defaults.string(forKey: K.deviceName) ?? UIDevice.current.name
         appearance = defaults.string(forKey: K.appearance).flatMap(Appearance.init(rawValue:)) ?? .automatic
         macWallpaper = defaults.object(forKey: K.macWallpaper) as? Bool ?? true
+        wallpaperStrength = defaults.object(forKey: K.wallpaperStrength) as? Double ?? 1
         prefs = MacPreferences(defaults: defaults)
         selection = Self.storedSelection(defaults, mac: nil)
     }
@@ -128,6 +131,7 @@ final class Settings: ObservableObject {
         static let deviceName = "settings.deviceName"
         static let appearance = "settings.appearance"
         static let macWallpaper = "settings.macWallpaper"
+        static let wallpaperStrength = "settings.wallpaperStrength"
         /// The one Mac's keys from before Oct 19 2026 (now per Mac: MacPreferences.key(_:mac:)).
         static let selection = MacPreferences.selectionKey
         static let sendByTarget = MacPreferences.sendByTargetKey
