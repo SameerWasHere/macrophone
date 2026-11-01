@@ -43,6 +43,8 @@ import MacrophoneKit
 //   mpctl watch --double-click 0.5,0.5 | --drag 0.2,0.5,0.6,0.5 | --hover 0.5,0.5 | --type "words" | --key cmd+shift+f5
 //              | --hold command | --app-switch   # the pointer, typing and held keys as the phone sends them (Oct 19 2026)
 //   mpctl serve --no-input                     # a Mac from before them: the phone shows no trackpad or keyboard page
+//   mpctl serve [--wallpaper <path>]           # the desktop picture a phone naming "wallpaper" gets: the drawn demo, or that image
+//   mpctl listen --features wallpaper [--save-wallpaper out.jpg]   # prints WALLPAPER <w>×<h> <KB> KB when it comes (Nov 1 2026)
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -666,6 +668,8 @@ func run() async -> Int32 {
         // The video lane (pictures on their own connection away from home): --no-lane is a Mac from before.
         if has("--no-lane") { server.laneEnabled = false }
         server.macFeatures.append(MacPermissions.feature)
+        // The desktop picture (Wallpaper.swift): the demo gradient, or --wallpaper's image.
+        server.macFeatures.append(MacWallpaper.feature)
         if !has("--jpeg") { server.macFeatures += MacReachDemo.features }
         if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }
         // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).

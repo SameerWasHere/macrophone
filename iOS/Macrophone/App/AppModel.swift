@@ -93,6 +93,8 @@ final class AppModel: ObservableObject {
     let watcher = Watcher()
     /// The Mac's sound with the window (off unless the person turned it on).
     let macAudio = MacAudioPlayer()
+    /// The active Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
+    let wallpaper = WallpaperStore()
     let queue = DeliveryQueue(url: AppFiles.queue)
     let log = DiagnosticLog(url: AppFiles.log)
     private let history: HistoryStore<HistoryItem>
@@ -178,6 +180,8 @@ final class AppModel: ObservableObject {
         refreshMacs()
         // The active Mac's own Send to pick (a phone from before several Macs: its one set).
         settings.useMac(pairedMac?.id)
+        // The desktop picture is the active Mac's (its kept one at launch and on a switch).
+        $pairedMac.map { $0?.id }.removeDuplicates().sink { [weak self] id in self?.wallpaper.useMac(id) }.store(in: &bag)
         remoteAddresses = client.remoteAddresses
         recorder.log = log
         watcher.log = log
@@ -258,6 +262,8 @@ final class AppModel: ObservableObject {
         c.features.append(MacPermissions.feature)
         // The Mac's displays, Wake Your Mac, Mac Controls (Oct 19 2026, Model/MacReach.swift).
         c.features += [Displays.feature, WakeInfo.feature, MacControl.feature]
+        // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
+        c.features.append(MacWallpaper.feature)
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -1043,6 +1049,7 @@ final class AppModel: ObservableObject {
     private func forgetMac(_ id: UUID, wasActive: Bool) {
         settings.forget(mac: id)
         try? FileManager.default.removeItem(at: AppFiles.targets(for: id))
+        WallpaperStore.forget(id)
         // Anything still waiting for it can't reach it now; it stays in history with Copy.
         for e in queue.entries(for: id) { updateItem(e.id) { $0.delivery = .failed; $0.detail = "Unpaired before it was sent" } }
         queue.removeAll(for: id)

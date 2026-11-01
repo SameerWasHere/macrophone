@@ -85,6 +85,8 @@ import UIKit
 /// MACROPHONE_TYPE=xxxLarge|accessibility1…5  the whole app at that Dynamic Type size
 /// MACROPHONE_MIC_TIMING=1                    prints the mic light's main-thread cost per frame when the mic closes
 /// MACROPHONE_FAKE_DISPLAYS=1                two displays, without a Mac that has them (the menus' Whole Screen entries)
+/// MACROPHONE_FAKE_WALLPAPER=1               the Mac's desktop picture is the drawn demo gradient (`model.wallpaper.image`),
+///                                            whatever a Mac sends — for screenshots without a Mac
 /// MACROPHONE_REACH=a,b,c                     once connected, 2 s apart: whole@<display id> (that display's whole screen),
 ///                                            whole (the last one picked), control@volumeUp|mute|playPause|…, wake
 ///                                            (Wake Your Mac, connected or not), controls (the window view's Mac Controls)
