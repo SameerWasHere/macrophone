@@ -484,7 +484,15 @@ struct MainView: View {
         Group {
             // The Duo (the cover, and the same view on the inner screen's half): every place's
             // icon in even columns across the width (the pick's name is the line above them).
-            if barUsed || posture.pose.isInner {
+            if (barUsed || posture.pose.isInner), model.isPaired {
+                // The same picker as the phone's: the Dock and its options (Nov 1 2026, Sameer:
+                // "I'm getting the old app selector … not the new version").
+                VStack(spacing: 0) {
+                    DockOptions(settings: model.settings)
+                        .padding(.horizontal, Space.margin)
+                    SendToDock(current: model.selection.target)
+                }
+            } else if barUsed || posture.pose.isInner {
                 QuickControls(settings: model.settings, compact: true, layout: .tiles(maxRows: 3), glow: skyGlow, cover: true)
             } else {
                 QuickControls(settings: model.settings, compact: compact, glow: skyGlow)

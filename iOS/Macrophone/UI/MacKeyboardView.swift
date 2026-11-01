@@ -38,8 +38,13 @@ struct MacKeyboardField: UIViewRepresentable {
         // Only a small hide button at the right edge stays, so the keyboard can always be put away.
         let pose = Posture.shared.pose
         if v.hideOnly == nil { v.hideOnly = HideKeyboardBar { [weak input] in input?.hideKeyboard() } }
+        v.onHide = { [weak input] in input?.hideKeyboard() }
         let upright = pose == .laptop || pose == .open(landscape: false)
-        let accessory: UIView? = upright ? v.hideOnly : v.bar
+        // A wide keyboard (the inner screen's) carries Hide in its own top row, at the right end:
+        // no row of ours over it (Nov 1 2026, Sameer: "the hide button … is on the top half of the
+        // screen"). A narrow one never shows those buttons, so it keeps the slim Hide row.
+        let wide = v.traitCollection.horizontalSizeClass == .regular
+        let accessory: UIView? = upright ? (wide ? nil : v.hideOnly) : v.bar
         var reload = false
         if v.inputAccessoryView !== accessory { v.inputAccessoryView = accessory; reload = true }
         // Upright the keyboard is as short as it goes, so it and Hide fit the deck: no predictions
@@ -103,9 +108,16 @@ final class KeyboardTextView: UITextView {
             inlinePredictionType = compact ? .no : .default
             if #available(iOS 18.0, *) { writingToolsBehavior = compact ? .none : .default }
             inputAssistantItem.leadingBarButtonGroups = compact ? [] : savedLeading
-            inputAssistantItem.trailingBarButtonGroups = compact ? [] : savedTrailing
+            inputAssistantItem.trailingBarButtonGroups = compact ? [hideGroup] : savedTrailing
         }
     }
+    var onHide: () -> Void = {}
+    private lazy var hideGroup: UIBarButtonItemGroup = {
+        let item = UIBarButtonItem(title: "Hide Keyboard", image: UIImage(systemName: "keyboard.chevron.compact.down"),
+                                   primaryAction: UIAction { [weak self] _ in self?.onHide() })
+        item.accessibilityIdentifier = "keyboard-hide"
+        return UIBarButtonItemGroup(barButtonItems: [item], representativeItem: nil)
+    }()
     private lazy var savedLeading = inputAssistantItem.leadingBarButtonGroups
     private lazy var savedTrailing = inputAssistantItem.trailingBarButtonGroups
     private var goneCheck: DispatchWorkItem?
