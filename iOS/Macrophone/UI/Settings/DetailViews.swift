@@ -24,7 +24,7 @@ struct DictionaryView: View {
                         .onSubmit(add)
                         .disabled(full)
                     Button(action: add) { Image(systemName: "plus.circle.fill").font(.title2) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
                         .foregroundStyle(canAdd ? Light.cyan : Ink.tertiary)
                         .disabled(!canAdd)
                         .accessibilityLabel("Add word")
@@ -34,29 +34,24 @@ struct DictionaryView: View {
                      ? "That's all 50. To add another, swipe a word left to remove it."
                      : "Words like “kubectl” or “TPA” that you want heard and written exactly this way. Spelled as you type them.")
             }
-            .listRowBackground(Ink.raised)
 
             Section {
                 if settings.dictionary.isEmpty {
-                    Text("No words yet.").foregroundStyle(Ink.tertiary)
+                    Text("No words yet.").foregroundStyle(Ink.secondary)
                 } else {
                     ForEach(settings.dictionary, id: \.self) { term in
-                        Text(term).font(.body.monospaced()).foregroundStyle(Ink.ink)
+                        Text(term).foregroundStyle(Ink.ink)
                     }
                     .onDelete { settings.dictionary.remove(atOffsets: $0) }
                 }
             } header: {
-                Text("\(settings.dictionary.count) of \(DictionaryPass.maxTerms)")
-                    .font(.mono(.caption, weight: .semibold))
+                Text("\(settings.dictionary.count) of \(DictionaryPass.maxTerms)").monospacedDigit()
             } footer: {
                 if !settings.isEnglish {
                     Text("Your language isn't English, so these only help the recognizer hear them — the fix-up pass is English only.")
                 }
             }
-            .listRowBackground(Ink.raised)
         }
-        .scrollContentBackground(.hidden)
-        .background(Ink.ground.ignoresSafeArea())
         .navigationTitle("Dictionary")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { if !settings.dictionary.isEmpty { EditButton() } }
@@ -94,18 +89,18 @@ struct LanguageView: View {
                         HStack {
                             Text(lang.name).foregroundStyle(Ink.ink)
                             Spacer()
-                            if lang.id == settings.language { Image(systemName: "checkmark").foregroundStyle(Light.cyan) }
+                            if lang.id == settings.language {
+                                Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(Light.cyan)
+                            }
                         }
+                        .contentShape(Rectangle())
                     }
                     .accessibilityAddTraits(lang.id == settings.language ? .isSelected : [])
                 }
             } footer: {
                 Text("Only languages your iPhone can transcribe on its own are shown, so your voice never leaves it. Cleanup works in English; other languages are sent as heard.")
             }
-            .listRowBackground(Ink.raised)
         }
-        .scrollContentBackground(.hidden)
-        .background(Ink.ground.ignoresSafeArea())
         .navigationTitle("Language")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -117,31 +112,33 @@ struct DiagnosticsView: View {
     @State private var text = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text("This is everything that will be shared. It never includes what you dictated or your pairing keys.")
-                .font(.footnote)
-                .foregroundStyle(Ink.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(16)
-            ScrollView {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(text)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Ink.secondary)
+                    .foregroundStyle(Ink.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
-                    .padding(14)
+                    .padding(16)
+                    .background(RoundedRectangle(cornerRadius: Radius.large, style: .continuous).fill(Ink.raised))
+                Text("This is everything that will be shared. It never includes what you dictated or your pairing keys.")
+                    .font(.footnote)
+                    .foregroundStyle(Ink.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
             }
-            .background(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(Ink.sunk))
-            .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(Ink.line))
             .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .background(Ink.ground.ignoresSafeArea())
+        .setupFoot {
             ShareLink(item: text, subject: Text("Macrophone diagnostics"), preview: SharePreview("Macrophone diagnostics")) {
                 Label("Share Diagnostics", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
             }
-            .pillStyle(.primary, tint: Ink.ink)
-            .padding(16)
+            .setupPrimary()
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
         }
-        .background(Ink.ground.ignoresSafeArea())
         .navigationTitle("Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { text = model.diagnosticsText() }

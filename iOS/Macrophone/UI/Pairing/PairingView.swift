@@ -17,39 +17,39 @@ struct PairingView: View {
                         ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.doneButtonStyle() }
                     }
             }
+            .tint(Light.cyan)
         }
     }
 
     private var content: some View {
-        ScrollView {
-            PairingPanel(onDone: { dismiss() })
-                .padding(20)
-        }
-        .scrollBounceBehavior(.basedOnSize)
-        .background(GroundBackground().ignoresSafeArea())
-        .navigationTitle(model.isPaired ? "Pair Another Mac" : "Pair Your Mac")
-        .navigationBarTitleDisplayMode(.inline)
-        .onDisappear {
-            if case .paired = model.pairing { model.resetPairing() }
-            if case .failed = model.pairing { model.resetPairing() }
-        }
+        PairingPanel(onDone: { dismiss() })
+            .navigationTitle(model.isPaired ? "Pair Another Mac" : "Pair Your Mac")
+            .navigationBarTitleDisplayMode(.inline)
+            .onDisappear {
+                if case .paired = model.pairing { model.resetPairing() }
+                if case .failed = model.pairing { model.resetPairing() }
+            }
     }
 }
 
-/// QR first, a six-digit code as the fallback, and every outcome in plain words.
+/// QR first, a six-digit code as the fallback, and every outcome in plain words — each phase a
+/// Setup Assistant page (Nov 1 2026): the title and what to do at the top, the camera or the code
+/// in the middle, the one button pinned at the foot.
 struct PairingPanel: View {
     @EnvironmentObject var model: AppModel
     var onDone: () -> Void
+    /// An SE-class height (setup on a small phone): a smaller camera and title.
     var compact = false
     /// The success screen's button: "Continue" in setup, "Start Dictating" from the sheet.
     var doneTitle = "Start Dictating"
     @State private var useCode = false
     @State private var deviceName = ""
+    @State private var pairedShown = false
     @FocusState private var nameFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 18) {
+        Group {
             switch model.pairing {
             case .idle:
                 if useCode { codePicker } else { scanner }
@@ -71,116 +71,133 @@ struct PairingPanel: View {
     // MARK: QR
 
     private var scanner: some View {
-        VStack(spacing: 16) {
-            if !compact {
-                header("Scan the code on your Mac",
-                       "On your Mac, open Macrophone and choose Pair iPhone. Point this camera at the code it shows.")
+        SetupPage(title: "Scan the code on your Mac",
+                  message: "On your Mac, open Macrophone and choose Pair iPhone, then point this camera at the code it shows. The camera is used only for this.",
+                  compact: compact) {
+            EmptyView()
+        } content: {
+            VStack(spacing: 16) {
+                QRScanner { code in
+                    guard let invite = PairingInvite(string: code) else { return }
+                    Task { await model.pair(invite) }
+                }
+                .frame(height: compact ? 250 : 300)
+                networkNote
+                macAppNote
             }
-            QRScanner { code in
-                guard let invite = PairingInvite(string: code) else { return }
-                Task { await model.pair(invite) }
-            }
-            .frame(minHeight: compact ? 260 : 300)
+        } buttons: {
             Button("Use a Code Instead") { useCode = true }
-                .pillStyle(.secondary, tint: Light.cyan)
-            networkNote
-            if !compact { macAppNote }
+                .setupSecondary()
         }
     }
 
     // MARK: Code
 
     private var codePicker: some View {
-        VStack(spacing: 16) {
-            header("Pick your Mac", "Make sure Macrophone is open on your Mac. You'll both see the same six digits.")
-            VStack(spacing: 0) {
-                if model.discoveredMacs.isEmpty {
-                    HStack(spacing: 12) {
-                        ProgressView().tint(Ink.secondary)
-                        Text("Looking for Macs on this network…").foregroundStyle(Ink.secondary)
-                        Spacer()
-                    }
-                    .padding(16)
-                } else {
-                    ForEach(Array(model.discoveredMacs.enumerated()), id: \.element.id) { i, mac in
-                        if i > 0 { Divider().overlay(Ink.line) }
-                        Button {
-                            Task { await model.pairWithCode(mac) }
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "laptopcomputer").foregroundStyle(Light.cyan)
-                                Text(mac.name).foregroundStyle(Ink.ink).multilineTextAlignment(.leading)
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Ink.tertiary)
-                            }
-                            .padding(16)
-                            .frame(minHeight: 52)
-                            .contentShape(Rectangle())
+        SetupPage(title: "Pick your Mac",
+                  message: "Make sure Macrophone is open on your Mac. You'll both see the same six digits.",
+                  compact: compact) {
+            SetupSymbol(name: "laptopcomputer", style: Light.cyan, compact: compact)
+        } content: {
+            VStack(spacing: 16) {
+                VStack(spacing: 0) {
+                    if model.discoveredMacs.isEmpty {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Looking for Macs on this network…").foregroundStyle(Ink.secondary)
+                            Spacer()
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 52)
+                    } else {
+                        ForEach(Array(model.discoveredMacs.enumerated()), id: \.element.id) { i, mac in
+                            if i > 0 { Divider().padding(.leading, 59) }
+                            Button {
+                                Task { await model.pairWithCode(mac) }
+                            } label: {
+                                HStack(spacing: 14) {
+                                    SettingsIcon(symbol: MacGlyph.symbol(for: mac.name), color: Light.cyan)
+                                    Text(mac.name).foregroundStyle(Ink.ink).multilineTextAlignment(.leading)
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Ink.tertiary)
+                                        .accessibilityHidden(true)
+                                }
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: 52)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
+                .background(RoundedRectangle(cornerRadius: Radius.large, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
+                networkNote
             }
-            .glass(Radius.medium)
+        } buttons: {
             Button("Scan the QR Code Instead") { useCode = false }
-                .pillStyle(.quiet, tint: Light.cyan)
-            networkNote
+                .setupSecondary()
         }
     }
 
     private func codeDisplay(_ code: String, mac: String) -> some View {
         let spaced = code.count == 6 ? "\(code.prefix(3))\u{00A0}\(code.suffix(3))" : code
-        return VStack(spacing: 18) {
-            Kicker("Compare with your Mac")
-            Text(spaced)
-                .font(.system(size: 56, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Ink.ink)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .accessibilityLabel(code.map(String.init).joined(separator: " "))
-            Text("Check that \(mac) shows \(spaced), then click Match on the Mac.")
-                .font(.serif(.title3))
-                .foregroundStyle(Ink.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                ProgressView().tint(Ink.tertiary)
-                Text("Waiting for your Mac").font(.subheadline).foregroundStyle(Ink.tertiary)
+        return SetupPage(title: "Compare with your Mac",
+                         message: "Check that \(mac) shows \(spaced), then click Match on the Mac.",
+                         compact: compact) {
+            SetupSymbol(name: "lock.laptopcomputer", style: Light.cyan, compact: compact)
+        } content: {
+            VStack(spacing: 18) {
+                Text(spaced)
+                    .font(.system(size: 56, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Ink.ink)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                    .padding(.vertical, 18)
+                    .frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: Radius.large, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
+                    .accessibilityLabel(code.map(String.init).joined(separator: " "))
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Waiting for your Mac").font(.subheadline).foregroundStyle(Ink.secondary)
+                }
             }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity)
-        .glass(Radius.large)
     }
 
     // MARK: Outcomes
 
     private func progress(_ text: String) -> some View {
-        VStack(spacing: 14) {
-            ProgressView().controlSize(.large).tint(Light.cyan)
-            Text(text).font(.serif(.title3)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
+        SetupPage(title: text, compact: compact) {
+            ProgressView().controlSize(.large).frame(height: compact ? 76 : 108)
         }
-        .frame(maxWidth: .infinity, minHeight: 240)
     }
 
     /// Paired — and, since iOS only tells apps "iPhone", the one question worth asking here:
     /// what the Mac should call this phone.
     private func success(_ name: String) -> some View {
         let suggestion = DeviceNameSuggestion.from(macName: name)
-        return VStack(spacing: 16) {
-            DeliveredCheck(visible: true).scaleEffect(1.6).padding(.bottom, 8)
-            Text("Paired with \(name)").font(.serif(.title2)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(model.pairedMacs.count > 1
-                 ? "It's the active Mac now. Swipe up or down on its name at the top to switch between your Macs."
-                 : "What you say on this iPhone now lands on that Mac.")
-                .font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 10) {
+        return SetupPage(title: "Paired with \(name)",
+                         message: model.pairedMacs.count > 1
+                            ? "It's the active Mac now. Swipe up or down on its name at the top to switch between your Macs."
+                            : "What you say on this iPhone now lands on that Mac.",
+                         compact: compact) {
+            // Apple's done: a white check on a solid green disc.
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: compact ? 60 : 84, weight: .regular))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, Light.mint)
+                .symbolEffect(.bounce, value: pairedShown)
+                .frame(height: compact ? 76 : 108)
+                .accessibilityHidden(true)
+                .onAppear { pairedShown = true }
+        } content: {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("What should your Mac call this iPhone?")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Ink.ink)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
                 TextField("iPhone", text: $deviceName)
                     .font(.body)
                     .foregroundStyle(Ink.ink)
@@ -189,70 +206,62 @@ struct PairingPanel: View {
                     .submitLabel(.done)
                     .focused($nameFocused)
                     .onSubmit { nameFocused = false }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 48)
-                    .background(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(Ink.sunk))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
-                        .strokeBorder(nameFocused ? Light.cyan.opacity(0.6) : Ink.line, lineWidth: 1))
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 50)
+                    .background(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                        .strokeBorder(Light.cyan.opacity(nameFocused ? 0.7 : 0), lineWidth: 1.5))
                     .accessibilityLabel("This iPhone's name")
                     .accessibilityIdentifier("device-name")
                 if let suggestion, suggestion != deviceName {
                     Button { withAnimation(Motion.snap) { deviceName = suggestion } } label: {
-                        ChipLabel("Use “\(suggestion)”", systemImage: "sparkles")
+                        Label("Use “\(suggestion)”", systemImage: "sparkles")
                     }
-                    .buttonStyle(ChipButtonStyle(tint: Light.cyan, filled: true))
+                    .font(.subheadline.weight(.medium))
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .tint(Light.cyan)
                     .accessibilityLabel("Use “\(suggestion)”")
                     .accessibilityHint("Fills in the name.")
                 }
                 Text("It shows next to each dictation on your Mac. You can change it later in Settings.")
-                    .font(.footnote).foregroundStyle(Ink.tertiary)
+                    .font(.footnote).foregroundStyle(Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
             }
-            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glass(Radius.medium)
-            Button(doneTitle) {
+            .animation(.easeInOut(duration: 0.2), value: nameFocused)
+        } buttons: {
+            SetupButton(doneTitle) {
                 nameFocused = false
                 model.renameDevice(deviceName)
                 model.resetPairing()
                 onDone()
             }
-            .pillStyle(.primary, tint: Ink.ink)
         }
-        .frame(maxWidth: .infinity, minHeight: 260)
         .onAppear { if deviceName.isEmpty { deviceName = model.settings.deviceName } }
     }
 
     private func failure(_ message: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 34)).foregroundStyle(Light.rose)
-                .accessibilityHidden(true)
-            Text(message).font(.serif(.title3)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Try Again") { model.resetPairing() }
-                .pillStyle(.primary, tint: Ink.ink)
-            if model.pairingMayNeedLocalNetwork || model.localNetworkDenied {
-                VStack(spacing: 8) {
-                    Text(model.localNetworkDenied
-                         ? "Local Network is off for Macrophone, so it can't reach your Mac. Turn it on in Settings."
-                         : "Still stuck? Make sure Local Network is on for Macrophone.")
-                        .font(.footnote).foregroundStyle(Ink.tertiary).multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Open Settings") {
-                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                    }
-                    .pillStyle(.quiet, tint: Light.cyan)
-                }
+        let network = model.pairingMayNeedLocalNetwork || model.localNetworkDenied
+        return SetupPage(title: "Couldn't pair", message: message, compact: compact) {
+            SetupSymbol(name: "exclamationmark.triangle.fill", style: Light.gold, compact: compact, rendering: .multicolor)
+        } content: {
+            if network {
+                Text(model.localNetworkDenied
+                     ? "Local Network is off for Macrophone, so it can't reach your Mac. Turn it on in Settings."
+                     : "Still stuck? Make sure Local Network is on for Macrophone.")
+                    .font(.footnote).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-        }
-        .frame(maxWidth: .infinity, minHeight: 240)
-    }
-
-    private func header(_ title: String, _ body: String) -> some View {
-        VStack(spacing: 8) {
-            Text(title).font(.serif(.title2)).foregroundStyle(Ink.ink).multilineTextAlignment(.center)
-            Text(body).font(.subheadline).foregroundStyle(Ink.secondary).multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+        } buttons: {
+            SetupButton("Try Again") { model.resetPairing() }
+            if network {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+                .setupSecondary()
+            }
         }
     }
 
@@ -260,7 +269,7 @@ struct PairingPanel: View {
         Link(destination: Product.website) {
             (Text("No Mac app yet? It's free at ") + Text(Product.macDownloadDisplay).foregroundColor(Light.cyan))
                 .font(.footnote)
-                .foregroundStyle(Ink.tertiary)
+                .foregroundStyle(Ink.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: 44)
@@ -272,7 +281,7 @@ struct PairingPanel: View {
     private var networkNote: some View {
         Text("Your iPhone and Mac talk directly over this network. Nothing goes to the internet.")
             .font(.footnote)
-            .foregroundStyle(Ink.tertiary)
+            .foregroundStyle(Ink.secondary)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
     }
