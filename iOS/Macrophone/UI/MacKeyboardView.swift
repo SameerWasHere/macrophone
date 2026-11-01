@@ -40,10 +40,15 @@ struct MacKeyboardField: UIViewRepresentable {
         if v.hideOnly == nil { v.hideOnly = HideKeyboardBar { [weak input] in input?.hideKeyboard() } }
         v.onHide = { [weak input] in input?.hideKeyboard() }
         let upright = pose == .laptop || pose == .open(landscape: false)
-        // (The keyboard's own top row never showed Hide on his Duo: the row stays, always.)
-        let accessory: UIView? = upright ? v.hideOnly : v.bar
+        // Upright: our own Mac keyboard, drawn to the deck with Hide among its keys — iOS's
+        // keyboard keeps an invisible strip over its keys, so anything hung on it sat on the
+        // window's half (DeckKeyboard.swift).
+        if upright, v.deckKeyboard == nil { v.deckKeyboard = DeckKeyboardHost(input: input) }
+        let accessory: UIView? = upright ? nil : v.bar
+        let keys: UIView? = upright ? v.deckKeyboard : nil
         var reload = false
         if v.inputAccessoryView !== accessory { v.inputAccessoryView = accessory; reload = true }
+        if v.inputView !== keys { v.inputView = keys; reload = true }
         // Upright the keyboard is as short as it goes, so it and Hide fit the deck: no predictions
         // row (Siri's and Apple Intelligence's suggestions, autocorrect's bar), no shortcuts row
         // (Nov 1 2026, Sameer: "suppress the Siri part of the keyboard so that it saves us even
@@ -94,6 +99,8 @@ final class KeyboardTextView: UITextView {
     var bar: KeyboardBarHost?
     /// Upright on the Duo's inner screen: a hide button alone over the keys.
     var hideOnly: HideKeyboardBar?
+    /// Upright on the Duo's inner screen: the Mac keyboard in place of iOS's.
+    var deckKeyboard: DeckKeyboardHost?
     var wantsKeyboard = false
     /// The shortest keyboard: no predictions or shortcuts row.
     var compact = false {
