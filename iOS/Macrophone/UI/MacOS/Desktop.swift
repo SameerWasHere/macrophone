@@ -187,10 +187,11 @@ private struct OptionGlass: ViewModifier {
 /// the state's light washing in from the foot.
 struct DesktopBackground: View {
     @ObservedObject var wallpaper: WallpaperStore
+    @ObservedObject var settings: Settings
     var glow: Color
 
     var body: some View {
-        DesktopWallpaper(image: wallpaper.image, glow: glow)
+        DesktopWallpaper(image: settings.macWallpaper ? wallpaper.image : nil, glow: glow)
     }
 }
 

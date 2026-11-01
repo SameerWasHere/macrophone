@@ -95,7 +95,7 @@ struct MainView: View {
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         // The Mac's own wallpaper behind everything; the state's light washes in from the foot —
         // orange while the mic is open, green when the words land; nothing at rest.
-        .background(DesktopBackground(wallpaper: model.wallpaper, glow: filamentMode == .ready ? .clear : skyGlow)
+        .background(DesktopBackground(wallpaper: model.wallpaper, settings: model.settings, glow: filamentMode == .ready ? .clear : skyGlow)
             .animation(.easeInOut(duration: 0.7), value: filamentMode))
         // Siri's signal: the screen's edge glows while the mic listens.
         .overlay(ListeningEdge(active: isRecording && look == nil || look == "holding", meter: recorder.meter))

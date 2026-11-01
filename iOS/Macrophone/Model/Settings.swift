@@ -32,6 +32,9 @@ final class Settings: ObservableObject {
     }
     /// Light, dark, or the system's (Nov 1 2026 — the app was dark only before).
     @Published var appearance: Appearance { didSet { d.set(appearance.rawValue, forKey: K.appearance) } }
+    /// The Mac's own desktop picture behind the app (on unless turned off — a busy picture can
+    /// make things hard to read; off, the soft drawn wash).
+    @Published var macWallpaper: Bool { didSet { d.set(macWallpaper, forKey: K.macWallpaper) } }
     /// What this iPhone calls itself to the Mac. iOS only gives apps "iPhone", so the person can rename it.
     @Published var deviceName: String { didSet { d.set(deviceName, forKey: K.deviceName) } }
     /// The Send-to choice on the active Mac (synced with it both ways; the phone's wins on
@@ -63,6 +66,7 @@ final class Settings: ObservableObject {
         CleanupPrompts.setCustomInstructions(custom)
         deviceName = defaults.string(forKey: K.deviceName) ?? UIDevice.current.name
         appearance = defaults.string(forKey: K.appearance).flatMap(Appearance.init(rawValue:)) ?? .automatic
+        macWallpaper = defaults.object(forKey: K.macWallpaper) as? Bool ?? true
         prefs = MacPreferences(defaults: defaults)
         selection = Self.storedSelection(defaults, mac: nil)
     }
@@ -123,6 +127,7 @@ final class Settings: ObservableObject {
         static let agentAlerts = "settings.agentAlerts"
         static let deviceName = "settings.deviceName"
         static let appearance = "settings.appearance"
+        static let macWallpaper = "settings.macWallpaper"
         /// The one Mac's keys from before Oct 19 2026 (now per Mac: MacPreferences.key(_:mac:)).
         static let selection = MacPreferences.selectionKey
         static let sendByTarget = MacPreferences.sendByTargetKey

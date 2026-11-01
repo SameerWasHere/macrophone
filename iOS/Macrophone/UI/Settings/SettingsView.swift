@@ -350,8 +350,12 @@ struct SettingsView: View {
                 Label { Text("Appearance") } icon: { SettingsIcon(symbol: "circle.lefthalf.filled", color: Light.cyan) }
             }
             .accessibilityIdentifier("appearance")
+            Toggle(isOn: $settings.macWallpaper) {
+                Label { Text("Use My Mac's Wallpaper") } icon: { SettingsIcon(symbol: "photo.fill", color: Light.teal) }
+            }
+            .accessibilityIdentifier("mac-wallpaper")
         } footer: {
-            Text("Automatic follows this iPhone's Light or Dark setting.")
+            Text("Automatic follows this iPhone's Light or Dark setting. Your Mac's wallpaper sits behind the app; turn it off if it makes things hard to read.")
         }
     }
 
