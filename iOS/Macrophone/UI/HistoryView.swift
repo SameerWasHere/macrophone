@@ -10,8 +10,21 @@ struct HistoryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmClear = false
     @State private var query = ""
+    /// The Duo's inner screen lays History out as Mail on an iPad (Nov 1 2026): the list on the
+    /// left, the chosen dictation's page on the right. Every other screen keeps the one list.
+    @ObservedObject private var posture = Posture.shared
+    /// The dictation open in the second column (nil, or one since deleted: the newest shown).
+    @State private var selected: UUID?
 
     var body: some View {
+        if posture.pose.isInner, model.settings.historyEnabled, !model.historyItems.isEmpty {
+            split
+        } else {
+            stack
+        }
+    }
+
+    private var stack: some View {
         NavigationStack {
             Group {
                 if !model.settings.historyEnabled {
@@ -27,30 +40,88 @@ struct HistoryView: View {
                         Text("Your last 50 dictations will be here, on this iPhone only. Clearing them doesn't touch your Mac's history.")
                     }
                 } else {
-                    list
+                    list(selecting: false)
                 }
             }
             .navigationTitle("History")
             .navigationBarTitleDisplayMode(.large)
             .navigationDestination(for: UUID.self) { id in HistoryPage(id: id) }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if !model.historyItems.isEmpty {
-                        Button("Clear All", role: .destructive) { confirmClear = true }
-                            .tint(Light.rose)
-                    }
-                }
+                ToolbarItem(placement: .topBarLeading) { clearAll }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }.doneButtonStyle()
                 }
             }
-            .confirmationDialog("Clear all history on this iPhone?", isPresented: $confirmClear, titleVisibility: .visible) {
-                Button("Clear All", role: .destructive) { model.clearHistory() }
-            } message: {
-                Text("Your Mac keeps its own history; this doesn't change it.")
-            }
+            .modifier(clearConfirmation)
         }
         .tint(Light.cyan)
+    }
+
+    @ViewBuilder private var clearAll: some View {
+        if !model.historyItems.isEmpty {
+            Button("Clear All", role: .destructive) { confirmClear = true }
+                .tint(Light.rose)
+        }
+    }
+
+    private var clearConfirmation: ClearHistoryConfirmation {
+        ClearHistoryConfirmation(isPresented: $confirmClear) { model.clearHistory() }
+    }
+
+    // MARK: The inner screen: Mail on an iPad
+
+    /// The list (search, the days, the swipes and menus, as on the phone) in the sidebar, the
+    /// chosen dictation's page — Cleaned | Raw, Copy, Send Again, Delete — beside it; the newest
+    /// is open when History opens, and a deleted one hands over to the next.
+    private var split: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            list(selecting: true)
+                .navigationTitle("History")
+                .navigationBarTitleDisplayMode(.large)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) { clearAll }
+                }
+                .toolbar(removing: .sidebarToggle)
+                .navigationSplitViewColumnWidth(min: 260, ideal: posture.pose.foldAcross ? 280 : 340, max: 420)
+                .modifier(clearConfirmation)
+        } detail: {
+            NavigationStack {
+                Group {
+                    if let id = shownID {
+                        HistoryPage(id: id, onDelete: delete).id(id)
+                    } else {
+                        ContentUnavailableView("No Dictation Selected", systemImage: "text.bubble")
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { dismiss() }.doneButtonStyle()
+                    }
+                }
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .tint(Light.cyan)
+    }
+
+    /// The items in the list's order (the days, newest first).
+    private var ordered: [HistoryItem] { days.flatMap(\.items) }
+
+    /// The chosen dictation while it's still kept, else the newest one shown.
+    private var shownID: UUID? {
+        if let selected, model.historyItems.contains(where: { $0.id == selected }) { return selected }
+        return ordered.first?.id
+    }
+
+    /// Deleted from the page or the list: the one under it opens next (else the one above).
+    private func delete(_ id: UUID) {
+        if id == shownID {
+            let list = ordered
+            if let i = list.firstIndex(where: { $0.id == id }) {
+                selected = i + 1 < list.count ? list[i + 1].id : (i > 0 ? list[i - 1].id : nil)
+            }
+        }
+        model.deleteHistoryItem(id)
     }
 
     // MARK: The list
@@ -76,9 +147,11 @@ struct HistoryView: View {
         return out
     }
 
-    @ViewBuilder private var list: some View {
+    /// `selecting`: the inner screen's sidebar — a tap chooses the row (shown beside the list)
+    /// instead of pushing its page.
+    @ViewBuilder private func list(selecting: Bool) -> some View {
         let groups = days
-        List {
+        List(selection: selecting ? Binding(get: { shownID }, set: { selected = $0 }) : nil) {
             if groups.isEmpty {
                 ContentUnavailableView.search(text: query)
                     .listRowBackground(Color.clear)
@@ -86,8 +159,14 @@ struct HistoryView: View {
             ForEach(groups, id: \.day) { group in
                 Section {
                     ForEach(group.items) { item in
-                        NavigationLink(value: item.id) {
-                            HistoryRow(item: item)
+                        Group {
+                            if selecting {
+                                HistoryRow(item: item).tag(item.id)
+                            } else {
+                                NavigationLink(value: item.id) {
+                                    HistoryRow(item: item)
+                                }
+                            }
                         }
                         .swipeActions(edge: .leading) {
                             Button { model.resend(item); Haptics.tick() } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
@@ -95,7 +174,7 @@ struct HistoryView: View {
                         }
                         .swipeActions(edge: .trailing) {
                             // Red by name: the stack's blue accent would otherwise win over the role.
-                            Button(role: .destructive) { model.deleteHistoryItem(item.id) } label: { Label("Delete", systemImage: "trash") }
+                            Button(role: .destructive) { delete(item.id) } label: { Label("Delete", systemImage: "trash") }
                                 .tint(Light.rose)
                             Button { model.copy(item, cleaned: true); Haptics.tick() } label: { Label("Copy", systemImage: "doc.on.doc") }
                                 .tint(Color(uiColor: .systemGray))
@@ -107,7 +186,7 @@ struct HistoryView: View {
                             }
                             Button { model.resend(item) } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
                             Divider()
-                            Button(role: .destructive) { model.deleteHistoryItem(item.id) } label: { Label("Delete", systemImage: "trash") }
+                            Button(role: .destructive) { delete(item.id) } label: { Label("Delete", systemImage: "trash") }
                         }
                     }
                 } header: {
@@ -133,6 +212,20 @@ struct HistoryView: View {
         if ago < 7 { return day.formatted(.dateTime.weekday(.wide)) }
         if cal.isDate(day, equalTo: .now, toGranularity: .year) { return day.formatted(.dateTime.weekday(.wide).month(.wide).day()) }
         return day.formatted(.dateTime.month(.wide).day().year())
+    }
+}
+
+/// Clear All asks first (the list's and the sidebar's).
+struct ClearHistoryConfirmation: ViewModifier {
+    @Binding var isPresented: Bool
+    var clear: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Clear all history on this iPhone?", isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Clear All", role: .destructive, action: clear)
+        } message: {
+            Text("Your Mac keeps its own history; this doesn't change it.")
+        }
     }
 }
 
@@ -307,6 +400,9 @@ struct HistoryPage: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
     var id: UUID
+    /// Beside the list (the inner screen): the list deletes it and opens the next — there's no
+    /// page to go back from. Nil: delete it and go back.
+    var onDelete: ((UUID) -> Void)?
     @State private var cleaned = true
     @State private var copied = false
 
@@ -369,8 +465,12 @@ struct HistoryPage: View {
             }
             ToolbarItemGroup(placement: .bottomBar) {
                 Button(role: .destructive) {
-                    model.deleteHistoryItem(item.id)
-                    dismiss()
+                    if let onDelete {
+                        onDelete(item.id)
+                    } else {
+                        model.deleteHistoryItem(item.id)
+                        dismiss()
+                    }
                 } label: { Label("Delete", systemImage: "trash") }
                 Spacer()
                 Button {

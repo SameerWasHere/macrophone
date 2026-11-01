@@ -16,8 +16,33 @@ struct SettingsView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     var initialPath: [SettingsRoute] = []
     @State private var path: [SettingsRoute] = []
+    /// The Duo's inner screen lays Settings out as an iPad's (Nov 1 2026); every other screen,
+    /// and the cover, keep the one list.
+    @ObservedObject private var posture = Posture.shared
+    /// The group shown in the inner screen's second column (nil: the first one).
+    @State private var group: SettingsGroup?
 
     var body: some View {
+        Group {
+            if posture.pose.isInner { split } else { stack }
+        }
+        .tint(Light.cyan)
+        .onAppear {
+            name = settings.deviceName
+            if path.isEmpty, !initialPath.isEmpty {
+                if posture.pose.isInner, let first = initialPath.first {
+                    let (g, rest) = first.place(paired: model.isPaired)
+                    group = g
+                    path = rest + initialPath.dropFirst()
+                } else {
+                    path = initialPath
+                }
+            }
+            model.refreshAvailability()
+        }
+    }
+
+    private var stack: some View {
         NavigationStack(path: $path) {
             Form {
                 bannerSection
@@ -41,24 +66,122 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { commitName(); dismiss() }.doneButtonStyle() }
             }
-            .navigationDestination(for: SettingsRoute.self) { route in
-                switch route {
-                case .dictionary: DictionaryView(settings: settings)
-                case .language: LanguageView(settings: settings)
-                case .diagnostics: DiagnosticsView()
-                case .pairing: PairingView(embedded: true)
-                case .sendTo: SendToList(settings: settings).navigationTitle("Send to").navigationBarTitleDisplayMode(.inline)
-                case .customCleanup: CustomCleanupView(settings: settings)
-                case .connection: MacConnectionView()
-                }
-            }
-            .onAppear {
-                name = settings.deviceName
-                if path.isEmpty, !initialPath.isEmpty { path = initialPath }
-                model.refreshAvailability()
+            .navigationDestination(for: SettingsRoute.self) { destination($0) }
+        }
+    }
+
+    @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
+        switch route {
+        case .dictionary: DictionaryView(settings: settings)
+        case .language: LanguageView(settings: settings)
+        case .diagnostics: DiagnosticsView()
+        case .pairing: PairingView(embedded: true)
+        case .sendTo: SendToList(settings: settings).navigationTitle("Send to").navigationBarTitleDisplayMode(.inline)
+        case .customCleanup: CustomCleanupView(settings: settings)
+        case .connection: MacConnectionView()
+        }
+    }
+
+    // MARK: The inner screen: two columns, as iPad Settings (Nov 1 2026)
+
+    /// Sameer, on the Duo: "take advantage of the extra space. I shouldn't have to scroll that
+    /// much." The sidebar lists the groups — the Mac as the banner, then the sections of the one
+    /// list, gathered — and the detail column shows the chosen group's rows and footers, the same
+    /// rows as the phone's list; the pages they open (Dictionary, Language, Custom Cleanup, Send
+    /// to, pairing, Diagnostics) push inside the detail column.
+    private var split: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            sidebar
+                .navigationSplitViewColumnWidth(min: 230, ideal: sidebarWidth, max: 340)
+                .toolbar(removing: .sidebarToggle)
+        } detail: {
+            NavigationStack(path: $path) {
+                groupPage(shown)
+                    .modifier(SettingsDoneButton { commitName(); dismiss() })
+                    .navigationDestination(for: SettingsRoute.self) { route in
+                        destination(route).modifier(SettingsDoneButton { commitName(); dismiss() })
+                    }
             }
         }
-        .tint(Light.cyan)
+        .navigationSplitViewStyle(.balanced)
+        .onChange(of: group) { _, _ in path = [] }
+    }
+
+    /// Narrower upright (669 pt), so the detail keeps a phone's width.
+    private var sidebarWidth: CGFloat { posture.pose.foldAcross ? 250 : 300 }
+
+    /// The groups the sidebar lists, in the phone's order.
+    private var groups: [SettingsGroup] {
+        SettingsGroup.allCases.filter { model.isPaired || !$0.needsMac }
+    }
+
+    /// The chosen group, else the first under the banner (Send to) — or the banner itself when no
+    /// Mac is paired yet, where pairing is the one thing to do.
+    private var shown: SettingsGroup {
+        if let group, groups.contains(group) { return group }
+        return model.isPaired ? .sendTo : .mac
+    }
+
+    private var sidebar: some View {
+        List(selection: Binding(get: { shown }, set: { group = $0 })) {
+            Section {
+                sidebarBanner.tag(SettingsGroup.mac)
+            }
+            Section {
+                ForEach(groups.filter(\.isFirstBlock)) { g in sidebarRow(g) }
+            }
+            Section {
+                ForEach(groups.filter { $0 != .mac && !$0.isFirstBlock }) { g in sidebarRow(g) }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder private var sidebarBanner: some View {
+        if let mac = model.pairedMac {
+            let standing = model.standing(of: mac)
+            MacBanner(name: mac.name, status: standing.words, routeSymbol: RouteGlyph.symbol(standing), plate: 48)
+                .accessibilityHint("How this iPhone reaches it, at home and away.")
+                .accessibilityIdentifier("settings-mac")
+        } else {
+            MacBanner(name: "Pair Your Mac", status: "Scan the code on your Mac to send your words to it.", paired: false, plate: 48)
+                .accessibilityIdentifier("settings-mac")
+        }
+    }
+
+    private func sidebarRow(_ g: SettingsGroup) -> some View {
+        Label { Text(g.title(macs: model.pairedMacs.count)) } icon: {
+            SettingsIcon(symbol: g == .macs ? MacGlyph.symbol(for: model.pairedMac?.name) : g.symbol, color: g.color)
+        }
+        .tag(g)
+        .accessibilityIdentifier("settings-group-\(g.rawValue)")
+    }
+
+    /// A group's page in the detail column: the phone's sections for it, as they are.
+    @ViewBuilder private func groupPage(_ g: SettingsGroup) -> some View {
+        switch g {
+        case .mac:
+            if model.pairedMac != nil { MacConnectionView() } else { PairingView(embedded: true) }
+        default:
+            Form {
+                switch g {
+                case .sendTo: sendToSection
+                case .cleanup: cleanupSection; cleanupMoreSection
+                case .watching: watchSection; alertsSection
+                case .recording: recordingSection
+                case .appearance: appearanceSection
+                case .macs: macSection
+                case .history: historySection
+                case .about: aboutSection
+                case .mac: EmptyView()
+                }
+            }
+            .toggleStyle(.settings)
+            .navigationTitle(g.title(macs: model.pairedMacs.count))
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 
     // MARK: The Mac, as the banner
@@ -345,6 +468,81 @@ struct SettingsView: View {
 
 enum SettingsRoute: Hashable {
     case dictionary, language, diagnostics, pairing, sendTo, customCleanup, connection
+
+    /// Where a page opens on the inner screen: the group it belongs to, and what's pushed in the
+    /// detail column over that group's page (the Mac's page is the banner's group itself).
+    func place(paired: Bool) -> (SettingsGroup, [SettingsRoute]) {
+        switch self {
+        case .dictionary, .customCleanup: return (.cleanup, [self])
+        case .language: return (.recording, [self])
+        case .diagnostics: return (.about, [self])
+        case .sendTo: return (paired ? .sendTo : .mac, paired ? [self] : [])
+        case .connection: return (.mac, [])
+        case .pairing: return paired ? (.macs, [self]) : (.mac, [])
+        }
+    }
+}
+
+/// Settings' groups, as the inner screen's sidebar lists them: the Mac as the banner, then the
+/// phone list's sections gathered — the everyday ones first, then the Macs, History and About.
+enum SettingsGroup: String, CaseIterable, Identifiable, Hashable {
+    case mac, sendTo, cleanup, watching, recording, appearance, macs, history, about
+    var id: String { rawValue }
+
+    /// Only with a Mac paired (the phone list leaves these sections out too).
+    var needsMac: Bool { self == .sendTo || self == .watching }
+    /// The sidebar's first block (under the banner).
+    var isFirstBlock: Bool { [.sendTo, .cleanup, .watching, .recording, .appearance].contains(self) }
+
+    func title(macs: Int) -> String {
+        switch self {
+        case .mac: return "Your Mac"
+        case .sendTo: return "Send to"
+        case .cleanup: return "Cleanup"
+        case .watching: return "Watching and alerts"
+        case .recording: return "Recording"
+        case .appearance: return "Appearance"
+        case .macs: return macs > 1 ? "Your Macs" : "Your Mac and iPhone"
+        case .history: return "History"
+        case .about: return "About"
+        }
+    }
+
+    /// Each group's Settings icon (the rows' own where a group has one).
+    var symbol: String {
+        switch self {
+        case .mac, .macs: return "laptopcomputer"
+        case .sendTo: return "paperplane.fill"
+        case .cleanup: return "wand.and.sparkles"
+        case .watching: return "eye.fill"
+        case .recording: return "waveform"
+        case .appearance: return "circle.lefthalf.filled"
+        case .history: return "clock.fill"
+        case .about: return "info"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .mac, .sendTo, .appearance: return Light.cyan
+        case .cleanup: return Light.violet
+        case .watching: return Color(uiColor: .systemIndigo)
+        case .recording: return Color(uiColor: .systemPink)
+        case .macs, .history, .about: return Color(uiColor: .systemGray)
+        }
+    }
+}
+
+/// Done at the trailing end of the inner screen's detail column, on every page in it (the
+/// sidebar keeps its own bar clear, as iPad Settings').
+private struct SettingsDoneButton: ViewModifier {
+    var action: () -> Void
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItem(placement: .topBarTrailing) { Button("Done", action: action).doneButtonStyle() }
+        }
+    }
 }
 
 /// The active Mac's page, from the banner: how this iPhone reaches it right now, and how to reach
