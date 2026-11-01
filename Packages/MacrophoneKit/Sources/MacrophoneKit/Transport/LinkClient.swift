@@ -800,6 +800,8 @@ public final class LinkClient: @unchecked Sendable {
             }
         case let .macPermissions(p):
             deliverPermissions(p)
+        case let .macWallpaper(w):
+            deliverWallpaper(w, macID: macID)
         case .pong:
             pongArrived()
         case .showPermissions:

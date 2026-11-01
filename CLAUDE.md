@@ -1116,6 +1116,39 @@ Hooks: `mpctl serve --busy` / `--no-lane`, any phone command `--no-lane` / `--on
 wrong proof, a dropped lane, over loopback on ports 47916–47919). Still needs a real phone on
 cellular with Tailscale: the lane's log lines ("video lane open in N ms") on both sides.
 
+## The Mac's wallpaper on the iPhone (Nov 1 2026)
+
+Sameer: "imagine if Apple built a Mac controller for the iPhone" — the phone is being drawn as a
+little macOS desktop, with the connected Mac's own desktop picture behind it. The plumbing only;
+the screens draw it.
+- **Wire** (`Core/MacWallpaper.swift`, `Transport/WallpaperLink.swift`, feature `wallpaper`, the
+  `permissions` pattern): `.macWallpaper(MacWallpaper)` Mac → phone — `id` (the first 16 hex of
+  the JPEG's SHA-256), `jpeg`, `width`, `height`, `isDark?` (average brightness under the middle)
+  — after the welcome (asked of `LinkServerWallpaperDelegate.macWallpaper(_:for:)` on its own task,
+  so the receive loop never waits for a drawing) and on a change (`sendWallpaper(_:to:)` /
+  `broadcastWallpaper`, which refuse a phone whose hello didn't name it). The phone hears it
+  through `LinkClientWallpaperDelegate` with the Mac's id. Never the file's path or name: the
+  picture is drawn afresh (no metadata, no photo's location). `MacWallpaper.make(from:)`: the
+  whole picture, never cropped (the phone takes its own slice — upright, on its side, the Duo),
+  long side ≤ 2,400 px, JPEG 0.7 stepping down to ≤ 400 KB, never over 1.2 MB. Tests:
+  `WallpaperTests` (the making, the shape, a phone that named it gets it after the welcome and on
+  a change, an older phone never does and its session goes on).
+- **Mac** (`Mac/App/Core/Wallpaper.swift`, `WallpaperSource`): the main screen's
+  `desktopImageURL` read with ImageIO at 2,400 px (a dynamic HEIC's main picture), else
+  `NSImage(contentsOf:)`; a folder or an unreadable file sends nothing. Made off the main thread
+  once per file + date (kept on the Mac only); again on a space change, a display change and every
+  30 s while a phone that shows it is connected; each phone gets a picture once. Log: "wallpaper:
+  made N KB, W×H, in N ms" / "wallpaper: sent N KB, W×H, in N ms" — sizes and times only (reading
+  this Mac's own 4096 × 2160 HEIC at 2,400 px took ~400 ms the first time, in a probe).
+- **Phone** (`iOS/Macrophone/Model/WallpaperStore.swift`): `model.wallpaper.image` (UIImage?, the
+  active Mac's, decoded off the main thread) and `.isDark`; each Mac's last one on disk
+  (`wallpaper-<mac>.jpg` + `.json` with its id), shown at launch and on a switch, dropped on unpair.
+  `MACROPHONE_FAKE_WALLPAPER=1` (DEBUG) holds the drawn demo gradient.
+- **mpctl:** `serve` sends the drawn demo (blue, teal, lilac washes) or `--wallpaper <path>`;
+  `listen --features wallpaper [--save-wallpaper x.jpg]` prints `WALLPAPER 2400×1350 98 KB · dark · id …`.
+- Needs a real check: the Mac app against a phone (only `mpctl` stood in for it), a folder /
+  rotating wallpaper, an aerial (`.madesktop`) picked as the wallpaper, a space with its own picture.
+
 ## Agents tell the Mac themselves (Oct 17 2026)
 
 Sameer picked "know exactly when an agent waits" over reading pictures. Claude Code (hooks) and

@@ -597,6 +597,10 @@ public final class LinkServer: @unchecked Sendable {
                 if phoneFeatures?.contains(MacPermissions.feature) == true, let p = await permissionsOnMain() {
                     try await session.send(.macPermissions(p))
                 }
+                // The desktop picture may take a moment to draw: it goes on its own task.
+                if phoneFeatures?.contains(MacWallpaper.feature) == true {
+                    sendWallpaperAfterWelcome(to: phoneID, on: session)
+                }
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
                 if seen.contains(d.id) {
@@ -723,7 +727,7 @@ public final class LinkServer: @unchecked Sendable {
                 notifyPermissions { $0.linkServerShowPermissions(self, from: phoneID) }
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions:
+            case .macPermissions, .macWallpaper:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

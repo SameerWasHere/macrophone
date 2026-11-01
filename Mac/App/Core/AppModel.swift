@@ -126,6 +126,9 @@ final class AppModel: ObservableObject, LinkServerDelegate {
                               WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature]
         server.macFeatures.append(MacPermissions.feature)
         watchPermissions()
+        // The desktop picture, behind a phone drawn as a little Mac desktop (Nov 1 2026, Core/Wallpaper.swift).
+        server.macFeatures.append(MacWallpaper.feature)
+        watchWallpaper()
         // The displays, Mac Controls, Wake the Mac (Oct 19 2026, Core/MacReach.swift).
         server.macFeatures += [Displays.feature, MacControl.feature, WakeInfo.feature]
         // Swipes and the pointer skip the main actor: the receive loop hands each step to the

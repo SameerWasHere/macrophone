@@ -227,6 +227,9 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: a key or a modifier pressed down and held, or released (only to a Mac naming
     /// WatchKeyHold.feature).
     case watchKeyState(WatchKey, down: Bool)
+    /// Mac → phone (only to a phone naming MacWallpaper.feature): the Mac's desktop picture, as a
+    /// JPEG — after the welcome and whenever it changes.
+    case macWallpaper(MacWallpaper)
     // Either way
     case ping
     case pong
