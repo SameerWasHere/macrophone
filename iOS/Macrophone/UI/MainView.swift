@@ -490,11 +490,11 @@ struct MainView: View {
         Group {
             if model.isPaired, !(barUsed || posture.pose.isInner) {
                 VStack(spacing: 0) {
+                    SendToDock(current: model.selection.target)
                     DockOptions(settings: model.settings)
                         .padding(.horizontal, Space.margin)
-                        .padding(.bottom, 10)
-                    SendToDock(current: model.selection.target)
-                        .padding(.bottom, compact ? 2 : 6)
+                        .padding(.top, 8)
+                        .padding(.bottom, compact ? 4 : 8)
                 }
             } else if model.isPaired || barUsed || posture.pose.isInner {
                 quickControls
@@ -514,10 +514,10 @@ struct MainView: View {
                 // The same picker as the phone's: the Dock and its options (Nov 1 2026, Sameer:
                 // "I'm getting the old app selector … not the new version").
                 VStack(spacing: 0) {
+                    SendToDock(current: model.selection.target)
                     DockOptions(settings: model.settings)
                         .padding(.horizontal, Space.margin)
-                        .padding(.bottom, 10)
-                    SendToDock(current: model.selection.target)
+                        .padding(.top, 8)
                 }
             } else if barUsed || posture.pose.isInner {
                 QuickControls(settings: model.settings, compact: true, layout: .tiles(maxRows: 3), glow: skyGlow, cover: true)

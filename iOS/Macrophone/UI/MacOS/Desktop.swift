@@ -78,8 +78,11 @@ struct PhoneDesktop: View {
     }
 }
 
-/// What the next dictation does, over the Dock: Send after pasting (a real switch), Cleanup's
-/// level, and ⋯ — a photo, a file, the clipboard, a fresh look at the open apps.
+/// What the next dictation does, under the Dock (Nov 1 2026, Sameer: "the send after pasting
+/// toggle and the AI strength toggle … don't quite look like they're placed in the right place"):
+/// one bar of glass, centred — Send after pasting (a real switch) · Cleanup's level · ⋯ (a photo,
+/// a file, the clipboard, a fresh look at the open apps) — hairlines between, the words shortened
+/// only when the full ones don't fit.
 struct DockOptions: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
@@ -88,23 +91,31 @@ struct DockOptions: View {
 
     var body: some View {
         let target = model.selection.target
-        HStack(spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    sendSwitch(target, words: "Send after pasting").fixedSize()
-                    Spacer(minLength: 0)
-                    CleanupMenu(settings: settings, short: true) { model.sheet = .customCleanup }.fixedSize()
-                }
-                HStack(spacing: 8) {
-                    sendSwitch(target, words: "Send").fixedSize()
-                    Spacer(minLength: 0)
-                    CleanupMenu(settings: settings, short: true) { model.sheet = .customCleanup }.fixedSize()
-                }
-            }
-            more
+        ViewThatFits(in: .horizontal) {
+            bar(target, send: "Send after pasting", short: false)
+            bar(target, send: "Send after pasting", short: true)
+            bar(target, send: "Send", short: true)
         }
+        .frame(maxWidth: .infinity)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
+    }
+
+    private func bar(_ target: TargetRef, send: String, short: Bool) -> some View {
+        HStack(spacing: 0) {
+            sendSwitch(target, words: send)
+            hairline
+            CleanupMenu(settings: settings, short: short, plain: true) { model.sheet = .customCleanup }
+            hairline
+            more
+        }
+        .frame(height: 40)
+        .fixedSize(horizontal: true, vertical: false)
+        .modifier(OptionGlass())
+    }
+
+    private var hairline: some View {
+        Rectangle().fill(Ink.line).frame(width: 0.5, height: 20).accessibilityHidden(true)
     }
 
     private func sendSwitch(_ target: TargetRef, words: String) -> some View {
@@ -119,15 +130,14 @@ struct DockOptions: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
                 .labelStyle(DockOptionLabel())
+                .fixedSize()
         }
         .toggleStyle(.switch)
         .controlSize(.mini)
         .tint(Light.cyan)
         .disabled(!enabled)
-        .padding(.leading, 12)
-        .padding(.trailing, 8)
-        .frame(minHeight: 36)
-        .modifier(OptionGlass())
+        .padding(.leading, 14)
+        .padding(.trailing, 10)
         .accessibilityLabel("Send after pasting. \(Places.sendDetail(target, in: model))")
         .accessibilityIdentifier("send-toggle")
     }
@@ -140,11 +150,10 @@ struct DockOptions: View {
             }
             MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
         } label: {
-            Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+            Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).foregroundStyle(Ink.ink)
+                .frame(width: 44, height: 40).contentShape(Rectangle())
         }
-        .nativeGlassButton()
-        .buttonBorderShape(.circle)
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .accessibilityLabel("More")
         .accessibilityHint("Send a photo or file into \(Places.appName(model.selection.target, in: model)), or move the clipboard.")
         .accessibilityIdentifier("send-to-more")

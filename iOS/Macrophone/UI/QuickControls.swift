@@ -789,6 +789,8 @@ struct CleanupMenu: View {
     @ObservedObject var settings: Settings
     /// Just the level beside the wand, where "Cleanup:" doesn't fit.
     var short = false
+    /// Inside the Dock's options bar: no glass of its own (the bar is the glass).
+    var plain = false
     var onEditCustom: () -> Void
 
     var body: some View {
@@ -822,8 +824,7 @@ struct CleanupMenu: View {
                 Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.secondary)
             }
         }
-        .nativeGlassButton()
-        .controlSize(.small)
+        .modifier(CleanupMenuLook(plain: plain))
         .accessibilityLabel(available ? "Cleanup, \(level.title)" : "Cleanup off")
         .accessibilityHint(available ? CleanupWords.line(level, edited: model.customInstructionsEdited) : CleanupWords.unavailableReason(model, settings))
         .accessibilityIdentifier("cleanup-menu")
@@ -834,6 +835,17 @@ struct CleanupMenu: View {
         Haptics.tick()
         model.setCleanupLevel(l)
         model.explain(CleanupWords.sentence(for: l, edited: model.customInstructionsEdited))
+    }
+}
+
+private struct CleanupMenuLook: ViewModifier {
+    var plain: Bool
+    func body(content: Content) -> some View {
+        if plain {
+            content.buttonStyle(.plain).padding(.horizontal, 12).frame(maxHeight: .infinity).contentShape(Rectangle())
+        } else {
+            content.nativeGlassButton().controlSize(.small)
+        }
     }
 }
 
