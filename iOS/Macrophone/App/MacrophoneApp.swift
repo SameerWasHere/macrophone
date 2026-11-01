@@ -72,10 +72,10 @@ struct RootView: View {
             .environmentObject(model)
             .preferredColorScheme(settings.appearance.scheme)
             .presentationDragIndicator(.visible)
-            // The Duo's inner screen (Oct 25 2026): a sheet is a form in the middle of the
-            // screen, not a phone's sheet stretched to its width; the Mac Controls panel takes
-            // only the room its controls need.
-            .modifier(InnerScreenSheet(posture: Posture.shared, fitted: sheet == .macControls))
+            // The Duo's inner screen: Settings and History take the screen (Nov 1 2026, two
+            // columns each); the short sheets are a form in the middle; the Mac Controls panel
+            // takes only the room its controls need.
+            .modifier(InnerScreenSheet(posture: Posture.shared, size: InnerScreenSheet.size(for: sheet)))
         }
     }
 
@@ -129,18 +129,67 @@ struct RootView: View {
     }
 }
 
-/// A sheet on the iPhone Duo's inner screen: sized as a form (a panel: to its contents), as it
-/// would be on any wide screen. Every other iPhone's sheets are untouched.
+/// A sheet on the iPhone Duo's inner screen. Every other iPhone's sheets are untouched.
+/// - `screen`: Settings and History, nearly the whole screen (`InnerScreenFill`) — on a form
+///   card in the middle of the big screen they were a phone's list to scroll through (Nov 1
+///   2026, Sameer: "I shouldn't have to scroll that much"); they lay out in two columns there.
+/// - `form`: the short ones (Your Macs, Open an App, Custom Cleanup, pairing), as on any wide
+///   screen.
+/// - `fitted`: the Mac Controls panel, to its contents.
 struct InnerScreenSheet: ViewModifier {
+    enum Size { case screen, form, fitted }
+
     @ObservedObject var posture: Posture
-    var fitted = false
+    var size: Size = .form
+
+    static func size(for sheet: AppSheet) -> Size {
+        switch sheet {
+        case .settings, .history: return .screen
+        case .macControls: return .fitted
+        case .pairing, .macs, .customCleanup, .openApp: return .form
+        }
+    }
 
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *), posture.pose.isInner {
-            if fitted { content.presentationSizing(.fitted) } else { content.presentationSizing(.form) }
+            switch size {
+            case .fitted: content.presentationSizing(.fitted)
+            case .form: content.presentationSizing(.form)
+            // Read again on every pose change (this modifier observes the posture), so turning
+            // the phone re-sizes an open sheet to the new shape.
+            case .screen: content.presentationSizing(InnerScreenFill(room: InnerScreenFill.room()))
+            }
         } else {
             content
         }
+    }
+}
+
+/// The screen less a small margin all round: what Settings and History are given on the Duo's
+/// inner screen. `PresentationSizingContext` names no container size, so the room is read off
+/// the window — its bounds inside the safe area (the vertical bar on its side, the status bar
+/// and home indicator upright), less `margin` each side. On his phone that's 835 × 603 on its
+/// side (867 × 635 usable) and 637 × 803 upright (669 × 835). The system still caps a sheet at
+/// its container, so a wrong reading never draws one off the screen.
+@available(iOS 18.0, *)
+struct InnerScreenFill: PresentationSizing {
+    var room: CGSize?
+    static let margin: CGFloat = 16
+
+    func proposedSize(for root: PresentationSizingRoot, context: PresentationSizingContext) -> ProposedViewSize {
+        guard let room else {
+            let page: PagePresentationSizing = .page
+            return page.proposedSize(for: root, context: context)
+        }
+        return ProposedViewSize(room)
+    }
+
+    @MainActor static func room() -> CGSize? {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else { return nil }
+        let usable = window.bounds.inset(by: window.safeAreaInsets)
+        guard usable.width > 200, usable.height > 200 else { return nil }
+        return CGSize(width: usable.width - margin * 2, height: usable.height - margin * 2)
     }
 }
 
