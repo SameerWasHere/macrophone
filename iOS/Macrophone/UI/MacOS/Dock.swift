@@ -10,6 +10,15 @@ import SwiftUI
 // from; a long press is the Dock's menu — the app's windows. The pick, tapped again, shows its
 // window.
 
+/// The icons' side in this Dock: `DockLook.icon`, or less when that many wouldn't fit across.
+private struct DockIconSize: EnvironmentKey { static let defaultValue: CGFloat = DockLook.icon }
+extension EnvironmentValues {
+    var dockIcon: CGFloat {
+        get { self[DockIconSize.self] }
+        set { self[DockIconSize.self] = newValue }
+    }
+}
+
 enum DockLook {
     static let icon: CGFloat = 44
     static let spacing: CGFloat = 7
@@ -42,6 +51,11 @@ struct SendToDock: View {
         GeometryReader { outer in
             let room = outer.size.width - 16
             let width = min(contentWidth ?? room, room)
+            // Like the Mac's Dock, the icons shrink until every one fits — never cut off, never a
+            // row to scroll (Nov 1 2026, Sameer: "It should never be cut off").
+            let n = CGFloat(apps.count + stacks.count + 1)
+            let fixed: CGFloat = 20 + 5 + (n + 1) * DockLook.spacing
+            let side = min(DockLook.icon, max(26, ((room - fixed) / n).rounded(.down)))
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     HStack(alignment: .bottom, spacing: DockLook.spacing) {
@@ -51,8 +65,9 @@ struct SendToDock: View {
                         DockApplications(scale: scale(for: "more")) { model.sheet = .openApp }
                             .background(centre("more"))
                     }
+                    .environment(\.dockIcon, side)
                     .padding(.horizontal, 10)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 10 + (DockLook.icon - side) / 2)
                     .padding(.top, DockLook.headroom)
                     .coordinateSpace(.named("dock"))
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
@@ -177,9 +192,10 @@ private struct DockIcon: View {
     var onWatch: () -> Void
     var onPick: (TargetRef) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dockIcon) private var dockIcon
 
     var body: some View {
-        let size = DockLook.icon
+        let size = dockIcon
         Button {
             if let n = needs, let w = place.windows.first(where: n.concerns), !current.matches(w) { onPick(w.ref) }
             else if !place.holds(current) { onPick(place.target) }
@@ -254,7 +270,7 @@ private struct DockIcon: View {
             if let label {
                 DockLabel(text: label, warning: notOpen ? "Not open" : nil)
                     .fixedSize()
-                    .offset(y: -DockLook.headroom + 2 - (scale - 1) * DockLook.icon - (selected ? 5 : 0))
+                    .offset(y: -DockLook.headroom + 2 - (scale - 1) * dockIcon - (selected ? 5 : 0))
                     .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
                     .allowsHitTesting(false)
                     .accessibilityElement(children: .contain)
@@ -341,8 +357,9 @@ struct DockTile: View {
 
 /// The Dock's divider between the apps and the stacks.
 private struct DockDivider: View {
+    @Environment(\.dockIcon) private var dockIcon
     var body: some View {
-        Capsule().fill(Ink.ink.opacity(0.22)).frame(width: 1, height: DockLook.icon * 0.78)
+        Capsule().fill(Ink.ink.opacity(0.22)).frame(width: 1, height: dockIcon * 0.78)
             .padding(.horizontal, 2)
             .padding(.bottom, 12)
             .accessibilityHidden(true)
@@ -353,9 +370,10 @@ private struct DockDivider: View {
 private struct DockApplications: View {
     var scale: CGFloat
     var action: () -> Void
+    @Environment(\.dockIcon) private var dockIcon
 
     var body: some View {
-        let size = DockLook.icon
+        let size = dockIcon
         Button(action: action) {
             VStack(spacing: 4) {
                 AppIconShape()

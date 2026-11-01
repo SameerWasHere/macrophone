@@ -146,30 +146,36 @@ struct MainView: View {
                     // spare height as one gap over the panel). At large text sizes, when they
                     // don't fit, they scroll instead of being cut off at the Thread.
                     GeometryReader { area in
-                        ScrollView(.vertical) {
-                            Group {
-                                if barUsed || posture.pose.isInner {
-                                    VStack(spacing: 0) {
+                        // The Dock (Send to) is pinned at the foot of the area and never scrolls or
+                        // gets cut (Nov 1 2026, Sameer: "I should never have to scroll to see the
+                        // dock"); only what's above it scrolls when the room runs short.
+                        VStack(spacing: 0) {
+                            ScrollView(.vertical) {
+                                Group {
+                                    if barUsed || posture.pose.isInner {
                                         // The cover: the Mac is in the vertical bar; its pill only
                                         // while it isn't connected (to say so, and to wake it).
-                                        if !barUsed || !model.isConnected { topBar }
-                                        Spacer(minLength: compact ? 10 : 20)
-                                        quickControls
+                                        if !barUsed || !model.isConnected { topBar } else { Color.clear.frame(height: 0) }
+                                    } else {
+                                        // The phone: a little Mac desktop — the menu bar and the
+                                        // last dictation as a widget (Nov 1 2026).
+                                        VStack(spacing: 0) {
+                                            PhoneMenuBar(watcher: watcher)
+                                            LastDictationWidget(lines: compact ? 2 : 3)
+                                                .padding(.horizontal, Space.margin)
+                                                .padding(.top, compact ? 8 : 14)
+                                        }
                                     }
-                                } else {
-                                    // The phone: a little Mac desktop — the menu bar, the last
-                                    // dictation as a widget, the Dock over the Thread (Nov 1 2026).
-                                    PhoneDesktop(settings: model.settings, watcher: watcher, compact: compact, glow: skyGlow)
                                 }
+                                .frame(maxWidth: .infinity, alignment: .top)
                             }
-                            .frame(minHeight: area.size.height)
+                            .scrollBounceBehavior(.basedOnSize)
+                            .scrollIndicators(.hidden)
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            Color.clear.frame(height: compact ? 8 : 14)
+                            dockArea
                         }
-                        .scrollBounceBehavior(.basedOnSize)
-                        .scrollIndicators(.hidden)
-                        // At a text size where the panel runs past the area, its edge dissolves
-                        // toward the Thread instead of being sliced (the fade sits in the panel's
-                        // own bottom padding, so a panel that fits is never touched).
-                        .edgeFade(bottom: compact ? 8 : 16)
+                        .frame(width: area.size.width, height: area.size.height)
                     }
                     .opacity(showSettings ? 1 : 0)
                     .allowsHitTesting(showSettings)
@@ -479,6 +485,26 @@ struct MainView: View {
     }
 
     // MARK: Quick controls, the mic, the status line
+
+    /// The foot of the area at rest: the Dock and its options (paired), else the places panel.
+    var dockArea: some View {
+        Group {
+            if model.isPaired, !(barUsed || posture.pose.isInner) {
+                VStack(spacing: 0) {
+                    DockOptions(settings: model.settings)
+                        .padding(.horizontal, Space.margin)
+                    SendToDock(current: model.selection.target)
+                        .padding(.bottom, compact ? 2 : 6)
+                }
+            } else if model.isPaired || barUsed || posture.pose.isInner {
+                quickControls
+            } else {
+                QuickControls(settings: model.settings, compact: compact, glow: skyGlow)
+                    .padding(.bottom, compact ? 10 : 18)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
 
     var quickControls: some View {
         Group {
