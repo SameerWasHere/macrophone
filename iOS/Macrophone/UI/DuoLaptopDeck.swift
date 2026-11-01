@@ -178,13 +178,13 @@ struct DeckKeys: View {
     }
 }
 
-/// A keycap: a rounded key of the deck's glass that presses in, lit in the window's light when a
-/// modifier waits.
+/// A keycap: a Magic Keyboard key (white on silver in light, black on space grey in dark, Nov 1
+/// 2026) that presses in, lit in the accent when a modifier waits.
 struct KeycapStyle: ButtonStyle {
     var width: CGFloat
     var height: CGFloat = DeckLook.keyHeight
     var lit = false
-    var tint: Color = Ink.ink
+    var tint: Color = MagicKeyboard.legend
     var small = false
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -209,16 +209,15 @@ struct Keycap<Label: View>: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: small ? 7 : DeckLook.cap, style: .continuous)
         label()
-            .font(small ? .system(size: 9, weight: .bold) : .system(size: 15, weight: .semibold, design: .rounded))
+            .font(small ? .system(size: 9, weight: .semibold) : .system(size: 15, weight: .medium))
             .frame(width: width, height: height)
             .background {
                 ZStack {
-                    shape.fill(lit ? AnyShapeStyle(Light.cyan) : AnyShapeStyle(Ink.raised))
-                    shape.fill(LinearGradient(colors: [Ink.ink.opacity(pressed ? 0.02 : 0.09), .clear], startPoint: .top, endPoint: .bottom))
-                    shape.strokeBorder(lit ? Light.cyan.opacity(0.6) : Ink.lineStrong, lineWidth: 1)
+                    shape.fill(lit ? AnyShapeStyle(Light.cyan) : AnyShapeStyle(pressed ? MagicKeyboard.keyDown : MagicKeyboard.key))
+                    shape.strokeBorder(lit ? Light.cyan.opacity(0.6) : Ink.ink.opacity(0.08), lineWidth: 0.5)
                 }
-                // The key's own shadow under it, gone as it presses in.
-                .shadow(color: .black.opacity(pressed ? 0.1 : 0.45), radius: pressed ? 1 : 3, y: pressed ? 0 : 2)
+                // The key's own shadow on the deck, gone as it presses in.
+                .shadow(color: MagicKeyboard.keyShadow, radius: pressed ? 0 : 0.6, y: pressed ? 0 : 1)
                 // A backlight under a lit modifier.
                 .shadow(color: lit ? Light.cyan.opacity(0.55) : .clear, radius: 10)
             }

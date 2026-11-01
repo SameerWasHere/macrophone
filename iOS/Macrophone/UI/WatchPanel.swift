@@ -523,8 +523,9 @@ struct WatchKicker: View {
 
     /// `fits`: measured at its full width (a rung of the ladder); the last rung may shrink instead.
     private func label(_ text: String, fits: Bool = true) -> some View {
+        // The app's bold name, as a Mac's menu bar starts with the app in front.
         Text(text)
-            .font(.subheadline.weight(.semibold))
+            .font(.subheadline.weight(.bold))
             .foregroundStyle(watcher.phase == .live ? Ink.ink : Ink.tertiary)
             .lineLimit(1)
             .fixedSize(horizontal: fits, vertical: false)

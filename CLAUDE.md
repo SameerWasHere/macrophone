@@ -7,6 +7,51 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+## Macrophone as Apple would make it (Nov 1 2026) — wins over every look described below
+
+Sameer: "feel like a native apple app … designed by apple … light and dark mode … borrow elements
+from macOS … imagine if apple build a Mac controller for the iPhone and iPhone Duo … the main
+focus should still be the mic." The plan and the token map are `docs/DESIGN.md`'s top section.
+- **Light and dark.** `Theme.swift` keeps the old names but they are Apple's own colours now:
+  `Ink.ground` systemGroupedBackground, `Ink.raised` secondarySystemGroupedBackground, `Ink.ink`
+  label, `Ink.secondary` secondaryLabel, `Ink.tertiary` a grey that reads over a wallpaper,
+  `Ink.line` separator, `Ink.onTint` white (a glyph on a filled accent — never `Ink.ground`
+  there); `Light.cyan` systemBlue (the accent), teal/mint/gold/ember/violet/rose the system
+  teal/green/yellow/orange/purple/red, `Light.ochre` yellow in dark and amber in light.
+  `Font.serif` / `Font.mono` are SF Pro (mono = monospaced digits); `Kicker` is sentence case. No
+  uppercase tracked labels anywhere. The forced dark mode is gone (no `UIUserInterfaceStyle`, no
+  `preferredColorScheme(.dark)`); `Settings.appearance` (Automatic · Light · Dark) is applied in
+  `RootView` and on every sheet. `xcrun simctl ui <udid> appearance light|dark` flips the simulator.
+- **The phone at rest is a little Mac desktop** (`UI/MacOS/Desktop.swift`, `PhoneDesktop`): the
+  **menu bar** (`PhoneMenuBar`: `MacPill(menuBar: true)` — the bold name, same tap and swipe — and
+  menu extras: Whole Screen `display`, Control Center `switch.2`, History `clock`, Settings
+  `gearshape`), the **last dictation as a desktop widget** (`LastDictationWidget`: Copy · Send
+  Again · History), then in thumb reach **the Dock's options** (`DockOptions`: Send after pasting
+  as a real switch, Cleanup's menu, ⋯ = Refresh + the share items) and **the Dock** (`SendToDock`,
+  `UI/MacOS/Dock.swift`: the open apps with running dots, a divider, Clipboard and Where I'm
+  typing, + = Open an App; the pick lifted with its name over it — `send-to`; tapped again =
+  Watch, the eye badge; a long press = its windows; a finger scrubbing along it magnifies and
+  picks on lift; the shelf hugs the icons and never runs past the screen — past that they scroll
+  inside it). The Thread and the mic are where they always were. Unpaired, the old panel stays.
+  The Duo's cover and inner screen keep the tiles (`QuickControls(layout: .tiles)`).
+- **The wallpaper** behind everything is the Mac's own (`DesktopBackground` ← `WallpaperStore`,
+  merged the same day: the Mac sends its desktop picture, feature `wallpaper`), under a veil of the
+  appearance's ground; before it arrives, a Tahoe-like mesh (`DesktopWallpaper`). The state's light
+  washes in from the foot (orange listening, green landed; nothing at rest).
+- **The mic is Siri's cousin:** a white glass disc in light, dark glass in dark; Apple
+  Intelligence's colours (`MacOSLook.intelligence`) on its ring, on the Thread (`RGB.thread`), and
+  round the screen's edge while it listens (`ListeningEdge` → `EdgeGlow`, 30 fps only while open).
+- **Mac Controls is the Mac's Control Center** (`MacControlCenter`, `UI/MacOS/ControlCenter.swift`):
+  Hear Your Mac while a window shows, Sound (mute + a slider that sends a volume key per sixteenth
+  crossed, its ends `mac-control-volumeDown` / `-volumeUp`), Display, Now Playing. Same ids.
+- **Input surfaces:** the trackpad is a Force Touch trackpad's glass (`ForceTouchSurface`), the
+  laptop deck's keys are Magic Keyboard keys (`MagicKeyboard` colours in `KeycapStyle`); the iOS
+  keyboard follows the appearance.
+- Unused so far, kept for the Duo and the window: `MacWindowFrame` / `TrafficLights`
+  (`WindowChrome.swift` — not on the watched window: the stream already carries the Mac's own
+  title bar and traffic lights, and taps on them click on the Mac), `MagicKey`, `MacMenuBar` for
+  other bars.
+
 ## The product, as it stands (Oct 18 2026)
 
 Reader (the window's words as text) was cut the same evening — Sameer: "not that great … focus on making the window view really good". The speed pass (same night): no paste countdown when nobody's at the Mac, no fixed settle waits, the result before the clipboard's restore; the Mac gets the place ready while you speak (`prepare`, feature "prepare" — Paster.prepare); cleanup runs during your pauses (AppModel.cleanAhead); video sends every real change (WatchPacing `live`), 60 fps at home, Retina up to 2,560 px.
