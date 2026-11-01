@@ -295,7 +295,7 @@ private struct PillStyle: ViewModifier {
                 label.buttonStyle(.glass).foregroundStyle(tint)
             }
         } else {
-            content.pillStyle(kind, tint: tint)
+            content.buttonStyle(PillButtonStyle(kind: kind, tint: tint))
         }
     }
 }

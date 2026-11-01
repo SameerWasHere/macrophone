@@ -47,7 +47,9 @@ struct RootView: View {
             mainView
                 .opacity(model.showOnboarding ? 0 : 1)
             if model.showOnboarding {
+                // Modal: VoiceOver (and the audit) skip the faded main view under it.
                 OnboardingView(recorder: recorder)
+                    .accessibilityAddTraits(.isModal)
                     .transition(.opacity)
             }
         }

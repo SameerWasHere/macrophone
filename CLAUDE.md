@@ -51,6 +51,29 @@ focus should still be the mic." The plan and the token map are `docs/DESIGN.md`'
   (`WindowChrome.swift` — not on the watched window: the stream already carries the Mac's own
   title bar and traffic lights, and taps on them click on the Mac), `MagicKey`, `MacMenuBar` for
   other bars.
+- **Settings, History, setup and the sheets, as Apple's own.** Settings is a native inset-grouped
+  Form on the system's backgrounds: the active Mac is the banner at the top (`MacBanner`: its glyph
+  on a blue disc — `MacGlyph` picks laptop / iMac / mini / Studio / Pro from the name — the name,
+  its standing and the route's glyph, `RouteGlyph`); a tap opens the Mac's page
+  (`MacConnectionView`: Connected now, Tailscale on this iPhone, the address, and Away from home
+  with its steps — moved off the main list). Every row leads with a Settings icon (`SettingsIcon`,
+  `UI/Settings/SettingsLook.swift`; `PlaceIcon` for a place), explanations sit in section footers,
+  switches are green (`.toggleStyle(.settings)`), Cleanup comes right after Send to, and
+  Appearance (Automatic · Light · Dark) is bound to `settings.appearance`. History is Mail: 
+  `.searchable`, the days as sections, a row = the place's icon, the app's name (the window's
+  title under it, as Mail's subject — never wrapped beside the time), paper plane if sent, status
+  glyph (`HistoryMark`), time and two lines (`PreviewLines` — clipped under a fade, never "…"),
+  stacked at accessibility sizes; swipe right Send Again, left Delete / Copy; a tap opens
+  `HistoryPage` (Cleaned | Raw in the title, Delete · Copy · Send Again in the bottom bar).
+  Onboarding and every pairing phase are Setup Assistant pages (`UI/Onboarding/SetupPage.swift`:
+  `SetupPage`, `SetupSymbol`, `SetupButton` pinned at the foot via `safeAreaBar`,
+  `setupSecondary`); the last step glows the screen's edge while it listens. Your Macs, Open an
+  App (open apps, then Applications), Send to, Custom Cleanup, Dictionary, Language and
+  Diagnostics are native lists with no background overrides. "Resend" is "Send Again"
+  everywhere. New ids: `settings-mac`, `appearance`, `history-version`. Onboarding is an
+  accessibility modal (`.isModal` in `RootView`), so VoiceOver and the audit skip the faded main
+  view under it — `accessibilityHidden(false)` there made two blank full-screen nodes. Frames:
+  `docs/screens/redesign-nov1/part2/` (before light | after light | before dark | after dark).
 
 ## The product, as it stands (Oct 18 2026)
 

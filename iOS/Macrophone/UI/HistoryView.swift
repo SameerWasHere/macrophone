@@ -169,6 +169,7 @@ struct HistoryRow: View {
                         HistoryIcon(item: item, size: 36)
                         name
                     }
+                    subject
                     HStack(alignment: .firstTextBaseline, spacing: 6) { glyphs; time }
                     PreviewLines(text: item.text(cleaned: true), lines: 3)
                 }
@@ -182,6 +183,7 @@ struct HistoryRow: View {
                             glyphs
                             time
                         }
+                        subject
                         PreviewLines(text: item.text(cleaned: true))
                     }
                 }
@@ -193,12 +195,29 @@ struct HistoryRow: View {
         .accessibilityValue(item.text(cleaned: true))
     }
 
+    /// The app, and the window's title apart — as Mail has the sender, then the subject — so the
+    /// name never wraps beside the time ("Terminal — claude" → Terminal, then claude).
+    private var parts: (app: String, window: String?) {
+        let full = item.targetName ?? "This iPhone"
+        guard let cut = full.range(of: " — ") else { return (full, nil) }
+        return (String(full[..<cut.lowerBound]), String(full[cut.upperBound...]))
+    }
+
     /// Wraps rather than "…" (the app never cuts words with an ellipsis).
     private var name: some View {
-        Text(item.targetName ?? "This iPhone")
+        Text(parts.app)
             .font(.headline)
             .foregroundStyle(Ink.ink)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var subject: some View {
+        if let window = parts.window {
+            Text(window)
+                .font(.subheadline)
+                .foregroundStyle(Ink.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// The paper plane when it was sent, then how it landed.
