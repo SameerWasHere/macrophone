@@ -43,9 +43,13 @@ struct MacKeyboardField: UIViewRepresentable {
         // Upright: our own Mac keyboard, drawn to the deck with Hide among its keys — iOS's
         // keyboard keeps an invisible strip over its keys, so anything hung on it sat on the
         // window's half (DeckKeyboard.swift).
-        if upright, v.deckKeyboard == nil { v.deckKeyboard = DeckKeyboardHost(input: input) }
-        let accessory: UIView? = upright ? nil : v.bar
-        let keys: UIView? = upright ? v.deckKeyboard : nil
+        // On the Duo it's every screen — the cover, the open screen either way, the book (Nov 1
+        // 2026, Sameer: "Why aren't we using the keyboard that you built … across every
+        // application and window?"); every other iPhone keeps iOS's.
+        let duo = upright || pose.isInner || v.onCover
+        if duo, v.deckKeyboard == nil { v.deckKeyboard = DeckKeyboardHost(input: input, height: v.onCover ? DeckKeyboardHost.coverHeight : DeckKeyboardHost.height) }
+        let accessory: UIView? = duo ? nil : v.bar
+        let keys: UIView? = duo ? v.deckKeyboard : nil
         var reload = false
         if v.inputAccessoryView !== accessory { v.inputAccessoryView = accessory; reload = true }
         if v.inputView !== keys { v.inputView = keys; reload = true }
@@ -99,8 +103,13 @@ final class KeyboardTextView: UITextView {
     var bar: KeyboardBarHost?
     /// Upright on the Duo's inner screen: a hide button alone over the keys.
     var hideOnly: HideKeyboardBar?
-    /// Upright on the Duo's inner screen: the Mac keyboard in place of iOS's.
+    /// On the Duo: the Mac keyboard in place of iOS's.
     var deckKeyboard: DeckKeyboardHost?
+    /// On the Duo's cover (its vertical bar): the Mac keyboard there too.
+    var onCover: Bool {
+        if #available(iOS 27.1, *), let w = window { return w.traitCollection.verticalBarEdge != .unspecified }
+        return false
+    }
     var wantsKeyboard = false
     /// The shortest keyboard: no predictions or shortcuts row.
     var compact = false {

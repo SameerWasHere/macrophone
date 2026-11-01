@@ -14,10 +14,12 @@ import UIKit
 final class DeckKeyboardHost: UIInputView {
     private let host: UIHostingController<DeckKeyboard>
     static let height: CGFloat = 288
+    /// The cover is short: the keys a little shorter there.
+    static let coverHeight: CGFloat = 248
 
-    init(input: MacInput) {
+    init(input: MacInput, height: CGFloat = DeckKeyboardHost.height) {
         host = UIHostingController(rootView: DeckKeyboard(input: input))
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: Self.height), inputViewStyle: .keyboard)
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: height), inputViewStyle: .keyboard)
         allowsSelfSizing = false
         host.view.backgroundColor = .clear
         host.view.translatesAutoresizingMaskIntoConstraints = false

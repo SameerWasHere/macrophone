@@ -196,9 +196,9 @@ extension MainView {
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: rise)
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
         }
-        // The keyboard is the screen's width: it rises over the foot of both pages; the Mac's
-        // page keeps its height.
-        .ignoresSafeArea(.keyboard)
+        // The keyboard is the screen's width: with it up both pages sit above it, so nothing of
+        // the window is under the keys.
+        .ignoresSafeArea(keyboardUp ? [] : .keyboard)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(FoldPose.book.spoken)
     }
