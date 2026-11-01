@@ -577,7 +577,10 @@ struct WatchWindow: View {
         self.watcher = watcher
         self.interactive = interactive
         self.bezelWidth = bezelWidth
-        self.corner = corner
+        // A Mac's window is square-cornered, so the picture is too, everywhere: a rounded corner
+        // only ever cut its corners off (Nov 1 2026, Sameer: "windows are always going to be sharp
+        // cornered").
+        self.corner = 0
         self.fill = fill
         self.footInset = footInset
         _input = ObservedObject(wrappedValue: watcher.input)

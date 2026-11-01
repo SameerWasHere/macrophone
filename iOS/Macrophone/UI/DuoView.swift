@@ -58,7 +58,7 @@ enum DuoLook {
     /// A folded half's screen: a hair of bezel, the corner tight to the half's (the book's page;
     /// the laptop's screen has none — `DuoMacHalf.edge`).
     static let halfBezel: CGFloat = 2
-    static let halfCorner: CGFloat = 14
+    static let halfCorner: CGFloat = 0
     /// How long the overlay header stays after a touch.
     static let headerHold: TimeInterval = 3.5
     /// Open flat and upright (Nov 1 2026, Sameer: "fully open in portrait mode it should have a
@@ -77,7 +77,8 @@ enum DuoLook {
         return 40
     }
     @MainActor static var edgeInset: CGFloat { ceil(displayCorner * (1 - 1 / 2.squareRoot())) }
-    @MainActor static var edgeCorner: CGFloat { max(0, displayCorner - edgeInset) }
+    /// Square, like the window it shows (the inset alone keeps the screen's curve off it).
+    static let edgeCorner: CGFloat = 0
 }
 
 extension MainView {
