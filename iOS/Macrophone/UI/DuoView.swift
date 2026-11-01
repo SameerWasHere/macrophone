@@ -61,6 +61,23 @@ enum DuoLook {
     static let halfCorner: CGFloat = 14
     /// How long the overlay header stays after a touch.
     static let headerHold: TimeInterval = 3.5
+    /// Open flat and upright (Nov 1 2026, Sameer: "fully open in portrait mode it should have a
+    /// different view with an even bigger window. The half view rule should only be of the laptop
+    /// mode"): the deck under the window is this tall — less while a window is in hand.
+    static let flatDeck: CGFloat = 300
+    static let flatDeckAtRest: CGFloat = 360
+
+    /// The screen's own rounded corner, and how far a picture at the screen's edge sits in from
+    /// it so the curve never cuts it — r·(1 − 1/√2) — its corner concentric (Nov 1 2026, Sameer:
+    /// "part of the Mac window gets cut off by the rounded edges of the duo screen").
+    @MainActor static var displayCorner: CGFloat {
+        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
+        let key = "_displayCornerRadius"
+        if let screen, screen.responds(to: NSSelectorFromString(key)), let r = screen.value(forKey: key) as? CGFloat, r > 0 { return r }
+        return 40
+    }
+    @MainActor static var edgeInset: CGFloat { ceil(displayCorner * (1 - 1 / 2.squareRoot())) }
+    @MainActor static var edgeCorner: CGFloat { max(0, displayCorner - edgeInset) }
 }
 
 extension MainView {
@@ -118,16 +135,24 @@ extension MainView {
     var laptopBody: some View {
         GeometryReader { geo in
             let h = posture.halves(for: .laptop, in: geo.size)
+            // Flat and upright there's no fold to keep to: the window takes all but the deck.
+            let flat = posture.pose == .open(landscape: false)
+            let deckHeight = flat ? min(geo.size.height * 0.45, watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
+            let gap: CGFloat = flat ? 10 : h.deck.minY - h.mac.maxY
+            let macHeight = flat ? geo.size.height - deckHeight - gap : h.mac.height
+            let inset = DuoLook.edgeInset
             VStack(spacing: 0) {
-                // The Mac's screen: the picture to the half's every edge (Nov 1 2026, Sameer:
-                // "the view window should take up the whole top half … as if the duo was a
-                // mini Mac").
-                DuoMacHalf(main: self, vertical: false, room: h.mac.size, edge: true)
-                    .frame(height: max(0, h.mac.height))
+                // The Mac's screen: the picture as big as the half allows, in from the screen's
+                // rounded corners so none of it is cut (Nov 1 2026, Sameer: "the view window
+                // should take up the whole top half … as if the duo was a mini Mac").
+                DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * inset, height: macHeight - inset), edge: true)
+                    .padding(.horizontal, inset)
+                    .padding(.top, inset)
+                    .frame(height: max(0, macHeight))
                 // The fold: nothing sits here.
-                Color.clear.frame(height: max(0, h.deck.minY - h.mac.maxY))
+                Color.clear.frame(height: max(0, gap))
                 DuoDeck(main: self, vertical: false)
-                    .frame(height: max(0, h.deck.height))
+                    .frame(height: max(0, deckHeight))
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
@@ -293,7 +318,7 @@ struct DuoMacHalf: View {
     }
 
     private var bezel: CGFloat { edge ? 0 : DuoLook.halfBezel }
-    private var corner: CGFloat { edge ? 0 : DuoLook.halfCorner }
+    private var corner: CGFloat { edge ? DuoLook.edgeCorner : DuoLook.halfCorner }
 
     /// What floats over the picture's foot (the answers): the picture's newest lines stay above it.
     @State private var floatingHeight: CGFloat = 0
@@ -598,7 +623,7 @@ struct DuoGlance: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var bezelWidth: CGFloat { edge ? 0 : fill ? DuoLook.halfBezel : WatchLook.bezelWidth }
-    private var corner: CGFloat { edge ? 0 : fill ? DuoLook.halfCorner : WatchLook.bezel }
+    private var corner: CGFloat { edge ? DuoLook.edgeCorner : fill ? DuoLook.halfCorner : WatchLook.bezel }
 
     var body: some View {
         let target = model.selection.target

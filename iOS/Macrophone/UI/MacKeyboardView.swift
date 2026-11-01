@@ -32,6 +32,15 @@ struct MacKeyboardField: UIViewRepresentable {
     func updateUIView(_ v: KeyboardTextView, context: Context) {
         context.coordinator.input = input
         v.bar?.rootView = MacKeyboardBar(input: input, watcher: watcher)
+        // Upright on the Duo's inner screen (the laptop, flat) the keyboard rises over the deck and
+        // its bar would sit on the window: no bar there (Nov 1 2026, Sameer: "I don't want any
+        // controls on that half when in laptop mode").
+        let pose = Posture.shared.pose
+        let accessory: UIView? = pose == .laptop || pose == .open(landscape: false) ? nil : v.bar
+        if v.inputAccessoryView !== accessory {
+            v.inputAccessoryView = accessory
+            if v.isFirstResponder { v.reloadInputViews() }
+        }
         v.wantsKeyboard = active
         v.applyFocus()
     }

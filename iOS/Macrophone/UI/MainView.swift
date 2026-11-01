@@ -45,7 +45,9 @@ struct MainView: View {
     /// screen has a status bar on top and no vertical bar, so the laptop and flat portrait draw
     /// their own (the trait says so on his phone; on the simulator the inner screen is a frame
     /// drawn on the cover, whose trait would otherwise speak for every pose — Nov 1 2026).
-    var barUsed: Bool { verticalBar && posture.pose.hasVerticalBar }
+    /// Open flat and upright the controls go in the bar too (Nov 1 2026, Sameer: "in this fully
+    /// opened portrait mode you should put controls into the duo side bar area").
+    var barUsed: Bool { (verticalBar && posture.pose.hasVerticalBar) || posture.pose == .open(landscape: false) }
 
     var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting || look == "starting" }
 
