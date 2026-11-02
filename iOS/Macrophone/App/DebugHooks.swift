@@ -58,7 +58,8 @@ import UIKit
 ///                                            those words while the window shows),
 ///                                            next / prev (the next or previous window), attend@<bundle>@<window>
 ///                                            (what tapping an alert does), fit@larger|largest|normal (Aa),
-///                                            sound (the Sound button's tap), mic (the mic opening, for the sound)
+///                                            sound (the Sound button's tap), mic (the mic opening, for the sound),
+///                                            newest (Newest's tap)
 /// MACROPHONE_SOUND=1                         Sound held on for this run (nothing stored; a real launch reads off)
 /// MACROPHONE_SOUND_TIMING=1                  a line each second of the Mac's sound: held, latency, underruns
 ///                                            page@keyboard|mic|trackpad, point@dx@dy (the trackpad's pointer, phone
@@ -359,6 +360,9 @@ enum DebugHooks {
                         model.watchStep(a == "next" ? 1 : -1)
                     } else if a == "keys" {
                         model.watcher.showKeys()
+                    } else if a == "newest" {
+                        // Newest's tap: back to the window's foot (a shot without the button).
+                        model.watcher.showNewest()
                     } else if a == "done" {
                         // Done: the window view closes (on the Duo's inner screen, the glance shows).
                         model.watcher.done()
