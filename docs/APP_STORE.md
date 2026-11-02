@@ -1,5 +1,9 @@
 # Macrophone: App Store submission (iPhone, 1.0)
 
+**Resubmitted Nov 2 2026 as 1.0 (5)** after App Review's automated scan asked about "VPN
+functionality" (there is none — answered in the message thread and in the review notes; the
+description's "over your own VPN" became "when you're away from home"). Build 5 is main as of
+that day (the open Duo's glance, the Mac's pointer shapes).
 **Resubmitted Nov 1 2026 as 1.0 (4)** after the first review (Oct 15 2026) was rejected for
 5.1.1(iv) — a pre-permission screen's button said "Allow" — and 5.2.5 — "Mac" in the subtitle.
 Every pre-permission button now says Continue and asks nothing (the network step's "Tap Allow
@@ -126,7 +130,7 @@ HANDY EXTRAS
 • A notification when an agent on your Mac stops to ask you something.
 • Action Button, Control Center, Lock Screen, a Home Screen widget, Siri and Shortcuts.
 • A dictionary for names and terms it should hear right.
-• Reach your Mac away from home over your own VPN.
+• Reach your Mac when you're away from home.
 • For developers: a local API, a command-line tool and an MCP server on the Mac.
 
 REQUIREMENTS
