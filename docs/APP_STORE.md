@@ -1,5 +1,13 @@
 # Macrophone: App Store submission (iPhone, 1.0)
 
+**Resubmitted Nov 1 2026 as 1.0 (4)** after the first review (Oct 15 2026) was rejected for
+5.1.1(iv) — a pre-permission screen's button said "Allow" — and 5.2.5 — "Mac" in the subtitle.
+Every pre-permission button now says Continue and asks nothing (the network step's "Tap Allow
+when iOS asks" and "Look for My Mac" went too); the subtitle is "Control your computer by voice"
+and "mac mini" left the keywords. The listing below is what App Store Connect holds (pushed with
+the App Store Connect API, `~/claude-projects/MagicCoinFlip/scripts/asc.py`). The Duo's screen
+corner is a constant now (it had been read through private KVC).
+
 Everything App Store Connect asks for, ready to paste, for the app as simplified on Oct 13 2026:
 you speak on the iPhone, pick any app open on your Mac (or Clipboard, or Where I'm typing), and
 the Mac pastes it there, or pastes and sends it, at the cleanup level you chose. Character
@@ -67,7 +75,7 @@ Readiness was audited on Oct 13 2026: a Release archive built with no warnings, 
 | --- | --- | --- |
 | Name | Macrophone | 10 / 30 |
 | Subtitle | Control your computer by voice | 30 / 30 |
-| Promotional text | Your agents never wait on you again. See any app on your Mac live, tap and swipe it like you're there, and say what's next. Free, private, no account. | 150 / 170 |
+| Promotional text | Your agents never wait on you again. See your computer live, steer it with a trackpad and keyboard, and say what's next. Free, private, no account. | 147 / 170 |
 
 Positioning: `docs/POSITIONING.md` (the people, the jobs, the words).
 
@@ -76,7 +84,7 @@ keywords name no third-party app on purpose (see "Third-party names").
 
 ## Description
 
-(≤4,000 characters; this is 2,424.)
+(≤4,000 characters; this is 3,240.)
 
 ```
 Steer your Mac from your iPhone. Your agents never wait on you again.
@@ -84,37 +92,45 @@ Steer your Mac from your iPhone. Your agents never wait on you again.
 Leave your Mac running: a Mac mini on a shelf, a MacBook docked with its lid shut, the desk across the room. When a coding agent stops to ask you something, you see it on your iPhone and answer in seconds. When you think of the next task, you say it, and it's typed and sent.
 
 SEE IT
-• Any app's window on your Mac, live on your iPhone: the terminal running your coding agent, an AI chat app, your editor, a message thread.
-• It opens on the part you type in and follows the newest output.
+• Any app's window on your Mac, live and smooth on your iPhone, or the whole screen.
+• Your Mac's apps sit in a Dock at the bottom of the screen, with your Mac's own wallpaper behind them. Tap one to send to it, tap it again to watch it.
+• Light and dark, like the rest of your iPhone.
 
 STEER IT
-• Tap anywhere to click there on your Mac: switch sessions, pick an option, open a file.
-• Swipe to scroll the window right where your finger is.
-• Esc, Up, Down and Return under the window: move through an agent's question, approve it, or stop it.
+• Tap to click, tap twice to double-click, hold to right-click, tap then hold and move to drag.
+• A full trackpad, with two-finger scrolling and the gestures you know: Mission Control, App Exposé, switching desktops.
+• A real Mac keyboard: Esc, Tab, the arrows, ⌘ ⌥ ⌃ ⇧ and every shortcut, typed straight into the window.
+• When an agent asks a question, its answers appear as buttons.
+• Mac controls: volume, brightness, play and pause. Hear your Mac's sound on your iPhone if you like.
 • Open any app on your Mac, even one that isn't running.
 
 SAY IT
-• Hold the mic and talk. Your words are transcribed on your iPhone, tidied up (no ums, no false starts), pasted into the app and sent.
+• Tap or hold the mic and talk. Your words are transcribed on your iPhone, tidied up (no ums, no false starts), pasted into the app and sent.
 • Long prompts are easier to say than to type, especially on a phone.
 • Pick how much cleanup: Off, Light, Medium, Heavy, or your own instructions. It edits your words and never answers them.
 
+MADE FOR IPHONE DUO
+Folded like a laptop, the top half is your Mac's screen and the bottom half is a trackpad, a keyboard or the mic. Opened flat, your Mac sits beside the controls you already know from the cover.
+
 WORKS WITH EVERYTHING
-Coding agents in a terminal, an AI app or your editor, chat and messaging apps, notes, mail: any app on your Mac with somewhere to type. Your Mac finds them on its own; nothing to set up.
+Coding agents in a terminal, an AI app or your editor, chat and messaging apps, notes, mail: any app on your Mac with somewhere to type. Your Mac finds them on its own; nothing to set up. Pair more than one Mac and swipe between them.
 
 PRIVATE BY DESIGN
 • Speech is turned into text on your iPhone. No audio is kept.
 • Your iPhone talks straight to your Mac over your own network, end-to-end encrypted. No server, no account.
-• Only the one window you pick is shown, only while you look, and it's never saved.
+• Only what you pick is shown, only while you look, and it's never saved.
 • No ads, no analytics. Data Not Collected. Open source.
 
 HANDY EXTRAS
-• Action Button, Control Center, Lock Screen, Siri and Shortcuts.
+• Send a photo, a file or your clipboard to your Mac.
+• A notification when an agent on your Mac stops to ask you something.
+• Action Button, Control Center, Lock Screen, a Home Screen widget, Siri and Shortcuts.
 • A dictionary for names and terms it should hear right.
-• If your Mac is asleep, your iPhone holds the dictation and delivers it later.
+• Reach your Mac away from home over your own VPN.
 • For developers: a local API, a command-line tool and an MCP server on the Mac.
 
 REQUIREMENTS
-iPhone with iOS 17 or later. Mac with macOS 14 or later, running the free Macrophone for Mac from sameer.us/macrophone. Cleanup needs an iPhone that supports Apple Intelligence, on iOS 26 or later.
+iPhone with iOS 17 or later. Mac with macOS 14 or later, running the free Macrophone for Mac from sameer.us/macrophone. Cleanup needs an iPhone that supports Apple Intelligence, on iOS 26 or later. Watching and controlling need the Mac app's Screen Recording and Accessibility permissions, which it walks you through.
 
 Free. No in-app purchases, no subscription.
 
@@ -124,11 +140,10 @@ App names belong to their owners. Macrophone is an independent app and isn't aff
 ## Keywords
 
 ```
-coding agent,remote,voice control,dictation,terminal,AI,prompt,speech to text,hands-free,mac mini
+coding agent,remote,voice control,dictation,terminal,AI,prompt,speech to text,hands-free,trackpad
 ```
 
-97 / 100 characters. Words already in the name and subtitle (Macrophone, speak, iPhone, type,
-Mac) are indexed anyway, so they're left out. No competitor or third-party trademarks
+97 / 100 characters. No "Mac" (Nov 1 2026: "mac mini" went with the 5.2.5 rejection of "Mac" in the subtitle). No competitor or third-party trademarks
 (guideline 2.3.7).
 
 ## What's New in This Version (1.0)
@@ -218,59 +233,65 @@ documents to upload, and no French declaration.
 **Sign-in required:** No. There are no accounts.
 **Contact:** Sameer Bhutani · macrophone@sameer.us · (phone number)
 
-**Notes** (paste into "Notes"; ≤4,000 characters):
+**Notes** (paste into "Notes"; ≤4,000 characters; this is 3,853):
 
 ```
-Macrophone is a dictation app. You speak into the iPhone, it turns the speech into text on the device, and it sends the text to a free companion app on the user's own Mac, which pastes it into the app the user picked (or pastes it and presses send).
+Macrophone is a dictation and remote-control app for the user's own Mac. You speak into the iPhone, it turns the speech into text on the device, and it sends the text to a free companion app on the user's own Mac, which pastes it into the app the user picked (or pastes it and presses send). With the Mac connected, the iPhone can also show one window (or the whole screen) of that Mac live and click, scroll and type in it.
+
+CHANGES SINCE THE LAST REVIEW
+- Guideline 5.1.1(iv): every screen shown before a permission request now has a "Continue" button and no wording that asks the user to allow it.
+- Guideline 5.2.5: the subtitle no longer uses "Mac"; it is "Control your computer by voice".
 
 NO ACCOUNT. TESTING WITHOUT A MAC
 There is no login. The iPhone app also works on its own: until a Mac is paired, every dictation is copied to the iPhone's clipboard. To test:
-1. Open Macrophone. The setup screens ask for each permission with an explanation first. Tap Skip on "Get the Mac app", "Looking for your Mac" and "Scan the code on your Mac".
-2. On the main screen, tap the large mic button, say a sentence, then tap it again to stop.
-3. The text appears under the button, the status line says it was copied on the iPhone, and the text is on the clipboard. Paste it in Notes to check.
-4. The cleanup buttons (Off, Light, Medium, Heavy, Custom) choose how much the text is tidied up. Cleanup uses Apple's on-device model and needs a device with Apple Intelligence on iOS 26 or later. Elsewhere the exact transcript is used. The History button shows the last dictations with Cleaned and Raw versions.
+1. Open Macrophone. The setup screens explain each permission, then tap Continue to see the system request. On "Get Macrophone for your Mac", "Next, iOS asks to find devices on your network" and "Scan the code on your Mac", tap Skip (top right).
+2. On the main screen, tap the large round mic button, say a sentence, then tap it again to stop.
+3. The text appears above the button, the status line says it was copied on the iPhone, and the text is on the clipboard. Paste it in Notes to check.
+4. The Cleanup menu (Off, Light, Medium, Heavy, Custom) chooses how much the text is tidied up. Cleanup uses Apple's on-device model and needs a device with Apple Intelligence on iOS 26 or later. Elsewhere the exact transcript is used. History (the clock button) shows past dictations with Cleaned and Raw versions.
 
 THE FREE MAC APP (OPTIONAL FOR REVIEW)
-"Macrophone for Mac" is a free menu bar app, offered as a signed and notarized download at https://sameer.us/macrophone/download. There's no paid tier anywhere. To test the full path, install it on a Mac on the same Wi-Fi network, open it, choose Pair iPhone, and scan the QR code from the iPhone app (or tap "Use a Code Instead" and type the six-digit code). The apps open on the Mac then appear by the mic button. Pick one, dictate, and the Mac pastes the text there. With the Mac connected, the Watch button next to the picked app (or sending with "Send after pasting" on) shows that one app window on the iPhone, live; taps and the Esc / Up / Down / Return keys under it act in that window on the Mac. The Mac asks for its Screen Recording permission for this; the iPhone needs no extra permission.
+"Macrophone for Mac" is a free menu bar app, offered as a signed and notarized download at https://sameer.us/macrophone/download. There's no paid tier anywhere. To test the full path, install it on a Mac on the same Wi-Fi network, open it, choose Pair iPhone, and scan the QR code from the iPhone app (or tap "Use a Code Instead" and type the six-digit code). The apps open on the Mac then appear in a Dock at the bottom of the iPhone screen. Tap one, dictate, and the Mac pastes the text there. Tap the picked app again to watch it live: taps click, and the trackpad and keyboard under the window move the pointer and type on the Mac. The Mac asks for its Screen Recording and Accessibility permissions for this; the iPhone needs no extra permission.
 
 PERMISSIONS AND WHY
 - Microphone: to hear the user while they tap or hold the mic button. Audio is never stored.
 - Speech Recognition: speech to text on the device (Apple's SpeechAnalyzer on iOS 26+, else SFSpeechRecognizer with requiresOnDeviceRecognition). Audio is not sent to Apple or to us.
-- Local Network: to find the user's Mac with Bonjour (_macrophone._tcp) and send it the text directly. The iOS prompt appears at the "Looking for your Mac" setup step, or the first time the user pairs. Nothing goes to the internet.
-- Camera: only to scan the pairing QR code shown on the Mac, requested at that step. Pairing also works with a six-digit code instead.
+- Local Network: to find the user's Mac with Bonjour (_macrophone._tcp) and talk to it directly. Nothing goes to the internet.
+- Camera: only to scan the pairing QR code shown on the Mac, requested at that step. Pairing also works with a six-digit code.
+- Notifications: asked the first time a Mac window is watched, for an alert when an app on the user's own Mac waits for an answer.
 
 OTHER NOTES
 - No ads, analytics, in-app purchases or third-party SDKs. App Privacy: Data Not Collected.
-- App Intents: "Start Dictation" opens the app already listening (iOS needs the app in the foreground to use the microphone). Its optional "Send To" parameter is Clipboard, Where I'm typing, or an app open on the user's Mac. "Dictate Text" returns the transcript to the user's own shortcut. A Control Center / Lock Screen / Action Button control ("Dictate to Mac") runs Start Dictation on iOS 18 and later.
-- App names that appear in the app (for example the apps open on the Mac) come from the user's own Mac. Macrophone has no integration with those apps' makers, sends nothing to them, and isn't affiliated with them.
-- The app is iPhone only and portrait only.
+- App Intents: "Start Dictation" opens the app already listening. "Dictate Text" returns the transcript to the user's own shortcut. A Control Center / Lock Screen / Action Button control runs Start Dictation on iOS 18 and later. A Home Screen widget shows the Mac's open apps.
+- App names that appear in the app (the apps open on the Mac) come from the user's own Mac. Macrophone isn't affiliated with their makers.
+- The app is iPhone only. On iPhone Duo it uses the inner screen in every orientation (a laptop-like layout when folded); on the cover and on other iPhones it is portrait only.
 ```
 
 ## Screenshots
 
-Upload the **6.9"** set (1320 × 2868, iPhone 16/17 Pro Max) and the **6.5"** set
-(1284 × 2778). App Store Connect scales the 6.9" set down for smaller iPhones. The files are
-`iOS/docs/store-screenshots/6.9/` and `/6.5/`: the same six shots in each, real screens captured
-through the DEBUG hooks (`iOS/scripts/capture-store-shots.sh`) and framed by
-`iOS/scripts/render-store-shots.swift`. All are RGB, no alpha, at the exact required sizes.
+Three sets, uploaded through the API on Nov 1 2026 (`APP_IPHONE_67` 6.9" 1320 × 2868,
+`APP_IPHONE_65` 6.5" 1284 × 2778, and `APP_IPHONE_DUO` 2007 × 2853 — the Duo's inner screen; App
+Store Connect took the size). Files: `iOS/docs/store-screenshots/6.9/`, `/6.5/`, `/duo/`, real
+screens captured through the DEBUG hooks against a stand-in Mac (`iOS/scripts/capture-store-shots.sh`,
+`capture-duo-store-shots.sh`) and framed by `iOS/scripts/render-store-shots.swift` (`duo` mode for
+the Duo). RGB, no alpha. No caption names a third-party app or says "Mac".
 
-Style: the app's dark ink ground, a mono kicker and a two-line serif caption at the top, and the
-phone below with the Filament crossing the frame. No caption names a third-party app.
+| # | 6.9 / 6.5 | Caption |
+| --- | --- | --- |
+| 1 | `01-hero.png` — a MacBook behind, the phone watching the live Terminal window with the answers (dark) | Your computer, live on your **iPhone**. |
+| 2 | `02-talk.png` — replying while watching, the words appearing (light) | **Say** what's next. It's typed and sent. |
+| 3 | `03-tap.png` — the trackpad page, the pointer on "1. Yes" (dark) | Point, tap, **scroll**, like you're there. |
+| 4 | `04-apps.png` — at rest: menu bar, wallpaper, the Dock and the options bar magnified (light) | Every app in your **Dock**. |
+| 5 | `05-open.png` — Open an App | Open **any app** on your computer. |
+| 6 | `06-cleanup.png` — Settings' Cleanup with a Heard / Sent card | Ums and uhs, **cleaned up**. |
+| 7 | `07-private.png` — setup: scan the code | **Private.** No account. No cloud. |
 
-| # | File | Screen | Headline |
-| --- | --- | --- | --- |
-| 1 | `01-hero.png` | A MacBook showing a Terminal running Claude Code; the iPhone in front showing the same window, live, with Esc · ↑ · ↓ · Return | Steer your Mac from your **iPhone**. |
-| 2 | `02-talk.png` | Replying while watching: the window as a strip, the reply appearing, the mic recording | **Say** what's next. It's typed and sent. |
-| 3 | `03-tap.png` | The live window with a tap marker on "1. Yes" | Tap and **swipe**, like you're there. |
-| 4 | `04-apps.png` | Send to with Watch and ⋯, the Mac's apps with their icons, Send after pasting, cleanup | Every agent. Every **app**. |
-| 5 | `05-open.png` | Open an app: the Mac's installed apps with icons | Open **any app** on your Mac. |
-| 6 | `06-cleanup.png` | Settings with a HEARD / SENT · MEDIUM card | Ums and uhs, **cleaned up**. |
-| 7 | `07-private.png` | Onboarding: scan the code on your Mac | **Private.** No account. No cloud. |
-
-The marketing pass (Oct 14 2026): bold SF headlines at 122 pt (readable as search thumbnails), one
-lit word each, from `docs/POSITIONING.md`. Re-rendered Oct 14 2026 for the new pitch. Shots 1–4 come from a live stand-in Mac
-(`mpctl serve`, see the capture script's header) so the window and the app icons are real. Use the
-"Macrophone Shots 6.9" (723B841D-…) and "Macrophone Shots 6.5" (13583BDA-…) simulators.
+| # | Duo | Caption |
+| --- | --- | --- |
+| 1 | `01-laptop.png` — folded: the live window above, the trackpad below | Fold it into a little **laptop**. |
+| 2 | `02-keyboard.png` — the same with the Mac keyboard | A full **keyboard** for your computer. |
+| 3 | `03-book.png` — the book: the window left, keys, trackpad and mic right | Open it up. **Everything** in hand. |
+| 4 | `04-open.png` — flat: the glance left, the cover's view right | Watch on one side, **talk** on the other. |
+| 5 | `05-cover.png` — the cover at rest | Closed, it's all in one **hand**. |
 
 ## Third-party names (guidelines 2.3.7 / 5.2.1)
 
