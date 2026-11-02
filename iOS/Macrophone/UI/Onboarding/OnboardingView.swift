@@ -190,11 +190,12 @@ struct OnboardingView: View {
     @ViewBuilder private var findMac: some View {
         if !looking {
             SetupPage(title: "Next, iOS asks to find devices on your network.",
-                      message: "That's how your iPhone finds your Mac. They talk to each other directly — nothing goes to the internet. Tap Allow when iOS asks.",
+                      message: "That's how your iPhone finds your Mac. They talk to each other directly — nothing goes to the internet.",
                       compact: compact) {
                 SetupSymbol(name: "wifi", style: Light.cyan, compact: compact)
             } buttons: {
-                SetupButton("Look for My Mac") {
+                // "Continue", never words that press for the permission (App Review 5.1.1(iv), Oct 2026).
+                SetupButton("Continue") {
                     looking = true
                     model.startLink()
                     Task {

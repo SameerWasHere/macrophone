@@ -70,12 +70,9 @@ enum DuoLook {
     /// The screen's own rounded corner, and how far a picture at the screen's edge sits in from
     /// it so the curve never cuts it — r·(1 − 1/√2) — its corner concentric (Nov 1 2026, Sameer:
     /// "part of the Mac window gets cut off by the rounded edges of the duo screen").
-    @MainActor static var displayCorner: CGFloat {
-        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
-        let key = "_displayCornerRadius"
-        if let screen, screen.responds(to: NSSelectorFromString(key)), let r = screen.value(forKey: key) as? CGFloat, r > 0 { return r }
-        return 40
-    }
+    /// The inner screen's corner: 55 pt on every corner (the Duo's device profile, `iPhone
+    /// Duo.simdevicetype` — public data; reading it off the screen would be private API).
+    @MainActor static var displayCorner: CGFloat { 55 }
     @MainActor static var edgeInset: CGFloat { ceil(displayCorner * (1 - 1 / 2.squareRoot())) }
     /// Square, like the window it shows (the inset alone keeps the screen's curve off it).
     static let edgeCorner: CGFloat = 0
