@@ -511,73 +511,109 @@ final class TrackpadTouchView: UIView {
 
 /// The pointer the trackpad moves (the carousel fixes, Oct 19 2026 — Sameer: the trackpad
 /// "doesn't move the cursor"; it did, 1,027 moves reached the Mac, but the phone's ring was small,
-/// started at the window's centre off the zoomed view and sat under the Newest button): an arrow
-/// like the Mac's own, white with a dark edge and a cyan glow so it reads on a light or a dark
-/// window, drawn above the picture and everything over it. Placed by the window's viewer on
-/// every move, scroll and zoom — in UIKit, nothing through SwiftUI per frame. The one pointer:
-/// the Mac no longer draws its own into the stream (it lagged this one as a ghost).
+/// started at the window's centre off the zoomed view and sat under the Newest button), drawn
+/// above the picture and everything over it. Placed by the window's viewer on every move, scroll
+/// and zoom — in UIKit, nothing through SwiftUI per frame. The one pointer: the Mac no longer
+/// draws its own into the stream (it lagged this one as a ghost).
+///
+/// Nov 1 2026 (Sameer: "make it a bit smaller … it should contextually change just like it does
+/// on the Mac"): it is the Mac's own pointer — the arrow, the I-beam over text, the hand over a
+/// link, the resize arrows at an edge — sent by a Mac that names `MacCursor.feature` each time
+/// its shape changes (`PointerShape`), drawn at its size in points. Until one arrives (and for a
+/// Mac from before) it's a drawn arrow like the Mac's: black with a white edge, the same size.
 final class PointerSpriteView: UIView {
-    private let glow = CAShapeLayer()
     private let arrow = CAShapeLayer()
+    /// The Mac's own cursor, when it sent one.
+    private let shape = CALayer()
     private(set) var shown = false
+    private var lastPoint: CGPoint?
+    private var shapeID: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        let path = Self.arrowPath
-        for l in [glow, arrow] {
-            l.path = path
-            l.contentsScale = UIScreen.main.scale
-            l.lineJoin = .round
-            l.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
-            l.anchorPoint = .zero
+        arrow.path = Self.arrowPath
+        arrow.contentsScale = UIScreen.main.scale
+        arrow.lineJoin = .round
+        arrow.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
+        arrow.anchorPoint = .zero
+        arrow.fillColor = UIColor.black.cgColor
+        arrow.strokeColor = UIColor.white.cgColor
+        arrow.lineWidth = 1.3
+        shape.contentsScale = UIScreen.main.scale
+        shape.contentsGravity = .resize
+        shape.magnificationFilter = .linear
+        for l in [arrow, shape] {
+            l.shadowColor = UIColor.black.cgColor
+            l.shadowOpacity = 0.35
+            l.shadowRadius = 1.5
+            l.shadowOffset = CGSize(width: 0, height: 1)
             layer.addSublayer(l)
         }
-        glow.fillColor = UIColor(Light.cyan).cgColor
-        glow.strokeColor = UIColor(Light.cyan).cgColor
-        glow.lineWidth = 3
-        glow.opacity = 0.55
-        glow.shadowColor = UIColor(Light.cyan).cgColor
-        glow.shadowOpacity = 1
-        glow.shadowRadius = 6
-        glow.shadowOffset = .zero
-        arrow.fillColor = UIColor.white.cgColor
-        arrow.strokeColor = UIColor.black.withAlphaComponent(0.85).cgColor
-        arrow.lineWidth = 1.2
         isHidden = true
+        applyShape()
+        NotificationCenter.default.addObserver(self, selector: #selector(shapeChanged), name: PointerShape.changed, object: nil)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// The Mac's arrow, the tip at the origin, about 16 × 25 points.
+    /// The Mac's arrow, the tip at the origin, about 13 × 20 points.
     static var arrowPath: CGPath {
         let p = UIBezierPath()
-        let k: CGFloat = 1.3
         p.move(to: .zero)
-        p.addLine(to: CGPoint(x: 0, y: 17.3 * k))
-        p.addLine(to: CGPoint(x: 4.2 * k, y: 13.3 * k))
-        p.addLine(to: CGPoint(x: 7.3 * k, y: 19.6 * k))
-        p.addLine(to: CGPoint(x: 10.4 * k, y: 18.2 * k))
-        p.addLine(to: CGPoint(x: 7.3 * k, y: 12 * k))
-        p.addLine(to: CGPoint(x: 12.8 * k, y: 12 * k))
+        p.addLine(to: CGPoint(x: 0, y: 17.3))
+        p.addLine(to: CGPoint(x: 4.2, y: 13.3))
+        p.addLine(to: CGPoint(x: 7.3, y: 19.6))
+        p.addLine(to: CGPoint(x: 10.4, y: 18.2))
+        p.addLine(to: CGPoint(x: 7.3, y: 12))
+        p.addLine(to: CGPoint(x: 12.8, y: 12))
         p.close()
         return p.cgPath
     }
 
-    /// The tip here, in this view's coordinates. The first placing after a hide comes in with a
-    /// pulse, so the eye finds it.
-    func place(_ p: CGPoint) {
-        // The tip is the point; the body falls right and down from it — at the window's right or
-        // bottom edge it would be cut off, so there the arrow mirrors to stay whole.
-        let flipX: CGFloat = p.x > bounds.width - 22 ? -1 : 1
-        let flipY: CGFloat = p.y > bounds.height - 30 ? -1 : 1
+    @objc private func shapeChanged() {
+        applyShape()
+        if let lastPoint, shown { place(lastPoint) }
+    }
+
+    /// The Mac's cursor (or the drawn arrow when there's none), sized in points with its hot spot
+    /// at the layer's anchor — so placing it puts the point that clicks under the pointer.
+    private func applyShape() {
+        let s = PointerShape.shared
+        guard s.id != shapeID else { return }
+        shapeID = s.id
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for l in [glow, arrow] {
-            l.position = p
-            l.transform = CATransform3DMakeScale(flipX, flipY, 1)
+        if let image = s.image?.cgImage, s.size.width > 0, s.size.height > 0 {
+            shape.contents = image
+            shape.bounds = CGRect(origin: .zero, size: s.size)
+            shape.anchorPoint = CGPoint(x: s.hotSpot.x / s.size.width, y: s.hotSpot.y / s.size.height)
+            shape.isHidden = false
+            arrow.isHidden = true
+        } else {
+            shape.contents = nil
+            shape.isHidden = true
+            arrow.isHidden = false
         }
+        CATransaction.commit()
+    }
+
+    /// The point that clicks here, in this view's coordinates. The first placing after a hide
+    /// comes in with a pulse, so the eye finds it.
+    func place(_ p: CGPoint) {
+        lastPoint = p
+        let mac = !shape.isHidden
+        // The drawn arrow falls right and down from its tip — at the window's right or bottom
+        // edge it would be cut off, so there it mirrors to stay whole. (The Mac's cursors stay as
+        // they are, as on the Mac at the screen's edge: a mirrored I-beam or hand would read wrong.)
+        let flipX: CGFloat = !mac && p.x > bounds.width - 16 ? -1 : 1
+        let flipY: CGFloat = !mac && p.y > bounds.height - 24 ? -1 : 1
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shape.position = p
+        arrow.position = p
+        arrow.transform = CATransform3DMakeScale(flipX, flipY, 1)
         CATransaction.commit()
         guard !shown else { return }
         shown = true
@@ -585,7 +621,7 @@ final class PointerSpriteView: UIView {
         // (The pulse animates the scale, which the mirror also uses: none at an edge.)
         guard !UIAccessibility.isReduceMotionEnabled, flipX == 1, flipY == 1 else { return }
         let pulse = CABasicAnimation(keyPath: "transform.scale")
-        pulse.fromValue = 1.9
+        pulse.fromValue = 1.8
         pulse.toValue = 1
         pulse.duration = 0.28
         pulse.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -593,14 +629,51 @@ final class PointerSpriteView: UIView {
         fade.fromValue = 0
         fade.toValue = 1
         fade.duration = 0.18
-        arrow.add(pulse, forKey: "in")
-        arrow.add(fade, forKey: "fade")
-        glow.add(pulse, forKey: "in")
+        for l in [arrow, shape] {
+            l.add(pulse, forKey: "in")
+            l.add(fade, forKey: "fade")
+        }
     }
 
     func hide() {
         shown = false
         isHidden = true
+    }
+}
+
+/// The Mac's pointer as it looks now (`MacCursor`, sent while the trackpad's pointer is up and on
+/// each change), shared by every pointer on screen (two can be alive in a cross-fade). Nil: the
+/// drawn arrow. Kept across shows — the same Mac sends its shape again on each — and dropped on a
+/// switch to another Mac.
+@MainActor
+final class PointerShape {
+    static let shared = PointerShape()
+    static let changed = Notification.Name("macrophone.pointerShape")
+    private(set) var id: String?
+    private(set) var image: UIImage?
+    /// In points, and the point that clicks from the top left.
+    private(set) var size: CGSize = .zero
+    private(set) var hotSpot: CGPoint = .zero
+
+    func set(_ c: MacCursor?) {
+        guard c?.id != id else { return }
+        guard let c, let img = UIImage(data: c.png, scale: 2) else {
+            guard id != nil else { return }
+            id = nil; image = nil; size = .zero; hotSpot = .zero
+            NotificationCenter.default.post(name: Self.changed, object: nil)
+            return
+        }
+        id = c.id
+        image = img
+        size = CGSize(width: c.width, height: c.height)
+        hotSpot = CGPoint(x: c.hotX, y: c.hotY)
+        NotificationCenter.default.post(name: Self.changed, object: nil)
+    }
+}
+
+extension AppModel: LinkClientCursorDelegate {
+    func linkClient(_ client: LinkClient, macCursor: MacCursor) {
+        PointerShape.shared.set(macCursor)
     }
 }
 

@@ -417,11 +417,13 @@ final class ServeDelegate: LinkServerDelegate {
         case .move:
             pointerMoves += 1
             demo?.pointer(e.point)
+            sendDemoCursor(at: e.point, to: peerID, server: server)
         case .click:
             stdout("WATCH MOUSE click ×\(e.clickCount)\(e.isRight ? " right" : "")\(mods.isEmpty ? "" : " " + mods) at \(at) after \(pointerMoves) moves")
             pointerMoves = 0
             demo?.pointer(e.point)
             demo?.click(e.point)
+            sendDemoCursor(at: e.point, to: peerID, server: server)
         case .down:
             stdout("WATCH MOUSE down\(mods.isEmpty ? "" : " " + mods) at \(at) after \(pointerMoves) moves")
             pointerMoves = 0
@@ -438,7 +440,26 @@ final class ServeDelegate: LinkServerDelegate {
         case .show, .hide:
             stdout("WATCH MOUSE pointer \(e.kindValue == .show ? "shown" : "hidden")")
             demo?.pointer(e.point, shown: e.kindValue == .show)
+            if e.kindValue == .show { Task { @MainActor in self.cursorReader.reset() }; sendDemoCursor(at: e.point, to: peerID, server: server) }
         case nil: break
+        }
+    }
+
+    /// The demo window's cursor under the pointer, as a Mac's would change (Nov 1 2026,
+    /// `MacCursor`): the hand over the traffic lights, the arrow on the title bar, the I-beam over
+    /// the text column and the reply field, the resize arrows at the side edges.
+    /// (The system's cursors have no pictures until AppKit is up.)
+    @MainActor lazy var cursorReader: MacCursorReader = { _ = NSApplication.shared; return MacCursorReader() }()
+    func sendDemoCursor(at p: CGPoint, to peerID: UUID, server: LinkServer) {
+        Task { @MainActor in
+            let cursor: NSCursor
+            let name: String
+            if p.y < 0.05 { (cursor, name) = p.x < 0.08 ? (.pointingHand, "pointing hand") : (.arrow, "arrow") }
+            else if p.x < 0.012 || p.x > 0.988 { (cursor, name) = (.resizeLeftRight, "resize") }
+            else if (0.2...0.8).contains(p.x) { (cursor, name) = (.iBeam, "I-beam") }
+            else { (cursor, name) = (.arrow, "arrow") }
+            guard let c = self.cursorReader.changed(cursor) else { return }
+            if await server.sendCursor(c, to: peerID) { stdout("WATCH CURSOR \(name) \(c.png.count) bytes") }
         }
     }
 
@@ -670,6 +691,7 @@ func run() async -> Int32 {
         server.macFeatures.append(MacPermissions.feature)
         // The desktop picture (Wallpaper.swift): the demo gradient, or --wallpaper's image.
         server.macFeatures.append(MacWallpaper.feature)
+        server.macFeatures.append(MacCursor.feature)
         if !has("--jpeg") { server.macFeatures += MacReachDemo.features }
         if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }
         // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).

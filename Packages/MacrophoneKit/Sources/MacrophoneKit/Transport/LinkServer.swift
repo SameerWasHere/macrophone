@@ -727,7 +727,7 @@ public final class LinkServer: @unchecked Sendable {
                 notifyPermissions { $0.linkServerShowPermissions(self, from: phoneID) }
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper:
+            case .macPermissions, .macWallpaper, .macCursor:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

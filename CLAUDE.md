@@ -538,6 +538,26 @@ differ. Frames: `docs/screens/duo/nov1/` (before | after sheets per pose and the
   it is `.unspecified` upright; the fold's region frame flat (`.includeInactive`) — the flat
   layouts split at it and fall back to the middle.
 
+## The Mac's own pointer on the trackpad (Nov 1 2026)
+
+Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on
+the Mac". `MacCursor` (MacrophoneKit `Core/MacCursor.swift`, `Transport/CursorLink.swift`, feature
+`cursorShape`, the wallpaper pattern): `.macCursor` Mac → phone — the cursor's PNG at 2× its points,
+its size and hot spot, an id hashed from its pixels — only to a phone that named it, only while that
+phone's trackpad pointer is up. The Mac (`WatchService.followCursor`) reads `NSCursor.currentSystem`
+15 times a second through `MacCursorReader` (`Core/MacCursorAppKit.swift`: drawn into a small bitmap
+and compared; the PNG only on a change; reset on each show so the shape goes at once). The phone
+(`PointerShape` in `UI/TrackpadView.swift`) draws it at its size in points with the hot spot under
+the pointer; until one arrives, and for a Mac from before, a drawn arrow like the Mac's (black, a
+white edge, ~13 × 20 pt — was 16 × 25 with a cyan glow). Dropped on a switch to another Mac. AppKit
+must be up before a cursor has a picture (`NSApplication.shared` — the tests and `mpctl` do it).
+`mpctl serve` names it and sends the demo's shapes (the hand over the traffic lights, the I-beam
+over the text column, resize at the side edges, else the arrow; `WATCH CURSOR <name> N bytes`) —
+its demo window still draws its own white arrow into the picture, offset from the phone's: the
+stand-in only. Tests: `MacCursorTests`. Needs a real check: the Mac app with a real phone — an
+I-beam over TextEdit, the hand over a link in Safari, resize at a window's edge, a background app's
+cursor (macOS updates a background app's cursor only where it asks to).
+
 ## Several Macs on one iPhone (Oct 19 2026)
 
 Sameer: "I should also be able to pair multiple Macs to my phone and switch easily by swiping up

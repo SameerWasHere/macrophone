@@ -78,6 +78,9 @@ final class WatchService {
         /// The phone's trackpad is in use: the pointer stays where it's left, and each frame's
         /// words say where the Mac's own pointer is (the phone's starts there).
         var pointerShown = false
+        /// While the pointer is up, the Mac's pointer shape is read and sent on each change
+        /// (Nov 1 2026, `MacCursor`), to a phone that draws it.
+        var cursorTask: Task<Void, Never>?
         /// A window was found and shown at least once: only then can it be "closed".
         var sawWindow = false
         /// When the window it showed was first found gone: a beat later, still gone, it's closed.
@@ -280,6 +283,7 @@ final class WatchService {
             Task { @MainActor in
                 guard let self, let w else { return }
                 w.pointerShown = shown
+                self.followCursor(w, shown)
                 // The phone draws the one pointer (instant; the Mac's own in the stream lagged it
                 // as a ghost). It starts where the Mac's pointer is: the words say so at once.
                 self.tellPipe(w)
@@ -302,6 +306,7 @@ final class WatchService {
         postersLock.lock(); posters[peer] = nil; inputs[peer] = nil; postersLock.unlock()
         w.poster.stop()
         w.input.stop()
+        w.cursorTask?.cancel()
         if w.input.clicks + w.input.moves + w.input.typed > 0 {
             app.log.add("watch input: \(w.input.clicks) clicks, \(w.input.moves) pointer moves (\(w.input.missed) didn't land, warped there), \(w.input.typed) characters typed")
         }
@@ -565,6 +570,24 @@ final class WatchService {
         guard w.pointerShown, let wid = w.windowID, let b = w.area ?? WindowServer.bounds(of: wid), b.width > 0, b.height > 0,
               let c = CGEvent(source: nil)?.location, b.contains(c) else { return nil }
         return CGPoint(x: (c.x - b.minX) / b.width, y: (c.y - b.minY) / b.height)
+    }
+
+    /// The pointer's shape, as the Mac shows it (the I-beam over text, the hand over a link, the
+    /// resize arrows at an edge): read fifteen times a second while the phone's pointer is up —
+    /// a few thousand pixels drawn and compared, nothing sent unless it changed — the current
+    /// shape sent at once when it shows.
+    private func followCursor(_ w: Watch, _ shown: Bool) {
+        w.cursorTask?.cancel()
+        w.cursorTask = nil
+        guard shown, app.server.phones(with: MacCursor.feature).contains(w.peer) else { return }
+        let server = app.server, peer = w.peer
+        w.cursorTask = Task { @MainActor in
+            let reader = MacCursorReader()
+            while !Task.isCancelled {
+                if let c = reader.changed() { await server.sendCursor(c, to: peer) }
+                try? await Task.sleep(nanoseconds: 66_000_000)
+            }
+        }
     }
 
     /// The app in front, not Macrophone.

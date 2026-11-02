@@ -264,6 +264,8 @@ final class AppModel: ObservableObject {
         c.features += [Displays.feature, WakeInfo.feature, MacControl.feature]
         // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
         c.features.append(MacWallpaper.feature)
+        // The Mac's pointer shape, drawn as the trackpad's pointer (Nov 1 2026, UI/TrackpadView.swift).
+        c.features.append(MacCursor.feature)
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -346,6 +348,7 @@ final class AppModel: ObservableObject {
     /// another was forgotten); nil when none is paired.
     private func adoptMac(_ mac: PairedPeer?) {
         recordingOverride = nil
+        PointerShape.shared.set(nil)
         settings.useMac(mac?.id)
         liveTargets = mac.map { Self.loadTargets(for: $0.id) } ?? []
         targetsCurrent = false

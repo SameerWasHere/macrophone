@@ -129,6 +129,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         // The desktop picture, behind a phone drawn as a little Mac desktop (Nov 1 2026, Core/Wallpaper.swift).
         server.macFeatures.append(MacWallpaper.feature)
         watchWallpaper()
+        // The pointer's shape on the phone's trackpad pointer (Nov 1 2026, Watch/WatchService.swift).
+        server.macFeatures.append(MacCursor.feature)
         // The displays, Mac Controls, Wake the Mac (Oct 19 2026, Core/MacReach.swift).
         server.macFeatures += [Displays.feature, MacControl.feature, WakeInfo.feature]
         // Swipes and the pointer skip the main actor: the receive loop hands each step to the
