@@ -678,14 +678,38 @@ struct DuoGlance: View {
                 if let pictureHeight {
                     VStack(spacing: 0) {
                         window.frame(height: pictureHeight)
-                        liveBar
+                        liveBar(under: true)
                         Spacer(minLength: 0)
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
+                } else if !fill, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 {
+                    // The open screen: the window at its own shape (no band of empty bezel above
+                    // or below it), the bar under it when there's room, else over its foot.
+                    GeometryReader { geo in
+                        let b = bezelWidth, aspect = size.width / size.height
+                        let wide = (geo.size.width - 2 * b) / aspect + 2 * b
+                        let barRoom: CGFloat = 76
+                        Group {
+                            if wide + barRoom <= geo.size.height {
+                                VStack(spacing: 0) {
+                                    window.frame(height: wide)
+                                    liveBar(under: true)
+                                }
+                            } else {
+                                let h = min(wide, geo.size.height)
+                                window
+                                    .overlay(alignment: .bottom) { liveBar(under: false) }
+                                    .frame(width: wide > geo.size.height ? (h - 2 * b) * aspect + 2 * b : geo.size.width, height: h)
+                            }
+                        }
+                        .frame(width: geo.size.width, height: geo.size.height)
                     }
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
                 } else {
                     window
-                        .overlay(alignment: .bottom) { liveBar }
+                        .overlay(alignment: .bottom) { liveBar(under: false) }
                         .accessibilityElement(children: .contain)
                         .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
                 }
@@ -737,9 +761,8 @@ struct DuoGlance: View {
     /// Over the live picture's foot (or under a short picture): the app, that it's live (or
     /// paused), and Show it here — on one line, or the button on its own line when the page is
     /// narrow (the book's).
-    private var liveBar: some View {
+    private func liveBar(under: Bool) -> some View {
         let target = model.selection.target
-        let under = pictureHeight != nil
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
                 icon(target, size: 30)
