@@ -349,6 +349,9 @@ enum DebugHooks {
                         model.macAudio.micOpening()
                     } else if a.hasPrefix("answer@"), let i = Int(a.dropFirst(7)) {
                         model.watcher.choose(i)
+                    } else if a == "record" || a == "stoprecord" {
+                        // The mic button's tap, as pressed (with MACROPHONE_SIM_RECORD's words).
+                        if a == "record" { Task { await model.startRecording() } } else { model.stopRecording() }
                     } else if a.hasPrefix("say@") {
                         // The mic opening with these words, while the window shows (the Duo's live words over the picture).
                         model.debugSimulateRecording(String(a.dropFirst(4)))

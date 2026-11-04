@@ -527,8 +527,13 @@ final class AppModel: ObservableObject {
         if recorder.isActive { stopRecording() } else { Task { await startRecording() } }
     }
 
-    func startRecording(override: SendSelection? = nil) async {
+    func startRecording(override asked: SendSelection? = nil) async {
         guard !recorder.isActive else { return }
+        // Full screen on the Duo (Nov 3 2026, Sameer: "it should default to pasting wherever the
+        // cursor is … so it can actually be used as text input anywhere"): the words go to Where
+        // I'm typing — whatever field he last tapped into on the Mac — not the Send to pick.
+        let override = asked ?? (watcher.fullScreen && watcher.isShowing
+            ? SendSelection(target: .frontApp, send: sendSetting(for: .frontApp)) : nil)
         recordingOverride = override
         #if DEBUG
         // UI tests drive the real button and gestures with a stand-in recognizer
@@ -870,7 +875,8 @@ final class AppModel: ObservableObject {
         if l.isSuccess { Haptics.success() } else { Haptics.error() }
         bumpPulse()
         // Sent into an app: show its window, so the answer can be read (and approved) from here.
-        if result == .sent, settings.watchAfterSending, let t = it.dictation.target, t != .clipboard, sceneActive {
+        // (Not in full screen: the words went where he's looking already.)
+        if result == .sent, settings.watchAfterSending, !watcher.fullScreen, let t = it.dictation.target, t != .clipboard, sceneActive {
             watcher.follow(t)
         }
     }
