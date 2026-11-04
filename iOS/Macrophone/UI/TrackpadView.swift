@@ -72,6 +72,8 @@ struct TrackpadPage: View {
 struct TrackpadSurface: UIViewRepresentable {
     @ObservedObject var input: MacInput
     @ObservedObject var watcher: Watcher
+    /// Any touch that does something (full screen's pad stays up while it's used).
+    var onUse: () -> Void = {}
 
     func makeUIView(context: Context) -> TrackpadTouchView {
         let v = TrackpadTouchView()
@@ -82,16 +84,17 @@ struct TrackpadSurface: UIViewRepresentable {
     func updateUIView(_ v: TrackpadTouchView, context: Context) { wire(v) }
 
     private func wire(_ v: TrackpadTouchView) {
-        v.onMove = { d, dt in input.pointerMoved(by: d, dt: dt) }
-        v.onTap = { n in input.tap(count: n) }
-        v.onRightTap = { input.rightTap() }
-        v.onDragBegan = { input.dragBegan() }
-        v.onDragMoved = { d, dt in input.dragMoved(by: d, dt: dt) }
-        v.onDragEnded = { input.dragEnded() }
-        v.onScroll = { d in watcher.scroll(at: input.pointer.point, by: d) }
-        v.onScrollPhase = { p in watcher.scrollPhase(p, at: input.pointer.point) }
-        v.onThreeSwipe = { dir in input.threeFingerSwipe(dir) }
-        v.onGesture = { g in input.trackpadGesture(g) }
+        let used = onUse
+        v.onMove = { d, dt in used(); input.pointerMoved(by: d, dt: dt) }
+        v.onTap = { n in used(); input.tap(count: n) }
+        v.onRightTap = { used(); input.rightTap() }
+        v.onDragBegan = { used(); input.dragBegan() }
+        v.onDragMoved = { d, dt in used(); input.dragMoved(by: d, dt: dt) }
+        v.onDragEnded = { used(); input.dragEnded() }
+        v.onScroll = { d in used(); watcher.scroll(at: input.pointer.point, by: d) }
+        v.onScrollPhase = { p in used(); watcher.scrollPhase(p, at: input.pointer.point) }
+        v.onThreeSwipe = { dir in used(); input.threeFingerSwipe(dir) }
+        v.onGesture = { g in used(); input.trackpadGesture(g) }
         v.phased = watcher.macCanScroll
         v.windowPoints = input.windowPoints
     }

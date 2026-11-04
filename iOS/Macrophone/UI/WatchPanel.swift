@@ -597,9 +597,12 @@ struct WatchWindow: View {
     /// Something floats over the screen's foot (the Duo's answers): the picture's newest lines —
     /// the question — stay above it, so what's answered is never under its answers.
     var footInset: CGFloat = 0
+    /// A press and hold taken for something else (full screen's trackpad): true when it was.
+    var onHold: ((CGPoint) -> Bool)? = nil
 
-    init(watcher: Watcher, interactive: Bool, bezelWidth: CGFloat = WatchLook.bezelWidth, corner: CGFloat = WatchLook.bezel, fill: Bool = false, footInset: CGFloat = 0) {
+    init(watcher: Watcher, interactive: Bool, bezelWidth: CGFloat = WatchLook.bezelWidth, corner: CGFloat = WatchLook.bezel, fill: Bool = false, footInset: CGFloat = 0, onHold: ((CGPoint) -> Bool)? = nil) {
         self.watcher = watcher
+        self.onHold = onHold
         self.interactive = interactive
         self.bezelWidth = bezelWidth
         // A Mac's window is square-cornered, so the picture is too, everywhere: a rounded corner
@@ -638,6 +641,7 @@ struct WatchWindow: View {
                              canDrag: interactive && watcher.canMouse,
                              onTouch: { watcher.touch() },
                              onTap: { watcher.click($0, count: $1) }, onRightClick: { watcher.rightClick($0) },
+                             onHold: interactive ? onHold : nil,
                              onDrag: { watcher.windowDrag($0, at: $1) }, whole: watcher.wholeWindow,
                              onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
@@ -1408,6 +1412,9 @@ struct WindowViewer: UIViewRepresentable {
     var onTap: (CGPoint, Int) -> Void
     /// A press and hold or a two-finger tap; returns whether the Mac takes right-clicks.
     var onRightClick: (CGPoint) -> Bool = { _ in false }
+    /// A press and hold taken for something else (full screen's trackpad), at a point in the
+    /// view; true when it was — no right-click then.
+    var onHold: ((CGPoint) -> Bool)? = nil
     /// A drag: the button pressed, moved, released — at fractions of the window.
     var onDrag: (WatchMouseEvent.Kind, CGPoint) -> Void = { _, _ in }
     /// The whole window on screen (the zoom-out button).
@@ -1443,6 +1450,7 @@ struct WindowViewer: UIViewRepresentable {
         v.onTouch = onTouch
         v.onTap = onTap
         v.onRightClick = onRightClick
+        v.onHold = onHold
         v.onDrag = onDrag
         v.onScroll = onScroll
         v.onScrollPhase = onScrollPhase
@@ -1475,6 +1483,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     var onTouch: () -> Void = {}
     var onTap: (CGPoint, Int) -> Void = { _, _ in }
     var onRightClick: (CGPoint) -> Bool = { _ in false }
+    var onHold: ((CGPoint) -> Bool)?
     var onDrag: (WatchMouseEvent.Kind, CGPoint) -> Void = { _, _ in }
     /// The Mac takes drags: a hold right after a tap presses the button and moves with the finger.
     var canDrag = false
@@ -1878,6 +1887,11 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
                 dragUnderWay = true
                 hidePressMark()
                 onDrag(.down, n)
+                return
+            }
+            // Full screen: a hold brings the trackpad up there instead (Nov 3 2026).
+            if let onHold, onHold(CGPoint(x: p.x - contentOffset.x, y: p.y - contentOffset.y)) {
+                hidePressMark()
                 return
             }
             heldAt = Date()

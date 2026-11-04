@@ -299,10 +299,18 @@ extension MainView {
 /// no status bar. The window has the screen's shape (`Watcher.setFullScreen`); the whole screen
 /// fills it. Taps, drags, pinches and scrolls go to the Mac as in the window view. One glass
 /// button in the corner brings the deck back; it fades a few seconds after a touch and a touch
-/// brings it back (always there for VoiceOver).
+/// brings it back (always there for VoiceOver). A press and hold anywhere brings a see-through
+/// trackpad up under the finger (Nov 3 2026, Sameer: "a see through track pad should appear there
+/// quickly and stay for a few seconds … dissolve away after like 5 sec of no interaction").
 struct DuoFullScreen: View {
     let main: MainView
     @ObservedObject private var watcher: Watcher
+    @ObservedObject private var input: MacInput
+    /// Where the pad was called up (in this view), while it's up.
+    @State private var padAt: CGPoint?
+    @State private var padTask: Task<Void, Never>?
+    /// When the pad was last used — a box, so a finger moving on it doesn't redraw the view.
+    @State private var padClock = PadClock()
     @State private var exitShown = true
     @State private var hideTask: Task<Void, Never>?
     @State private var revealedAt = Date.distantPast
@@ -312,13 +320,19 @@ struct DuoFullScreen: View {
     init(main: MainView) {
         self.main = main
         _watcher = ObservedObject(wrappedValue: main.watcher)
+        _input = ObservedObject(wrappedValue: main.watcher.input)
     }
+
+    final class PadClock { var last = Date() }
+    static let padSize = CGSize(width: 340, height: 220)
+    /// How long the pad stays with nothing on it.
+    static let padHold: TimeInterval = 5
 
     private var exitUp: Bool { exitShown || voiceOver || watcher.phase != .live }
 
     var body: some View {
         GeometryReader { geo in
-            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true)
+            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true, onHold: summonPad)
                 .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
                 .overlay(alignment: .bottom) {
                     if main.showLiveWords {
@@ -336,16 +350,87 @@ struct DuoFullScreen: View {
                 }
                 .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: exitUp)
                 .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })
+                .overlay {
+                    if let at = padAt { pad(at: at, in: geo.size) }
+                }
                 // The mic, small, wherever he left it (never faded: it's the app's point).
                 .overlay { FloatingMic(main: main, room: geo.size) }
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea()
         .background(Color.black.ignoresSafeArea())
-        .onAppear { reveal() }
-        .onDisappear { hideTask?.cancel(); hideTask = nil }
+        .onAppear {
+            reveal()
+            #if DEBUG
+            // MACROPHONE_FULLSCREEN_PAD=x,y: the hold's pad at that point, 2 s in (for a screenshot).
+            if let v = DebugHooks.env["MACROPHONE_FULLSCREEN_PAD"]?.split(separator: ",").compactMap({ Double($0) }), v.count == 2 {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    _ = summonPad(at: CGPoint(x: v[0], y: v[1]))
+                }
+            }
+            #endif
+        }
+        .onDisappear { hideTask?.cancel(); hideTask = nil; padTask?.cancel(); padTask = nil }
+        // The page left the trackpad (the mic opened): the pad goes with it.
+        .onChange(of: input.page) { _, p in if p != .trackpad, padAt != nil { dismissPad() } }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your Mac, full screen")
+    }
+
+    // MARK: The trackpad on a hold
+
+    /// A hold on the picture: the pad comes up centred under the finger (kept on screen) and the
+    /// pointer shows — instead of a right-click (two fingers still right-click).
+    private func summonPad(at p: CGPoint) -> Bool {
+        guard input.pages.contains(.trackpad), !main.showLiveWords else { return false }
+        Haptics.soft()
+        padClock.last = Date()
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.2, dampingFraction: 0.85)) { padAt = p }
+        input.show(.trackpad, quiet: true)
+        armPad()
+        return true
+    }
+
+    /// Dissolves the pad once nothing has touched it for `padHold` seconds.
+    private func armPad() {
+        padTask?.cancel()
+        padTask = Task { @MainActor in
+            while !Task.isCancelled {
+                let left = Self.padHold - Date().timeIntervalSince(padClock.last)
+                if left <= 0 { dismissPad(); return }
+                try? await Task.sleep(nanoseconds: UInt64(left * 1e9) + 50_000_000)
+            }
+        }
+    }
+
+    private func dismissPad() {
+        padTask?.cancel()
+        padTask = nil
+        withAnimation(.easeOut(duration: reduceMotion ? 0.2 : 0.6)) { padAt = nil }
+        if input.page == .trackpad { input.show(.mic, quiet: true) }
+    }
+
+    private func pad(at p: CGPoint, in room: CGSize) -> some View {
+        let size = Self.padSize
+        let inset = DuoLook.edgeInset
+        let x = min(max(p.x, inset + size.width / 2), max(inset + size.width / 2, room.width - inset - size.width / 2))
+        let y = min(max(p.y, inset + size.height / 2), max(inset + size.height / 2, room.height - inset - size.height / 2))
+        let shape = RoundedRectangle(cornerRadius: WatchLook.bezel, style: .continuous)
+        return TrackpadSurface(input: input, watcher: watcher, onUse: { [padClock] in padClock.last = Date() })
+            // See-through: the window shows under a light frost and a hairline edge.
+            .background(.ultraThinMaterial.opacity(0.5), in: shape)
+            .background(Color.white.opacity(0.06), in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.4), lineWidth: 1).allowsHitTesting(false))
+            .clipShape(shape)
+            .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+            .frame(width: size.width, height: size.height)
+            .position(x: x, y: y)
+            .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.92)), removal: .opacity))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Trackpad")
+            .accessibilityHint("Moves the pointer on your Mac. It goes away after a few seconds unused.")
+            .accessibilityIdentifier("fullscreen-trackpad")
     }
 
     private var exitButton: some View {
