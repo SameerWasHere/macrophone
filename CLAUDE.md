@@ -551,7 +551,7 @@ one exit button in the top-left corner that fades after 3.5 s and comes back on 
 (`watch-fullscreen-exit`). Entering or leaving re-arms auto-fit (`poseSettled`), so a window takes
 the screen's shape (`WATCH SHAPE 1.42` on the sim) and goes back to the page's after; the whole
 screen fills rather than showing whole. The pages go to the mic (no pointer without the deck).
-Ends on Done / the glance / close, and on a pose that doesn't allow it. Hook:
+Ends on Done / the glance / close, and on a pose that doesn't allow it. **The mic floats** (`FloatingMic`, Sameer: "make it small and give me a little lip on it so I could drag and move anywhere"): the same `MicButton` at 52 pt with a glass grab tab on its top edge — the disc keeps tap and hold, only the lip drags it; it stays where it's left (`duo.fullscreen.mic.x/y`, fractions, bottom-right first), clamped clear of the rounded corners; never fades. Hook:
 `MACROPHONE_WATCH_ACTIONS=…,fullscreen,windowed`.
 
 ## The Mac's own pointer on the trackpad (Nov 1 2026)

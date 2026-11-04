@@ -336,6 +336,8 @@ struct DuoFullScreen: View {
                 }
                 .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: exitUp)
                 .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })
+                // The mic, small, wherever he left it (never faded: it's the app's point).
+                .overlay { FloatingMic(main: main, room: geo.size) }
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea()
@@ -371,6 +373,71 @@ struct DuoFullScreen: View {
             guard !Task.isCancelled else { return }
             exitShown = false
         }
+    }
+}
+
+/// The mic in full screen (Nov 3 2026, Sameer: "make it small and give me a little lip on it so I
+/// could drag and move anywhere"): the same mic button, small, with a grab tab on its top edge.
+/// The disc keeps its tap and hold (a dictation); only the lip moves it, so a hold is never taken
+/// for a drag. It stays where it's left (a fraction of the screen, `duo.fullscreen.mic`), kept clear
+/// of the screen's rounded corners.
+struct FloatingMic: View {
+    let main: MainView
+    var room: CGSize
+    @AppStorage("duo.fullscreen.mic.x") private var fx = 0.93
+    @AppStorage("duo.fullscreen.mic.y") private var fy = 0.84
+    @State private var drag: CGSize = .zero
+    @State private var dragging = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    static let size: CGFloat = 52
+    /// The lip above the disc, and how far it overlaps it.
+    static let lip = CGSize(width: 34, height: 16)
+
+    var body: some View {
+        let centre = place(CGPoint(x: fx * room.width + drag.width, y: fy * room.height + drag.height))
+        // The lip tucked onto the disc's ring (the button's frame runs a little past the ring).
+        VStack(spacing: -11) {
+            lip.zIndex(1)
+            main.micButton(size: Self.size)
+        }
+        .scaleEffect(dragging ? 1.06 : 1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: dragging)
+        .position(centre)
+    }
+
+    private var lip: some View {
+        Capsule()
+            .fill(.ultraThinMaterial)
+            .overlay(Capsule().strokeBorder(Ink.line, lineWidth: 0.5))
+            .overlay(Capsule().fill(Ink.secondary).frame(width: 14, height: 3))
+            .frame(width: Self.lip.width, height: Self.lip.height)
+            .shadow(color: .black.opacity(reduceTransparency ? 0 : 0.18), radius: 3, y: 1)
+            // A thumb's worth of target round the little tab.
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                .onChanged { v in
+                    if !dragging { dragging = true; Haptics.soft() }
+                    drag = v.translation
+                }
+                .onEnded { v in
+                    let p = place(CGPoint(x: fx * room.width + v.translation.width, y: fy * room.height + v.translation.height))
+                    if room.width > 0, room.height > 0 { fx = p.x / room.width; fy = p.y / room.height }
+                    drag = .zero
+                    dragging = false
+                    Haptics.tick()
+                })
+            .accessibilityHidden(true)
+    }
+
+    /// The centre kept so the whole of it is on screen and out of the rounded corners.
+    private func place(_ p: CGPoint) -> CGPoint {
+        let inset = DuoLook.edgeInset
+        let halfW = Self.size * 0.8, top = Self.size / 2 + Self.lip.height + 8, bottom = Self.size * 0.8
+        return CGPoint(x: min(max(p.x, inset + halfW), room.width - inset - halfW),
+                       y: min(max(p.y, inset + top), room.height - inset - bottom))
     }
 }
 
