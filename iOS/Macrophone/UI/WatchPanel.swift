@@ -599,10 +599,16 @@ struct WatchWindow: View {
     var footInset: CGFloat = 0
     /// A press and hold taken for something else (full screen's trackpad): true when it was.
     var onHold: ((CGPoint) -> Bool)? = nil
+    /// The finger that held moving on, and lifting.
+    var onHoldMoved: (CGVector, TimeInterval) -> Void = { _, _ in }
+    var onHoldEnded: () -> Void = {}
 
-    init(watcher: Watcher, interactive: Bool, bezelWidth: CGFloat = WatchLook.bezelWidth, corner: CGFloat = WatchLook.bezel, fill: Bool = false, footInset: CGFloat = 0, onHold: ((CGPoint) -> Bool)? = nil) {
+    init(watcher: Watcher, interactive: Bool, bezelWidth: CGFloat = WatchLook.bezelWidth, corner: CGFloat = WatchLook.bezel, fill: Bool = false, footInset: CGFloat = 0,
+         onHold: ((CGPoint) -> Bool)? = nil, onHoldMoved: @escaping (CGVector, TimeInterval) -> Void = { _, _ in }, onHoldEnded: @escaping () -> Void = {}) {
         self.watcher = watcher
         self.onHold = onHold
+        self.onHoldMoved = onHoldMoved
+        self.onHoldEnded = onHoldEnded
         self.interactive = interactive
         self.bezelWidth = bezelWidth
         // A Mac's window is square-cornered, so the picture is too, everywhere: a rounded corner
@@ -642,6 +648,7 @@ struct WatchWindow: View {
                              onTouch: { watcher.touch() },
                              onTap: { watcher.click($0, count: $1) }, onRightClick: { watcher.rightClick($0) },
                              onHold: interactive ? onHold : nil,
+                             onHoldMoved: onHoldMoved, onHoldEnded: onHoldEnded,
                              onDrag: { watcher.windowDrag($0, at: $1) }, whole: watcher.wholeWindow,
                              onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
@@ -1415,6 +1422,9 @@ struct WindowViewer: UIViewRepresentable {
     /// A press and hold taken for something else (full screen's trackpad), at a point in the
     /// view; true when it was — no right-click then.
     var onHold: ((CGPoint) -> Bool)? = nil
+    /// The finger that held goes on moving (the pad it brought up follows it), and lifts.
+    var onHoldMoved: (CGVector, TimeInterval) -> Void = { _, _ in }
+    var onHoldEnded: () -> Void = {}
     /// A drag: the button pressed, moved, released — at fractions of the window.
     var onDrag: (WatchMouseEvent.Kind, CGPoint) -> Void = { _, _ in }
     /// The whole window on screen (the zoom-out button).
@@ -1451,6 +1461,8 @@ struct WindowViewer: UIViewRepresentable {
         v.onTap = onTap
         v.onRightClick = onRightClick
         v.onHold = onHold
+        v.onHoldMoved = onHoldMoved
+        v.onHoldEnded = onHoldEnded
         v.onDrag = onDrag
         v.onScroll = onScroll
         v.onScrollPhase = onScrollPhase
@@ -1484,6 +1496,11 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     var onTap: (CGPoint, Int) -> Void = { _, _ in }
     var onRightClick: (CGPoint) -> Bool = { _ in false }
     var onHold: ((CGPoint) -> Bool)?
+    var onHoldMoved: (CGVector, TimeInterval) -> Void = { _, _ in }
+    var onHoldEnded: () -> Void = {}
+    /// A hold taken by `onHold`: the same finger goes on as a trackpad finger until it lifts.
+    private var holdTaken = false
+    private var holdLast: (point: CGPoint, time: TimeInterval) = (.zero, 0)
     var onDrag: (WatchMouseEvent.Kind, CGPoint) -> Void = { _, _ in }
     /// The Mac takes drags: a hold right after a tap presses the button and moves with the finger.
     var canDrag = false
@@ -1892,14 +1909,24 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             // Full screen: a hold brings the trackpad up there instead (Nov 3 2026).
             if let onHold, onHold(CGPoint(x: p.x - contentOffset.x, y: p.y - contentOffset.y)) {
                 hidePressMark()
+                holdTaken = true
+                holdLast = (g.location(in: window), ProcessInfo.processInfo.systemUptime)
                 return
             }
             heldAt = Date()
             if onRightClick(n) { ring(at: p, right: true) }
         case .changed:
+            if holdTaken {
+                // In the window's space: the picture doesn't scroll under a trackpad finger.
+                let at = g.location(in: window), now = ProcessInfo.processInfo.systemUptime
+                onHoldMoved(CGVector(dx: at.x - holdLast.point.x, dy: at.y - holdLast.point.y), now - holdLast.time)
+                holdLast = (at, now)
+                return
+            }
             guard dragUnderWay else { return }
             onDrag(.drag, clampedSpot(g))
         case .ended, .cancelled, .failed:
+            if holdTaken { holdTaken = false; onHoldEnded(); return }
             guard dragUnderWay else { return }
             dragUnderWay = false
             onDrag(.up, clampedSpot(g))

@@ -323,16 +323,19 @@ struct DuoFullScreen: View {
         _input = ObservedObject(wrappedValue: main.watcher.input)
     }
 
-    final class PadClock { var last = Date() }
+    final class PadClock { var last = Date(); var holding = false }
     static let padSize = CGSize(width: 340, height: 220)
-    /// How long the pad stays with nothing on it.
-    static let padHold: TimeInterval = 5
+    /// How long the pad stays with nothing on it (Sameer: "5 sec … is too long. Make it 3 sec").
+    static let padHold: TimeInterval = 3
 
     private var exitUp: Bool { exitShown || voiceOver || watcher.phase != .live }
 
     var body: some View {
         GeometryReader { geo in
-            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true, onHold: summonPad)
+            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true, onHold: summonPad,
+                        // The finger that held is already a trackpad finger: no lifting first.
+                        onHoldMoved: { [padClock] d, dt in padClock.last = Date(); input.pointerMoved(by: d, dt: dt) },
+                        onHoldEnded: { [padClock] in padClock.last = Date(); padClock.holding = false })
                 .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
                 .overlay(alignment: .bottom) {
                     if main.showLiveWords {
@@ -367,6 +370,7 @@ struct DuoFullScreen: View {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     _ = summonPad(at: CGPoint(x: v[0], y: v[1]))
+                    padClock.holding = false
                 }
             }
             #endif
@@ -386,6 +390,7 @@ struct DuoFullScreen: View {
         guard input.pages.contains(.trackpad), !main.showLiveWords else { return false }
         Haptics.soft()
         padClock.last = Date()
+        padClock.holding = true
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.2, dampingFraction: 0.85)) { padAt = p }
         input.show(.trackpad, quiet: true)
         armPad()
@@ -397,6 +402,8 @@ struct DuoFullScreen: View {
         padTask?.cancel()
         padTask = Task { @MainActor in
             while !Task.isCancelled {
+                // A finger still down on it, even at rest, is using it.
+                if padClock.holding { padClock.last = Date() }
                 let left = Self.padHold - Date().timeIntervalSince(padClock.last)
                 if left <= 0 { dismissPad(); return }
                 try? await Task.sleep(nanoseconds: UInt64(left * 1e9) + 50_000_000)
