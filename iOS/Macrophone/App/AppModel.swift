@@ -1470,6 +1470,7 @@ extension AppModel: LinkClientDelegate {
         // half and a window the Mac can reshape takes the half's shape.
         watcher.glanceOnDone = pose.isInner
         watcher.setFillsView(pose.isFolded)
+        if !Watcher.allowsFullScreen(pose) { watcher.setFullScreen(false) }
         watcher.input.poseChanged(pose)
         // A fitted window may follow the new layout's shape (only a pose change arms this).
         watcher.poseSettled()

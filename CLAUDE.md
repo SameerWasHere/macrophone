@@ -538,6 +538,22 @@ differ. Frames: `docs/screens/duo/nov1/` (before | after sheets per pose and the
   it is `.unspecified` upright; the fold's region frame flat (`.includeInactive`) — the flat
   layouts split at it and fall back to the middle.
 
+## Full Screen on the Duo on its side (Nov 3 2026)
+
+Sameer: "a full screen button … next to the window selector … the window take up the entirety,
+edge to edge … the window should resize to fill the screen … if it's the Mac display, it should
+just fill the screen". On the inner screen on its side (flat landscape, the book —
+`Watcher.allowsFullScreen`), a glass button beside the window's name (`WatchHeaderBar
+.fullScreenButton`, shown where `\.fullScreenAvailable` is set; `watch-fullscreen`) calls
+`Watcher.setFullScreen(true)`: `MainView.poseBody` draws `DuoFullScreen` instead of the pose's
+layout — `WatchWindow(fill: true)` edge to edge, no bar, no status bar, no home indicator — and
+one exit button in the top-left corner that fades after 3.5 s and comes back on a touch
+(`watch-fullscreen-exit`). Entering or leaving re-arms auto-fit (`poseSettled`), so a window takes
+the screen's shape (`WATCH SHAPE 1.42` on the sim) and goes back to the page's after; the whole
+screen fills rather than showing whole. The pages go to the mic (no pointer without the deck).
+Ends on Done / the glance / close, and on a pose that doesn't allow it. Hook:
+`MACROPHONE_WATCH_ACTIONS=…,fullscreen,windowed`.
+
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
 Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on

@@ -226,6 +226,7 @@ final class Watcher: ObservableObject {
     func glance() {
         guard isOpen, !glancing else { return }
         glancing = true
+        fullScreen = false
         input.closed()
         touch()
         log?.add("watching: the glance")
@@ -238,11 +239,36 @@ final class Watcher: ObservableObject {
         fillsView = on
     }
 
+    // MARK: Full screen (the Duo's inner screen on its side)
+
+    // Nov 3 2026, Sameer: "a full screen button … the window take up the entirety, edge to edge,
+    // of the full screen. And then the window should resize to fill the screen. And then if it's
+    // the Mac display, it should just fill the screen in its entirety."
+
+    /// The window in hand takes the whole inner screen: no deck, no bar.
+    @Published private(set) var fullScreen = false
+
+    /// The poses with room for it: the inner screen on its side (flat, or the book).
+    static func allowsFullScreen(_ pose: FoldPose) -> Bool { pose.isInner && !pose.foldAcross }
+
+    /// Into or out of full screen. A window takes the new view's shape (as on a pose change); the
+    /// whole screen fills the display rather than showing whole. The pages go back to the mic
+    /// (no pointer or keyboard without the deck) and the deck picks its own on the way back.
+    func setFullScreen(_ on: Bool) {
+        guard on != fullScreen, !on || isShowing else { return }
+        fullScreen = on
+        if isDesktop { wholeWindow = on ? false : !fillsView }
+        if on, input.page != .mic { input.show(.mic, quiet: true) }
+        log?.add("watching: full screen \(on ? "on" : "off")")
+        poseSettled()
+    }
+
     func close() {
         guard isOpen else { return }
         putBackAutoFit()
         isOpen = false
         glancing = false
+        fullScreen = false
         wantsAutoFit = false
         shapeSent = nil
         autoFitTask?.cancel()

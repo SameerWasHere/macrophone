@@ -87,11 +87,13 @@ struct MainView: View {
         poseBody
         // A pose settling: the layouts cross-fade (the halves' own motion follows the hinge).
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: posture.pose)
+        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: inFullScreen)
         // The laptop with a window in hand is a little Mac (Nov 1 2026, Sameer: "the view window
         // should take up the whole top half of the duo. Almost as if the duo was a mini Mac"):
         // the status bar goes, so the picture has the top edge too — folded or laid flat, the
         // same layout.
-        .statusBarHidden(posture.pose.foldAcross && watcher.isShowing)
+        .statusBarHidden(posture.pose.foldAcross && watcher.isShowing || inFullScreen)
+        .persistentSystemOverlays(inFullScreen ? .hidden : .automatic)
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         // The Mac's own wallpaper behind everything; the state's light washes in from the foot —
         // orange while the mic is open, green when the words land; nothing at rest.
@@ -121,7 +123,18 @@ struct MainView: View {
     }
 
     /// The pose's layout: the phone's (the cover screen, every other iPhone), or the Duo's.
+    /// The window has the whole inner screen (the Duo on its side, Full Screen).
+    var inFullScreen: Bool { watcher.fullScreen && watcher.isShowing && Watcher.allowsFullScreen(posture.pose) }
+
     @ViewBuilder private var poseBody: some View {
+        if inFullScreen {
+            DuoFullScreen(main: self).transition(.opacity)
+        } else {
+            layoutBody
+        }
+    }
+
+    @ViewBuilder private var layoutBody: some View {
         switch posture.pose {
         case .closed: if isCover { coverBody.transition(.opacity) } else { phoneBody.transition(.opacity) }
         // The inner screen's vertical bar (open on its side, the book) holds the cover's buttons.

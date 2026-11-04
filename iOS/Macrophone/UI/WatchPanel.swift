@@ -194,6 +194,8 @@ extension EnvironmentValues {
     /// Window there, on the cover and the inner screen alike — the window's own header shows its
     /// name alone.
     @Entry var controlsInVerticalBar = false
+    /// The Duo's inner screen on its side (Nov 3 2026): Full Screen sits beside the window's name.
+    @Entry var fullScreenAvailable = false
 }
 
 struct WatchHeaderBar: View {
@@ -212,11 +214,13 @@ struct WatchHeaderBar: View {
 
     /// The screen's vertical bar holds Done and the window's buttons (the Duo, cover or inner).
     @Environment(\.controlsInVerticalBar) private var inBar
+    @Environment(\.fullScreenAvailable) private var fullScreenAvailable
 
     var body: some View {
         if nameOnly || inBar {
             HStack(spacing: 10) {
                 name
+                fullScreenButton
                 if let middle, !nameOnly {
                     middle.frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -228,6 +232,7 @@ struct WatchHeaderBar: View {
             VStack(spacing: 6) {
                 HStack(spacing: 10) {
                     name
+                    fullScreenButton
                     Spacer(minLength: 8)
                     done
                 }
@@ -239,6 +244,7 @@ struct WatchHeaderBar: View {
         } else {
             HStack(spacing: 10) {
                 name
+                fullScreenButton
                 if let middle {
                     middle.frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -357,6 +363,25 @@ struct WatchHeaderBar: View {
                 }
             }
             .watchGlass(Capsule())
+        }
+    }
+
+    /// Full Screen: the window takes the whole inner screen, edge to edge (`DuoFullScreen`).
+    @ViewBuilder private var fullScreenButton: some View {
+        if fullScreenAvailable {
+            Button {
+                Haptics.tick()
+                watcher.setFullScreen(true)
+            } label: {
+                Image(systemName: "arrow.up.backward.and.arrow.down.forward.rectangle")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(WatchCellStyle(width: 42, height: WatchLook.header))
+            .watchGlass(Capsule())
+            .fixedSize()
+            .accessibilityLabel("Full Screen")
+            .accessibilityHint("Shows \(watcher.name) on the whole screen.")
+            .accessibilityIdentifier("watch-fullscreen")
         }
     }
 

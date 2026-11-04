@@ -93,6 +93,7 @@ extension MainView {
                     // The window tall on the left page; the deck down the right as the book's.
                     HStack(spacing: 0) {
                         DuoMacArea(main: self, deck: true)
+                            .environment(\.fullScreenAvailable, true)
                             .padding(.top, 6)
                             .frame(width: left, height: geo.size.height)
                         Color.clear.frame(width: 2 * DuoLook.foldGap)
@@ -211,6 +212,7 @@ extension MainView {
             let rise = posture.rise
             HStack(spacing: 0) {
                 DuoMacHalf(main: self, vertical: true, room: h.mac.size)
+                    .environment(\.fullScreenAvailable, true)
                     .frame(width: max(0, h.mac.width))
                     .scaleEffect(reduceMotion ? 1 : 0.97 + 0.03 * rise, anchor: .leading)
                     .opacity(0.6 + 0.4 * rise)
@@ -289,6 +291,86 @@ extension MainView {
             .padding(.horizontal, -4)
         }
         .onChange(of: showLiveWords) { _, live in if live, input.page != .mic { input.show(.mic, quiet: true) } }
+    }
+}
+
+/// Full screen (Nov 3 2026, Sameer: "the window take up the entirety, edge to edge, of the full
+/// screen"): the inner screen on its side is the Mac's screen and nothing else — no deck, no bar,
+/// no status bar. The window has the screen's shape (`Watcher.setFullScreen`); the whole screen
+/// fills it. Taps, drags, pinches and scrolls go to the Mac as in the window view. One glass
+/// button in the corner brings the deck back; it fades a few seconds after a touch and a touch
+/// brings it back (always there for VoiceOver).
+struct DuoFullScreen: View {
+    let main: MainView
+    @ObservedObject private var watcher: Watcher
+    @State private var exitShown = true
+    @State private var hideTask: Task<Void, Never>?
+    @State private var revealedAt = Date.distantPast
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(main: MainView) {
+        self.main = main
+        _watcher = ObservedObject(wrappedValue: main.watcher)
+    }
+
+    private var exitUp: Bool { exitShown || voiceOver || watcher.phase != .live }
+
+    var body: some View {
+        GeometryReader { geo in
+            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true)
+                .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
+                .overlay(alignment: .bottom) {
+                    if main.showLiveWords {
+                        DuoLiveWords(main: main, room: geo.size)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if exitUp {
+                        exitButton
+                            .padding(.leading, DuoLook.edgeInset)
+                            .padding(.top, DuoLook.edgeInset)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: exitUp)
+                .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })
+                .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .ignoresSafeArea()
+        .background(Color.black.ignoresSafeArea())
+        .onAppear { reveal() }
+        .onDisappear { hideTask?.cancel(); hideTask = nil }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Your Mac, full screen")
+    }
+
+    private var exitButton: some View {
+        Button {
+            Haptics.tick()
+            watcher.setFullScreen(false)
+        } label: {
+            Image(systemName: "arrow.down.forward.and.arrow.up.backward.rectangle")
+                .font(.subheadline.weight(.semibold))
+        }
+        .buttonStyle(WatchCellStyle(width: 46, height: WatchLook.header))
+        .watchGlass(Capsule())
+        .accessibilityLabel("Exit Full Screen")
+        .accessibilityIdentifier("watch-fullscreen-exit")
+    }
+
+    private func reveal() {
+        let now = Date()
+        guard !exitShown || now.timeIntervalSince(revealedAt) > 0.5 else { return }
+        revealedAt = now
+        hideTask?.cancel()
+        if !exitShown { exitShown = true }
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(DuoLook.headerHold * 1e9))
+            guard !Task.isCancelled else { return }
+            exitShown = false
+        }
     }
 }
 

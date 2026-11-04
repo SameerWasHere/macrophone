@@ -366,6 +366,9 @@ enum DebugHooks {
                     } else if a == "done" {
                         // Done: the window view closes (on the Duo's inner screen, the glance shows).
                         model.watcher.done()
+                    } else if a == "fullscreen" || a == "windowed" {
+                        // The Duo on its side: Full Screen, and back.
+                        model.watcher.setFullScreen(a == "fullscreen")
                     } else if a.hasPrefix("fit@"), let f = WatchFit(rawValue: String(a.dropFirst(4))) {
                         model.watcher.setFit(f)
                     } else if a == "pan" || a == "scroll" {
