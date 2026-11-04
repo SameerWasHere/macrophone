@@ -453,9 +453,27 @@ final class AppModel: ObservableObject {
 
     // MARK: Lifecycle
 
+    /// The first moments after the app comes up, while the link is still being made: not being
+    /// connected yet isn't news (Nov 3 2026, Sameer: elements "briefly stutter or glitch before
+    /// correcting … specifically when I open the app" — the cover's Mac pill popped in for the
+    /// second it took to connect, then out again).
+    @Published private(set) var settling = true
+    private var settleTask: Task<Void, Never>?
+
+    private func beginSettling() {
+        settling = true
+        settleTask?.cancel()
+        settleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.settling = false
+        }
+    }
+
     func scenePhaseChanged(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            if !sceneActive { beginSettling() }
             sceneActive = true
             endBackgroundTask()
             refreshAvailability()

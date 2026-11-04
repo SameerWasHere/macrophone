@@ -35,7 +35,12 @@ struct MainView: View {
     /// iPhone SE-class heights: a shorter stage and card; History lives in the top bar only.
     @State var compact = false
     /// The system puts a vertical bar on this screen (the iPhone Duo's cover, iOS 27.1).
-    @State var verticalBar = false
+    @State var verticalBar = VerticalBarProbe.atLaunch
+    /// The settings' room while they last showed (`phoneBody`).
+    @State var settingsRoom: CGFloat = 0
+    /// The cover's lower buttons the Mac offered when it was last connected.
+    @AppStorage("bar.had.wholeScreen") var barHadWholeScreen = false
+    @AppStorage("bar.had.controls") var barHadControls = false
     @State var coverPickingPhoto = false
     @State var coverPickingFile = false
     /// The iPhone Duo's cover: its buttons go in the vertical bar, the window takes the room.
@@ -110,6 +115,9 @@ struct MainView: View {
             }
         }
         #endif
+        .onChange(of: model.isConnected ? [watcher.canWatchDesktop, model.canMacControls] : []) { _, had in
+            if had.count == 2 { barHadWholeScreen = had[0]; barHadControls = had[1] }
+        }
         .onChange(of: model.pulse) { _, _ in react() }
         .onChange(of: recorder.phase) { _, _ in react() }
         .onChange(of: recorder.hasWords) { _, _ in react() }
@@ -169,7 +177,9 @@ struct MainView: View {
                                         // The cover: the Mac is in the vertical bar; its pill only
                                         // while it isn't connected (to say so, and to wake it).
                                         VStack(spacing: 0) {
-                                            if !barUsed || !model.isConnected { topBar }
+                                            // (Not in the moment after launch while it connects:
+                                            // the pill would pop in and straight back out.)
+                                            if !barUsed || (!model.isConnected && !model.settling) { topBar }
                                         }
                                     } else {
                                         // The phone: a little Mac desktop — the menu bar and the
@@ -187,9 +197,21 @@ struct MainView: View {
                             Color.clear.frame(height: compact ? 8 : 14)
                             dockArea
                         }
-                        .frame(width: area.size.width, height: area.size.height)
+                        // Hidden, it keeps the height it had while it showed: the room changing
+                        // under it as the window comes or goes never moves it.
+                        .frame(width: area.size.width, height: showSettings || settingsRoom == 0 ? area.size.height : settingsRoom, alignment: .top)
                     }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if showSettings { settingsRoom = $0 } }
+                    .onChange(of: showSettings) { _, on in if on { settingsRoom = 0 } }
+                    // The mic row below changes size as a window opens or closes: the panel takes
+                    // its new place at once and only fades — it used to slide down as it went and
+                    // up as it came back, under the window's fade (Nov 3 2026, "elements …
+                    // briefly stutter or glitch before correcting").
+                    .animation(nil, value: watcher.isShowing)
+                    .animation(nil, value: showLiveWords)
                     .opacity(showSettings ? 1 : 0)
+                    // Out quickly (what comes in takes the stage), back in on the settle spring.
+                    .animation(showSettings ? Motion.pick(Motion.settle, reduce: reduceMotion) : .easeOut(duration: 0.1), value: showSettings)
                     .allowsHitTesting(showSettings)
                     .accessibilityHidden(!showSettings)
                     // Watching: the window takes the area (Done brings the settings back).
@@ -367,9 +389,14 @@ struct MainView: View {
             }
             // The lower group, nearer the thumb: what Send to's round buttons did.
             ToolbarItemGroup(placement: .bottomBar) {
-                if model.isConnected, watcher.canWatchDesktop { CoverWholeScreenItem(watcher: watcher) }
-                if model.canMacControls {
+                // What the Mac offered when last connected stays in its place, dimmed, while it
+                // connects again — the buttons never arrive one by one (Nov 3 2026).
+                if model.isConnected ? watcher.canWatchDesktop : barHadWholeScreen {
+                    CoverWholeScreenItem(watcher: watcher).disabled(!model.isConnected)
+                }
+                if model.isConnected ? model.canMacControls : barHadControls {
                     Button { Haptics.tick(); model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
+                        .disabled(!model.isConnected)
                         .accessibilityIdentifier("mac-controls")
                 }
                 Menu {

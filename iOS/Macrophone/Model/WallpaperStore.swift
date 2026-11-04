@@ -52,6 +52,14 @@ final class WallpaperStore: ObservableObject {
         generation += 1
         let gen = generation
         guard let id else { image = nil; isDark = nil; return }
+        if image == nil {
+            // Launch: the kept picture now, before the first frame (a few tens of ms), so the
+            // screen never shows the stand-in sky and then swaps it (Nov 3 2026: "elements …
+            // briefly stutter or glitch before correcting … when I open the app").
+            let (ui, info) = Self.load(id)
+            restored(ui, info: info, for: id, generation: gen)
+            return
+        }
         Task.detached(priority: .userInitiated) {
             let (ui, info) = Self.load(id)
             await self.restored(ui, info: info, for: id, generation: gen)

@@ -14,6 +14,15 @@ import UIKit
 struct VerticalBarProbe: UIViewRepresentable {
     @Binding var present: Bool
 
+    /// What the scene already says before anything is drawn: the first frame lays out for the bar
+    /// (Nov 3 2026 — it used to draw the phone's layout for a frame or two, then jump to the bar's).
+    @MainActor static var atLaunch: Bool {
+        guard #available(iOS 27.1, *) else { return false }
+        return UIApplication.shared.connectedScenes.contains {
+            ($0 as? UIWindowScene)?.traitCollection.verticalBarEdge ?? .unspecified != .unspecified
+        }
+    }
+
     func makeUIView(context: Context) -> UIView {
         if #available(iOS 27.1, *) {
             let v = Probe()

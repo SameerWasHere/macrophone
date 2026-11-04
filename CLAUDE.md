@@ -554,6 +554,27 @@ screen fills rather than showing whole. The pages go to the mic (no pointer with
 Ends on Done / the glance / close, and on a pose that doesn't allow it. **The mic floats** (`FloatingMic`, Sameer: "make it small and give me a little lip on it so I could drag and move anywhere"): the same `MicButton` at 52 pt with a glass grab tab on its top edge — the disc keeps tap and hold, only the lip drags it; it stays where it's left (`duo.fullscreen.mic.x/y`, fractions, bottom-right first), clamped clear of the rounded corners; never fades. **In full screen a dictation goes to Where I'm typing** (Sameer: "it should default to pasting wherever the cursor is"): `AppModel.startRecording` gives it a `.frontApp` override unless something else asked for a place (a Shortcut); the Send to pick is untouched, and Show the app after sending stays put. It pastes, never sends. **And Where I'm typing never refuses** (Mac 1.1.3, `Paster`'s `.front`): a focused element that doesn't read as a text field still gets ⌘V — Claude's search names the highlighted row of its list as focused while the caret is in the box; `Paster.nearestInput(around:)` finds that box (up to its dialog) only to read the words back. Password fields are still refused. **A hold brings a trackpad** (Sameer: "press and hold … a see through track pad should appear there quickly … dissolve away after like 5 sec of no interaction"): in full screen a hold on the picture (`WatchWindow(onHold:)` → `ViewerScrollView.onHold`, ahead of the right-click — two fingers still right-click) puts a 340 × 220 frosted `TrackpadSurface` centred under the finger (kept on screen) and the trackpad page up (the pointer shows); the finger that held drives the pointer at once, no lift (`onHoldMoved` / `onHoldEnded`, the hold's own moves in the window's space); any use of it (`TrackpadSurface(onUse:)`) or a finger still down keeps it, 3 s with none dissolves it and the pointer goes (`DuoFullScreen.summonPad` / `dismissPad`; `MACROPHONE_FULLSCREEN_PAD=x,y` for a shot; `FullScreenUITests` — a Duo sim opened flat, paired with `mpctl serve`). Hook:
 `MACROPHONE_WATCH_ACTIONS=…,fullscreen,windowed,record,stoprecord` (with `MACROPHONE_SIM_RECORD=<words>`; `mpctl serve` prints `RECEIVED → Where I'm typing`).
 
+## Opening without a stutter (Nov 3 2026)
+
+Sameer: "when I open the app or switch view, elements seem to briefly stutter or glitch before
+correcting … specifically when I open the app". Found frame by frame (`simctl io recordVideo
+--display=<the Duo display's uuid>`, ffmpeg `mpdecimate` to the distinct frames, tiled):
+- **The launch screen** was near-black in light mode, then the app faded up: `LaunchBackground`
+  has light (#F2F2F7) and dark (black) now. SpringBoard caches the launch image — a simulator
+  needs its app's `Library/SplashBoard` cleared and a reboot to show a new one.
+- **The first frames had no vertical bar** (the probe reported after the first draw, the phone's
+  layout jumped to the bar's): `MainView.verticalBar` starts from `VerticalBarProbe.atLaunch`
+  (the scene's trait, read before anything is drawn).
+- **The stand-in sky, then the Mac's wallpaper**: `WallpaperStore.useMac` loads the kept picture
+  synchronously the first time (before the first frame); later ones still decode off the main thread.
+- **The cover's Mac pill popped in and out** while the link was made: `AppModel.settling` (2.5 s
+  after the app becomes active) — not connected yet isn't news then.
+- **The bar's lower buttons arrived one by one**: what the Mac offered when last connected
+  (`bar.had.wholeScreen`, `bar.had.controls`) stays in place, dimmed, until it's connected again.
+- **Opening a window / Done slid Send to down and up** under the fade (the mic row changes size):
+  the settings layer keeps the height it had while it showed (`settingsRoom`), its layout isn't
+  animated with `watcher.isShowing`, and it fades out in 0.1 s, back in on the settle spring.
+
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
 Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on
