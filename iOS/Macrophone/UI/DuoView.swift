@@ -263,6 +263,7 @@ extension MainView {
                           onUp: pressUp,
                           onAccessibilityToggle: { model.toggleRecording() },
                           size: micSize)
+                    .landedPill()
                 if oneLine {
                     FixedSlot(alignment: .top) {
                         Text("A").font(rowHidden ? .body : .subheadline).frame(maxWidth: .infinity)

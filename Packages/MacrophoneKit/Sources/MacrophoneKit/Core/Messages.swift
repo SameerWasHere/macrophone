@@ -233,6 +233,10 @@ public enum Message: Codable, Sendable {
     /// Mac → phone (only to a phone naming MacCursor.feature): the Mac's pointer as it looks now,
     /// while the phone's trackpad pointer is up — when it shows and on each change.
     case macCursor(MacCursor)
+    /// Phone → Mac (only to a Mac naming UndoPaste.feature): undo this dictation's paste.
+    case undoPaste(id: UUID)
+    /// Mac → phone: what that undo did.
+    case undoDone(UndoResult)
     // Either way
     case ping
     case pong

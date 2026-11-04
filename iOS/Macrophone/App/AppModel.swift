@@ -265,6 +265,8 @@ final class AppModel: ObservableObject {
         c.features += [Displays.feature, WakeInfo.feature, MacControl.feature]
         // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
         c.features.append(MacWallpaper.feature)
+        // Undo the last paste, from the landed pill (Nov 3 2026, Core/UndoPaste.swift).
+        c.features.append(UndoPaste.feature)
         // The Mac's pointer shape, drawn as the trackpad's pointer (Nov 1 2026, UI/TrackpadView.swift).
         c.features.append(MacCursor.feature)
         #if DEBUG
@@ -548,6 +550,9 @@ final class AppModel: ObservableObject {
 
     func startRecording(override asked: SendSelection? = nil) async {
         guard !recorder.isActive else { return }
+        recordingStartedHidesChip()
+        wordFixes = []
+        fixDraft = nil
         // Full screen on the Duo (Nov 3 2026, Sameer: "it should default to pasting wherever the
         // cursor is … so it can actually be used as text input anywhere"): the words go to Where
         // I'm typing — whatever field he last tapped into on the Mac — not the Send to pick.
@@ -607,8 +612,95 @@ final class AppModel: ObservableObject {
         recorder.stop(.user)
     }
 
+    // MARK: The landed pill and Undo (Nov 3 2026)
+
+    struct LandedChip: Equatable {
+        var id: UUID
+        var words: String
+        var ok: Bool
+        var canUndo = false
+        var undoing = false
+        var undone = false
+    }
+    /// Where the last words landed, over the mic for a moment (`LandedPill`).
+    @Published private(set) var landedChip: LandedChip?
+    private var chipTask: Task<Void, Never>?
+
+    private func showChip(_ c: LandedChip, for seconds: Double? = nil) {
+        landedChip = c
+        chipTask?.cancel()
+        let hold = seconds ?? (c.canUndo ? 5 : 2.2)
+        chipTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(hold * 1e9))
+            guard !Task.isCancelled else { return }
+            self?.landedChip = nil
+        }
+    }
+
+    /// The pill's Undo: the Mac takes the paste back (⌘Z in that app).
+    func undoLanded() {
+        guard var c = landedChip, c.canUndo, client.undoPaste(c.id) else { return }
+        Haptics.tick()
+        c.undoing = true
+        c.canUndo = false
+        showChip(c, for: 4)
+        log.add("undo asked")
+    }
+
+    private func recordingStartedHidesChip() { chipTask?.cancel(); landedChip = nil }
+
+    // MARK: Fix a word before it goes (Nov 3 2026)
+
+    /// Words fixed while they were being said (`WordFixes`): put into the final words before
+    /// cleanup and sending.
+    @Published private(set) var wordFixes: [WordFix] = []
+    /// The word being fixed now (its card is up).
+    @Published private(set) var fixDraft: WordFix?
+    /// The mic closed while a word was being fixed: the words wait for the fix.
+    private var heldOutcome: Recorder.Outcome?
+
+    /// A settled word tapped: its card, with what it was (or what it was fixed to).
+    func beginFix(_ index: Int) {
+        let settled = recorder.words.parts.settled
+        let ranges = WordFixes.words(settled)
+        guard ranges.indices.contains(index) else { return }
+        let original = (settled as NSString).substring(with: ranges[index])
+        Haptics.tick()
+        fixDraft = wordFixes.first { $0.index == index } ?? WordFix(index: index, original: original, replacement: original)
+    }
+
+    /// The fix made (empty takes the word out); `remember` adds it to the Dictionary, so the
+    /// recognizer hears it right next time.
+    func commitFix(_ replacement: String, remember: Bool = false) {
+        guard var f = fixDraft else { return }
+        f.replacement = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        wordFixes.removeAll { $0.index == f.index }
+        if f.replacement != f.original { wordFixes.append(f) }
+        if remember, !f.replacement.isEmpty, !settings.dictionary.contains(f.replacement) { settings.dictionary.append(f.replacement) }
+        log.add("word fixed\(f.replacement.isEmpty ? " (taken out)" : "")\(remember ? ", added to the dictionary" : "")")
+        fixDraft = nil
+        releaseHeldWords()
+    }
+
+    func cancelFix() {
+        fixDraft = nil
+        releaseHeldWords()
+    }
+
+    private func releaseHeldWords() {
+        guard let o = heldOutcome else { return }
+        heldOutcome = nil
+        recordingFinished(o)
+    }
+
     private func recordingFinished(_ o: Recorder.Outcome) {
-        let raw = o.raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A word's card is up: the words wait until it's done.
+        if fixDraft != nil {
+            heldOutcome = o
+            log.add("words held for a fix")
+            return
+        }
+        let raw = WordFixes.apply(wordFixes, to: o.raw.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !raw.isEmpty else {
             if o.reason == .recognizerFailed {
                 status = .problem("Speech recognition couldn't start on this iPhone. Try again in a moment.", openSettings: false)
@@ -893,6 +985,10 @@ final class AppModel: ObservableObject {
         guard !recorder.isActive else { return }   // the next one is being spoken: History has it
         status = .landed(l)
         if l.isSuccess { Haptics.success() } else { Haptics.error() }
+        if l.isSuccess {
+            showChip(LandedChip(id: id, words: l.chipWords, ok: true,
+                                canUndo: result == .pasted && !late && client.macCanUndo))
+        }
         bumpPulse()
         // Sent into an app: show its window, so the answer can be read (and approved) from here.
         // (Not in full screen: the words went where he's looking already.)
@@ -1886,5 +1982,17 @@ final class ResumeOnce<T>: @unchecked Sendable {
         continuation = nil
         lock.unlock()
         c?.resume(returning: value)
+    }
+}
+
+extension AppModel: LinkClientUndoDelegate {
+    func linkClient(_ client: LinkClient, undoDone r: UndoResult) {
+        log.add("undo: \(r.ok ? "done" : "not done")")
+        if r.ok { Haptics.success() } else { Haptics.warning() }
+        // The line under the mic says so once the pill has gone (not "Pasted into …" any more).
+        if r.ok { updateItem(r.id) { $0.landingDetail = r.detail } }
+        if r.ok, case .landed = status { status = .notice(r.detail); scheduleStatusReset(after: 6) }
+        guard landedChip?.id == r.id else { return }
+        showChip(LandedChip(id: r.id, words: r.ok ? "Undone" : r.detail, ok: r.ok, undone: r.ok), for: 2)
     }
 }

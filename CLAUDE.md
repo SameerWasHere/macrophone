@@ -596,6 +596,30 @@ Sameer picked three of the smoothness ideas: "show the last picture right away",
 - **One word while it connects**: `StatusLine` says "Connecting to ‹Mac›" through `settling`,
   whatever the link's state; no "Looking for", no Wi-Fi warning in the glance.
 
+## Undo, the landed pill, fixing a word (Nov 3 2026)
+
+Sameer picked three of the experience ideas.
+- **The landed pill** (`LandedPill`, `View.landedPill()` on every mic — `MainView.micButton`,
+  the Duo deck's `carousel`, the full-screen `FloatingMic`): "✓ Pasted into Claude" (the app's
+  name, not the window's title — `Landing.chipWords`) rises from the mic for 2.2 s on a landing
+  that succeeded; the status line stays quiet meanwhile. `AppModel.landedChip`.
+- **Undo** (MacrophoneKit `Core/UndoPaste.swift`, `Transport/UndoLink.swift`, feature `undo`):
+  for a paste that wasn't sent, from a Mac that names it, the pill carries Undo for 5 s →
+  `.undoPaste(id)`; the Mac (`DeliveryEngine.undo`, Mac 1.1.4) undoes only its last paste, not
+  sent, within 30 s (`UndoPaste.window`): the app (and window, `Paster.Result.pid`/`windowID`)
+  brought forward, ⌘Z, History marked "Undone from the phone"; `.undoDone(UndoResult)` → the pill
+  says "Undone" and the status line the Mac's words. `mpctl serve` answers (`UNDO <id>`,
+  `--no-undo` is a Mac from before). Needs a real check: ⌘Z after a paste in Claude, Terminal
+  (a terminal may not undo a paste), Notes.
+- **Fix a word before it goes** (`Model/WordFixes.swift`, `FixWordCard` in `UI/MainView.swift`):
+  each settled word in `LiveWords` is a link (`macrophone-fix://<index>`, drawn in ink); a tap
+  opens one row over the keyboard — × · the word · Add to Dictionary · Take Out · Done — the word
+  highlighted in the words (two lines kept in sight above the card). Fixes go into the final words
+  before cleanup (`WordFixes.apply`: at its index if the word there still matches, else the first
+  match; a taken-out word takes a space with it). The mic closing while the card is up holds the
+  words (`heldOutcome`) until Done or ×. Hooks: `MACROPHONE_WATCH_ACTIONS=…,fixopen@1,fix@1@the,undo`
+  (with `MACROPHONE_SIM_RECORD`).
+
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
 Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on

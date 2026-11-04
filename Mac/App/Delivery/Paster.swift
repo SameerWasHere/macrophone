@@ -86,6 +86,8 @@ enum Paster {
         var landed: Bool?
         /// The window it went to (the chat it's in now, for ReplyWatcher).
         var windowID: CGWindowID?
+        /// The app it went to (Undo brings it back to the front).
+        var pid: pid_t = 0
     }
 
     enum Target: Equatable {
@@ -361,6 +363,7 @@ enum Paster {
 
         // 5. The send key.
         var result = Result(appName: appName, bundleID: bid, landed: didLand)
+        result.pid = running.processIdentifier
         result.windowID = (window ?? AX.element(ax, kAXFocusedWindowAttribute)).flatMap(AX.windowID)
         if req.send {
             let key = AppQuirks.sendKey(for: bid)

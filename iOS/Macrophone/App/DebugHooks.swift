@@ -349,6 +349,14 @@ enum DebugHooks {
                         model.macAudio.micOpening()
                     } else if a.hasPrefix("answer@"), let i = Int(a.dropFirst(7)) {
                         model.watcher.choose(i)
+                    } else if a.hasPrefix("fix@") {
+                        // fix@<word index>@<new word> (empty takes it out); fixopen@<index> leaves the card up.
+                        let v = a.split(separator: "@", omittingEmptySubsequences: false).dropFirst().map(String.init)
+                        if let i = v.first.flatMap(Int.init) { model.beginFix(i); if v.count > 1 { model.commitFix(v[1]) } }
+                    } else if a == "undo" {
+                        model.undoLanded()
+                    } else if a.hasPrefix("fixopen@"), let i = Int(a.dropFirst(8)) {
+                        model.beginFix(i)
                     } else if a == "record" || a == "stoprecord" {
                         // The mic button's tap, as pressed (with MACROPHONE_SIM_RECORD's words).
                         if a == "record" { Task { await model.startRecording() } } else { model.stopRecording() }

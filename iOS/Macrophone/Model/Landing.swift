@@ -43,6 +43,18 @@ struct Landing: Equatable {
         return d
     }
 
+    /// The landed pill's few words: "Pasted into Claude", "Sent to Claude".
+    var chipWords: String {
+        // The app, not its window's title ("Terminal", not "Terminal — claude — ~/app").
+        let name = self.name.components(separatedBy: " — ").first ?? self.name
+        switch result {
+        case .sent: return "Sent to \(name)"
+        case .pasted: return "Pasted into \(name)"
+        case .copied: return toClipboard ? "On your Mac's clipboard" : "Copied on your Mac"
+        case .cancelled, .failed: return sentence
+        }
+    }
+
     /// The status line under the mic: what happened and, when it didn't land, what to do.
     var sentence: String {
         var s: String

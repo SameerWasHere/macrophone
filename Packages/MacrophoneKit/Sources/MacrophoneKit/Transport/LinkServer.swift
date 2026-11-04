@@ -725,9 +725,11 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchSound: on, from: phoneID) }
             case .showPermissions:
                 notifyPermissions { $0.linkServerShowPermissions(self, from: phoneID) }
+            case let .undoPaste(id):
+                handleUndo(id, from: phoneID, on: session)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macCursor:
+            case .macPermissions, .macWallpaper, .macCursor, .undoDone:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

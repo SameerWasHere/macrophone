@@ -692,6 +692,8 @@ func run() async -> Int32 {
         // The desktop picture (Wallpaper.swift): the demo gradient, or --wallpaper's image.
         server.macFeatures.append(MacWallpaper.feature)
         server.macFeatures.append(MacCursor.feature)
+        // Undo the last paste (Undo.swift): answers as the Mac does, presses nothing.
+        if !has("--no-undo") { server.macFeatures.append(UndoPaste.feature) }
         if !has("--jpeg") { server.macFeatures += MacReachDemo.features }
         if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }
         // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).

@@ -300,6 +300,7 @@ struct MainView: View {
                   onUp: pressUp,
                   onAccessibilityToggle: { model.toggleRecording() },
                   size: size)
+            .landedPill()
     }
 
     /// The keyboard or the trackpad, a round glass button beside the cover's mic.
@@ -704,17 +705,21 @@ struct DestinationLine: View {
 /// Only once they fill it does it scroll, keeping the newest line in view. The words still being
 /// decided are dimmer; they settle into ink as the recognizer commits them.
 struct LiveWords: View {
+    @EnvironmentObject var model: AppModel
     @ObservedObject var words: LiveTranscript
     var listening: Bool
 
     var body: some View {
         let parts = words.parts
+        VStack(spacing: 8) {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
                     // Room under the fade, so unscrolled words start clear of it.
                     Color.clear.frame(height: 22)
                     label(parts)
+                        // The words are links (to their fix), drawn in ink, not link blue.
+                        .tint(Ink.ink)
                         .font(.serif(.title2))
                         .lineSpacing(4)
                         .multilineTextAlignment(.leading)
@@ -726,6 +731,8 @@ struct LiveWords: View {
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.top)
+            // A word's card up (the keyboard too): two lines of the words stay in sight above it.
+            .frame(minHeight: model.fixDraft == nil ? 0 : 76)
             // Once the words fill the area, the line leaving the top fades instead of being sliced.
             .mask(VStack(spacing: 0) {
                 LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 22)
@@ -735,18 +742,102 @@ struct LiveWords: View {
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) }
             }
         }
-        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+        // A settled word tapped: its card (Nov 3 2026 — fix a word before it goes).
+        .environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "macrophone-fix", let i = Int(url.host() ?? "") else { return .systemAction }
+            model.beginFix(i)
+            return .handled
+        })
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(parts.isEmpty ? "Listening" : parts.text)
+        .accessibilityLabel(parts.isEmpty ? "Listening" : WordFixes.apply(model.wordFixes, to: parts.text))
+        .accessibilityHint(parts.settled.isEmpty ? "" : "Words can be fixed before they're sent: tap one.")
+        if let draft = model.fixDraft {
+            FixWordCard(draft: draft)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+        }
+        .animation(.easeOut(duration: 0.2), value: model.fixDraft)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
 
-    /// One Text (one layout pass), the settled words in ink and the rest dimmer.
+    /// One Text (one layout pass): each settled word a link to its fix (in ink, a fixed one with a
+    /// cyan underline, a taken-out one struck through), the words still settling dimmer.
     private func label(_ parts: LiveTranscript.Parts) -> Text {
         if parts.isEmpty { return Text(listening ? "Listening…" : " ").foregroundStyle(Ink.tertiary) }
-        let settled = Text(parts.settled).foregroundStyle(Ink.ink)
-        guard !parts.pending.isEmpty else { return settled }
+        var settled = AttributedString()
+        let ns = parts.settled as NSString
+        var at = 0
+        for (i, r) in WordFixes.words(parts.settled).enumerated() {
+            if r.location > at { settled += AttributedString(ns.substring(with: NSRange(location: at, length: r.location - at))) }
+            let fix = model.wordFixes.first { $0.index == i }
+            var word = AttributedString(fix.map { $0.replacement.isEmpty ? $0.original : $0.replacement } ?? ns.substring(with: r))
+            word.link = URL(string: "macrophone-fix://\(i)")
+            if let fix {
+                word.underlineStyle = fix.replacement.isEmpty ? nil : Text.LineStyle(pattern: .solid, color: Light.cyan)
+                word.strikethroughStyle = fix.replacement.isEmpty ? Text.LineStyle(pattern: .solid, color: Ink.tertiary) : nil
+            }
+            if model.fixDraft?.index == i { word.backgroundColor = Light.cyan.opacity(0.18) }
+            settled += word
+            at = NSMaxRange(r)
+        }
+        if at < ns.length { settled += AttributedString(ns.substring(from: at)) }
+        let settledText = Text(settled).foregroundStyle(Ink.ink)
+        guard !parts.pending.isEmpty else { return settledText }
         let pending = Text(parts.pending).foregroundStyle(Ink.secondary)
-        return parts.settled.isEmpty ? pending : settled + Text(" ") + pending
+        return parts.settled.isEmpty ? pending : settledText + Text(" ") + pending
+    }
+}
+
+/// A word's fix (Nov 3 2026): the word to edit, Take Out, Add to Dictionary, Done — the words wait
+/// for it when the mic closes meanwhile.
+struct FixWordCard: View {
+    @EnvironmentObject var model: AppModel
+    var draft: WordFix
+    @State private var text = ""
+    @State private var remember = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        // One row, so it fits over the keyboard on the cover's short screen too: Cancel, the
+        // word, Add to Dictionary, Take Out, Done.
+        HStack(spacing: 6) {
+            Button { model.cancelFix() } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 30, height: 34) }
+                .foregroundStyle(Ink.secondary)
+                .accessibilityLabel("Cancel")
+                .accessibilityIdentifier("fix-cancel")
+            TextField("Fix “\(draft.original)”", text: $text)
+                .font(.body)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($focused)
+                .onSubmit { model.commitFix(text, remember: remember) }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(Ink.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .accessibilityIdentifier("fix-field")
+            Button { remember.toggle(); Haptics.tick() } label: {
+                Image(systemName: remember ? "character.book.closed.fill" : "character.book.closed").frame(width: 30, height: 34)
+            }
+            .foregroundStyle(remember ? Light.cyan : Ink.secondary)
+            .accessibilityLabel("Add to Dictionary")
+            .accessibilityValue(remember ? "On" : "Off")
+            .accessibilityHint("The recognizer will expect this word next time.")
+            Button { model.commitFix("") } label: { Image(systemName: "minus.circle").frame(width: 30, height: 34) }
+                .foregroundStyle(Light.rose)
+                .accessibilityLabel("Take Out")
+                .accessibilityIdentifier("fix-remove")
+            Button { model.commitFix(text, remember: remember) } label: { Text("Done").fontWeight(.semibold) }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("fix-done")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .watchGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        // Clear of the area's foot, which is clipped.
+        .padding(.bottom, 10)
+        .accessibilityLabel("Fix “\(draft.original)”")
+        .onAppear { text = draft.replacement; focused = true }
+        .onChange(of: draft.index) { _, _ in text = draft.replacement }
     }
 }
 
@@ -1037,5 +1128,59 @@ struct MacAppNudge: View {
 private struct FootOnly: Shape {
     func path(in rect: CGRect) -> Path {
         Path(CGRect(x: rect.minX - 200, y: rect.minY - 200, width: rect.width + 400, height: rect.height + 200))
+    }
+}
+
+
+// MARK: The landed pill (Nov 3 2026)
+
+/// Where the words landed, rising from the mic and fading (Sameer chose "a clear 'it landed'
+/// moment"): "Pasted into Claude", "Sent to Claude", "On your Mac's clipboard" — and, for a paste
+/// that wasn't sent, Undo for a few seconds (the Mac takes it back with ⌘Z, `UndoPaste`).
+struct LandedPill: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if let c = model.landedChip {
+                pill(c)
+                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 14)).combined(with: .scale(scale: 0.92, anchor: .bottom)),
+                                                                     removal: .opacity.combined(with: .offset(y: -6))))
+            }
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.38, dampingFraction: 0.82), value: model.landedChip)
+    }
+
+    private func pill(_ c: AppModel.LandedChip) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: c.undone ? "arrow.uturn.backward.circle.fill" : c.ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(c.ok ? Light.mint : Light.ochre)
+            Text(c.words).font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
+            if c.undoing {
+                ProgressView().controlSize(.small)
+            } else if c.canUndo {
+                Rectangle().fill(Ink.line).frame(width: 1, height: 16)
+                Button { model.undoLanded() } label: { Text("Undo").font(.footnote.weight(.semibold)) }
+                    .tint(Light.cyan)
+                    .accessibilityHint("Takes the paste back on your Mac.")
+                    .accessibilityIdentifier("landed-undo")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 36)
+        .watchGlass(Capsule())
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("landed-pill")
+    }
+}
+
+extension View {
+    /// The landed pill floats just above this (the mic), never moving it.
+    func landedPill() -> some View {
+        overlay(alignment: .top) {
+            LandedPill().alignmentGuide(.top) { $0[.bottom] + 12 }
+        }
     }
 }

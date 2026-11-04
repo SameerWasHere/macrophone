@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 import MacrophoneKit
 
@@ -228,6 +229,8 @@ final class DeliveryEngine {
                 }
                 self.popup.refresh(c)
                 self.app.updateOutcome(itemID, .pasted, outcome)
+                // Pasted and not sent: the phone may ask to take it back (Undo).
+                self.lastPaste = r.pressedSend ? nil : LastPaste(id: itemID, pid: r.pid, windowID: r.windowID, appName: r.appName, at: Date())
                 // Sent: a chat now, waiting for its answer.
                 if r.pressedSend, let wid = r.windowID { self.app.replies.engaged(windowID: wid, bundleID: r.bundleID) }
                 let how = r.pressedSend ? (r.confirmedSent ? "sent, confirmed" : (r.stillInBox ? "send key pressed, box not cleared" : "sent")) : "pasted"
@@ -240,6 +243,38 @@ final class DeliveryEngine {
                 self.popup.refresh(c)
             }
         }
+    }
+
+    // MARK: Undo (Nov 3 2026)
+
+    /// The last paste that wasn't sent: what the phone's Undo can take back.
+    private struct LastPaste { var id: UUID; var pid: pid_t; var windowID: CGWindowID?; var appName: String; var at: Date }
+    private var lastPaste: LastPaste?
+
+    /// The phone's Undo: only this Mac's last paste, not sent, a moment ago — its app (and window)
+    /// brought forward, then ⌘Z, the way the person would take it back here.
+    func undo(_ id: UUID) async -> UndoResult {
+        guard let last = lastPaste, last.id == id else {
+            return UndoResult(id: id, ok: false, detail: "Only the last paste can be undone")
+        }
+        guard Date().timeIntervalSince(last.at) < UndoPaste.window else {
+            return UndoResult(id: id, ok: false, detail: "Too late to undo — it's been a while")
+        }
+        guard !StayAwake.isLocked, Paster.isTrusted,
+              let running = NSRunningApplication(processIdentifier: last.pid), !running.isTerminated else {
+            return UndoResult(id: id, ok: false, detail: "\(last.appName) isn't there to undo in")
+        }
+        lastPaste = nil
+        do {
+            _ = try await Paster.bringToFront(running, windowID: last.windowID, required: false, name: last.appName)
+        } catch {
+            return UndoResult(id: id, ok: false, detail: "Couldn't bring \(last.appName) forward")
+        }
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        Keys.press(Keys.code(for: "z") ?? CGKeyCode(kVK_ANSI_Z), flags: .maskCommand)
+        app.updateOutcome(id, .cancelled, "Undone from the phone")
+        log.add("undo: pressed ⌘Z")
+        return UndoResult(id: id, ok: true, detail: "Undid the paste in \(last.appName)")
     }
 
     private func failed(_ c: PopupCard, _ f: PasteFailure, req: Paster.Request, name: String, itemID: UUID) {
