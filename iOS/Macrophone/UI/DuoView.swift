@@ -907,14 +907,25 @@ struct DuoGlance: View {
     /// The laptop's screen: no bezel, no corner.
     var edge = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// The pick's window as it last looked (Nov 3 2026): on the plate while the Mac connects.
+    @State private var kept: UIImage?
 
     private var bezelWidth: CGFloat { edge ? 0 : fill ? DuoLook.halfBezel : WatchLook.bezelWidth }
     private var corner: CGFloat { edge ? DuoLook.edgeCorner : fill ? DuoLook.halfCorner : WatchLook.bezel }
 
+    /// Where the glance's window would come from: the pick, or the whole screen for the Clipboard
+    /// and Where I'm typing (as `openWindowForPose` opens them).
+    private var keptKey: String? {
+        let pick = model.selection.target
+        let place: TargetRef = { if case .app = pick { return pick } else { return model.reach.wholeScreenTarget } }()
+        return WindowSnapshots.key(mac: model.pairedMac?.id, target: place)
+    }
+
     var body: some View {
         let target = model.selection.target
         ZStack {
-            if watcher.isOpen, watcher.hasPicture {
+            // Opening, its last picture already there (the live one dissolves in over it).
+            if watcher.isOpen, watcher.hasPicture || watcher.lastPicture != nil {
                 // Live, the pictures still coming: the same screen, without its controls.
                 let window = WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: fill)
                 if let pictureHeight {
@@ -925,7 +936,7 @@ struct DuoGlance: View {
                     }
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
-                } else if !fill, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 {
+                } else if !fill, let size = watcher.videoSize ?? watcher.image?.size ?? watcher.lastPicture?.size, size.width > 0, size.height > 0 {
                     // The open screen: the window at its own shape (no band of empty bezel above
                     // or below it), the bar under it when there's room, else over its foot.
                     GeometryReader { geo in
@@ -955,6 +966,43 @@ struct DuoGlance: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
                 }
+            } else if model.isPaired, !model.isConnected, model.settling, !fill, let kept, kept.size.width > 0, kept.size.height > 0 {
+                // The moment it connects at launch: the window as it last looked, laid out as the
+                // live glance lays it (its shape, the bar under it), so the live one takes its
+                // place without a jump — and no alarm.
+                GeometryReader { geo in
+                    let b = bezelWidth, aspect = kept.size.width / kept.size.height
+                    let wide = (geo.size.width - 2 * b) / aspect + 2 * b
+                    Group {
+                        if wide + 76 <= geo.size.height {
+                            VStack(spacing: 0) {
+                                keptScreen(kept).frame(height: wide)
+                                liveBar(under: true, connecting: true)
+                            }
+                        } else {
+                            let h = min(wide, geo.size.height)
+                            keptScreen(kept)
+                                .overlay(alignment: .bottom) { liveBar(under: false, connecting: true) }
+                                .frame(width: wide > geo.size.height ? (h - 2 * b) * aspect + 2 * b : geo.size.width, height: h)
+                        }
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+                .transition(.opacity)
+            } else if model.isPaired, !model.isConnected, model.settling {
+                // The moment it connects at launch, nothing kept yet: the pick, and no alarm.
+                plate
+                VStack(spacing: 10) {
+                    icon(target, size: 64)
+                    Text(Places.appName(target, in: model)).font(.serif(.title2)).foregroundStyle(Ink.ink)
+                    HStack(spacing: 8) {
+                        ProgressView().tint(Ink.secondary)
+                        Text("Connecting to \(model.macName)").font(.footnote).foregroundStyle(Ink.secondary)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .watchGlass(Capsule())
+                }
+                .transition(.opacity)
             } else {
                 plate
                 VStack(spacing: 14) {
@@ -986,6 +1034,8 @@ struct DuoGlance: View {
                 .frame(maxWidth: 360)
             }
         }
+        .task(id: keptKey) { kept = WindowSnapshots.load(keptKey) }
+        .animation(.easeInOut(duration: 0.25), value: model.settling)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your Mac")
     }
@@ -1003,18 +1053,20 @@ struct DuoGlance: View {
     /// Over the live picture's foot (or under a short picture): the app, that it's live (or
     /// paused), and Show it here — on one line, or the button on its own line when the page is
     /// narrow (the book's).
-    private func liveBar(under: Bool) -> some View {
+    /// `connecting`: the kept picture while the Mac connects (its words say so, Show it here waits).
+    private func liveBar(under: Bool, connecting: Bool = false) -> some View {
         let target = model.selection.target
+        let words = connecting ? AnyView(connectingWords) : AnyView(liveWords)
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
                 icon(target, size: 30)
-                liveWords
+                words
                 Spacer(minLength: 8)
-                showButton.fixedSize()
+                showButton.fixedSize().disabled(connecting)
             }
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) { icon(target, size: 30); liveWords; Spacer(minLength: 0) }
-                showButton
+                HStack(spacing: 12) { icon(target, size: 30); words; Spacer(minLength: 0) }
+                showButton.disabled(connecting)
             }
         }
         .padding(.horizontal, 16)
@@ -1029,6 +1081,23 @@ struct DuoGlance: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
         .padding(bezelWidth)
+    }
+
+    private var connectingWords: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(Places.appName(model.selection.target, in: model)).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
+            Text("Connecting to \(model.macName)…").font(.caption).foregroundStyle(Ink.secondary).lineLimit(1)
+        }
+    }
+
+    /// The kept picture on the window's plate, dimmed.
+    private func keptScreen(_ image: UIImage) -> some View {
+        plate.overlay {
+            Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
+                .opacity(0.55)
+                .padding(bezelWidth)
+                .accessibilityHidden(true)
+        }
     }
 
     private var liveWords: some View {

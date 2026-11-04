@@ -114,6 +114,9 @@ struct StatusLine: View {
                 _ = name
                 return ("", Light.cyan)
             case .connecting(let name): return ("Connecting to \(name)", Ink.tertiary)
+            // The first moments after the app comes up: one message until it's ready or something's
+            // really wrong (Nov 3 2026 — "Looking for" → "Connecting to" → nothing, in a second).
+            case _ where model.settling: return ("Connecting to \(model.macName)", Ink.tertiary)
             case .unreachable(let name):
                 if model.localNetworkDenied { return ("Local Network is off for Macrophone — turn it on in Settings to reach \(name)", Light.ochre) }
                 return ("\(name) not found — dictations will wait for it", Light.ochre)

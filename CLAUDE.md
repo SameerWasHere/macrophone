@@ -575,6 +575,27 @@ correcting … specifically when I open the app". Found frame by frame (`simctl 
   the settings layer keeps the height it had while it showed (`settingsRoom`), its layout isn't
   animated with `watcher.isShowing`, and it fades out in 0.1 s, back in on the settle spring.
 
+## Opening fast: the last picture, the last address, one word (Nov 3 2026)
+
+Sameer picked three of the smoothness ideas: "show the last picture right away", "connect faster",
+"one connecting message".
+- **Each window's last picture** (`Model/WindowSnapshots.swift`): kept per Mac and per place
+  (app + window number, hashed; in Caches, ≤ 1,280 px, JPEG 0.6, never leaves the phone) when a
+  watch switches away, closes or pauses, and every 30 s while live (`Watcher.keepPicture` — video
+  through `VideoCanvas.displayedFrame()`, the renderer's `displayedPixelBuffer`, iOS 17.4+).
+  `Watcher.lastPicture` is loaded on open and drawn dimmed in `WatchWindow` under the viewer
+  until 0.5 s after the first frame (the video layer draws a moment after it's handed one — the
+  plate never shows bare); the Duo's glance treats it as a picture (its shape, its bar), and while
+  the Mac connects at launch (`model.settling`) shows the pick's kept picture laid out exactly as
+  the live glance will be, "Connecting to ‹Mac›…" in the bar and Show it here waiting.
+- **The last address** (`LinkClient`, `link.lastAddress.<mac>`): the Mac's IPv4/6 and port on this
+  network from the last local session; at launch, before Bonjour has it, it's dialled beside the
+  name (`Route.nearby`, `raceNearby`, unverified — the handshake proves the Mac). Simulator: first
+  frame → connected 650 → 385 ms ("nearby: the last address answered first"). His phone's cold
+  launch was ~850 ms from first frame to connected before.
+- **One word while it connects**: `StatusLine` says "Connecting to ‹Mac›" through `settling`,
+  whatever the link's state; no "Looking for", no Wi-Fi warning in the glance.
+
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
 Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on

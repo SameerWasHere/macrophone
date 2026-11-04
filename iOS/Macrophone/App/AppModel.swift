@@ -198,6 +198,7 @@ final class AppModel: ObservableObject {
         watcher.sendKeyframe = { [weak self] in self?.client.watchKeyframe() ?? false }
         watcher.sendFit = { [weak self] f in self?.client.watchFit(f) ?? false }
         watcher.macFeatures = { [weak self] in self?.client.macFeatures ?? [] }
+        watcher.macID = { [weak self] in self?.pairedMac?.id }
         macAudio.log = log
         macAudio.attach(client)
         macAudio.bind(watcher: watcher, recorderPhase: recorder.$phase.eraseToAnyPublisher(), remote: $isRemote.eraseToAnyPublisher(),

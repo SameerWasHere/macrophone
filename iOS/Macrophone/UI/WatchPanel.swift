@@ -637,6 +637,21 @@ struct WatchWindow: View {
         let high = contrast == .increased
         ZStack {
             Ink.sunk
+            // Opening: what this window looked like last time, dimmed, until its first frame
+            // (Nov 3 2026) — then the live picture dissolves in over it.
+            // (It stays under the live viewer for a beat after the first frame: the video layer
+            // draws a moment after it's handed the frame, and the plate never shows bare.)
+            if let last = watcher.lastPicture {
+                Image(uiImage: last)
+                    .resizable()
+                    .aspectRatio(contentMode: fill ? .fill : .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: fill ? .center : .top)
+                    .clipped()
+                    .opacity(0.55)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             if watcher.hasPicture {
                 WindowViewer(image: watcher.image, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
                              focus: watcher.focus, recenter: watcher.recenter, generation: watcher.windowSeq,
@@ -774,6 +789,7 @@ struct WatchWindow: View {
         .animation(.easeInOut(duration: 0.25), value: watcher.phase)
         .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
         .animation(.easeInOut(duration: 0.2), value: watcher.stale)
+        .animation(.easeInOut(duration: 0.25), value: watcher.hasPicture)
     }
 
     /// The light under the bezel: the window's state, in the kicker's colour.

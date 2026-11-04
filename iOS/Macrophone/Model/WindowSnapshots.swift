@@ -1,0 +1,68 @@
+import CoreImage
+import CryptoKit
+import Foundation
+import MacrophoneKit
+import UIKit
+
+/// Each window's last picture (Nov 3 2026, Sameer: "show the last picture right away"): kept on
+/// this iPhone, per Mac and per place, so a window opening — at launch, on the Duo opening, on a
+/// switch — shows what it last looked like, dimmed, until the Mac's first frame takes over. Never
+/// leaves the phone; dropped with the app's caches. Small: at most 1,280 px on its long side.
+enum WindowSnapshots {
+    static let longSide: CGFloat = 1280
+
+    /// A place on a Mac, as a file name (a window's title changes, so only the app, the window's
+    /// number and the display go in).
+    static func key(mac: UUID?, target: TargetRef) -> String? {
+        guard let mac, case let .app(bundleID, windowKey, _) = target else { return nil }
+        let raw = "\(mac.uuidString)|\(bundleID)|\(windowKey ?? "")"
+        return SHA256.hash(data: Data(raw.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static var directory: URL {
+        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("WindowSnapshots", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    private static func url(_ key: String) -> URL { directory.appendingPathComponent("\(key).jpg") }
+
+    /// The kept picture, decoded (small: a few ms), or nil.
+    static func load(_ key: String?) -> UIImage? {
+        guard let key, let data = try? Data(contentsOf: url(key)), let ui = UIImage(data: data) else { return nil }
+        return ui.preparingForDisplay() ?? ui
+    }
+
+    /// Kept off the main thread.
+    static func save(_ image: UIImage, key: String) {
+        Task.detached(priority: .utility) {
+            guard let small = shrink(image), let data = small.jpegData(compressionQuality: 0.6) else { return }
+            try? data.write(to: url(key), options: .atomic)
+        }
+    }
+
+    /// The video's frame on screen, kept off the main thread (the copy itself is cheap).
+    static func save(_ buffer: CVPixelBuffer, key: String) {
+        nonisolated(unsafe) let b = buffer
+        Task.detached(priority: .utility) {
+            let ci = CIImage(cvPixelBuffer: b)
+            let scale = min(1, longSide / max(ci.extent.width, ci.extent.height))
+            let scaled = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            guard let cg = context.createCGImage(scaled, from: scaled.extent),
+                  let data = UIImage(cgImage: cg).jpegData(compressionQuality: 0.6) else { return }
+            try? data.write(to: url(key), options: .atomic)
+        }
+    }
+
+    private static let context = CIContext(options: [.cacheIntermediates: false])
+
+    private static func shrink(_ image: UIImage) -> UIImage? {
+        let size = image.size
+        let scale = min(1, longSide / max(size.width, size.height))
+        guard scale < 1 else { return image }
+        let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
+    }
+}

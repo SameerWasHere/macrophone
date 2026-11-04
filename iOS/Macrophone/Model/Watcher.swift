@@ -72,6 +72,34 @@ final class Watcher: ObservableObject {
     @Published private(set) var videoSize: CGSize?
     /// Something to show: a picture, or video.
     var hasPicture: Bool { image != nil || videoSize != nil }
+    /// This window's picture from the last time it showed (Nov 3 2026, `WindowSnapshots`): drawn,
+    /// dimmed, until this watch's first frame — never an empty plate while it opens.
+    @Published private(set) var lastPicture: UIImage?
+    /// The Mac the pictures come from (the snapshots are kept per Mac).
+    var macID: () -> UUID? = { nil }
+    private var keepTask: Task<Void, Never>?
+
+    /// Keeps what's on screen now as this window's last picture.
+    func keepPicture() {
+        guard let target, hasPicture, !stale, let key = WindowSnapshots.key(mac: macID(), target: target) else { return }
+        if videoSize != nil, let frame = video.displayedFrame() { WindowSnapshots.save(frame, key: key) }
+        else if let image { WindowSnapshots.save(image, key: key) }
+    }
+
+    /// The first frame of a watch: the kept picture gives way, and a fresh one is kept every 30 s.
+    private func cameLive() {
+        keepTask?.cancel()
+        keepTask = Task { @MainActor [weak self] in
+            // A beat for the decoder to draw the first frame over it, then it goes.
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self?.lastPicture = nil
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                guard let self, !Task.isCancelled, self.isOpen, self.phase == .live else { return }
+                self.keepPicture()
+            }
+        }
+    }
     /// The picture on screen is the window before this one (a switch): it stays, dimmed, until
     /// the new window's first frame lands, so a flip never drops to an empty plate.
     @Published private(set) var stale = false
@@ -176,6 +204,8 @@ final class Watcher: ObservableObject {
     func open(_ target: TargetRef) {
         guard target != .clipboard else { return }
         let switching = self.target != target
+        // The window it leaves keeps its picture for next time.
+        if switching, isOpen { keepPicture() }
         self.target = target
         if !isOpen { drag = .pan; wholeWindow = false }
         // A window fitted to the phone shows whole: one finger scrolls it (nothing to pan to).
@@ -203,6 +233,7 @@ final class Watcher: ObservableObject {
         }
         let opening = !isOpen || glancing
         if switching || !isOpen {
+            lastPicture = WindowSnapshots.load(WindowSnapshots.key(mac: macID(), target: target))
             // A new window takes this view's shape once it's live (Oct 31 2026).
             sizedByHand = false
             askedForFit = false
@@ -265,6 +296,8 @@ final class Watcher: ObservableObject {
 
     func close() {
         guard isOpen else { return }
+        keepPicture()
+        keepTask?.cancel()
         putBackAutoFit()
         isOpen = false
         glancing = false
@@ -313,6 +346,7 @@ final class Watcher: ObservableObject {
 
     func pause(_ reason: PauseReason = .idle) {
         guard isOpen, !phase.isPaused else { return }
+        keepPicture()
         idleTask?.cancel()
         _ = sendWatch(nil)
         phase = .paused(reason)
@@ -812,6 +846,7 @@ final class Watcher: ObservableObject {
         if awaitingFirstPicture {
             awaitingFirstPicture = false
             cameAlive &+= 1
+            cameLive()
             log?.add("watching: first \(frame.keyframe ? "keyframe" : "frame") \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(frame.data.count / 1024) KB")
             autoFitSoon()
         }
@@ -852,6 +887,7 @@ final class Watcher: ObservableObject {
         if awaitingFirstPicture {
             awaitingFirstPicture = false
             cameAlive &+= 1
+            cameLive()
             log?.add("watching: first \(how) \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(bytes / 1024) KB")
             autoFitSoon()
         }

@@ -162,6 +162,7 @@ public final class LinkClient: @unchecked Sendable {
 
     /// Which Mac is active (`MacPreferences.chosenMacKey`), kept across launches.
     private let preferences: MacPreferences
+    private let defaults: UserDefaults
     private var chosen: UUID?
     /// Bumped on every switch: a dial that began for the Mac before never installs its session.
     private var switchGeneration = 0
@@ -172,6 +173,7 @@ public final class LinkClient: @unchecked Sendable {
         self.appVersion = appVersion
         self.osDescription = osDescription
         preferences = MacPreferences(defaults: defaults)
+        self.defaults = defaults
         chosen = preferences.chosenMac
         _state = store.peers().isEmpty ? .notPaired : .searching
     }
@@ -395,7 +397,57 @@ public final class LinkClient: @unchecked Sendable {
     /// How to reach the Mac right now: its Bonjour endpoint (verified = the TXT record says it IS
     /// that Mac by id; a dial by name may reach another Mac with the same name), or — once Bonjour
     /// has had `awayAfter` seconds and found nothing — the addresses it gave for away.
-    private enum Route { case bonjour(NWEndpoint, verified: Bool), remote([RemoteAddress]) }
+    private enum Route { case bonjour(NWEndpoint, verified: Bool), remote([RemoteAddress]), nearby([NWEndpoint]) }
+
+    // MARK: The address it answered at last (Nov 3 2026)
+
+    // Sameer: "connect faster when you open the app". At launch Bonjour hasn't found the Mac yet,
+    // and a dial by name waits for the name to resolve — most of the ~0.85 s from the first frame
+    // to connected on his phone. The Mac's own address on this network, as the last session ran
+    // over it, is dialled beside the name at once; the first to open takes the handshake (which
+    // proves it's this Mac — a stale address that reaches anything else simply fails).
+
+    private static func lastAddressKey(_ mac: UUID) -> String { "link.lastAddress.\(mac.uuidString)" }
+
+    /// The Mac's address and port on this network, from the session that just opened over it.
+    private func rememberAddress(of conn: FramedConnection, mac: UUID) {
+        guard case let .hostPort(host, port)? = conn.connection.currentPath?.remoteEndpoint else { return }
+        let h: String
+        switch host {
+        case .ipv4(let a): h = "\(a)"
+        case .ipv6(let a): h = "\(a)"
+        default: return
+        }
+        defaults.set("\(h)|\(port.rawValue)", forKey: Self.lastAddressKey(mac))
+    }
+
+    private func lastAddress(of mac: UUID) -> NWEndpoint? {
+        guard let s = defaults.string(forKey: Self.lastAddressKey(mac)), let bar = s.lastIndex(of: "|"),
+              let port = NWEndpoint.Port(String(s[s.index(after: bar)...])) else { return nil }
+        return .hostPort(host: NWEndpoint.Host(String(s[..<bar])), port: port)
+    }
+
+    /// Dials each at once and keeps the first whose connection opens; the others are closed before
+    /// any handshake.
+    private func raceNearby(_ endpoints: [NWEndpoint], timeout: TimeInterval) async throws -> FramedConnection {
+        let conns = endpoints.map { FramedConnection(NWConnection(to: $0, using: LinkServer.parameters()), queue: queue) }
+        return try await withThrowingTaskGroup(of: FramedConnection.self) { g in
+            for c in conns { g.addTask { try await c.start(timeout: timeout); return c } }
+            var winner: FramedConnection?
+            var lastError: Error = LinkError.macNotFound
+            while winner == nil, let r = await g.nextResult() {
+                switch r {
+                case .success(let c): winner = c
+                case .failure(let e): lastError = e
+                }
+            }
+            g.cancelAll()
+            for c in conns where c !== winner { c.cancel() }
+            guard let winner else { throw lastError }
+            if let i = conns.firstIndex(where: { $0 === winner }) { log?.add(i == 0 ? "nearby: the last address answered first" : "nearby: the name answered first") }
+            return winner
+        }
+    }
 
     private func route(for mac: PairedPeer) async -> Route {
         func local() -> NWEndpoint? { discoveredMacs.first(where: { $0.macID == mac.id })?.endpoint }
@@ -411,8 +463,11 @@ public final class LinkClient: @unchecked Sendable {
             }
         }
         if !remotes.isEmpty { return .remote(remotes) }
-        // Not browsed yet — dial the service by name and let Bonjour resolve it.
-        return .bonjour(.service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil), verified: false)
+        // Not browsed yet — dial the service by name and let Bonjour resolve it, and beside it the
+        // address the Mac last answered at on this network.
+        let byName = NWEndpoint.service(name: mac.name, type: Product.serviceType, domain: "local.", interface: nil)
+        if onLocal, let last = lastAddress(of: mac.id) { return .nearby([last, byName]) }
+        return .bonjour(byName, verified: false)
     }
 
     /// Dials every remote address at once and keeps the first whose connection opens; the
@@ -508,6 +563,11 @@ public final class LinkClient: @unchecked Sendable {
                 conn = try await raceConnect(list, timeout: min(timeout, 5))
                 verified = false
                 remote = true
+            case let .nearby(list):
+                conn = try await raceNearby(list, timeout: min(timeout, 4))
+                // Neither says by id that it's this Mac (the handshake does).
+                verified = false
+                remote = false
             }
         } catch {
             log?.add("connect failed: \(String(describing: error))")
@@ -548,6 +608,7 @@ public final class LinkClient: @unchecked Sendable {
                     throw LinkError.anotherMac
                 }
                 old?.close()
+                if !remote { rememberAddress(of: conn, mac: mac.id) }
                 if let sel = selectionProvider?() { try? await s.send(.selection(sel)) }
                 store.touch(mac.id)
                 log?.add(remote ? "connected to Mac from away" : (replacing ? "back home: moved to the local path" : "connected to Mac"))

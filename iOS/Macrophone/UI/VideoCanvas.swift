@@ -103,6 +103,12 @@ final class VideoCanvas: UIView {
         if renderer.status == .failed { renderer.flush() }
     }
 
+    /// The frame on screen now, as the decoder left it (nil before any).
+    func displayedFrame() -> CVPixelBuffer? {
+        guard hasFrame, #available(iOS 17.4, *) else { return nil }
+        return displayLayer.sampleBufferRenderer.displayedPixelBuffer()
+    }
+
     func clear() {
         format = nil
         lastSets = nil
