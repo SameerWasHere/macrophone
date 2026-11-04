@@ -396,8 +396,9 @@ struct FloatingMic: View {
 
     var body: some View {
         let centre = place(CGPoint(x: fx * room.width + drag.width, y: fy * room.height + drag.height))
-        // The lip tucked onto the disc's ring (the button's frame runs a little past the ring).
-        VStack(spacing: -11) {
+        // The lip just above the disc's ring, a few points clear of it (the lip's frame carries
+        // 8 pt of touch room under it; the button's runs a little past the ring).
+        VStack(spacing: -7) {
             lip.zIndex(1)
             main.micButton(size: Self.size)
         }
