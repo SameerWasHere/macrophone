@@ -269,10 +269,17 @@ enum Paster {
                     try await Task.sleep(nanoseconds: 250_000_000)
                     f = AX.focused(in: ax)
                 }
-                if let f {
-                    // Something has focus and it isn't a text field (a list, the desktop, a button).
-                    guard AX.isTextInput(f) else { throw PasteFailure.nowhereToType(app: appName) }
+                if let f, AX.isTextInput(f) {
                     box = f
+                } else if let f {
+                    // Something has focus that doesn't read as a text field — and Where I'm typing
+                    // pastes anyway: ⌘V goes where the cursor is, which he can see and Accessibility
+                    // can't always (Nov 3 2026, Sameer: "I literally tapped in a text box and the
+                    // cursor was there … it should paste there"). A web or Electron search box
+                    // with a list under it names the highlighted row as focused while the caret
+                    // stays in the box (Claude's search): the nearest text box round that row is
+                    // read back to see the words land; none near, the paste goes unread.
+                    box = await Task.detached(priority: .userInitiated, operation: { Self.nearestInput(around: f) }).value
                 }
                 // Nil: the app doesn't say what has focus — paste where the cursor is.
             case .app:
@@ -408,6 +415,39 @@ enum Paster {
         let r = AX.frame(f), w = AX.frame(window)
         guard r.width >= 16, r.height >= 8, !r.intersection(w).isNull else { return nil }
         return f
+    }
+
+    /// The text box nearest a focused element that isn't one (a search box's highlighted result):
+    /// up through its ancestors — no further than its dialog or window — the first one holding a
+    /// visible place to type; of several there, the one closest to the element. A short walk.
+    nonisolated static func nearestInput(around e: AXUIElement) -> AXUIElement? {
+        let at = AX.frame(e)
+        var node = e
+        for _ in 0..<8 {
+            guard let parent = AX.element(node, kAXParentAttribute) else { return nil }
+            node = parent
+            let role = AX.role(node)
+            if role == kAXWindowRole || role == kAXApplicationRole { return nil }
+            var found: [AXUIElement] = []
+            var budget = 400
+            func walk(_ x: AXUIElement, _ depth: Int) {
+                guard budget > 0, depth <= 10 else { return }
+                budget -= 1
+                if AX.isTextInput(x), !AX.isSecure(x) {
+                    let r = AX.frame(x)
+                    if r.width >= 16, r.height >= 8 { found.append(x); return }
+                }
+                for c in AX.elements(x, kAXChildrenAttribute) { walk(c, depth + 1) }
+            }
+            walk(node, 0)
+            if !found.isEmpty {
+                func gap(_ r: CGRect) -> CGFloat { abs(r.midY - at.midY) + abs(r.midX - at.midX) / 4 }
+                return found.min { gap(AX.frame($0)) < gap(AX.frame($1)) }
+            }
+            // A dialog is as far as it goes: past it is the window's own boxes.
+            if AX.string(node, kAXSubroleAttribute) == "AXApplicationDialog" || AX.string(node, kAXSubroleAttribute) == kAXDialogSubrole { return nil }
+        }
+        return nil
     }
 
     /// An editor or document (most of the window), not a message box.

@@ -532,8 +532,9 @@ final class AppModel: ObservableObject {
         // Full screen on the Duo (Nov 3 2026, Sameer: "it should default to pasting wherever the
         // cursor is … so it can actually be used as text input anywhere"): the words go to Where
         // I'm typing — whatever field he last tapped into on the Mac — not the Send to pick.
+        // Pasted only, never sent: it's text input, wherever the cursor is.
         let override = asked ?? (watcher.fullScreen && watcher.isShowing
-            ? SendSelection(target: .frontApp, send: sendSetting(for: .frontApp)) : nil)
+            ? SendSelection(target: .frontApp, send: false) : nil)
         recordingOverride = override
         #if DEBUG
         // UI tests drive the real button and gestures with a stand-in recognizer
