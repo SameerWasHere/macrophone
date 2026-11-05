@@ -52,7 +52,8 @@ import UIKit
 /// MACROPHONE_PAIRING=connecting|code|paired|failed|expired  the pairing panel in that phase
 /// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
 /// MACROPHONE_WATCH=rest                      the same, from the screen at rest (nothing opened first):
-///                                            open (the Dock's second tap), close, pick@<app>, sheet@settings|history|controls|openapp|none
+///                                            open (the Dock's second tap), show (the Duo glance's Show it here),
+///                                            close, pick@<app>, sheet@settings|history|controls|openapp|none
 /// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
 ///                                            answer@1 (the window's question, second answer), keys, done (closes it;
@@ -344,6 +345,9 @@ enum DebugHooks {
                         // The Dock's second tap / Show it here (as they call it: no animation of
                         // their own — the screens animate what changes).
                         model.watcher.open(model.selection.target)
+                    } else if a == "show" {
+                        // The glance's Show it here (as the button calls it).
+                        model.showWindowForPose()
                     } else if a == "close" {
                         model.watcher.close()
                     } else if a.hasPrefix("sheet@") {

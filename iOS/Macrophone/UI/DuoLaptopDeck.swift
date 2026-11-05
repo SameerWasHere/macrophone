@@ -37,8 +37,6 @@ struct DuoLaptopDeck: View {
     @ObservedObject private var watcher: Watcher
     @ObservedObject private var input: MacInput
     @EnvironmentObject private var model: AppModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var shown = false
 
     init(main: MainView, vertical: Bool = true) {
         self.main = main
@@ -52,12 +50,9 @@ struct DuoLaptopDeck: View {
         .padding(12)
         // The field that takes the iOS keyboard when ⌨︎ is pressed (a clear point, never seen).
         .background(alignment: .topLeading) { KeyboardPage(input: input, watcher: watcher).frame(width: 1, height: 1) }
-        .opacity(shown ? 1 : 0)
-        .offset(y: shown || reduceMotion ? 0 : 14)
-        .onAppear {
-            keepTrackpad()
-            withAnimation(Motion.pick(.spring(response: 0.5, dampingFraction: 0.82), reduce: reduceMotion)) { shown = true }
-        }
+        // It arrives with the layout that holds it (the hand-over's fade), never on a beat of its
+        // own after — the page beside the window stood empty for a moment (Nov 4 2026).
+        .onAppear { keepTrackpad() }
         // The deck's page is the trackpad: the pointer always live (the keyboard is the moment
         // it's up; the mic needs no page here).
         .onChange(of: input.page) { _, _ in keepTrackpad() }

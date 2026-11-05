@@ -155,13 +155,38 @@ struct MainView: View {
     @ViewBuilder private var layoutBody: some View {
         switch posture.pose {
         case .closed: if isCover { coverBody.transition(.opacity) } else { phoneBody.transition(.opacity) }
+        default: innerBarred(innerLayout).transition(.opacity)
+        }
+    }
+
+    /// The inner screen's layouts, inside the one bar they share.
+    @ViewBuilder private var innerLayout: some View {
+        switch posture.pose {
         // The inner screen's vertical bar (open on its side, the book) holds the cover's buttons.
-        case .open(landscape: true): barred(openLandscapeBody).transition(.opacity)
+        case .open(landscape: true): openLandscapeBody.transition(.opacity)
+        case .book: bookBody.transition(.opacity)
         // Upright the fold runs across the middle, flat or folded: the laptop's layout either
         // way (one view, so folding it moves nothing — the halves follow the hinge).
-        case .open(landscape: false), .laptop: barred(laptopBody).transition(.opacity)
-        case .book: barred(bookBody).transition(.opacity)
+        default: laptopBody.transition(.opacity)
         }
+    }
+
+    /// The inner screen's bar, one for every inner pose (Nov 4 2026): the pose's layout changes
+    /// inside it, the stack itself never does. A stack per pose (and none on the laptop) made
+    /// every fold a new stack, and a new stack lays its content out from nothing — the window and
+    /// the mic grew out of the screen's corner as the laptop opened flat. Where the pose has no
+    /// bar of the system's (the laptop: its controls are its own), the bar is hidden, not gone.
+    @ViewBuilder func innerBarred<Content: View>(_ content: Content) -> some View {
+        NavigationStack {
+            content
+                .toolbar { if barUsed { coverToolbar } }
+                .toolbar(barUsed ? .automatic : .hidden, for: .navigationBar)
+                .toolbar(barUsed ? .automatic : .hidden, for: .bottomBar)
+                .navigationBarTitleDisplayMode(.inline)
+                .coverBarStyle()
+                .macSharePickers(photo: $coverPickingPhoto, file: $coverPickingFile, model: model)
+        }
+        .environment(\.controlsInVerticalBar, barUsed)
     }
 
     // MARK: The phone's layout (the cover screen too)
