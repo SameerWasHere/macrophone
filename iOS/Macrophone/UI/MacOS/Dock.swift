@@ -52,6 +52,8 @@ struct SendToDock: View {
     @State private var contentWidth: CGFloat?
     /// The pick's name label's width (it's kept on the shelf: `labelShift`).
     @State private var labelWidth: CGFloat = 0
+    /// The pick's middle on the shelf as it shows (scrolled or not).
+    @State private var pickMid: CGFloat?
 
     var body: some View {
         let places = model.placeOptions(current: current)
@@ -70,9 +72,9 @@ struct SendToDock: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     HStack(alignment: .bottom, spacing: DockLook.spacing) {
-                        ForEach(apps) { p in icon(p, selected: selected, notOpen: notOpen) }
+                        ForEach(apps) { p in icon(p, selected: selected, notOpen: notOpen, shelf: width) }
                         DockDivider()
-                        ForEach(stacks) { p in icon(p, selected: selected, notOpen: notOpen) }
+                        ForEach(stacks) { p in icon(p, selected: selected, notOpen: notOpen, shelf: width) }
                         DockApplications(scale: scale(for: "more")) { model.sheet = .openApp }
                             .background(centre("more"))
                     }
@@ -94,6 +96,7 @@ struct SendToDock: View {
                 // screen: past that the icons scroll inside it, trimmed at its sides only (the
                 // pick's name and a swelling icon rise above it).
                 .frame(width: width)
+                .coordinateSpace(.named("shelf"))
                 .mask(RoundedRectangle(cornerRadius: MacOSLook.dock, style: .continuous).padding(.top, -80))
                 .background(alignment: .bottom) { shelf.frame(width: width) }
                 .frame(maxWidth: .infinity)
@@ -126,7 +129,7 @@ struct SendToDock: View {
         .allowsHitTesting(false)
     }
 
-    private func icon(_ p: PlaceOption, selected: String?, notOpen: Bool) -> some View {
+    private func icon(_ p: PlaceOption, selected: String?, notOpen: Bool, shelf: CGFloat) -> some View {
         let isPick = p.id == selected
         return DockIcon(place: p, selected: isPick, current: current,
                         scale: scale(for: p.id),
@@ -135,8 +138,9 @@ struct SendToDock: View {
                         windowNeeds: { model.needs($0) != nil },
                         label: isPick ? current.displayName : nil,
                         notOpen: isPick && notOpen,
-                        labelShift: isPick ? labelShift(for: p.id) : 0,
+                        labelShift: isPick ? labelShift(shelf: shelf) : 0,
                         onLabelWidth: { labelWidth = $0 },
+                        onPickMid: { pickMid = $0 },
                         onWatch: { watch() }) { pick($0) }
             .id(p.id)
             .background(centre(p.id))
@@ -145,11 +149,12 @@ struct SendToDock: View {
     /// The pick's name kept on the shelf (Nov 4 2026): over an icon near either end it ran past
     /// the shelf's side and was cut there ("alendar" over a Calendar just opened, first in
     /// line). It slides in just enough to stay whole, as a Mac's Dock label stays on screen.
-    private func labelShift(for id: String) -> CGFloat {
-        guard !overflows, labelWidth > 0, let c = centres[id], let row = contentWidth else { return 0 }
+    /// (Where the icon is on the shelf as it shows, scrolled or not: `pickMid`.)
+    private func labelShift(shelf: CGFloat) -> CGFloat {
+        guard labelWidth > 0, let c = pickMid, shelf > 0 else { return 0 }
         let half = labelWidth / 2, edge: CGFloat = 4
-        let lo = half + edge, hi = row - half - edge
-        guard lo <= hi else { return row / 2 - c }
+        let lo = half + edge, hi = shelf - half - edge
+        guard lo <= hi else { return shelf / 2 - c }
         return min(max(c, lo), hi) - c
     }
 
@@ -217,6 +222,7 @@ private struct DockIcon: View {
     /// How far the label slides sideways to stay on the shelf.
     var labelShift: CGFloat = 0
     var onLabelWidth: (CGFloat) -> Void = { _ in }
+    var onPickMid: (CGFloat) -> Void = { _ in }
     var onWatch: () -> Void
     var onPick: (TargetRef) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -239,6 +245,9 @@ private struct DockIcon: View {
                 .frame(width: size, height: size)
                 .onGeometryChange(for: CGRect?.self) { [selected] g in selected ? g.frame(in: .global) : nil } action: { r in
                     if let r { DockSpot.shared.pick = r }
+                }
+                .onGeometryChange(for: CGFloat?.self) { [selected] g in selected ? g.frame(in: .named("shelf")).midX : nil } action: { x in
+                    if let x { onPickMid(x) }
                 }
                 .overlay(alignment: .topTrailing) {
                     if needs != nil {

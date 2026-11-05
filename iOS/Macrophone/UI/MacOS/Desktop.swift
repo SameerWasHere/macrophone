@@ -30,7 +30,11 @@ struct PhoneMenuBar: View {
 
     var body: some View {
         MacMenuBar {
-            MacPill(menuBar: true).fixedSize()
+            // The name takes what the extras leave and ends in "…" past that, as a Mac's menu
+            // bar does — at its full width a long name ("Sameer's MacBook Pro 16-inch") pushed
+            // the bar past both sides of the screen, the name cut at the left and Settings gone
+            // (Nov 4 2026).
+            MacPill(menuBar: true).layoutPriority(1)
             WakeMacButton().controlSize(.small)
         } trailing: {
             if model.isConnected ? watcher.canWatchDesktop : hadWholeScreen {

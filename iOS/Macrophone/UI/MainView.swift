@@ -950,7 +950,7 @@ struct MacPill: View {
                 }
                 RollingName(name: title, key: model.pairedMac?.id.uuidString ?? "none", reduceMotion: reduceMotion,
                             font: menuBar ? .subheadline.weight(.bold) : .footnote.weight(.semibold),
-                            color: menuBar ? Ink.ink : Ink.secondary)
+                            color: menuBar ? Ink.ink : Ink.secondary, oneLine: menuBar)
                     .offset(y: several ? pull : 0)
                 // The way it's connected, in a slot that's always there: the pill keeps its width
                 // from launch to connected instead of growing when the sign arrives.
@@ -1067,6 +1067,8 @@ struct RollingName: View {
     var reduceMotion: Bool
     var font: Font = .footnote.weight(.semibold)
     var color: Color = Ink.secondary
+    /// One line, cut with "…" when it runs out of room (the menu bar's name).
+    var oneLine = false
     /// What's drawn as the current name, by Mac.
     @State private var shown: (key: String, name: String)?
     /// The name on its way out, and how far the roll has got (0 = just started, 1 = done).
@@ -1088,6 +1090,8 @@ struct RollingName: View {
         Text(shown?.name ?? name)
             .font(font)
             .foregroundStyle(color)
+            .lineLimit(oneLine ? 1 : nil)
+            .minimumScaleFactor(oneLine ? 0.85 : 1)
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
             .opacity(rolling ? (reduceMotion ? Double(progress) : Double(0.2 + 0.8 * progress)) : 1)
