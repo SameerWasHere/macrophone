@@ -303,7 +303,8 @@ struct MainView: View {
                               rowDimmed: regularPhone && showLiveWords,
                               // The keyboard page's room, from the keyboard's own frame (this
                               // screen ignores the keyboard's safe area — below).
-                              keyboardRoom: regularPhone ? max(0, input.keyboardRoom - geo.safeAreaInsets.bottom) : 0,
+                              // (The cover's foot is padded by `CoverFoot`, outside this view.)
+                              keyboardRoom: laysOutKeyboard ? max(0, input.keyboardRoom - (isCover ? CoverFoot.screenFoot : geo.safeAreaInsets.bottom)) : 0,
                               smoothHeight: isCover) {
                     // One mic button in every state: a hold on the cover's small mic flips the
                     // screen to the live words, and two branches made that a different button
@@ -322,7 +323,7 @@ struct MainView: View {
                         if coverWatching {
                             // One line in its 18 pt: a longer one (the trackpad's how-to) ran
                             // over the mic and its buttons above (Nov 4 2026).
-                            StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2)
+                            StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2, swap: true)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.85)
                                 .padding(.horizontal, 12)
@@ -366,7 +367,7 @@ struct MainView: View {
         // a frame and the mic jumping down again when it went. The keyboard page: its room is
         // the pages' own (`MacInput.keyboardRoom`), changed in the same motion as everything
         // that gives way to it, so the window moves once.
-        .ignoresSafeArea(.keyboard, edges: regularPhone ? .bottom : [])
+        .ignoresSafeArea(.keyboard, edges: laysOutKeyboard ? .bottom : [])
         .overlay(alignment: .bottom) {
             if regularPhone, showLiveWords, let draft = model.fixDraft {
                 FixWordCard(draft: draft)
@@ -379,6 +380,12 @@ struct MainView: View {
 
     /// Every iPhone but the Duo (its cover and inner screen have layouts of their own).
     var regularPhone: Bool { !barUsed && !posture.pose.isInner }
+
+    /// The mic screen lays the keyboard's room out itself (`MacInput.keyboardRoom`) rather than
+    /// taking the keyboard's safe area: the regular iPhone, and the Duo's cover (Nov 4 2026 —
+    /// inside the cover's NavigationStack the keyboard's safe area left in one step as the
+    /// keyboard went, so the window ran to the foot for ~5 frames before the mic row came back).
+    var laysOutKeyboard: Bool { regularPhone || isCover }
 
     // MARK: The iPhone Duo's cover: the buttons in the vertical bar
 
@@ -429,6 +436,16 @@ struct MainView: View {
                     // dropped 48 pt in one frame, then rose again on Done (Nov 4 2026). The foot is
                     // the screen's own inset in every state.
                     .modifier(CoverFoot(on: isCover))
+                    // Fixing a word on the cover: the card rides on the keyboard (the screen under
+                    // it ignores the keyboard — `CoverFoot`), as on the regular iPhone.
+                    .overlay(alignment: .bottom) {
+                        if isCover, showLiveWords, let draft = model.fixDraft {
+                            FixWordCard(draft: draft)
+                                .padding(.horizontal, Space.margin - 8)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.2), value: model.fixDraft)
                     .toolbar { coverToolbar }
                     .navigationBarTitleDisplayMode(.inline)
                     .coverBarStyle()
@@ -603,7 +620,7 @@ struct MainView: View {
             DestinationLine(words: recorder.words)
                 .padding(.horizontal, Space.text)
                 .padding(.top, 14)
-            LiveWords(words: recorder.words, listening: isRecording, cardInline: !regularPhone)
+            LiveWords(words: recorder.words, listening: isRecording, cardInline: !laysOutKeyboard)
                 .padding(.horizontal, Space.text)
                 .padding(.top, 8)
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -683,7 +700,7 @@ struct MainView: View {
             Text(typeSize.isAccessibilitySize ? "A\nB\nC" : "A\nB").font(.subheadline).lineSpacing(0)
                 .frame(maxWidth: .infinity)
         } content: {
-            StatusLine(recorder: recorder, holding: holding || look == "holding")
+            StatusLine(recorder: recorder, holding: holding || look == "holding", swap: isCover)
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
@@ -1283,21 +1300,20 @@ private struct DockZoom: ViewModifier {
 }
 
 /// The cover's foot (`barred`): the screen's own inset at the bottom (the home indicator's),
-/// never the bar's buttons' — they live in the vertical bar, not along the foot. The keyboard
-/// still lifts the content as ever; while it's up the foot is the keyboard's.
+/// never the bar's buttons' — they live in the vertical bar, not along the foot. The same in
+/// every state, the keyboard's too: the mic screen lays the keyboard's room out itself
+/// (`MainView.laysOutKeyboard`), so nothing here moves with it. The keyboard's region is ignored
+/// here, not inside: what's inside is laid out in the room this gives it, and the stack's
+/// keyboard inset (which leaves in one step as the keyboard goes) would already have been taken.
 private struct CoverFoot: ViewModifier {
     var on: Bool
-    @State private var keyboard = false
 
     func body(content: Content) -> some View {
         content
-            .ignoresSafeArea(.container, edges: on ? .bottom : [])
-            .padding(.bottom, on && !keyboard ? Self.screenFoot : 0)
-            // On the keyboard's own curve, beside it.
-            .animation(on ? .spring(duration: 0.38, bounce: 0) : nil, value: keyboard)
-            // Heard as it's posted, inside the keyboard's own animation (as `MacInput` hears it).
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboard = true }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboard = false }
+            // Padded inside, ignored outside: the other way round the padding was laid out in the
+            // stack's safe area (the keyboard's room already taken, and the foot's 34 twice).
+            .padding(.bottom, on ? Self.screenFoot : 0)
+            .ignoresSafeArea(.all, edges: on ? .bottom : [])
     }
 
     /// The window's own inset at the foot: the system's, with no toolbar in it.

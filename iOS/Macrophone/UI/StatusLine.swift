@@ -12,36 +12,50 @@ struct StatusLine: View {
     /// The line's size: the phone's subheadline, or the body on the iPhone Duo's deck (Oct 25
     /// 2026), where it reads from further away.
     var font: Font = .subheadline
+    /// One message makes way for the next (the Duo's cover, Nov 4 2026): the old one fades out,
+    /// then the new one fades in at its own width — cross-faded, "Cleaning up" and "Sending…" were
+    /// drawn over each other, centred at two widths, for a moment.
+    var swap = false
     @ScaledMetric(relativeTo: .subheadline) private var dotSize: CGFloat = 7
 
-    init(recorder: Recorder, holding: Bool, font: Font = .subheadline) {
+    init(recorder: Recorder, holding: Bool, font: Font = .subheadline, swap: Bool = false) {
         self.recorder = recorder
         self.words = recorder.words
         self.holding = holding
         self.font = font
+        self.swap = swap
     }
+
+    /// Out quickly, then in: never two lines on screen at once.
+    private static let swapTransition = AnyTransition.asymmetric(
+        insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.1)),
+        removal: .opacity.animation(.easeIn(duration: 0.1)))
 
     var body: some View {
         let (text, color) = content
         let check = landedWell
         let miss = landedMiss
-        Group {
-            if text.isEmpty {
-                // Nothing to say: the slot stays (the mic never moves), empty — and no element.
-                EmptyView()
-            } else if settingsLink {
-                // The fix is in Settings: the whole line is the way there (no extra row to make room for).
-                Button {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                } label: { line(text, color, link: true, check: false) }
-                .buttonStyle(.plain)
-                .accessibilityLabel(text)
-                .accessibilityHint("Opens Settings.")
-            } else {
-                line(text, color, link: false, check: check, miss: miss)
+        ZStack(alignment: .top) {
+            Group {
+                if text.isEmpty {
+                    // Nothing to say: the slot stays (the mic never moves), empty — and no element.
+                    EmptyView()
+                } else if settingsLink {
+                    // The fix is in Settings: the whole line is the way there (no extra row to make room for).
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    } label: { line(text, color, link: true, check: false) }
+                    .buttonStyle(.plain)
                     .accessibilityLabel(text)
-                    .accessibilityAddTraits(.updatesFrequently)
+                    .accessibilityHint("Opens Settings.")
+                } else {
+                    line(text, color, link: false, check: check, miss: miss)
+                        .accessibilityLabel(text)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
             }
+            .id(swap ? text : "")
+            .transition(swap ? Self.swapTransition : .opacity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, Space.text)
