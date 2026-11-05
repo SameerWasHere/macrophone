@@ -88,45 +88,35 @@ extension MainView {
             let split = posture.foldLine.map { $0.midX } ?? (geo.size.width - DuoLook.rail - DuoLook.foldGap)
             let left = max(0, split - DuoLook.foldGap)
             let right = max(0, geo.size.width - left - 2 * DuoLook.foldGap)
-            ZStack {
-                if watcher.isShowing {
-                    // The window tall on the left page; the deck down the right as the book's.
-                    HStack(spacing: 0) {
-                        DuoMacArea(main: self, deck: true)
-                            .environment(\.fullScreenAvailable, true)
-                            .padding(.top, 6)
-                            .frame(width: left, height: geo.size.height)
-                        Color.clear.frame(width: 2 * DuoLook.foldGap)
-                        DuoLaptopDeck(main: self, vertical: true)
-                            .frame(width: right, height: geo.size.height)
+            // The left page is one view in hand or not (Nov 4 2026): only what's on it changes —
+            // the whole spread used to be swapped, so the window faded out and in again with it.
+            HStack(spacing: 0) {
+                DuoMacArea(main: self, deck: watcher.isShowing)
+                    .environment(\.fullScreenAvailable, watcher.isShowing)
+                    .padding(.top, 6)
+                    .frame(width: left, height: geo.size.height)
+                Color.clear.frame(width: 2 * DuoLook.foldGap)
+                ZStack {
+                    if watcher.isShowing {
+                        // The window tall on the left page; the deck down the right as the book's.
+                        DuoLaptopDeck(main: self, vertical: true).transition(.handoff)
+                    } else {
+                        // Nothing in hand (Nov 1 2026, Sameer: "the view that is on the out screen
+                        // should be what I see on the right half on the open duo screen with more
+                        // content on the left side"): the right page IS the cover — the same Send
+                        // to, switches, Thread and mic, the same buttons in the vertical bar — and
+                        // the left is what the cover had no room for: the picked app's window,
+                        // live (the glance; Show it here takes it in hand).
+                        phoneBody.transition(.handoff)
                     }
-                    .transition(.handoff)
-                } else {
-                    openLandscapeRest(left: left, right: right).transition(.handoff)
                 }
+                .frame(width: right, height: geo.size.height)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(FoldPose.open(landscape: true).spoken)
-    }
-
-    /// Open on its side, nothing in hand (Nov 1 2026, Sameer: "the view that is on the out screen
-    /// should be what I see on the right half on the open duo screen with more content on the left
-    /// side"): the right half IS the cover — the same Send to, the same switches, the Thread and
-    /// the mic, the same buttons in the vertical bar — and the left half is what the cover had no
-    /// room for: the picked app's window, live (the glance; Show it here, or the picked place
-    /// tapped again, takes it in hand).
-    private func openLandscapeRest(left: CGFloat, right: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            DuoMacArea(main: self)
-                .padding(.top, 6)
-                .frame(width: left)
-            Color.clear.frame(width: 2 * DuoLook.foldGap)
-            phoneBody
-                .frame(width: right)
-        }
     }
 
     // MARK: The laptop (upright: the hinge across — folded, or flat)
@@ -595,6 +585,10 @@ struct DuoMacHalf: View {
     @State private var hideTask: Task<Void, Never>?
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The glance and the window in hand are one screen (Nov 4 2026): Show it here grows the
+    /// glance into the window's place and Done shrinks it back, instead of the one at its new size
+    /// fading in over the other at its old (the window seemed to jump).
+    @Namespace private var screenSpace
 
     init(main: MainView, vertical: Bool, room: CGSize, edge: Bool = false) {
         self.main = main
@@ -620,7 +614,7 @@ struct DuoMacHalf: View {
                     // window"): the picture is the whole half and nothing lies over it — the
                     // header, the answers and the words you're saying are on the deck.
                     screen(footInset: 0, floating: false, header: false)
-                        .transition(.handoff)
+                        .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
                 } else if let short = shortPicture {
                     // A window that can't fill the half (the fourth pass — the Mac can't reshape
                     // it, or hasn't yet: the whole screen, a window on the book's tall page):
@@ -648,17 +642,17 @@ struct DuoMacHalf: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .transition(.handoff)
+                    .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
                 } else {
                     screen(footInset: live && !main.showLiveWords ? floatingHeight : 0, floating: true)
-                        .transition(.handoff)
+                        .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
                 }
             } else if let short = shortPicture {
                 DuoGlance(watcher: watcher, fill: true, pictureHeight: short, edge: edge)
-                    .transition(.handoff)
+                    .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
             } else {
                 DuoGlance(watcher: watcher, fill: true, edge: edge)
-                    .transition(.handoff)
+                    .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
             }
         }
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: shortPicture != nil)
