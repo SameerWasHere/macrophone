@@ -327,6 +327,9 @@ struct MainView: View {
                                 .minimumScaleFactor(0.85)
                                 .padding(.horizontal, 12)
                                 .frame(height: 18)
+                                // The landed pill sits here while it shows.
+                                .opacity(model.landedChip == nil ? 1 : 0)
+                                .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
                         } else {
                             statusSlot
                                 .padding(.bottom, compact ? 6 : 18)
@@ -393,7 +396,10 @@ struct MainView: View {
                   },
                   size: size)
             .matchedGeometryEffect(id: micID, in: micSpace)
-            .landedPill()
+            // The cover with a window: above the small mic is the window's foot — its answers —
+            // so the pill takes the status line's place under the mic instead (Nov 4 2026: it
+            // sat over Esc and Yes).
+            .landedPill(below: isCover && watcher.isOpen && !showLiveWords)
     }
 
     /// The keyboard or the trackpad, a round glass button beside the cover's mic.
@@ -570,7 +576,9 @@ struct MainView: View {
                 VStack(spacing: 0) {
                     ZStack {
                         Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
-                        DeliveredCheck(visible: showCheck, color: checkColor)
+                        // The cover: the landed pill says it, right here — the check peeked out
+                        // from behind the pill (Nov 4 2026).
+                        DeliveredCheck(visible: showCheck && !(isCover && model.landedChip != nil), color: checkColor)
                     }
                     .frame(height: 56)
                     if timerLine > 0 { timer.frame(height: timerLine).transition(.opacity) }
@@ -1252,6 +1260,9 @@ extension MainView {
     /// Sameer picked "the Dock icon opens into the window"), on the settle spring that already
     /// carries it in and out. Where no Dock is drawn, or with Reduce Motion, it fades as before.
     var windowTransition: AnyTransition {
+        // The cover (Nov 4 2026): the window leaves at once (the mic opening, Done) — fading on
+        // the settle spring it lingered, full size, under the Thread and the words arriving.
+        if isCover { return reduceMotion ? .opacity : .handoff }
         guard !reduceMotion, windowViaDock, !(barUsed || posture.pose.isInner), let icon = DockSpot.shared.pick, watchArea.width > 0,
               watchArea.insetBy(dx: -40, dy: -40).contains(CGPoint(x: icon.midX, y: icon.midY)) else { return .opacity }
         let zoom = DockZoom(scale: max(0.06, icon.width / watchArea.width),
@@ -1350,9 +1361,13 @@ struct LandedPill: View {
 
 extension View {
     /// The landed pill floats just above this (the mic), never moving it.
-    func landedPill() -> some View {
-        overlay(alignment: .top) {
-            LandedPill().alignmentGuide(.top) { $0[.bottom] + 12 }
+    func landedPill(below: Bool = false) -> some View {
+        overlay(alignment: below ? .bottom : .top) {
+            if below {
+                LandedPill().alignmentGuide(.bottom) { $0[.top] - 2 }
+            } else {
+                LandedPill().alignmentGuide(.top) { $0[.bottom] + 12 }
+            }
         }
     }
 }
