@@ -671,6 +671,48 @@ agents (the cover, the regular iPhone, the inner screen) each with their own sec
   screen's window grows into hand on the settle spring. The focus re-crop glides.
 - Hooks: `MACROPHONE_WATCH=rest` + actions `open`, `close`, `pick@<app>`, `sheet@…`.
 
+## iPhone polish (Nov 4 2026)
+
+The regular iPhone's pass (the Duo's cover and inner screen had their own), walked frame by
+frame on an iPhone 17 Pro simulator against `mpctl serve`, light and dark, and at the SE's size.
+`regularPhone` (MainView) = not `barUsed` and not an inner pose: what's below changes nothing on
+the Duo unless it says so.
+- **The keyboard page moves the window once, both ways.** The safe area SwiftUI gives the keyboard
+  and `MacInput.keysUp` came in different passes, a sixth of a second apart: rising, the window
+  shrank to a sliver and grew back; going, it grew, shrank under the key row and grew again, and
+  the page row's words and glyphs came apart. Now the regular iPhone ignores the keyboard's safe
+  area on the mic screen (`phoneBody`, `.ignoresSafeArea(.keyboard)`) and lays the room out
+  itself: `MacInput.keyboardRoom` (from `keyboardWillChangeFrame`, heard by an observer made in the
+  app's `init` — `MacInput.listenEarly`) changes with `keysUp` in one bounce-less spring over the
+  keyboard's own time, and the carousel's keyboard page is that tall (`InputCarousel(keyboardRoom:)`).
+  The page row draws as one picture (`.drawingGroup()`) and its lit page changes at once.
+- **Fixing a word:** the keyboard covers the mic as it would any screen and `FixWordCard` rides
+  on it (an overlay on `phoneBody`, `LiveWords(cardInline: false)`); the whole screen used to
+  shove up, the Thread squeezed flat. A fix lands without a cross-fade (both versions of the
+  re-flowed line were drawn over each other).
+- **The window steps aside for the words in place** (`windowViaDock`, set off at the mic's touch
+  while a window shows): it had shrunk into the hidden Dock as the mic opened and grown out of it
+  after. Done still goes into the Dock.
+- **The landed pill is said once:** the status line no longer repeats "Pasted into …" when the
+  pill leaves (`AppModel.pillSaidIt`). While the mic is open over a window the page row stays in
+  its place, faded, and takes no tap or swipe (`InputCarousel(rowDimmed:)`).
+- **The Dock:** the pick's name stays on the visible shelf over an icon at either end, scrolled
+  or not (it was cut: "alendar"); a pick's old name goes at once (two labels garbled together).
+- **The menu bar:** a long Mac name ends in "…" (it pushed the bar past both sides and lost
+  Settings); Whole Screen and Mac Controls hold their places, dimmed, while the Mac connects
+  (`bar.had.*`, as the cover's bar does), and the display glyph keeps last time's shape
+  (`MacReach.looksSeveral`).
+- **The window's header** fits "Terminal" on an SE (tighter gaps under 380 pt); the trackpad no
+  longer shows Newest the moment it comes up (`keepPointerInView` moves the view only for a
+  pointer near an edge); the panel overflows downward, never under the status bar.
+- **The listening edge** (`EdgeGlow`) draws its colours masked by the edge rather than stroking
+  the whole screen with a gradient (`SpecularEdge`'s finding): the app at 87% CPU while the mic
+  listened, 13% after (simulator). The Pan | Scroll pill's and the lit answer's rims the same way.
+- Pairing the first Mac keeps "Pair Your Mac" as the title through to the success page.
+- Left: on an SE a long Mac name is down to a few letters beside four extras; the Send after
+  pasting bar reads "Send" on a Pro (the full words don't fit beside Cleanup's level); the
+  simulator's first keyboard of a launch comes up late, so the first rise is the roughest.
+
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
 Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on
