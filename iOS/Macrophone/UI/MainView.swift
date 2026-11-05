@@ -352,10 +352,10 @@ struct MainView: View {
             // The trackpad taking its room shrank the window in one frame (only the pages had a
             // spring); and the keyboard's page folding away the moment the keyboard was asked for
             // stretched the window to the foot, then the keyboard rising squeezed it back — now
-            // that fold rides the keyboard's own curve, so the window's foot moves once, up.
+            // that fold rides the keyboard's own time (`MacInput.keysUp` changes inside a spring
+            // of the keyboard's duration), so the window's foot moves once, up.
             // (Constant off the cover, so the phone and the inner screen are untouched.)
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: isCover ? input.page : .mic)
-            .animation(reduceMotion ? nil : .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500), value: isCover && input.keysUp)
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }
@@ -1294,7 +1294,7 @@ private struct CoverFoot: ViewModifier {
             .ignoresSafeArea(.container, edges: on ? .bottom : [])
             .padding(.bottom, on && !keyboard ? Self.screenFoot : 0)
             // On the keyboard's own curve, beside it.
-            .animation(on ? .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500) : nil, value: keyboard)
+            .animation(on ? .spring(duration: 0.38, bounce: 0) : nil, value: keyboard)
             // Heard as it's posted, inside the keyboard's own animation (as `MacInput` hears it).
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboard = true }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboard = false }

@@ -793,6 +793,12 @@ Walked frame by frame on a Duo simulator's cover (`simctl io recordVideo --displ
 - **The keyboard:** the viewer's height shrinks on the keyboard's spring but its spot was set at
   once, so the newest lines jumped up over an empty plate. `ViewerScrollView.followResize` copies
   the keyboard's own size animation onto the bounds origin, so the picture's foot rides the view's.
+  The keyboard page's fold rides `MacInput.keysUp`'s own spring (the keyboard's duration, the
+  iPhone pass's) — nothing on the cover overrides it; `CoverFoot` moves in the same time. Left:
+  as the keyboard goes, the window still grows to the foot for ~5 frames before the mic row comes
+  back under it (the keyboard's safe area leaves in one step inside the NavigationStack; laying
+  the room out from `keyboardRoom` as the iPhone does was tried — the stack took the room a second
+  time and the window stopped ~250 pt above the keyboard).
 - **Words over the mic:** the cover's one-line status could wrap over the mic row (now one line,
   `minimumScaleFactor`); the trackpad's how-to was drawn where its page would land while it slid in,
   across the mic and its buttons — it shows on its own page only, fading in once the slide is done.
