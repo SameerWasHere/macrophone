@@ -35,6 +35,13 @@ struct RootView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
     @ObservedObject var settings: Settings
+    /// The main view has its size: until then nothing of it shows but the ground, the launch
+    /// screen's own colour (Nov 4 2026, Sameer: "stuttery … as you open the app" — its first
+    /// frames were laid out at almost no size, everything drawn small in the corner).
+    @State private var hasSize = false
+    /// The first moments: the layout lands as it is, never animated into (the settle spring had
+    /// grown the window, the Dock and the mic out of that corner into place).
+    @State private var settled = false
     #if DEBUG
     @State private var settingsPath: [SettingsRoute] = DebugHooks.settingsPath
     #else
@@ -45,7 +52,18 @@ struct RootView: View {
         ZStack {
             Ink.ground.ignoresSafeArea()
             mainView
-                .opacity(model.showOnboarding ? 0 : 1)
+                .opacity(model.showOnboarding || !hasSize ? 0 : 1)
+                .transaction { if !settled { $0.animation = nil; $0.disablesAnimations = true } }
+                .onGeometryChange(for: Bool.self) { $0.size.width > 100 && $0.size.height > 100 } action: { ok in
+                    guard ok, !hasSize else { return }
+                    // The frame after the first real one: whatever was measured at no size has
+                    // been laid out again by then.
+                    Task { @MainActor in
+                        hasSize = true
+                        try? await Task.sleep(for: .milliseconds(700))
+                        settled = true
+                    }
+                }
             if model.showOnboarding {
                 // Modal: VoiceOver (and the audit) skip the faded main view under it.
                 OnboardingView(recorder: recorder)

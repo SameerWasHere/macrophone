@@ -1751,7 +1751,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             // A key, an answer or a dictation: its result shows at the bottom. Your zoom stays.
             reset(animated: true, toBottom: true)
         } else if focusChanged {
-            reset(animated: false)
+            // Where you type, learned a moment after the first frame: the view glides there
+            // rather than jumping (Nov 4 2026, "every detail considered").
+            reset(animated: hadPicture && !UIAccessibility.isReduceMotionEnabled)
         }
         lastRecenter = recenter
     }

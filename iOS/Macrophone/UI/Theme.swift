@@ -75,8 +75,18 @@ enum Motion {
     static let arrive = Animation.spring(response: 0.35, dampingFraction: 0.85)
     static let depart = Animation.spring(response: 0.45, dampingFraction: 0.86)
 
+    /// What leaves when another layout takes its place: gone at once, so it never shows through
+    /// what arrives (Nov 4 2026 — the cover's row lingered, faded, under the window coming in).
+    static let leave = Animation.easeOut(duration: 0.12)
+
     /// The spring, or a plain fade under Reduce Motion.
     static func pick(_ a: Animation, reduce: Bool) -> Animation { reduce ? .easeInOut(duration: 0.2) : a }
+}
+
+extension AnyTransition {
+    /// One layout handing over to another: what leaves goes at once, what arrives fades in on the
+    /// spring that carries the change.
+    static var handoff: AnyTransition { .asymmetric(insertion: .opacity, removal: .opacity.animation(Motion.leave)) }
 }
 
 enum Radius {

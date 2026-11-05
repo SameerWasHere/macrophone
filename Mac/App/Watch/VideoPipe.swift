@@ -61,6 +61,10 @@ final class VideoPipe: @unchecked Sendable {
     /// When the last action from the phone happened, for timing prints.
     private var actionAt = Date.distantPast
     private var inFlight = 0
+    /// Frames wait while the window reshapes (`holdForReshape`).
+    private var reshapeUntil = Date.distantPast
+    private var reshapeLimit = Date.distantPast
+    private var arrivedSize = CGSize.zero
     private var seq = 0
     private var timerArmed = false
     private var stopped = false
@@ -120,6 +124,19 @@ final class VideoPipe: @unchecked Sendable {
         }
     }
 
+    /// The window is taking a new shape (the phone asked — a fold, a turn): its frames wait until
+    /// the size has stopped changing for a moment (0.3 s at least, 0.9 s at most), then the settled
+    /// one goes at once. The sizes in between — an app catching up with its new frame — never
+    /// reach the phone (Nov 4 2026, "stuttery with window resizes").
+    func holdForReshape() {
+        queue.async {
+            let now = Date()
+            self.reshapeUntil = now.addingTimeInterval(0.3)
+            self.reshapeLimit = now.addingTimeInterval(0.9)
+            self.forceUntil = self.reshapeLimit.addingTimeInterval(1)
+        }
+    }
+
     /// A swipe's step or phase just came: the window is being scrolled.
     func swiped() {
         queue.async { self.inputUntil = Date().addingTimeInterval(0.5) }
@@ -165,6 +182,11 @@ final class VideoPipe: @unchecked Sendable {
             if self.timing, Date().timeIntervalSince(self.actionAt) < 3, changed >= WatchPacing.sliver {
                 print("[watch] frame from the window \(Int(Date().timeIntervalSince(self.actionAt) * 1000)) ms after the action, \(String(format: "%.3f", changed)) changed\(self.pending == nil ? "" : ", one waiting")"); fflush(stdout)
             }
+            // Still changing size while it reshapes: wait a little longer for it to settle.
+            let size = CGSize(width: CVPixelBufferGetWidth(pixels), height: CVPixelBufferGetHeight(pixels))
+            let now = Date()
+            if size != self.arrivedSize, now < self.reshapeUntil { self.reshapeUntil = min(self.reshapeLimit, now.addingTimeInterval(0.2)) }
+            self.arrivedSize = size
             self.pending = (pixels, Date())
             self.changedSince = min(1, self.changedSince + changed)
             self.changedSinceRead = max(self.changedSinceRead, changed)
@@ -177,6 +199,13 @@ final class VideoPipe: @unchecked Sendable {
     private func drain() {
         guard !stopped, let (pixels, _) = pending else { return }
         let now = Date()
+        if now < reshapeUntil {
+            if !timerArmed {
+                timerArmed = true
+                queue.asyncAfter(deadline: .now() + reshapeUntil.timeIntervalSince(now)) { self.timerArmed = false; self.drain() }
+            }
+            return
+        }
         let swiping = now < inputUntil && changedSince >= WatchPacing.sliver
         let interval = now < forceUntil ? 0 : WatchPacing.minimumInterval(changed: swiping ? max(changedSince, WatchPacing.small) : changedSince, quick: true, rate: rate, live: true)
         if interval == .infinity { pending = nil; return }

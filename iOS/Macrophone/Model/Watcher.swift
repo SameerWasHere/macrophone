@@ -233,7 +233,7 @@ final class Watcher: ObservableObject {
         }
         let opening = !isOpen || glancing
         if switching || !isOpen {
-            lastPicture = WindowSnapshots.load(WindowSnapshots.key(mac: macID(), target: target))
+            lastPicture = WindowSnapshots.cached(WindowSnapshots.key(mac: macID(), target: target))
             // A new window takes this view's shape once it's live (Oct 31 2026).
             sizedByHand = false
             askedForFit = false
@@ -242,6 +242,7 @@ final class Watcher: ObservableObject {
         isOpen = true
         if glancing { glancing = false; wantsAutoFit = true }
         start()
+        if wantsAutoFit { shapeAhead() }
         // The mic, every time the window view opens (a switch keeps the page).
         if opening { input.opened() }
         log?.add("watching opened")
@@ -436,14 +437,18 @@ final class Watcher: ObservableObject {
     var canFitToPhone: Bool { macFeatures().contains(WatchShape.feature) }
     var sendShape: (CGSize) -> Bool = { _ in false }
 
+    /// The pose the view was last measured in: its size stands for the next window's there only.
+    private var viewerPose: FoldPose?
+
     /// A view of the window has its size. `fill`: it is a folded half's (the half's shape is what
     /// the Mac is given, never the phone layout's that may still be on screen as the poses
     /// cross-fade). Only the window in hand measures: the strip over the live words and the
     /// glance are other sizes for a moment.
     func viewerMeasured(_ size: CGSize, fill: Bool = false, interactive: Bool = true) {
-        guard interactive, size != viewerSize || fill != viewerFills else { return }
+        guard interactive, size != viewerSize || fill != viewerFills || viewerPose != input.pose else { return }
         viewerSize = size
         viewerFills = fill
+        viewerPose = input.pose
         autoFitSoon()
     }
 
@@ -535,6 +540,25 @@ final class Watcher: ObservableObject {
         Self.setFitted(target, true)
         drag = .scroll
         log?.add("watching: the window takes the view's shape (\(Int(size.width))×\(Int(size.height)))")
+    }
+
+    /// The view's shape goes with the window's request when it's known already — the view was
+    /// measured in this pose before (Nov 4 2026, Sameer: "still pretty stuttery with window
+    /// resizes as you open the app"): the Mac gives the window that shape before its first
+    /// picture, so it opens at its final shape, with no picture at the old one and no jump to
+    /// the new half a second in. The view's own measure still checks it once it's live (a shape
+    /// off by more than 4% is sent again).
+    private func shapeAhead() {
+        guard !glancing, !sizedByHand, let target, !isDesktop, canFitToPhone, !Self.keepsOwnSize(target),
+              !fullScreen, viewerPose == input.pose, viewerFills == fillsView,
+              viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
+        shapeSent = viewerSize
+        if !askedForFit { autoFitted = true }
+        if wholeWindow { wholeWindow = false }
+        if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
+        Self.setFitted(target, true)
+        drag = .scroll
+        log?.add("watching: the window opens at the view's shape (\(Int(viewerSize.width))×\(Int(viewerSize.height)))")
     }
 
     /// The view leaves a window it shaped by itself: the Mac puts it back as it was.

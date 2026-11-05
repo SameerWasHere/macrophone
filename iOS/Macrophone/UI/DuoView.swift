@@ -100,9 +100,9 @@ extension MainView {
                         DuoLaptopDeck(main: self, vertical: true)
                             .frame(width: right, height: geo.size.height)
                     }
-                    .transition(.opacity)
+                    .transition(.handoff)
                 } else {
-                    openLandscapeRest(left: left, right: right).transition(.opacity)
+                    openLandscapeRest(left: left, right: right).transition(.handoff)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -176,6 +176,9 @@ extension MainView {
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
+            // A window coming into hand (or going back to the glance) moves the fold's line on a
+            // flat screen: the window grows to its new size on the same spring, never jumps.
+            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
         }
         // The keyboard rises over the deck's half; with it up the window sits above it.
         .ignoresSafeArea(keyboardUp ? [] : .keyboard)
@@ -263,6 +266,7 @@ extension MainView {
                           onUp: pressUp,
                           onAccessibilityToggle: { model.toggleRecording() },
                           size: micSize)
+                    .matchedGeometryEffect(id: "mic", in: micSpace)
                     .landedPill()
                 if oneLine {
                     FixedSlot(alignment: .top) {
@@ -616,7 +620,7 @@ struct DuoMacHalf: View {
                     // window"): the picture is the whole half and nothing lies over it — the
                     // header, the answers and the words you're saying are on the deck.
                     screen(footInset: 0, floating: false, header: false)
-                        .transition(.opacity)
+                        .transition(.handoff)
                 } else if let short = shortPicture {
                     // A window that can't fill the half (the fourth pass — the Mac can't reshape
                     // it, or hasn't yet: the whole screen, a window on the book's tall page):
@@ -644,17 +648,17 @@ struct DuoMacHalf: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .transition(.opacity)
+                    .transition(.handoff)
                 } else {
                     screen(footInset: live && !main.showLiveWords ? floatingHeight : 0, floating: true)
-                        .transition(.opacity)
+                        .transition(.handoff)
                 }
             } else if let short = shortPicture {
                 DuoGlance(watcher: watcher, fill: true, pictureHeight: short, edge: edge)
-                    .transition(.opacity)
+                    .transition(.handoff)
             } else {
                 DuoGlance(watcher: watcher, fill: true, edge: edge)
-                    .transition(.opacity)
+                    .transition(.handoff)
             }
         }
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: shortPicture != nil)
@@ -821,14 +825,14 @@ struct DuoDeck: View {
         ZStack {
             if watcher.isShowing, vertical {
                 // The book's page: the trackpad, the keys and the mic, all at once.
-                DuoLaptopDeck(main: main, vertical: true).transition(.opacity)
+                DuoLaptopDeck(main: main, vertical: true).transition(.handoff)
             } else if watcher.isShowing {
-                laptopModes.transition(.opacity)
+                laptopModes.transition(.handoff)
             } else {
                 // The cover's view, as it is on the cover: Send to, the switches, the Thread,
                 // the mic (its buttons in the vertical bar where the screen has one, else its
                 // own top bar).
-                main.phoneBody.transition(.opacity)
+                main.phoneBody.transition(.handoff)
             }
         }
         .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.isShowing)
@@ -967,7 +971,7 @@ struct DuoGlance: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
                 }
-            } else if model.isPaired, !model.isConnected, model.settling, !fill, let kept, kept.size.width > 0, kept.size.height > 0 {
+            } else if model.isPaired, !model.isConnected, model.settling, !fill, let kept = kept ?? WindowSnapshots.cached(keptKey), kept.size.width > 0, kept.size.height > 0 {
                 // The moment it connects at launch: the window as it last looked, laid out as the
                 // live glance lays it (its shape, the bar under it), so the live one takes its
                 // place without a jump — and no alarm.

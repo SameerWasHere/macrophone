@@ -40,6 +40,10 @@ struct MainView: View {
     @State var settingsRoom: CGFloat = 0
     /// Where the window shows (`phoneBody`, on screen): what it grows out of the Dock into.
     @State var watchArea: CGRect = .zero
+    /// The mic is one thing wherever a layout puts it (Nov 4 2026): as one layout gives way to
+    /// another (a window coming into hand on the Duo's inner screen, a pose) it moves to its new
+    /// place instead of one fading out where it was while another fades in somewhere else.
+    @Namespace var micSpace
     /// The cover's lower buttons the Mac offered when it was last connected.
     @AppStorage("bar.had.wholeScreen") var barHadWholeScreen = false
     @AppStorage("bar.had.controls") var barHadControls = false
@@ -303,6 +307,7 @@ struct MainView: View {
                   onUp: pressUp,
                   onAccessibilityToggle: { model.toggleRecording() },
                   size: size)
+            .matchedGeometryEffect(id: "mic", in: micSpace)
             .landedPill()
     }
 

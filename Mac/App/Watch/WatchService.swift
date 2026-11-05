@@ -101,6 +101,9 @@ final class WatchService {
         /// size the phone asked for, applied once the window is found.
         var fit: WindowFit.Record?
         var wantedFit: WatchFit = .normal
+        /// The phone's view's shape, asked before the window was found (it comes with the watch):
+        /// taken before the first picture.
+        var wantedShape: CGFloat?
         /// The window's frame before the first Window menu size (Back to How It Was).
         var beforeWindowChanges: CGRect?
         /// The windows that belong with it right now (Oct 19 2026, `WatchCompanions`: a service's
@@ -230,6 +233,7 @@ final class WatchService {
             if w.target != target {
                 w.restoreFit()
                 w.wantedFit = .normal
+                w.wantedShape = nil
                 w.target = target
                 w.windowID = nil
                 w.dropStream()
@@ -391,6 +395,23 @@ final class WatchService {
         if w.wantedFit != .normal, w.fit == nil {
             applyFit(w)
             if let target = w.fit?.applied {
+                for _ in 0..<12 {
+                    if let now = WindowServer.info(wid), abs(now.bounds.width - target.width) < 2, abs(now.bounds.height - target.height) < 2 {
+                        place = now
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 25_000_000)
+                }
+                if let now = WindowServer.info(wid) { place = now }
+            }
+        }
+
+        // The phone's view's shape, asked with the watch (Nov 4 2026): the window takes it before
+        // the first picture, as Aa's sizes do just above — the phone sees it open at its shape, not
+        // at its own and then jump.
+        if let aspect = w.wantedShape, wid != WindowServer.desktopID {
+            w.wantedShape = nil
+            if let target = reshape(w, aspect: aspect) {
                 for _ in 0..<12 {
                     if let now = WindowServer.info(wid), abs(now.bounds.width - target.width) < 2, abs(now.bounds.height - target.height) < 2 {
                         place = now
@@ -1026,26 +1047,42 @@ final class WatchService {
     /// Fit to iPhone: the window takes the phone's view's shape, as tall as the screen allows. Like
     /// the Window menu's sizes, it takes over from Aa and Back to How It Was undoes it.
     func fitToPhone(aspect: CGFloat, for peer: UUID) {
-        guard let w = watches[peer], let wid = w.windowID, wid != WindowServer.desktopID else { return }
-        guard Paster.isTrusted else { app.log.add("watch fit to iPhone skipped: Accessibility not granted"); return }
+        guard let w = watches[peer] else { return }
+        // Not found yet, or not streaming yet (the phone sends its view's shape with the watch
+        // itself): taken before the first picture (`look`).
+        guard let wid = w.windowID, w.stream != nil else { w.wantedShape = aspect; w.wake(); return }
+        guard wid != WindowServer.desktopID else { return }
+        // The sizes in between never reach the phone: its frames wait until the window has
+        // settled at the new one.
+        w.pipe?.holdForReshape()
+        guard reshape(w, aspect: aspect) != nil else { return }
+        w.focusAt = .distantPast
+        w.hurry()
+        w.wake()
+    }
+
+    /// The window takes the phone's view's shape, as tall as the screen allows; returns the frame
+    /// asked for (nil when it couldn't be).
+    @discardableResult
+    private func reshape(_ w: Watch, aspect: CGFloat) -> CGRect? {
+        guard let wid = w.windowID, wid != WindowServer.desktopID else { return nil }
+        guard Paster.isTrusted else { app.log.add("watch fit to iPhone skipped: Accessibility not granted"); return nil }
         guard let win = AX.window(in: AX.app(w.pid), id: wid), AX.isAlive(win), !AX.bool(win, "AXFullScreen") else {
             app.log.add("watch fit to iPhone: the window isn't answering")
-            return
+            return nil
         }
         let now = AX.frame(win)
         if w.beforeWindowChanges == nil { w.beforeWindowChanges = w.fit?.original ?? now }
         w.fit = nil
         w.wantedFit = .normal
         guard let area = WindowFit.visibleArea(around: now),
-              let target = WatchShape.frame(aspect: aspect, window: now, in: area) else { return }
+              let target = WatchShape.frame(aspect: aspect, window: now, in: area) else { return nil }
         _ = WindowFit.set(win, frame: target)
         // What the window took (an app with a smallest size keeps it): a shape off the phone's shows
         // as bars beside the picture, so the log says both.
         let took = AX.frame(win)
         app.log.add("watch fit to iPhone: \(Int(now.width))×\(Int(now.height)) → \(Int(target.width))×\(Int(target.height)), took \(Int(took.width))×\(Int(took.height))")
-        w.focusAt = .distantPast
-        w.hurry()
-        w.wake()
+        return target
     }
 
     /// A press and hold (or a two-finger tap) on the phone's picture: a right-click there. (A

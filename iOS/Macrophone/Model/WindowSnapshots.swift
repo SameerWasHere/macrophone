@@ -33,8 +33,25 @@ enum WindowSnapshots {
         return ui.preparingForDisplay() ?? ui
     }
 
+    /// The kept picture from memory, else from disk once (a screen's first frame can draw it, so
+    /// nothing shows a placeholder first and then jumps to the picture).
+    static func cached(_ key: String?) -> UIImage? {
+        guard let key else { return nil }
+        if let m = memory.object(forKey: key as NSString) { return m }
+        guard let ui = load(key) else { return nil }
+        memory.setObject(ui, forKey: key as NSString)
+        return ui
+    }
+
+    private static let memory: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 6
+        return c
+    }()
+
     /// Kept off the main thread.
     static func save(_ image: UIImage, key: String) {
+        memory.removeObject(forKey: key as NSString)
         Task.detached(priority: .utility) {
             guard let small = shrink(image), let data = small.jpegData(compressionQuality: 0.6) else { return }
             try? data.write(to: url(key), options: .atomic)
@@ -43,6 +60,7 @@ enum WindowSnapshots {
 
     /// The video's frame on screen, kept off the main thread (the copy itself is cheap).
     static func save(_ buffer: CVPixelBuffer, key: String) {
+        memory.removeObject(forKey: key as NSString)
         nonisolated(unsafe) let b = buffer
         Task.detached(priority: .utility) {
             let ci = CIImage(cvPixelBuffer: b)

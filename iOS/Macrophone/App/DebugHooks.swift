@@ -51,6 +51,8 @@ import UIKit
 /// MACROPHONE_AUDIO_FILE=<path>               record that audio file instead of the mic (real speed), then stop
 /// MACROPHONE_PAIRING=connecting|code|paired|failed|expired  the pairing panel in that phase
 /// MACROPHONE_WATCH=1                         open Watching on the Send-to choice once the Mac is connected
+/// MACROPHONE_WATCH=rest                      the same, from the screen at rest (nothing opened first):
+///                                            open (the Dock's second tap), close, pick@<app>, sheet@settings|history|controls|openapp|none
 /// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
 ///                                            answer@1 (the window's question, second answer), keys, done (closes it;
@@ -330,14 +332,29 @@ enum DebugHooks {
                 if let mac = model.discoveredMacs.first(where: { $0.name == name }) { await model.pairWithCode(mac) }
             }
         }
-        if env["MACROPHONE_WATCH"] == "1" {
+        // MACROPHONE_WATCH=rest: the actions run from the screen at rest (nothing opened first).
+        if env["MACROPHONE_WATCH"] == "1" || env["MACROPHONE_WATCH"] == "rest" {
             Task {
                 for _ in 0..<60 where !model.isConnected { try? await Task.sleep(nanoseconds: 250_000_000) }
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                model.watcher.open(model.selection.target)
+                if env["MACROPHONE_WATCH"] == "1" { model.watcher.open(model.selection.target) }
                 for a in (env["MACROPHONE_WATCH_ACTIONS"] ?? "").split(separator: ",").map(String.init) {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    if a.hasPrefix("scroll@") {
+                    if a == "open" {
+                        // The Dock's second tap / Show it here (as they call it: no animation of
+                        // their own — the screens animate what changes).
+                        model.watcher.open(model.selection.target)
+                    } else if a == "close" {
+                        model.watcher.close()
+                    } else if a.hasPrefix("sheet@") {
+                        let s = String(a.dropFirst(6))
+                        model.sheet = s == "settings" ? .settings : s == "history" ? .history : s == "controls" ? .macControls : s == "openapp" ? .openApp : nil
+                    } else if a.hasPrefix("pick@") {
+                        let name = String(a.dropFirst(5)).lowercased()
+                        if let t = model.placeOptions(current: model.selection.target).first(where: { $0.name.lowercased().hasPrefix(name) })?.target {
+                            withAnimation(Motion.snap) { model.pick(t) }  // as the Dock's tap does
+                        }
+                    } else if a.hasPrefix("scroll@") {
                         // scroll@0.5@0.4@0.2: at (0.5, 0.4), content dragged down by 20% of the window.
                         let v = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if v.count == 3 { model.watcher.scroll(at: CGPoint(x: v[0], y: v[1]), by: CGVector(dx: 0, dy: v[2])) }
