@@ -829,8 +829,9 @@ Walked frame by frame on a Duo simulator's cover (`simctl io recordVideo --displ
   - *The landed pill is the status line's in every state* (under the mic, the line hidden while it
     shows): hung from the mic's frame by an alignment guide it landed ~40 pt off — over the disc
     and both buttons beside a window, across the Thread and the mic's ring at rest — and jumped from
-    under to over on Done. The mic page sits on the foot while its height follows
-    (`InputCarousel`, `smoothHeight`): a taller page hung over the home indicator as the mic opened.
+    under to over on Done. The cover's pages sit on the foot while their height follows
+    (`InputCarousel`, `smoothHeight`): a taller mic page hung over the home indicator as the mic
+    opened, and as the keyboard went the mic row rode down from the top of the shrinking room.
   - *The mic's light follows its size* (`MicLightView.disc`, every device): the one mic is 64 beside
     a window and 92 at rest; its bloom, rim and level kept the first size and a landing ring stayed
     at the old middle, off to one side.
