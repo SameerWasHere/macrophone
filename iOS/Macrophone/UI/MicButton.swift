@@ -335,6 +335,7 @@ private struct MicLight: UIViewRepresentable {
     }
 
     func updateUIView(_ v: MicLightView, context: Context) {
+        v.disc = size
         v.reduceMotion = reduceMotion
         v.highContrast = highContrast
         v.set(live: live)
@@ -364,7 +365,13 @@ final class MicLightView: UIView {
     enum Direction { case out, `in` }
 
     private let meter: LevelMeter
-    private let disc: CGFloat
+    /// The disc's size. It can change under a live view (the Duo's cover: the mic is 64 beside a
+    /// window, 92 at rest — one button in every state): the light is laid out again for it, and a
+    /// ring under way moves to the new middle (it stayed at the old one, off to one side — Nov 4 2026).
+    var disc: CGFloat {
+        didSet { if disc != oldValue { builtDisc = 0; setNeedsLayout() } }
+    }
+    private var builtDisc: CGFloat = 0
     var reduceMotion = false
     var highContrast = false
 
@@ -428,10 +435,16 @@ final class MicLightView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard bounds.size != builtSize, bounds.width > 4 else { return }
+        guard bounds.size != builtSize || disc != builtDisc, bounds.width > 4 else { return }
         builtSize = bounds.size
+        builtDisc = disc
         let c = CGPoint(x: bounds.midX, y: bounds.midY)
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        for ring in layer.sublayers ?? [] where ring.name == "ring" {
+            ring.bounds = CGRect(x: 0, y: 0, width: disc, height: disc)
+            ring.position = c
+            (ring as? CAShapeLayer)?.path = UIBezierPath(ovalIn: ring.bounds.insetBy(dx: 1, dy: 1)).cgPath
+        }
         // The bloom reaches to 2.2 discs across; the rim to 1.5; the level ring sits 6pt outside the disc.
         bloom.bounds = CGRect(x: 0, y: 0, width: disc * 2.2, height: disc * 2.2); bloom.position = c
         rim.bounds = CGRect(x: 0, y: 0, width: disc * 1.5, height: disc * 1.5); rim.position = c
@@ -503,6 +516,7 @@ final class MicLightView: UIView {
         guard !reduceMotion, bounds.width > 4 else { return }
         let r = disc / 2
         let ring = CAShapeLayer()
+        ring.name = "ring"
         ring.fillColor = nil
         ring.strokeColor = UIColor(red: color.r, green: color.g, blue: color.b, alpha: 1).cgColor
         ring.lineWidth = direction == .out ? 2 : 1.5

@@ -78,6 +78,8 @@ enum Motion {
     /// What leaves when another layout takes its place: gone at once, so it never shows through
     /// what arrives (Nov 4 2026 — the cover's row lingered, faded, under the window coming in).
     static let leave = Animation.easeOut(duration: 0.12)
+    /// What arrives once something has left (`leave`): a short fade, after it.
+    static let afterLeave = Animation.easeOut(duration: 0.22).delay(0.1)
 
     /// The spring, or a plain fade under Reduce Motion.
     static func pick(_ a: Animation, reduce: Bool) -> Animation { reduce ? .easeInOut(duration: 0.2) : a }
@@ -87,6 +89,11 @@ extension AnyTransition {
     /// One layout handing over to another: what leaves goes at once, what arrives fades in on the
     /// spring that carries the change.
     static var handoff: AnyTransition { .asymmetric(insertion: .opacity, removal: .opacity.animation(Motion.leave)) }
+    /// The same, with what arrives waiting for what leaves (the Duo's cover, Nov 4 2026): never two
+    /// screens through each other — the window and the words, the window and Send to.
+    static var handoffAfter: AnyTransition {
+        .asymmetric(insertion: .opacity.animation(Motion.afterLeave), removal: .opacity.animation(Motion.leave))
+    }
 }
 
 enum Radius {

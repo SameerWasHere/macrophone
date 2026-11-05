@@ -253,7 +253,8 @@ struct MainView: View {
                     .animation(nil, value: showLiveWords)
                     .opacity(showSettings ? 1 : 0)
                     // Out quickly (what comes in takes the stage), back in on the settle spring.
-                    .animation(showSettings ? Motion.pick(Motion.settle, reduce: reduceMotion) : .easeOut(duration: 0.1), value: showSettings)
+                    // (The cover: back in once the window has gone — Motion.afterLeave.)
+                    .animation(showSettings ? (isCover && !reduceMotion ? Motion.afterLeave : Motion.pick(Motion.settle, reduce: reduceMotion)) : .easeOut(duration: 0.1), value: showSettings)
                     .allowsHitTesting(showSettings)
                     .accessibilityHidden(!showSettings)
                     // Watching: the window takes the area (Done brings the settings back).
@@ -270,7 +271,9 @@ struct MainView: View {
                             }
                             transcriptArea
                         }
-                        .transition(.opacity)
+                        // The cover: the words leave at once as the window comes back (they were
+                        // read through it as it faded in — Nov 4 2026), as the window leaves for them.
+                        .transition(isCover && !reduceMotion ? .handoffAfter : .opacity)
                     }
                 }
                 // Whatever is above takes the room that's left — it can never push the mic. Held
@@ -328,17 +331,30 @@ struct MainView: View {
                                 .minimumScaleFactor(0.85)
                                 .padding(.horizontal, 12)
                                 .frame(height: 18)
-                                // The landed pill sits here while it shows.
+                                // The landed pill sits here while it shows: centred on the line,
+                                // clear of the mic and the buttons beside it (hung from the mic's
+                                // frame it rode up over the disc and both buttons — Nov 4 2026).
                                 .opacity(model.landedChip == nil ? 1 : 0)
                                 .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
+                                .overlay { LandedPill() }
                         } else {
                             statusSlot
+                                // The cover: the landed pill is the status line's here too, under
+                                // the mic — hung over the mic it sat across the Thread and the
+                                // mic's ring (Nov 4 2026), and moved from under to over on Done.
+                                .opacity(isCover && model.landedChip != nil ? 0 : 1)
+                                .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
+                                .overlay(alignment: .top) { if isCover { LandedPill().padding(.top, 2) } }
                                 .padding(.bottom, compact ? 6 : 18)
                         }
                     }
                 } thread: {
                     if !coverWatching {
                         threadBand
+                            // The cover, the mic opening over a window: the Thread and the clock
+                            // come once the window has gone (it leaves in `Motion.leave`) — they
+                            // were drawn over its answers as it faded (Nov 4 2026).
+                            .transition(isCover && !reduceMotion ? .asymmetric(insertion: .opacity.animation(Motion.afterLeave), removal: .opacity) : .opacity)
                     }
                 }
             }
@@ -403,10 +419,9 @@ struct MainView: View {
                   },
                   size: size)
             .matchedGeometryEffect(id: micID, in: micSpace)
-            // The cover with a window: above the small mic is the window's foot — its answers —
-            // so the pill takes the status line's place under the mic instead (Nov 4 2026: it
-            // sat over Esc and Yes).
-            .landedPill(below: isCover && watcher.isOpen && !showLiveWords)
+            // (The cover: the pill is the status line's, under the mic — above it are the window's
+            // answers, or the Thread. Nov 4 2026.)
+            .landedPill(on: !isCover)
     }
 
     /// The keyboard or the trackpad, a round glass button beside the cover's mic.
@@ -1279,7 +1294,9 @@ extension MainView {
     var windowTransition: AnyTransition {
         // The cover (Nov 4 2026): the window leaves at once (the mic opening, Done) — fading on
         // the settle spring it lingered, full size, under the Thread and the words arriving.
-        if isCover { return reduceMotion ? .opacity : .handoff }
+        // And it arrives once what it replaces has gone (Send to, the words): faded in together,
+        // the two were read through each other.
+        if isCover { return reduceMotion ? .opacity : .handoffAfter }
         guard !reduceMotion, windowViaDock, !(barUsed || posture.pose.isInner), let icon = DockSpot.shared.pick, watchArea.width > 0,
               watchArea.insetBy(dx: -40, dy: -40).contains(CGPoint(x: icon.midX, y: icon.midY)) else { return .opacity }
         let zoom = DockZoom(scale: max(0.06, icon.width / watchArea.width),
@@ -1376,14 +1393,11 @@ struct LandedPill: View {
 }
 
 extension View {
-    /// The landed pill floats just above this (the mic), never moving it.
-    func landedPill(below: Bool = false) -> some View {
-        overlay(alignment: below ? .bottom : .top) {
-            if below {
-                LandedPill().alignmentGuide(.bottom) { $0[.top] - 2 }
-            } else {
-                LandedPill().alignmentGuide(.top) { $0[.bottom] + 12 }
-            }
+    /// The landed pill floats just above this (the mic), never moving it. (Off: it's drawn
+    /// elsewhere — the cover's status line while a window shows.)
+    func landedPill(on: Bool = true) -> some View {
+        overlay(alignment: .top) {
+            if on { LandedPill().alignmentGuide(.top) { $0[.bottom] + 12 } }
         }
     }
 }

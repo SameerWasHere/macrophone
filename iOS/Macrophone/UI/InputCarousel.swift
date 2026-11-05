@@ -118,7 +118,10 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                     }
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .frame(height: pagesHeight, alignment: .top)
+                // The cover's mic page sits on the foot while its height follows it: a page that
+                // grew at once (the mic opening — the larger mic, two lines for the status) hung
+                // below the foot, over the home indicator, until the height caught up (Nov 4 2026).
+                .frame(height: pagesHeight, alignment: smoothHeight && input.page == .mic ? .bottom : .top)
                 // Clipped at the sides only: the pages slide in from there, but the mic's glow
                 // runs past the page above and below (Oct 31 2026: "the glow of the orange mic
                 // indicator is getting cut off").
