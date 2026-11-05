@@ -40,6 +40,10 @@ struct MainView: View {
     @State var settingsRoom: CGFloat = 0
     /// Where the window shows (`phoneBody`, on screen): what it grows out of the Dock into.
     @State var watchArea: CGRect = .zero
+    /// The window comes from the Dock and goes back into it (opened, Done) — but not when it
+    /// steps aside for the words while the mic is open, or comes back after them: it grew out
+    /// of the hidden Dock then, as if opened again (Nov 4 2026).
+    @State var windowViaDock = true
     /// The mic is one thing wherever a layout puts it (Nov 4 2026): as one layout gives way to
     /// another (a window coming into hand on the Duo's inner screen, a pose) it moves to its new
     /// place instead of one fading out where it was while another fades in somewhere else.
@@ -237,8 +241,10 @@ struct MainView: View {
                         .transition(.opacity)
                     }
                 }
-                // Whatever is above takes the room that's left — it can never push the mic.
-                .frame(minHeight: 0, maxHeight: .infinity)
+                // Whatever is above takes the room that's left — it can never push the mic. Held
+                // at the top: for a moment as the keyboard rises the window's panel can need more
+                // than the room left, and centred it rode up under the status bar (Nov 4 2026).
+                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { watchArea = $0 }
                 // Clipped at the foot alone, so nothing above runs into the mic — the window's
                 // glow spills past the sides and the top as it should (Oct 31 2026, Sameer: "the
@@ -258,7 +264,10 @@ struct MainView: View {
                               threadHeight: coverWatching ? (input.page == .trackpad ? 116 : 0) : filamentSlot,
                               rowHidden: isCover && watcher.isOpen,
                               trackpadBar: coverWatching,
-                              rowDimmed: regularPhone && showLiveWords) {
+                              rowDimmed: regularPhone && showLiveWords,
+                              // The keyboard page's room, from the keyboard's own frame (this
+                              // screen ignores the keyboard's safe area — below).
+                              keyboardRoom: regularPhone ? max(0, input.keyboardRoom - geo.safeAreaInsets.bottom) : 0) {
                     // One mic button in every state: a hold on the cover's small mic flips the
                     // screen to the live words, and two branches made that a different button
                     // mid-press — the hold was lost (Oct 31 2026, Sameer: "press and hold on the
@@ -289,17 +298,22 @@ struct MainView: View {
             }
             // The keyboard and the trackpad are the window's: while the mic is open, the mic
             // stands alone.
-            .onChange(of: showLiveWords) { _, live in if live, input.page != .mic { input.show(.mic, quiet: true) } }
+            .onChange(of: showLiveWords) { _, live in
+                if live, input.page != .mic { input.show(.mic, quiet: true) }
+                // Back from the words (the window faded in): Done takes it into the Dock again.
+                if !live, !windowViaDock { Task { @MainActor in windowViaDock = true } }
+            }
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }
         }
-        // Fixing a word on a regular iPhone (Nov 4 2026): the keyboard rises over the mic as it
-        // would over any screen, and the word's card rides on the keyboard — the whole mic screen
-        // had shoved up for it, the Thread squeezed flat for a frame and the mic jumping down
-        // again when it went. (Only while the words show: the window's keyboard page moves the
-        // window once, `MacInput.keysUp`, as before.)
-        .ignoresSafeArea(.keyboard, edges: regularPhone && showLiveWords ? .bottom : [])
+        // The regular iPhone lays the keyboard out itself (Nov 4 2026). Fixing a word: the
+        // keyboard rises over the mic as it would over any screen, and the word's card rides on
+        // the keyboard — the whole mic screen had shoved up for it, the Thread squeezed flat for
+        // a frame and the mic jumping down again when it went. The keyboard page: its room is
+        // the pages' own (`MacInput.keyboardRoom`), changed in the same motion as everything
+        // that gives way to it, so the window moves once.
+        .ignoresSafeArea(.keyboard, edges: regularPhone ? .bottom : [])
         .overlay(alignment: .bottom) {
             if regularPhone, showLiveWords, let draft = model.fixDraft {
                 FixWordCard(draft: draft)
@@ -607,6 +621,10 @@ struct MainView: View {
     }
 
     func pressDown() {
+        // The mic opening over a window: the window gives way to the words in place, not back
+        // into the Dock (hidden under it) — said before the mic opens, so the window's last
+        // look carries the plain fade.
+        if watcher.isShowing, !isRecording { windowViaDock = false }
         if isRecording {
             stopOnRelease = true
             startedByPress = false
@@ -1163,7 +1181,7 @@ extension MainView {
     /// Sameer picked "the Dock icon opens into the window"), on the settle spring that already
     /// carries it in and out. Where no Dock is drawn, or with Reduce Motion, it fades as before.
     var windowTransition: AnyTransition {
-        guard !reduceMotion, !(barUsed || posture.pose.isInner), let icon = DockSpot.shared.pick, watchArea.width > 0,
+        guard !reduceMotion, windowViaDock, !(barUsed || posture.pose.isInner), let icon = DockSpot.shared.pick, watchArea.width > 0,
               watchArea.insetBy(dx: -40, dy: -40).contains(CGPoint(x: icon.midX, y: icon.midY)) else { return .opacity }
         let zoom = DockZoom(scale: max(0.06, icon.width / watchArea.width),
                             offset: CGSize(width: icon.midX - watchArea.midX, height: icon.midY - watchArea.midY), fade: 0)

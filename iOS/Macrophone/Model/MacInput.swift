@@ -55,30 +55,51 @@ final class MacInput: ObservableObject {
     /// rises, in its own motion, and comes back as it goes: the window moves once each way
     /// instead of growing, shrinking and growing again.
     @Published private(set) var keysUp = false
-    private var keyboardWatch: [NSObjectProtocol] = []
+    /// How much of the screen the keyboard page's keyboard takes, from the screen's foot (its
+    /// keys and the Mac's bar on it); 0 while it's down. The regular iPhone lays the keyboard's
+    /// room out from this itself (`MainView.phoneBody`), rather than from the safe area.
+    @Published private(set) var keyboardRoom: CGFloat = 0
 
     init() {
-        let nc = NotificationCenter.default
-        for (name, up) in [(UIResponder.keyboardWillShowNotification, true), (UIResponder.keyboardWillHideNotification, false)] {
-            // No queue: heard as it's posted, inside the keyboard's own animation, so the room
-            // given back moves in the same pass as the keyboard's (a spring of its own ran beside
-            // it: the window dipped by the keyboard's height, then rose by the room).
-            keyboardWatch.append(nc.addObserver(forName: name, object: nil, queue: nil) { [weak self] n in
-                let duration = (n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-                MainActor.assumeIsolated { self?.keyboardMoving(up: up, duration: duration) }
-            })
-        }
+        Self.listeners.append(Weak(self))
     }
 
-    private func keyboardMoving(up: Bool, duration: Double) {
+    // One change for the keyboard's coming and going (Nov 4 2026). The safe area SwiftUI gives
+    // the keyboard and `keysUp` arrived in different passes, a sixth of a second apart: rising,
+    // the window shrank to a sliver (the keyboard's room taken, the pages' not yet given back)
+    // and grew again; going, it grew, shrank under the key row coming back and grew again —
+    // and in the middle the page row's words and glyphs came apart. The regular iPhone now
+    // ignores the keyboard's safe area on the mic screen and takes `keyboardRoom` instead,
+    // changed with `keysUp` in one animation over the keyboard's own time.
+    private struct Weak { weak var input: MacInput?; init(_ i: MacInput) { input = i } }
+    private static var listeners: [Weak] = []
+    private static var listening: [NSObjectProtocol] = []
+
+    static func listenEarly() {
+        guard listening.isEmpty else { return }
+        // The frame's change is the first word of a keyboard moving (Will Show and Will Hide
+        // come after it): up when it ends on the screen, down when it ends below it.
+        listening.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: nil) { n in
+            let duration = (n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+            let end = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue ?? .zero
+            MainActor.assumeIsolated {
+                let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds ?? .zero
+                let room = end.height > 0 ? max(0, screen.maxY - end.minY) : 0
+                listeners.removeAll { $0.input == nil }
+                for l in listeners { l.input?.keyboardMoving(room: room > 1 ? room : 0, duration: duration) }
+            }
+        })
+    }
+
+    private func keyboardMoving(room: CGFloat, duration: Double) {
+        let up = room > 0
         // Only the keyboard page's own keyboard (a word being fixed raises one too).
-        guard up != keysUp, !up || page == .keyboard else { return }
-        // A UIKit animation block doesn't carry into SwiftUI: changed bare, the key row, the
-        // Thread and the pages' room jumped to where they'd end while the keyboard still slid —
-        // on the way down the page row ran through the key row and the window dropped, then
-        // grew (Nov 4 2026). The keyboard's own curve (curve 7, as SwiftUI's keyboard avoidance
-        // draws it) over its own time, so it all moves as one with the keyboard.
-        withAnimation(duration > 0 ? .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500) : nil) { keysUp = up }
+        guard !up || page == .keyboard else { return }
+        guard up != keysUp || abs(room - keyboardRoom) > 0.5 else { return }
+        withAnimation(duration > 0 ? .spring(duration: duration, bounce: 0) : nil) {
+            keysUp = up
+            keyboardRoom = room
+        }
     }
 
     var macFeatures: () -> Set<String> = { [] }

@@ -8,6 +8,8 @@ struct MacrophoneApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        // Before any view: the keyboard page hears the keyboard ahead of SwiftUI's own layout.
+        MacInput.listenEarly()
         #if DEBUG
         DebugHooks.early()
         #endif

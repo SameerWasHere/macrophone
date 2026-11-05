@@ -51,6 +51,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The mic is open (the regular iPhone, Nov 4 2026): the page row stays in its place, so
     /// nothing moves, but it's faded and takes no tap — the mic is the only page then.
     var rowDimmed = false
+    /// The keyboard's room under the pages, laid out here (the regular iPhone, which ignores the
+    /// keyboard's safe area — `MacInput.keyboardRoom`); 0 where the safe area gives it.
+    var keyboardRoom: CGFloat = 0
     /// The mic page: the mic button and the status line, built by the mic screen.
     @ViewBuilder var mic: () -> Mic
     /// The Thread's band, between the row and the pages.
@@ -130,7 +133,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// on the keyboard) — until then the trackpad's room, so nothing moves before it rises, and
     /// the breath stays until it has gone again (`MacInput.keysUp`).
     private var pagesHeight: CGFloat? {
-        if input.keysUp { return InputCarouselLook.keyboardBreath }
+        if input.keysUp { return InputCarouselLook.keyboardBreath + keyboardRoom }
         if let fill {
             // The deck: whatever the row and the Thread leave.
             return max(0, fill - (multi && !rowHidden ? InputCarouselLook.row + InputCarouselLook.rowGap : 0) - (threadShown ? threadHeight : 0))
@@ -323,6 +326,7 @@ struct InputPageRow: View {
                             Image(systemName: page.symbol).font(.system(size: 9, weight: .bold))
                             Text(page.title.capitalized)
                                 .font(.caption.weight(.semibold))
+                                .contentTransition(.identity)
                         }
                         .foregroundStyle(on ? Light.cyan : Ink.tertiary)
                         Capsule().fill(on ? Light.cyan : .clear).frame(width: 14, height: 3)
@@ -338,6 +342,10 @@ struct InputPageRow: View {
         // underline — leaving the keyboard, while the row rode down with it, the words, the glyphs
         // and the bar came apart and met again (Nov 4 2026).
         .animation(nil, value: input.page)
+        // One picture: as the room under the window changed with the keyboard, the words moved
+        // on one timing and their glyphs and the bar on another, the row coming apart for a
+        // quarter of a second.
+        .drawingGroup()
         // A kicker row of a fixed height: it keeps a kicker's size at accessibility sizes (the
         // words had grown past the row and the screen's width).
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
