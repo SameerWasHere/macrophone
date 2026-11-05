@@ -30,6 +30,15 @@ enum DockLook {
     static let reach: CGFloat = 92
 }
 
+/// Where the pick's icon is on screen (Nov 4 2026, Sameer picked "the Dock icon opens into the
+/// window"): the window grows out of it and goes back into it, as a Mac's window does out of the
+/// Dock. Nil while no Dock is drawn (the Duo, the cover): the window fades there, as before.
+@MainActor
+final class DockSpot {
+    static let shared = DockSpot()
+    var pick: CGRect?
+}
+
 struct SendToDock: View {
     @EnvironmentObject var model: AppModel
     var current: TargetRef
@@ -94,6 +103,7 @@ struct SendToDock: View {
             }
         }
         .frame(height: DockLook.shelfHeight + DockLook.headroom)
+        .onDisappear { DockSpot.shared.pick = nil }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Send to, on your Mac's Dock")
         .accessibilityIdentifier("places")
@@ -209,6 +219,9 @@ private struct DockIcon: View {
                     if place.kind == .opening { ProgressView().controlSize(.small) }
                 }
                 .frame(width: size, height: size)
+                .onGeometryChange(for: CGRect?.self) { [selected] g in selected ? g.frame(in: .global) : nil } action: { r in
+                    if let r { DockSpot.shared.pick = r }
+                }
                 .overlay(alignment: .topTrailing) {
                     if needs != nil {
                         Circle().fill(Light.ember).frame(width: 13, height: 13)

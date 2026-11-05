@@ -361,6 +361,9 @@ enum Paster {
             throw PasteFailure.notLanded(app: appName)
         }
 
+        // Where they went, shown on the Mac for a moment (a terminal: round its caret).
+        LandingGlow.show(app: ax, box: box)
+
         // 5. The send key.
         var result = Result(appName: appName, bundleID: bid, landed: didLand)
         result.pid = running.processIdentifier

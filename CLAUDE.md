@@ -631,6 +631,24 @@ Sameer picked three of the experience ideas.
   words (`heldOutcome`) until Done or ×. Hooks: `MACROPHONE_WATCH_ACTIONS=…,fixopen@1,fix@1@the,undo`
   (with `MACROPHONE_SIM_RECORD`).
 
+## The window out of the Dock, the glow where words land (Nov 4 2026)
+
+Sameer picked two of "what would Apple build":
+- **The Dock icon opens into the window** (`DockSpot`, `UI/MacOS/Dock.swift`; `MainView
+  .windowTransition` / `DockZoom`): the pick's icon reports its frame on screen; opening a window
+  on the phone's desktop grows `WatchPanel` out of that icon (scale from the icon's width, offset
+  from its middle, faded in) on the settle spring that already carries it, and Done shrinks it back
+  into the icon. No Dock drawn (the Duo, the cover — `DockSpot.pick` cleared when it goes), or
+  Reduce Motion: the fade as before.
+- **The Mac shows where the words landed** (`Mac/App/Delivery/LandingGlow.swift`, Mac 1.1.5,
+  no wire): once a paste is in (before the send key), a ring of Apple Intelligence's colours
+  (`MacOSIntelligence`: blue · violet · pink · orange and back, so orange never meets blue — that
+  blend reads grey) blooms round the box it went into (its AX frame, when it's a box — under
+  1100 × 320) or round the caret (`kAXBoundsForRangeParameterizedAttribute` on the selection —
+  a terminal, a document) and fades in 0.9 s; a borderless click-through panel on every Space.
+  Nothing when there's nowhere to point. `MACROPHONE_GLOW=x,y,w,h` (DEBUG) draws it every 1.5 s.
+  Needs a real check: the ring round Claude's composer, Messages' field, the caret in Terminal.
+
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
 Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on

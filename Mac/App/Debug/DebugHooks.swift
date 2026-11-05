@@ -32,6 +32,7 @@ import SwiftUI
 ///   MACROPHONE_FAKE_MENU=route:tailscale,watching:Claude  the menu's header says how a stand-in phone is
 ///                                   connected (homeNetwork|nearby|tailscale|internet) and names a window it's watching
 ///   MACROPHONE_TARGETS_DEBUG=1      print every target scan (timing, what was found) to stdout
+///   MACROPHONE_GLOW=x,y,w,h         the landing glow round that rect (top-left points; w < 6 = a caret) every 1.5 s
 ///   MACROPHONE_WATCH_TIMING=1       print each watched picture's or video frame's stages in milliseconds (WatchService)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
 ///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
@@ -101,6 +102,12 @@ enum DebugHooks {
         // Pair a stand-in phone (mpctl) without opening any window: the URL goes to
         // MACROPHONE_PAIR_URL_FILE.
         if env["MACROPHONE_PAIR_HEADLESS"] == "1" { model.beginPairing() }
+        if let spec = env["MACROPHONE_GLOW"]?.split(separator: ",").compactMap({ Double($0) }), spec.count == 4 {
+            let r = CGRect(x: spec[0], y: spec[1], width: spec[2], height: spec[3])
+            let t = Timer(timeInterval: 1.5, repeats: true) { _ in MainActor.assumeIsolated { LandingGlow.glow(round: r) } }
+            RunLoop.main.add(t, forMode: .common)
+            bag.append(t)
+        }
         guard let show = env["MACROPHONE_SHOW"] else { return false }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 

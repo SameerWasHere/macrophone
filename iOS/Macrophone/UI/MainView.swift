@@ -38,6 +38,8 @@ struct MainView: View {
     @State var verticalBar = VerticalBarProbe.atLaunch
     /// The settings' room while they last showed (`phoneBody`).
     @State var settingsRoom: CGFloat = 0
+    /// Where the window shows (`phoneBody`, on screen): what it grows out of the Dock into.
+    @State var watchArea: CGRect = .zero
     /// The cover's lower buttons the Mac offered when it was last connected.
     @AppStorage("bar.had.wholeScreen") var barHadWholeScreen = false
     @AppStorage("bar.had.controls") var barHadControls = false
@@ -217,7 +219,7 @@ struct MainView: View {
                     // Watching: the window takes the area (Done brings the settings back).
                     if watcher.isShowing && !showLiveWords {
                         WatchPanel(watcher: watcher, compact: compact, cover: isCover,
-                                   bare: isCover && input.keysUp).transition(.opacity)
+                                   bare: isCover && input.keysUp).transition(windowTransition)
                     }
                     if showLiveWords {
                         VStack(spacing: 0) {
@@ -233,6 +235,7 @@ struct MainView: View {
                 }
                 // Whatever is above takes the room that's left — it can never push the mic.
                 .frame(minHeight: 0, maxHeight: .infinity)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { watchArea = $0 }
                 // Clipped at the foot alone, so nothing above runs into the mic — the window's
                 // glow spills past the sides and the top as it should (Oct 31 2026, Sameer: "the
                 // glow around the window looks cut off on the sidebar").
@@ -1121,6 +1124,30 @@ struct MacAppNudge: View {
         }
         .padding(.vertical, 6)
         .padding(.trailing, 4)
+    }
+}
+
+extension MainView {
+    /// The window grows out of the pick's icon on the Dock and goes back into it (Nov 4 2026,
+    /// Sameer picked "the Dock icon opens into the window"), on the settle spring that already
+    /// carries it in and out. Where no Dock is drawn, or with Reduce Motion, it fades as before.
+    var windowTransition: AnyTransition {
+        guard !reduceMotion, !(barUsed || posture.pose.isInner), let icon = DockSpot.shared.pick, watchArea.width > 0,
+              watchArea.insetBy(dx: -40, dy: -40).contains(CGPoint(x: icon.midX, y: icon.midY)) else { return .opacity }
+        let zoom = DockZoom(scale: max(0.06, icon.width / watchArea.width),
+                            offset: CGSize(width: icon.midX - watchArea.midX, height: icon.midY - watchArea.midY), fade: 0)
+        return .modifier(active: zoom, identity: DockZoom(scale: 1, offset: .zero, fade: 1))
+    }
+}
+
+/// The window at the icon's size and place (active), or its own (identity).
+private struct DockZoom: ViewModifier {
+    var scale: CGFloat
+    var offset: CGSize
+    var fade: Double
+
+    func body(content: Content) -> some View {
+        content.scaleEffect(scale).offset(offset).opacity(fade)
     }
 }
 
