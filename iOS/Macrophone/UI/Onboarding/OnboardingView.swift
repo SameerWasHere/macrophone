@@ -14,6 +14,10 @@ struct OnboardingView: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var recorder: Recorder
     @AppStorage("onboarding.step") private var stepRaw = 0
+    /// The step on screen, a plain state beside the stored one (Nov 4 2026): a change to an
+    /// `@AppStorage` value reaches the view through UserDefaults, outside `withAnimation`, so a
+    /// tapped Continue or Skip cut to the next page instead of sliding it in.
+    @State private var shownRaw: Int?
     @State private var looking = false
     @State private var denied: String?
     /// Looked for a while and found nothing: say what else to check.
@@ -23,12 +27,15 @@ struct OnboardingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    private var step: OnboardingStep { OnboardingStep(rawValue: stepRaw) ?? .welcome }
+    private var step: OnboardingStep { OnboardingStep(rawValue: shownRaw ?? stepRaw) ?? .welcome }
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            content
+            // The page is one view (a ZStack round the step's switch), so the slide moves it
+            // whole: on the bare switch the slide reached down to the step's own views, and a
+            // step with transitions inside (pairing's phases, finding the Mac) faded in place.
+            ZStack { content }
                 .id(step)
                 .transition(reduceMotion ? .opacity : .asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
                                                                   removal: .move(edge: .leading).combined(with: .opacity)))
@@ -39,7 +46,7 @@ struct OnboardingView: View {
         .overlay { if step == .test { ListeningEdge(active: recorder.phase == .recording, meter: recorder.meter) } }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { compact = $0 < 680 }
         .onAppear(perform: skipFinishedSteps)
-        .onChange(of: stepRaw) { _, _ in skipFinishedSteps() }
+        .onChange(of: step) { _, _ in skipFinishedSteps() }
         // Back from Settings with the permission turned on: carry on from here.
         .onChange(of: scenePhase) { _, phase in if phase == .active { skipFinishedSteps() } }
         .onChange(of: model.discoveredMacs.count) { _, n in
@@ -102,7 +109,7 @@ struct OnboardingView: View {
     // MARK: Steps
 
     private var welcome: some View {
-        SetupPage(title: "Your Mac does the work. You steer from here.",
+        SetupPage(title: "Steer your Mac from here",
                   message: "See the window where Claude Code or any app is working on your Mac, tap to click, and say your next prompt. Your iPhone turns your voice into text right here and sends it in.",
                   compact: compact) {
             DemoVignette().scaleEffect(compact ? 0.82 : 1).frame(height: compact ? 172 : 210)
@@ -112,7 +119,7 @@ struct OnboardingView: View {
     }
 
     private var microphone: some View {
-        SetupPage(title: "It listens only while you ask it to.",
+        SetupPage(title: "It listens only while you ask it to",
                   message: "Macrophone uses the microphone while you tap or hold the button — never in the background. The sound is turned into text and thrown away. No audio is ever kept.",
                   compact: compact) {
             SetupSymbol(name: "mic.fill", style: Light.ember, compact: compact)
@@ -136,7 +143,7 @@ struct OnboardingView: View {
 
     private var speech: some View {
         let off = Recorder.speechStatus == .denied || Recorder.speechStatus == .restricted
-        return SetupPage(title: "Your words are transcribed on this iPhone.",
+        return SetupPage(title: "Your words are transcribed on this iPhone",
                          message: "iOS will ask to allow speech recognition. Macrophone only uses languages your iPhone can transcribe by itself, so what you say isn't sent to Apple or anyone else.",
                          compact: compact) {
             SetupSymbol(name: "waveform", style: LinearGradient(colors: MacOSLook.intelligence, startPoint: .leading, endPoint: .trailing),
@@ -162,7 +169,7 @@ struct OnboardingView: View {
     }
 
     private var getMac: some View {
-        SetupPage(title: "Get Macrophone for your Mac.", message: "It's free. On your Mac, go to:", compact: compact) {
+        SetupPage(title: "Get Macrophone for your Mac", message: "It's free. On your Mac, go to:", compact: compact) {
             SetupSymbol(name: "laptopcomputer.and.arrow.down", style: Light.cyan, compact: compact)
         } content: {
             Text(Product.macDownloadDisplay)
@@ -189,14 +196,16 @@ struct OnboardingView: View {
 
     @ViewBuilder private var findMac: some View {
         if !looking {
-            SetupPage(title: "Next, iOS asks to find devices on your network.",
+            SetupPage(title: "Next, iOS asks to find devices on your network",
                       message: "That's how your iPhone finds your Mac. They talk to each other directly — nothing goes to the internet.",
                       compact: compact) {
                 SetupSymbol(name: "wifi", style: Light.cyan, compact: compact)
             } buttons: {
                 // "Continue", never words that press for the permission (App Review 5.1.1(iv), Oct 2026).
                 SetupButton("Continue") {
-                    looking = true
+                    // The ask fades into the search (a cut before; and a page with no transition of
+                    // its own would take the steps' slide).
+                    withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { looking = true }
                     model.startLink()
                     Task {
                         try? await Task.sleep(nanoseconds: 12_000_000_000)
@@ -207,10 +216,11 @@ struct OnboardingView: View {
                     }
                 }
             }
+            .transition(.opacity)
         } else {
             let found = !model.discoveredMacs.isEmpty
             let stuck = !found && (model.localNetworkDenied || lookingLong)
-            SetupPage(title: model.discoveredMacs.first.map { "Found \($0.name)." } ?? "Looking for your Mac…",
+            SetupPage(title: model.discoveredMacs.first.map { "Found \($0.name)" } ?? "Looking for your Mac…",
                       message: found
                         ? "Next, pair them so only your iPhone can send to it."
                         : "Open Macrophone on your Mac. Keep both on the same Wi-Fi, or close together with Wi-Fi turned on.",
@@ -230,6 +240,7 @@ struct OnboardingView: View {
                     Button("Continue") { advance() }.setupSecondary()
                 }
             }
+            .transition(.opacity)
         }
     }
 
@@ -250,11 +261,29 @@ struct OnboardingView: View {
 
     private func advance() {
         denied = nil
-        if let n = step.next { go(n) } else { finish() }
+        // Past any step that's already done in the same slide (Nov 4 2026): with the microphone
+        // already allowed, Get Started slid to its page and the page skipping itself cut the
+        // slide off — the speech page arrived in one frame.
+        var n = step.next
+        while let s = n, isDone(s) { n = s.next }
+        if let n { go(n) } else { finish() }
+    }
+
+    /// A step there's nothing left to do on (its permission given, its Mac paired).
+    private func isDone(_ s: OnboardingStep) -> Bool {
+        switch s {
+        case .microphone: return Recorder.micStatus == .granted
+        case .speech: return Recorder.speechStatus == .authorized
+        case .findMac, .pair:
+            if case .paired = model.pairing { return false }   // let the success show
+            return model.isPaired
+        default: return false
+        }
     }
 
     private func go(_ s: OnboardingStep) {
-        withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { stepRaw = s.rawValue }
+        withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { shownRaw = s.rawValue }
+        stepRaw = s.rawValue
     }
 
     /// Steps that are already done (a permission granted, a Mac already paired) pass by themselves.
@@ -335,7 +364,7 @@ private struct OnboardingTest: View {
     }
 
     var body: some View {
-        SetupPage(title: worked ? "It works." : (model.isPaired ? "Say something to your Mac." : "Try it here first."),
+        SetupPage(title: worked ? "It works" : (model.isPaired ? "Say something to your Mac" : "Try it here first"),
                   message: worked
                     ? (model.isPaired ? "Look at your Mac — your words are there." : "Your words are on this iPhone's clipboard, ready to paste. Pair your Mac any time from the top of the main screen.")
                     : "Tap the button, say “Hello from my iPhone,” then tap again.",

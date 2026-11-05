@@ -3,7 +3,8 @@ import SwiftUI
 // Setup Assistant (Nov 1 2026, docs/DESIGN.md "Macrophone, as Apple would make it"): a big
 // symbol, a large bold title, a short body, the one prominent button pinned at the foot with a
 // quiet text button under it — the way an iPhone sets itself up. Every onboarding step and every
-// pairing phase is one of these pages.
+// pairing phase is one of these pages. A title ends without a full stop, as Setup Assistant's do
+// (Nov 4 2026: half the setup steps had one, the pairing pages none).
 
 struct SetupPage<Hero: View, Content: View, Buttons: View>: View {
     var title: String

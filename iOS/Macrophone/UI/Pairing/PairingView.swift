@@ -14,10 +14,26 @@ struct PairingView: View {
             NavigationStack {
                 content
                     .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.doneButtonStyle() }
+                        // A flow, not a page of settings: it's closed, not "Done" (Nov 4 2026) —
+                        // and not at all on the success page, whose own button finishes it.
+                        if !isPaired {
+                            ToolbarItem(placement: .topBarLeading) { closeButton }
+                        }
                     }
             }
             .tint(Light.cyan)
+        }
+    }
+
+    private var isPaired: Bool { if case .paired = model.pairing { return true } else { return false } }
+
+    @ViewBuilder private var closeButton: some View {
+        if #available(iOS 26.0, *) {
+            Button(role: .close) { dismiss() }
+                .accessibilityIdentifier("pairing-close")
+        } else {
+            Button("Cancel", role: .cancel) { dismiss() }
+                .accessibilityIdentifier("pairing-close")
         }
     }
 
@@ -55,17 +71,20 @@ struct PairingPanel: View {
 
     var body: some View {
         Group {
+            // Each phase cross-fades into the next. Without a transition of its own a phase took
+            // setup's page slide (transitions reach down to the first views that don't name one):
+            // in setup, Use a Code Instead blanked the page and slid the picker in from the edge.
             switch model.pairing {
             case .idle:
-                if useCode { codePicker } else { scanner }
+                if useCode { codePicker.transition(.opacity) } else { scanner.transition(.opacity) }
             case .connecting(let name):
-                progress("Pairing with \(name)…")
+                progress("Pairing with \(name)…").transition(.opacity)
             case .showingCode(let code, let name):
-                codeDisplay(code, mac: name)
+                codeDisplay(code, mac: name).transition(.opacity)
             case .paired(let name):
-                success(name)
+                success(name).transition(.opacity)
             case .failed(let message):
-                failure(message)
+                failure(message).transition(.opacity)
             }
         }
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: model.pairing)
