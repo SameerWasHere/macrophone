@@ -665,7 +665,7 @@ agents (the cover, the regular iPhone, the inner screen) each with their own sec
   for its first 0.7 s — the first frames had been laid out at almost no size and the settle
   spring grew the window, the Dock and the mic out of the corner.
 - **The kept picture on the first frame** (`WindowSnapshots.cached`, a small memory cache).
-- **One mic:** `matchedGeometryEffect(id: "mic", in: micSpace)` on both mic buttons, so a layout
+- **One mic:** `matchedGeometryEffect(id: micID, in: micSpace)` on both mic buttons, so a layout
   change moves it rather than cross-fading two. **Hand-overs:** `AnyTransition.handoff` (what
   leaves goes in 0.12 s, `Motion.leave`) between the Duo's layouts. The flat upright inner
   screen's window grows into hand on the settle spring. The focus re-crop glides.
@@ -712,6 +712,58 @@ the Duo unless it says so.
 - Left: on an SE a long Mac name is down to a few letters beside four extras; the Send after
   pasting bar reads "Send" on a Pro (the full words don't fit beside Cleanup's level); the
   simulator's first keyboard of a launch comes up late, so the first rise is the roughest.
+
+## Inner screen polish (Nov 4 2026)
+
+The inner screen's part of the polish pass, walked on a real Duo simulator (`duo-sim.sh pose`,
+every pose and every change between them, light and dark) against `mpctl serve`, frame by frame
+(`simctl io recordVideo --display=<inner>`, ffmpeg `mpdecimate`). What Sameer's screenshot showed —
+flat upright after Done, the picture running up under the bar and down past the fold over the Dock,
+the Thread and Show it here — was WatchWindow's kept picture: aspect-filled in a flexible frame, it
+made the whole window its own size whenever it was taller than the room (a window auto-fitted to the
+in-hand deck, then shown in the shorter glance). Fixed in WatchWindow by the cover pass (fd1259e:
+the kept picture goes through the viewer). Repro: flat portrait, `MACROPHONE_WATCH=rest
+MACROPHONE_WATCH_ACTIONS=show,fit@largest,done,show,close`, then launch flat portrait again.
+- **One bar for every inner pose** (`MainView.innerBarred`, `innerLayout`): the pose's layout
+  changes inside one NavigationStack; the stack never does. A stack per pose (and none on the
+  laptop) made every fold a new stack, which laid its content out from nothing — the window and the
+  mic grew out of the corner as the laptop opened flat. Where the pose has no system bar (the
+  laptop) the toolbars are hidden (`.toolbar(.hidden, for:)`), and `controlsInVerticalBar` follows
+  `barUsed`. Flat upright keeps its items in the bar (Mac · History · Settings up top beside the
+  clock, Whole Screen · Mac Controls · ⋯ at the foot; Done and the window's clusters in hand), as
+  Sameer asked on Nov 1 — it's the system's own bar, nothing drawn over the window.
+- **The bar from the first frame on its side** (`barUsed`: on the inner screen the pose alone says
+  there's a bar): opening the phone, the scene's first frames had no vertical-bar trait yet and the
+  layout drew its own top bar (the Mac's pill, History, Settings) for a moment.
+- **The mic is matched within one screen** (`MainView.micID`: "mic" on the cover, "mic.inner"
+  inside): matched across the fold, the inner mic flew in from where the cover's had been and was
+  missing for the first frames of every unfold.
+- **Show it here grows the glance, Done shrinks it back** (`DuoMacHalf.screenSpace`, a
+  `matchedGeometryEffect` on every branch): the glance and the window in hand are one screen, not
+  one at its new size fading in over the other at its old. **On its side the left page stays put**
+  (`openLandscapeBody`): only the right page changes (the deck or the cover's view); the whole
+  spread used to be swapped, the window fading out and in with it.
+- **The deck beside the window arrives with its layout** (`DuoLaptopDeck`): its own 0.5 s entrance
+  on top of the hand-over left the right page empty for a beat (after full screen, after a fold).
+  On Done it fades as the trackpad it was — it had flashed "Your Mac's version has no trackpad yet"
+  as the pages were put away.
+- **The lit rim is drawn by the GPU** (`SpecularEdge`, Theme.swift — every device): a gradient
+  *stroke* is drawn on the CPU into a backing store the plate's whole size (`ripc_DrawShading` in
+  `sample`): ~200 ms a draw on the watched window, on every frame of a resize. Now the gradient
+  masked by the hairline. Keep it that way.
+- **The book's page sits in from the screen's corners** (`edgeInset` on its three outer sides, as
+  the laptop's); **the laptop's mode cluster steps aside while you talk** (it sat over the words'
+  card); **Settings and History take two columns only in a regular-width sheet**
+  (`horizontalSizeClass`): the simulator's sheet is compact (~650 pt on its side, though 835 is
+  asked), and the collapsed split opened Settings on Send to with a back button.
+- Hook: `MACROPHONE_WATCH_ACTIONS=…,show` (the glance's Show it here, `showWindowForPose`).
+- **Found, not fixed:** Show it here costs ~0.4 s of the main thread on the simulator's Debug build
+  (−O the same) before the window grows — building the deck (the carousel, the keyboard field) and
+  rebuilding the bar's items; needs a Release build on his phone to judge. While two layouts hand
+  over, the two mics (the deck's and the cover view's) fade through each other for ~0.15 s. The
+  simulator plays its own fold animation (the folding half blurs and darkens) — not the app. The
+  kept picture can show at another zoom than the live one for a frame (WatchWindow, the cover
+  pass's). Full screen's exit button sits over the Mac window's traffic lights.
 
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
