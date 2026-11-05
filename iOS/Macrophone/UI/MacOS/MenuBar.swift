@@ -28,11 +28,15 @@ struct MacMenuBar<Leading: View, Trailing: View>: View {
 /// rounded highlight a Mac draws behind an open menu extra.
 struct MenuExtraStyle: ButtonStyle {
     var on = false
+    /// Dimmed while it can't act (the Mac connecting again), as a Mac greys a disabled extra.
+    @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: MacOSLook.extraGlyph, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(on ? Light.cyan : Ink.ink)
+            .opacity(enabled ? 1 : 0.35)
+            .animation(.easeOut(duration: 0.2), value: enabled)
             .frame(minWidth: 44, minHeight: MacOSLook.menuBar)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(configuration.isPressed ? Ink.ink.opacity(0.14) : .clear)

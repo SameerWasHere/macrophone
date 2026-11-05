@@ -2060,6 +2060,12 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let margin: CGFloat = 36
         var offset = contentOffset
         let visible = CGRect(origin: contentOffset, size: CGSize(width: bounds.width, height: visibleHeight))
+        // Only a pointer near an edge moves the view: a pointer well inside it — where the
+        // trackpad starts it — moved nothing, but the clamp below nudged a view resting a hair
+        // past its bounds and that counted as looking away, so Newest showed the moment the
+        // trackpad came up (Nov 4 2026).
+        let nearEdge = p.x < visible.minX + margin || p.x > visible.maxX - margin
+            || p.y < visible.minY + margin || p.y > visible.maxY - margin
         if p.x < visible.minX + margin { offset.x = p.x - margin }
         if p.x > visible.maxX - margin { offset.x = p.x + margin - bounds.width }
         if p.y < visible.minY + margin { offset.y = p.y - margin }
@@ -2070,7 +2076,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         offset.x = min(max(offset.x, minX), maxX)
         offset.y = min(max(offset.y, minY), maxY)
         guard offset != contentOffset else { return }
-        adjusted = true
+        if nearEdge, abs(offset.x - contentOffset.x) >= 1 || abs(offset.y - contentOffset.y) >= 1 { adjusted = true }
         setContentOffset(offset, animated: false)
     }
 

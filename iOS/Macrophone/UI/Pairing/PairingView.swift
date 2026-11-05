@@ -21,9 +21,14 @@ struct PairingView: View {
         }
     }
 
+    /// Whether a Mac was paired when the sheet opened: the title keeps its words through the
+    /// flow (pairing the first Mac had it flip to "Pair Another Mac" on the success page — Nov 4 2026).
+    @State private var hadMac: Bool?
+
     private var content: some View {
         PairingPanel(onDone: { dismiss() })
-            .navigationTitle(model.isPaired ? "Pair Another Mac" : "Pair Your Mac")
+            .navigationTitle(hadMac ?? model.isPaired ? "Pair Another Mac" : "Pair Your Mac")
+            .onAppear { if hadMac == nil { hadMac = model.isPaired } }
             .navigationBarTitleDisplayMode(.inline)
             .onDisappear {
                 if case .paired = model.pairing { model.resetPairing() }

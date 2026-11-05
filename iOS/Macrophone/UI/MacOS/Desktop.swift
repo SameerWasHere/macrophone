@@ -22,17 +22,22 @@ import SwiftUI
 struct PhoneMenuBar: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
+    /// What the Mac offered when it was last connected (MainView keeps these, as for the cover's
+    /// bar): the extras stay in their places, dimmed, while it connects again — at launch they
+    /// popped in a beat after the first frame and pushed History and Settings along (Nov 4 2026).
+    @AppStorage("bar.had.wholeScreen") private var hadWholeScreen = false
+    @AppStorage("bar.had.controls") private var hadControls = false
 
     var body: some View {
         MacMenuBar {
             MacPill(menuBar: true).fixedSize()
             WakeMacButton().controlSize(.small)
         } trailing: {
-            if model.isConnected, watcher.canWatchDesktop {
-                WholeScreenButton(watcher: watcher, menuExtra: true)
+            if model.isConnected ? watcher.canWatchDesktop : hadWholeScreen {
+                WholeScreenButton(watcher: watcher, menuExtra: true).disabled(!model.isConnected)
             }
-            if model.canMacControls {
-                MacControlsButton(style: .menuExtra)
+            if model.isConnected ? model.canMacControls : hadControls {
+                MacControlsButton(style: .menuExtra).disabled(!model.isConnected)
             }
             Button { model.sheet = .history } label: { Image(systemName: "clock") }
                 .buttonStyle(MenuExtraStyle())
