@@ -659,7 +659,7 @@ struct WatchWindow: View {
                              drag: watcher.drag, phased: watcher.macCanScroll, fill: fill, footInset: footInset,
                              viewKey: interactive ? watcher.viewKey : nil,
                              pointer: interactive && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
-                             canDrag: interactive && watcher.canMouse,
+                             canDrag: interactive && watcher.canMouse, keyboardUp: input.page == .keyboard,
                              onTouch: { watcher.touch() },
                              onTap: { watcher.click($0, count: $1) }, onRightClick: { watcher.rightClick($0) },
                              onHold: interactive ? onHold : nil,
@@ -1430,6 +1430,8 @@ struct WindowViewer: UIViewRepresentable {
     var pointerSeq = 0
     /// The Mac takes drags (a tap, then a hold that moves).
     var canDrag = false
+    /// The keyboard page is up: the view's height changing keeps the zoom.
+    var keyboardUp = false
     var onTouch: () -> Void
     /// A tap, with its count (2 = a double-click's second click, 3 a triple's).
     var onTap: (CGPoint, Int) -> Void
@@ -1465,6 +1467,7 @@ struct WindowViewer: UIViewRepresentable {
         wire(v)
         v.viewKey = viewKey
         v.canDrag = canDrag
+        v.keyboardUp = keyboardUp
         v.fill = fill
         v.footInset = footInset
         v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, generation: generation, interactive: interactive, drag: drag, phased: phased)
@@ -1508,6 +1511,21 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     /// A picture has been up: the next size change dissolves instead of jumping.
     private var hadPicture = false
     private var lastBounds: CGSize = .zero
+    /// The keyboard page is up (Nov 4 2026, Sameer: "I don't want the window to auto zoom when
+    /// I open the keyboard"): the view getting shorter as it rises, and taller as it goes, keeps
+    /// the zoom and the spot — the newest lines stay in view if they were.
+    var keyboardUp = false {
+        didSet {
+            guard keyboardUp != oldValue, !keyboardUp else { return }
+            // The keyboard's way down settles within a second; after that a height change is
+            // the view's own again.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                if self?.keyboardUp == false { self?.heightBeforeKeyboard = nil }
+            }
+        }
+    }
+    /// The view's height before the keyboard came, while it's up or on its way down.
+    private var heightBeforeKeyboard: CGFloat?
     var onTouch: () -> Void = {}
     var onTap: (CGPoint, Int) -> Void = { _, _ in }
     var onRightClick: (CGPoint) -> Bool = { _ in false }
@@ -1776,9 +1794,32 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     override func layoutSubviews() {
         super.layoutSubviews()
         guard bounds.size != lastBounds, imageSize != .zero, bounds.width > 0 else { return }
+        let old = lastBounds
         lastBounds = bounds.size
+        if old != .zero, abs(old.width - bounds.width) < 1, keyboardUp || heightBeforeKeyboard != nil {
+            if heightBeforeKeyboard == nil { heightBeforeKeyboard = old.height }
+            keepZoom(oldHeight: old.height)
+            return
+        }
+        heightBeforeKeyboard = nil
         configureZoom()
         reset(animated: false)
+    }
+
+    /// The height changed for the keyboard: the same zoom, the bottom kept if it showed, else
+    /// the same spot.
+    private func keepZoom(oldHeight: CGFloat) {
+        let s = zoomScale, h = imageSize.height * s
+        let top = contentOffset.y + contentInset.top
+        let wasBottom = top >= max(0, h - max(1, oldHeight - footInset)) - 24
+        configureZoom()
+        minimumZoomScale = min(minimumZoomScale, s)
+        maximumZoomScale = max(maximumZoomScale, s)
+        centerIfSmall()
+        let bottom = max(0, h - visibleHeight)
+        let y = wasBottom ? bottom : min(max(top, 0), bottom)
+        contentOffset = CGPoint(x: contentOffset.x, y: y - contentInset.top)
+        reportWhole()
     }
 
     /// The scale that shows the column you type in across the width (or the whole window, if

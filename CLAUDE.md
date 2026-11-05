@@ -429,6 +429,10 @@ laptop's overlay header and floating answers are gone).
   `viewerMeasured(_:fill:interactive:)`, so the mic's strip and the glance never count), never the
   whole screen, folded only from the half's own measure, and not when the aspect moved < 4%. A
   page change back to rest sends a shape still owed (`MacInput.show` → `inputPageChanged`).
+  **The viewer's zoom holds for the keyboard too** (Nov 4 2026, Sameer: "I don't want the window
+  to auto zoom when I open the keyboard"): while the keyboard page is up, and for a second after,
+  a change of the view's height alone keeps the zoom and the spot (the bottom if it showed) —
+  `ViewerScrollView.keyboardUp` / `keepZoom`; every other size change re-fits as before.
   He sizing it himself (a Window menu size, a text size) stops it until the next window
   (`sizedByHand`); **Back to How It Was or a text size keeps that app's own size from then on**
   (`watch.ownSize.<bundle id>`, or a remembered `watch.fit`); Fit to iPhone clears that. A window
