@@ -57,12 +57,15 @@ struct DuoLaptopDeck: View {
         // it's up; the mic needs no page here).
         .onChange(of: input.page) { _, _ in keepTrackpad() }
         .onChange(of: input.pages) { _, _ in keepTrackpad() }
+        .onChange(of: watcher.fullScreen) { _, _ in keepTrackpad() }
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("The deck: trackpad, keys and mic")
     }
 
     private func keepTrackpad() {
+        // Not under full screen, where the deck lies hidden (the pages are full screen's then).
+        guard !watcher.fullScreen else { return }
         if input.page == .mic, input.pages.contains(.trackpad) { input.show(.trackpad, quiet: true) }
     }
 
@@ -78,7 +81,8 @@ struct DuoLaptopDeck: View {
             pad
             HStack(spacing: 12) {
                 DeckSendTo(watcher: watcher).frame(maxWidth: .infinity, alignment: .leading)
-                main.micButton(size: 72)
+                // The one mic sits here (`MainView.innerMic`).
+                main.micSlot(size: 72, inHand: true)
             }
             StatusLine(recorder: main.recorder, holding: main.holding, font: .caption)
                 .frame(height: 20)

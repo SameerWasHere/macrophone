@@ -61,6 +61,11 @@ struct VoiceDriver {
     }
 }
 
+extension EnvironmentValues {
+    /// The Thread is built but hidden: its display link stops (`ThreadView.paused`).
+    @Entry var threadPaused = false
+}
+
 /// The SwiftUI face: a fixed-height band; the light reaches past it.
 struct Filament: View {
     var mode: FilamentMode
@@ -68,9 +73,10 @@ struct Filament: View {
     var height: CGFloat = 104
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.threadPaused) private var paused
 
     var body: some View {
-        ThreadRepresentable(mode: mode, meter: meter, reduceMotion: reduceMotion)
+        ThreadRepresentable(mode: mode, meter: meter, reduceMotion: reduceMotion, paused: paused)
             .frame(height: height)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -81,10 +87,12 @@ private struct ThreadRepresentable: UIViewRepresentable {
     var mode: FilamentMode
     var meter: LevelMeter
     var reduceMotion: Bool
+    var paused: Bool
 
     func makeUIView(context: Context) -> ThreadView { ThreadView(meter: meter) }
     func updateUIView(_ v: ThreadView, context: Context) {
         v.reduceMotion = reduceMotion
+        v.paused = paused
         v.set(mode)
     }
     static func dismantleUIView(_ v: ThreadView, coordinator: ()) { v.stopLink() }
@@ -484,8 +492,12 @@ final class ThreadView: UIView {
         return false
     }
 
+    /// Built but out of sight (the Duo's inner screen keeps the cover's view and the deck both
+    /// built, one hidden — Nov 4 2026): nothing moves, so nothing is drawn.
+    var paused = false { didSet { if paused != oldValue { updateLink() } } }
+
     private func updateLink() {
-        guard window != nil, bounds.width > 4 else { stopLink(); return }
+        guard window != nil, bounds.width > 4, !paused else { stopLink(); return }
         if moving {
             let fps = wantedFPS
             if link == nil {
@@ -521,7 +533,7 @@ final class ThreadView: UIView {
     fileprivate func tick(_ l: CADisplayLink) {
         let now = CACurrentMediaTime()
         render(now: now)
-        if !moving { stopLink(); return }
+        if !moving || paused { stopLink(); return }
         // A send settling into the idle flow drops to its slower pace.
         let fps = wantedFPS
         if l.preferredFrameRateRange.preferred != fps {

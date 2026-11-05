@@ -91,26 +91,21 @@ extension MainView {
             // The left page is one view in hand or not (Nov 4 2026): only what's on it changes —
             // the whole spread used to be swapped, so the window faded out and in again with it.
             HStack(spacing: 0) {
-                DuoMacArea(main: self, deck: watcher.isShowing)
-                    .environment(\.fullScreenAvailable, watcher.isShowing)
+                DuoMacArea(main: self, deck: true)
+                    .environment(\.fullScreenAvailable, true)
                     .padding(.top, 6)
                     .frame(width: left, height: geo.size.height)
                 Color.clear.frame(width: 2 * DuoLook.foldGap)
-                ZStack {
-                    if watcher.isShowing {
-                        // The window tall on the left page; the deck down the right as the book's.
-                        DuoLaptopDeck(main: self, vertical: true).transition(.handoff)
-                    } else {
-                        // Nothing in hand (Nov 1 2026, Sameer: "the view that is on the out screen
-                        // should be what I see on the right half on the open duo screen with more
-                        // content on the left side"): the right page IS the cover — the same Send
-                        // to, switches, Thread and mic, the same buttons in the vertical bar — and
-                        // the left is what the cover had no room for: the picked app's window,
-                        // live (the glance; Show it here takes it in hand).
-                        phoneBody.transition(.handoff)
-                    }
-                }
-                .frame(width: right, height: geo.size.height)
+                // In hand, the deck down the right as the book's; nothing in hand (Nov 1 2026,
+                // Sameer: "the view that is on the out screen should be what I see on the right
+                // half on the open duo screen with more content on the left side"): the right page
+                // IS the cover — the same Send to, switches, Thread and mic, the same buttons in
+                // the vertical bar — and the left is what the cover had no room for: the picked
+                // app's window, live (the glance; Show it here takes it in hand).
+                keptPair(inHand: watcher.isShowing,
+                         rest: phoneBody,
+                         hand: DuoLaptopDeck(main: self, vertical: true))
+                    .frame(width: right, height: geo.size.height)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -253,17 +248,8 @@ extension MainView {
         return InputCarousel(input: input, watcher: watcher, compact: compact, threadHeight: slot + threadTop, fill: fill, rowHidden: rowHidden) {
             VStack(spacing: 0) {
                 Color.clear.frame(height: deck ? 8 : compact ? 4 : 30)
-                MicButton(recording: isRecording,
-                          finishing: isFinishing,
-                          mode: filamentMode,
-                          disabled: micOff,
-                          meter: recorder.meter,
-                          onDown: pressDown,
-                          onUp: pressUp,
-                          onAccessibilityToggle: { model.toggleRecording() },
-                          size: micSize)
-                    .matchedGeometryEffect(id: micID, in: micSpace)
-                    .landedPill()
+                // The one mic sits here while the mic mode is up (`innerMic`).
+                micSlot(size: micSize, inHand: true, visible: input.page == .mic && !input.keysUp)
                 if oneLine {
                     FixedSlot(alignment: .top) {
                         Text("A").font(rowHidden ? .body : .subheadline).frame(maxWidth: .infinity)
@@ -292,6 +278,128 @@ extension MainView {
             .padding(.horizontal, -4)
         }
         .onChange(of: showLiveWords) { _, live in if live, input.page != .mic { input.show(.mic, quiet: true) } }
+    }
+}
+
+// MARK: Built ahead, shown by a fade (Nov 4 2026)
+
+/// One of `keptPair`'s two, hidden or not.
+struct KeptHidden: ViewModifier {
+    var hidden: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.threadPaused) private var paused
+    /// The size it had when last on screen: hidden, it keeps it. Laid out again in a room that
+    /// changed meanwhile (the deck shorter with a window in hand, the status bar gone), the cover's
+    /// view kept the scroll position that room gave it — its top bar came back cut in half — and
+    /// fading out it re-laid itself into the deck (Send to dropped before the window moved).
+    @State private var size: CGSize?
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { if !hidden { size = $0 } }
+            .frame(width: hidden ? size?.width : nil, height: hidden ? size?.height : nil, alignment: .top)
+            // (Never more than the room, whatever it keeps: the one on screen stays where it is.)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+            .animation(hidden ? Motion.leave : Motion.pick(Motion.settle, reduce: reduceMotion)) { $0.opacity(hidden ? 0 : 1) }
+            .allowsHitTesting(!hidden)
+            .accessibilityHidden(hidden)
+            .environment(\.threadPaused, hidden || paused)
+    }
+}
+
+extension EnvironmentValues {
+    /// The inner screen's layout lies under full screen: built, hidden, its windows without viewers.
+    @Entry var innerAsleep = false
+}
+
+// MARK: The inner screen's one mic (Nov 4 2026)
+
+// The inner screen's layouts each have a mic in a different place — the cover's view (92 pt, under
+// the Thread), the laptop's mic mode (112), the column beside a window (72) — and as one layout gave
+// way to another the two mics faded through each other for a moment. Now each layout keeps only a
+// slot (`micSlot`) and one mic, drawn over the whole inner screen (`innerMic`), goes to the slot
+// of the layout on screen: it glides there and takes its size, and is never two. Being one view it
+// also keeps a hold across a layout change.
+
+/// Where a layout wants the mic: its frame, its size, whose it is and whether it shows.
+struct MicSlot {
+    var anchor: Anchor<CGRect>
+    var size: CGFloat
+    /// The layout it belongs to (`MainView.micOwner`): a layout on its way out still reports its
+    /// slot for the length of its fade, and is ignored.
+    var owner: String
+    var visible: Bool
+}
+
+struct MicSlotKey: PreferenceKey {
+    static let defaultValue: [MicSlot] = []
+    static func reduce(value: inout [MicSlot], nextValue: () -> [MicSlot]) { value += nextValue() }
+}
+
+extension MainView {
+    /// The size the one mic is drawn at, scaled to each slot (down, so it stays crisp).
+    static let innerMicBase: CGFloat = DuoLook.deckMic
+
+    /// Whose slot the mic goes to: the pose's layout, in hand or at rest.
+    func micOwner(inHand: Bool) -> String { "\(posture.pose.name)/\(inHand ? "hand" : "rest")" }
+
+    /// A layout's place for the mic: the mic button's own frame, empty.
+    func micSlot(size: CGFloat, inHand: Bool, visible: Bool = true) -> some View {
+        let owner = micOwner(inHand: inHand)
+        return Color.clear
+            .frame(width: size * 1.3, height: size * 1.25)
+            .anchorPreference(key: MicSlotKey.self, value: .bounds) { [MicSlot(anchor: $0, size: size, owner: owner, visible: visible)] }
+            .accessibilityHidden(true)
+    }
+
+    /// The cover's view and the deck, both built, the one not on screen hidden (Nov 4 2026): Show
+    /// it here and Done only fade between them — building the deck (its keyboard field, the
+    /// trackpad, the keys) and the cover's view again each time held the main thread for a tenth
+    /// of a second or more before anything moved. What leaves goes at once, what arrives fades in
+    /// on the spring carrying the change (as `.handoff`); the hidden one takes no touch, says
+    /// nothing to VoiceOver and its Thread stands still.
+    func keptPair<Rest: View, Hand: View>(inHand: Bool, rest: Rest, hand: Hand) -> some View {
+        // Both from the top: one that wants more room than there is (the laptop's modes, hidden
+        // with a question up) must never push the other off centre — the cover's view lost its
+        // top bar above the deck's edge that way.
+        ZStack(alignment: .top) {
+            rest.modifier(KeptHidden(hidden: inHand))
+            hand.modifier(KeptHidden(hidden: !inHand))
+        }
+    }
+
+    /// The one mic, over the inner screen's layouts, at the slot of the one on screen.
+    func innerMic(_ slots: [MicSlot]) -> some View { InnerMic(main: self, slots: slots) }
+}
+
+/// The inner screen's one mic (`MainView.innerMic`).
+struct InnerMic: View {
+    let main: MainView
+    let slots: [MicSlot]
+    /// It was on screen where it was: a move from there glides; one from a slot out of sight (the
+    /// laptop's deck on its trackpad, the keyboard up) is a fade in its new place — it flew in from
+    /// beside the trackpad.
+    @State private var wasShown = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let want = main.micOwner(inHand: main.watcher.isShowing)
+            let slot = slots.last { $0.owner == want }
+            let size = slot?.size ?? 92
+            let r = slot.map { geo[$0.anchor] } ?? .zero
+            let shown = slot?.visible ?? false
+            main.micCore(size: MainView.innerMicBase)
+                .scaleEffect(size / MainView.innerMicBase)
+                .frame(width: size * 1.3, height: size * 1.25)
+                .landedPill()
+                .position(x: r.midX, y: r.midY)
+                .animation(wasShown && shown ? Motion.pick(Motion.settle, reduce: main.reduceMotion) : nil, value: r)
+                .opacity(shown ? 1 : 0)
+                .allowsHitTesting(shown)
+                .accessibilityHidden(!shown)
+                .animation(.easeOut(duration: 0.15), value: shown)
+                .onChange(of: shown, initial: true) { _, on in wasShown = on }
+        }
     }
 }
 
@@ -344,21 +452,20 @@ struct DuoFullScreen: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
-                .overlay(alignment: .topLeading) {
-                    if exitUp {
-                        exitButton
-                            .padding(.leading, DuoLook.edgeInset)
-                            .padding(.top, DuoLook.edgeInset)
-                            .transition(.opacity)
-                    }
-                }
-                .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: exitUp)
                 .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })
                 .overlay {
                     if let at = padAt { pad(at: at, in: geo.size) }
                 }
-                // The mic, small, wherever he left it (never faded: it's the app's point).
-                .overlay { FloatingMic(main: main, room: geo.size) }
+                // The mic, small, wherever he left it (never faded: it's the app's point) — and the
+                // way out beside it (Nov 4 2026). In the screen's top-left corner the button sat
+                // over the Mac window's own close, minimise and zoom buttons, which every Mac window
+                // has right there (and a touch there brought it up under the finger as the tap went
+                // through to them). Beside the mic it's where he put the mic — somewhere he doesn't
+                // need on the Mac — and under his thumb, on the side towards the screen's middle.
+                .overlay {
+                    FloatingMic(main: main, room: geo.size, exitShown: exitUp) { exitButton }
+                        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: exitUp)
+                }
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea()
@@ -446,11 +553,11 @@ struct DuoFullScreen: View {
             Haptics.tick()
             watcher.setFullScreen(false)
         } label: {
-            Image(systemName: "arrow.down.forward.and.arrow.up.backward.rectangle")
+            Image(systemName: "arrow.down.forward.and.arrow.up.backward")
                 .font(.subheadline.weight(.semibold))
         }
-        .buttonStyle(WatchCellStyle(width: 46, height: WatchLook.header))
-        .watchGlass(Capsule())
+        .buttonStyle(WatchCellStyle(width: FloatingMic<EmptyView>.exitSize, height: FloatingMic<EmptyView>.exitSize))
+        .watchGlass(Circle())
         .accessibilityLabel("Exit Full Screen")
         .accessibilityIdentifier("watch-fullscreen-exit")
     }
@@ -474,30 +581,47 @@ struct DuoFullScreen: View {
 /// The disc keeps its tap and hold (a dictation); only the lip moves it, so a hold is never taken
 /// for a drag. It stays where it's left (a fraction of the screen, `duo.fullscreen.mic`), kept clear
 /// of the screen's rounded corners.
-struct FloatingMic: View {
+struct FloatingMic<Exit: View>: View {
     let main: MainView
     var room: CGSize
+    /// The way out of full screen beside the disc (it fades with the screen's other controls).
+    var exitShown = false
+    @ViewBuilder var exit: () -> Exit
     @AppStorage("duo.fullscreen.mic.x") private var fx = 0.93
     @AppStorage("duo.fullscreen.mic.y") private var fy = 0.84
     @State private var drag: CGSize = .zero
     @State private var dragging = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    static let size: CGFloat = 52
+    static var size: CGFloat { 52 }
     /// The lip above the disc, and how far it overlaps it.
-    static let lip = CGSize(width: 34, height: 16)
+    static var lip: CGSize { CGSize(width: 34, height: 16) }
+    /// The exit button beside the disc.
+    static var exitSize: CGFloat { 40 }
 
     var body: some View {
         let centre = place(CGPoint(x: fx * room.width + drag.width, y: fy * room.height + drag.height))
-        // The lip just above the disc's ring, a few points clear of it (the lip's frame carries
-        // 8 pt of touch room under it; the button's runs a little past the ring).
-        VStack(spacing: -7) {
-            lip.zIndex(1)
-            main.micButton(size: Self.size)
+        // The exit on the side towards the screen's middle (there's always room there), level
+        // with the disc (the lip's frame is above it: 32 pt, less the 7 they overlap).
+        let towardsLeft = centre.x > room.width / 2
+        let disc = CGPoint(x: centre.x, y: centre.y + (32 - 7) / 2)
+        let gap = Self.size * 0.65 + 6 + Self.exitSize / 2
+        ZStack {
+            // The lip just above the disc's ring, a few points clear of it (the lip's frame carries
+            // 8 pt of touch room under it; the button's runs a little past the ring).
+            VStack(spacing: -7) {
+                lip.zIndex(1)
+                main.micButton(size: Self.size)
+            }
+            .scaleEffect(dragging ? 1.06 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: dragging)
+            .position(centre)
+            if exitShown, !dragging {
+                exit()
+                    .position(x: disc.x + (towardsLeft ? -gap : gap), y: disc.y)
+                    .transition(.opacity)
+            }
         }
-        .scaleEffect(dragging ? 1.06 : 1)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: dragging)
-        .position(centre)
     }
 
     private var lip: some View {
@@ -547,30 +671,63 @@ struct DuoMacArea: View {
         self.main = main
         self.deck = deck
         _watcher = ObservedObject(wrappedValue: main.watcher)
+        // The one on screen has its viewer from the first frame (a pose's new layout).
+        _panelDormant = State(initialValue: !main.watcher.isShowing)
+        _glanceDormant = State(initialValue: main.watcher.isShowing)
     }
 
     var body: some View {
+        // The window in hand and the glance, both built, one hidden (Nov 4 2026): Show it here and
+        // Done only fade between them — building the window's header, menus and keys each time
+        // held the main thread a tenth of a second before the window moved. Only the one on
+        // screen has a viewer (`dormant`), so the video is never in two places.
+        let inHand = watcher.isShowing
         ZStack {
-            if watcher.isShowing {
-                WatchPanel(watcher: watcher, compact: false, duo: true, deck: deck)
-                    .overlay(alignment: .bottom) {
-                        // The words you're saying over the picture's foot, as on a folded half.
-                        if deck, main.showLiveWords {
-                            GeometryReader { g in
-                                DuoLiveWords(main: main, room: g.size)
-                                    .frame(maxHeight: .infinity, alignment: .bottom)
-                            }
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            WatchPanel(watcher: watcher, compact: false, duo: true, deck: deck, dormant: panelDormant || asleep)
+                .overlay(alignment: .bottom) {
+                    // The words you're saying over the picture's foot, as on a folded half.
+                    if deck, main.showLiveWords {
+                        GeometryReader { g in
+                            DuoLiveWords(main: main, room: g.size)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
                         }
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
-                    .transition(.opacity)
-            } else {
-                DuoGlance(watcher: watcher, fill: false)
-                    .padding(.horizontal, WatchLook.sideMargin)
-                    .padding(.vertical, 4)
-                    .transition(.opacity)
-            }
+                }
+                .modifier(KeptHidden(hidden: !inHand))
+            DuoGlance(watcher: watcher, fill: false, dormant: glanceDormant || asleep)
+                .padding(.horizontal, WatchLook.sideMargin)
+                .padding(.vertical, 4)
+                .modifier(KeptHidden(hidden: inHand))
         }
+        .modifier(DormantAfterFade(inHand: inHand, panel: $panelDormant, glance: $glanceDormant))
+    }
+
+    @State private var panelDormant: Bool
+    @State private var glanceDormant: Bool
+    @Environment(\.innerAsleep) private var asleep
+}
+
+/// The window in hand and the glance each give up their viewer only once they've faded out (a
+/// viewer gone at once left an empty plate fading where the picture had been); the one arriving
+/// has its viewer at once.
+struct DormantAfterFade: ViewModifier {
+    var inHand: Bool
+    @Binding var panel: Bool
+    @Binding var glance: Bool
+    @State private var task: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: inHand) { _, on in
+                task?.cancel()
+                if on { panel = false } else { glance = false }
+                task = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    guard !Task.isCancelled else { return }
+                    if on { glance = true } else { panel = true }
+                }
+            }
     }
 }
 
@@ -591,10 +748,6 @@ struct DuoMacHalf: View {
     @State private var hideTask: Task<Void, Never>?
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The glance and the window in hand are one screen (Nov 4 2026): Show it here grows the
-    /// glance into the window's place and Done shrinks it back, instead of the one at its new size
-    /// fading in over the other at its old (the window seemed to jump).
-    @Namespace private var screenSpace
 
     init(main: MainView, vertical: Bool, room: CGSize, edge: Bool = false) {
         self.main = main
@@ -602,6 +755,8 @@ struct DuoMacHalf: View {
         self.room = room
         self.edge = edge
         _watcher = ObservedObject(wrappedValue: main.watcher)
+        _handDormant = State(initialValue: !main.watcher.isShowing)
+        _glanceDormant = State(initialValue: main.watcher.isShowing)
     }
 
     private var bezel: CGFloat { edge ? 0 : DuoLook.halfBezel }
@@ -611,56 +766,14 @@ struct DuoMacHalf: View {
     @State private var floatingHeight: CGFloat = 0
 
     var body: some View {
-        let live = watcher.phase == .live
+        // The window in hand and the glance, both built, one hidden (Nov 4 2026, as `DuoMacArea`):
+        // Show it here and Done only fade between them; only the one on screen has a viewer.
+        let inHand = watcher.isShowing
         ZStack {
-            if watcher.isShowing {
-                if !vertical {
-                    // The laptop (Oct 31 2026, Sameer: "the view window fully filling one half …
-                    // the hot keys to all be the bottom half … so that nothing blocks the view
-                    // window"): the picture is the whole half and nothing lies over it — the
-                    // header, the answers and the words you're saying are on the deck.
-                    screen(footInset: 0, floating: false, header: false)
-                        .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
-                } else if let short = shortPicture {
-                    // A window that can't fill the half (the fourth pass — the Mac can't reshape
-                    // it, or hasn't yet: the whole screen, a window on the book's tall page):
-                    // the picture at the top at the scale that fills the width, and the room
-                    // under it holds what floated over it — the answers with Esc · Keys and
-                    // Pan | Scroll (or the keys), the words you're saying. No black above or below.
-                    VStack(spacing: 10) {
-                        // The header has room of its own here, above the picture, as on the open
-                        // screen (never over its first lines).
-                        WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
-                            .padding(.horizontal, 12)
-                            .padding(.top, 8)
-                        screen(footInset: 0, floating: false, header: false)
-                            .frame(height: short)
-                        if main.showLiveWords {
-                            DuoLiveWords(main: main, room: room, below: true)
-                                .transition(.opacity)
-                        } else {
-                            // The answers alone (the deck beside it has the keys).
-                            WatchActions(watcher: watcher, floating: true)
-                                .padding(.horizontal, 12)
-                                .opacity(live ? 1 : 0)
-                                .allowsHitTesting(live)
-                                .accessibilityHidden(!live)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
-                } else {
-                    screen(footInset: live && !main.showLiveWords ? floatingHeight : 0, floating: true)
-                        .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
-                }
-            } else if let short = shortPicture {
-                DuoGlance(watcher: watcher, fill: true, pictureHeight: short, edge: edge)
-                    .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
-            } else {
-                DuoGlance(watcher: watcher, fill: true, edge: edge)
-                    .matchedGeometryEffect(id: "screen", in: screenSpace).transition(.handoff)
-            }
+            handScreen.modifier(KeptHidden(hidden: !inHand))
+            glanceScreen.modifier(KeptHidden(hidden: inHand))
         }
+        .modifier(DormantAfterFade(inHand: inHand, panel: $handDormant, glance: $glanceDormant))
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: shortPicture != nil)
         .onAppear { reveal() }
         .onDisappear { hideTask?.cancel(); hideTask = nil }
@@ -671,12 +784,66 @@ struct DuoMacHalf: View {
         .accessibilityLabel("Your Mac")
     }
 
+    @State private var handDormant: Bool
+    @State private var glanceDormant: Bool
+    @Environment(\.innerAsleep) private var asleep
+
+    /// The window in hand.
+    @ViewBuilder private var handScreen: some View {
+        let live = watcher.phase == .live
+        if !vertical {
+            // The laptop (Oct 31 2026, Sameer: "the view window fully filling one half … the hot
+            // keys to all be the bottom half … so that nothing blocks the view window"): the
+            // picture is the whole half and nothing lies over it — the header, the answers and the
+            // words you're saying are on the deck.
+            screen(footInset: 0, floating: false, header: false)
+        } else if let short = shortPicture {
+            // A window that can't fill the half (the fourth pass — the Mac can't reshape it, or
+            // hasn't yet: the whole screen, a window on the book's tall page): the picture at the
+            // top at the scale that fills the width, and the room under it holds what floated over
+            // it — the answers with Esc · Keys and Pan | Scroll (or the keys), the words you're
+            // saying. No black above or below.
+            VStack(spacing: 10) {
+                // The header has room of its own here, above the picture, as on the open screen
+                // (never over its first lines).
+                WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                screen(footInset: 0, floating: false, header: false)
+                    .frame(height: short)
+                if main.showLiveWords {
+                    DuoLiveWords(main: main, room: room, below: true)
+                        .transition(.opacity)
+                } else {
+                    // The answers alone (the deck beside it has the keys).
+                    WatchActions(watcher: watcher, floating: true)
+                        .padding(.horizontal, 12)
+                        .opacity(live ? 1 : 0)
+                        .allowsHitTesting(live)
+                        .accessibilityHidden(!live)
+                }
+                Spacer(minLength: 0)
+            }
+        } else {
+            screen(footInset: live && !main.showLiveWords ? floatingHeight : 0, floating: true)
+        }
+    }
+
+    /// The glance.
+    @ViewBuilder private var glanceScreen: some View {
+        if let short = shortPicture {
+            DuoGlance(watcher: watcher, fill: true, pictureHeight: short, edge: edge, dormant: glanceDormant || asleep)
+        } else {
+            DuoGlance(watcher: watcher, fill: true, edge: edge, dormant: glanceDormant || asleep)
+        }
+    }
+
     /// The screen: the picture edge to edge with the overlay header over its top and — `floating`
     /// — the answers or the words you're saying over its foot (the picture's foot scrolls up above
     /// the answers: `footInset`).
     private func screen(footInset: CGFloat, floating: Bool, header: Bool = true) -> some View {
         let live = watcher.phase == .live
-        return WatchWindow(watcher: watcher, interactive: true, bezelWidth: bezel, corner: corner, fill: true, footInset: footInset)
+        return WatchWindow(watcher: watcher, interactive: true, bezelWidth: bezel, corner: corner, fill: true, footInset: footInset, dormant: handDormant || asleep)
             .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
             .overlay(alignment: .bottom) {
                 if floating {
@@ -822,19 +989,13 @@ struct DuoDeck: View {
     }
 
     var body: some View {
-        ZStack {
-            if watcher.isShowing, vertical {
-                // The book's page: the trackpad, the keys and the mic, all at once.
-                DuoLaptopDeck(main: main, vertical: true).transition(.handoff)
-            } else if watcher.isShowing {
-                laptopModes.transition(.handoff)
-            } else {
-                // The cover's view, as it is on the cover: Send to, the switches, the Thread,
-                // the mic (its buttons in the vertical bar where the screen has one, else its
-                // own top bar).
-                main.phoneBody.transition(.handoff)
-            }
-        }
+        // In hand: the book's page has the trackpad, the keys and the mic all at once; the laptop's
+        // its modes. At rest: the cover's view, as it is on the cover — Send to, the switches, the
+        // Thread, the mic (its buttons in the vertical bar where the screen has one, else its own
+        // top bar). Both stay built (`keptPair`).
+        main.keptPair(inHand: watcher.isShowing,
+                      rest: main.phoneBody,
+                      hand: Group { if vertical { DuoLaptopDeck(main: main, vertical: true) } else { laptopModes } })
         .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.isShowing)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .contain)
@@ -915,6 +1076,8 @@ struct DuoGlance: View {
     var pictureHeight: CGFloat? = nil
     /// The laptop's screen: no bezel, no corner.
     var edge = false
+    /// Built but hidden behind the window in hand (`DuoMacArea`): its window has no viewer.
+    var dormant = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     /// The pick's window as it last looked (Nov 3 2026): on the plate while the Mac connects.
     @State private var kept: UIImage?
@@ -936,7 +1099,7 @@ struct DuoGlance: View {
             // Opening, its last picture already there (the live one dissolves in over it).
             if watcher.isOpen, watcher.hasPicture || watcher.lastPicture != nil {
                 // Live, the pictures still coming: the same screen, without its controls.
-                let window = WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: fill)
+                let window = WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: fill, dormant: dormant)
                 if let pictureHeight {
                     VStack(spacing: 0) {
                         window.frame(height: pictureHeight)

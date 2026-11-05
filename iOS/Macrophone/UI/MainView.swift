@@ -44,6 +44,15 @@ struct MainView: View {
     /// steps aside for the words while the mic is open, or comes back after them: it grew out
     /// of the hidden Dock then, as if opened again (Nov 4 2026).
     @State var windowViaDock = true
+    /// The inner screen's bar changes its buttons once the window has finished moving (Nov 4
+    /// 2026): the bar's items are UIKit's, made again each time they change — a tenth of a second
+    /// on the main thread (more the first time), which held Show it here and Done that long
+    /// before the window moved. Changed after the motion, the window starts on the next frame.
+    @State var innerBarWindow = false
+    /// The pose's layout lies under full screen: its windows have no viewer (`poseBody`).
+    @State var innerAsleep = false
+    @State var innerAsleepTask: Task<Void, Never>?
+    @State var innerBarTask: Task<Void, Never>?
     /// The mic is one thing wherever a layout puts it (Nov 4 2026): as one layout gives way to
     /// another (a window coming into hand on the Duo's inner screen, a pose) it moves to its new
     /// place instead of one fading out where it was while another fades in somewhere else.
@@ -100,6 +109,17 @@ struct MainView: View {
     /// The top bar, header and controls: at rest, when nothing else has the area.
     var showSettings: Bool { !showLiveWords && !watcher.isShowing }
 
+    /// The bar holds the window's buttons (Done, Sound, …) rather than the app's (the Mac, History,
+    /// Settings, …). On the inner screen a beat behind the window (`innerBarWindow`).
+    var barWindow: Bool { posture.pose.isInner ? innerBarWindow : watcher.isShowing }
+
+    /// The phone's layout shows the window in its own area — not on the Duo's inner screen, where
+    /// it's the cover's view beside the window and stays at rest (Nov 4 2026: it stays built, hidden,
+    /// while a window is in hand, so the change is a fade, not a rebuild).
+    var windowHere: Bool { watcher.isShowing && !posture.pose.isInner }
+    /// The phone layout's settings show.
+    var phoneSettings: Bool { !showLiveWords && !windowHere }
+
 
     /// How the iPhone Duo is held (Oct 25 2026): the cover screen keeps this layout; the inner
     /// screen's poses are laid out in `UI/DuoView.swift`.
@@ -140,10 +160,25 @@ struct MainView: View {
         .onChange(of: recorder.hasWords) { _, _ in react() }
         .onChange(of: model.status) { _, _ in react() }
         .onAppear { react() }
+        .onAppear { innerBarWindow = watcher.isShowing }
+        .onChange(of: watcher.isShowing) { _, on in barFollows(on) }
+        // A pose change is a new layout anyway: the bar follows at once.
+        .onChange(of: posture.pose) { _, _ in innerBarTask?.cancel(); innerBarWindow = watcher.isShowing }
         // A pose settling: a soft tick, and VoiceOver hears what's where now.
         .onChange(of: posture.settleSeq) { _, _ in
             Haptics.soft()
             UIAccessibility.post(notification: .layoutChanged, argument: posture.pose.spoken)
+        }
+    }
+
+    /// The inner screen's bar follows the window once its motion is done (`innerBarWindow`).
+    func barFollows(_ on: Bool) {
+        innerBarTask?.cancel()
+        guard posture.pose.isInner, innerBarWindow != on else { innerBarWindow = on; return }
+        innerBarTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 550_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.2)) { innerBarWindow = watcher.isShowing }
         }
     }
 
@@ -152,10 +187,30 @@ struct MainView: View {
     var inFullScreen: Bool { watcher.fullScreen && watcher.isShowing && Watcher.allowsFullScreen(posture.pose) }
 
     @ViewBuilder private var poseBody: some View {
-        if inFullScreen {
-            DuoFullScreen(main: self).transition(.opacity)
-        } else {
+        // Full screen lies over the pose's layout, which stays built underneath, hidden, its
+        // windows without viewers (`innerAsleep`) — leaving full screen built the whole inner
+        // screen again, its bar and both of its halves, a quarter of a second before anything
+        // moved (Nov 4 2026).
+        ZStack {
             layoutBody
+                .opacity(inFullScreen ? 0 : 1)
+                .allowsHitTesting(!inFullScreen)
+                .accessibilityHidden(inFullScreen)
+                .environment(\.innerAsleep, innerAsleep)
+                .environment(\.threadPaused, inFullScreen)
+            if inFullScreen {
+                DuoFullScreen(main: self).transition(.opacity)
+            }
+        }
+        .onChange(of: inFullScreen) { _, on in
+            innerAsleepTask?.cancel()
+            guard on else { innerAsleep = false; return }
+            // Asleep once full screen has faded in over it (its window keeps its picture meanwhile).
+            innerAsleepTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
+                innerAsleep = true
+            }
         }
     }
 
@@ -186,6 +241,8 @@ struct MainView: View {
     @ViewBuilder func innerBarred<Content: View>(_ content: Content) -> some View {
         NavigationStack {
             content
+                // The one mic, over whichever layout is on screen (`innerMic`).
+                .overlayPreferenceValue(MicSlotKey.self) { innerMic($0) }
                 .toolbar { if barUsed { coverToolbar } }
                 .toolbar(barUsed ? .automatic : .hidden, for: .navigationBar)
                 .toolbar(barUsed ? .automatic : .hidden, for: .bottomBar)
@@ -241,30 +298,30 @@ struct MainView: View {
                         }
                         // Hidden, it keeps the height it had while it showed: the room changing
                         // under it as the window comes or goes never moves it.
-                        .frame(width: area.size.width, height: showSettings || settingsRoom == 0 ? area.size.height : settingsRoom, alignment: .top)
+                        .frame(width: area.size.width, height: phoneSettings || settingsRoom == 0 ? area.size.height : settingsRoom, alignment: .top)
                     }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if showSettings { settingsRoom = $0 } }
-                    .onChange(of: showSettings) { _, on in if on { settingsRoom = 0 } }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if phoneSettings { settingsRoom = $0 } }
+                    .onChange(of: phoneSettings) { _, on in if on { settingsRoom = 0 } }
                     // The mic row below changes size as a window opens or closes: the panel takes
                     // its new place at once and only fades — it used to slide down as it went and
                     // up as it came back, under the window's fade (Nov 3 2026, "elements …
                     // briefly stutter or glitch before correcting").
                     .animation(nil, value: watcher.isShowing)
                     .animation(nil, value: showLiveWords)
-                    .opacity(showSettings ? 1 : 0)
+                    .opacity(phoneSettings ? 1 : 0)
                     // Out quickly (what comes in takes the stage), back in on the settle spring.
                     // (The cover: back in once the window has gone — Motion.afterLeave.)
-                    .animation(showSettings ? (isCover && !reduceMotion ? Motion.afterLeave : Motion.pick(Motion.settle, reduce: reduceMotion)) : .easeOut(duration: 0.1), value: showSettings)
-                    .allowsHitTesting(showSettings)
-                    .accessibilityHidden(!showSettings)
+                    .animation(phoneSettings ? (isCover && !reduceMotion ? Motion.afterLeave : Motion.pick(Motion.settle, reduce: reduceMotion)) : .easeOut(duration: 0.1), value: phoneSettings)
+                    .allowsHitTesting(phoneSettings)
+                    .accessibilityHidden(!phoneSettings)
                     // Watching: the window takes the area (Done brings the settings back).
-                    if watcher.isShowing && !showLiveWords {
+                    if windowHere && !showLiveWords {
                         WatchPanel(watcher: watcher, compact: compact, cover: isCover,
                                    bare: isCover && input.keysUp).transition(windowTransition)
                     }
                     if showLiveWords {
                         VStack(spacing: 0) {
-                            if watcher.isShowing {
+                            if windowHere {
                                 WatchStrip(watcher: watcher, compact: compact)
                                     .padding(.horizontal, Space.margin)
                                     .padding(.top, 8)
@@ -286,7 +343,7 @@ struct MainView: View {
                 // glow around the window looks cut off on the sidebar").
                 .clipShape(FootOnly())
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
-                .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
+                .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: windowHere)
                 // The Thread, one band in the same place in every state, and the mic under it —
                 // and, while a window shows, the page row above the Thread and the keyboard and
                 // the trackpad beside the mic (the Thread folds away on those pages: the trackpad
@@ -308,18 +365,28 @@ struct MainView: View {
                               // screen ignores the keyboard's safe area — below).
                               // (The cover's foot is padded by `CoverFoot`, outside this view.)
                               keyboardRoom: laysOutKeyboard ? max(0, input.keyboardRoom - (isCover ? CoverFoot.screenFoot : geo.safeAreaInsets.bottom)) : 0,
-                              smoothHeight: isCover) {
+                              smoothHeight: isCover,
+                              // The inner screen: this is the cover's view beside the window, never
+                              // the window's own pages (it stays built, hidden, while one is in hand).
+                              restOnly: posture.pose.isInner) {
                     // One mic button in every state: a hold on the cover's small mic flips the
                     // screen to the live words, and two branches made that a different button
                     // mid-press — the hold was lost (Oct 31 2026, Sameer: "press and hold on the
                     // mic button is not working").
                     VStack(spacing: coverWatching ? 2 : 0) {
-                        if !coverWatching { Color.clear.frame(height: compact ? 14 : 30) }
+                        // (Upright inside, the cover's view shares the screen with the window and the
+                        // bar: a breath less over the mic, and the status on one line.)
+                        if !coverWatching { Color.clear.frame(height: tightInner ? 4 : compact ? 14 : 30) }
                         // The cover, watching: one row under the thumb — the keyboard, the mic,
                         // the trackpad.
                         HStack(spacing: 0) {
                             if coverWatching { coverPageButton(.keyboard).frame(maxWidth: .infinity) }
-                            micButton(size: coverWatching ? 64 : 92)
+                            if posture.pose.isInner {
+                                // The inner screen's one mic sits here at rest (`innerMic`).
+                                micSlot(size: 92, inHand: false)
+                            } else {
+                                micButton(size: coverWatching ? 64 : 92)
+                            }
                             if coverWatching { coverPageButton(.trackpad).frame(maxWidth: .infinity) }
                         }
                         .padding(.top, coverWatching ? 4 : 0)
@@ -338,14 +405,25 @@ struct MainView: View {
                                 .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
                                 .overlay { LandedPill() }
                         } else {
-                            statusSlot
+                            Group {
+                                if tightInner {
+                                    FixedSlot(alignment: .top) {
+                                        Text("A").font(.subheadline).frame(maxWidth: .infinity)
+                                    } content: {
+                                        StatusLine(recorder: recorder, holding: holding || look == "holding", font: .subheadline)
+                                    }
+                                    .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+                                } else {
+                                    statusSlot
+                                }
+                            }
                                 // The cover: the landed pill is the status line's here too, under
                                 // the mic — hung over the mic it sat across the Thread and the
                                 // mic's ring (Nov 4 2026), and moved from under to over on Done.
                                 .opacity(isCover && model.landedChip != nil ? 0 : 1)
                                 .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
                                 .overlay(alignment: .top) { if isCover { LandedPill().padding(.top, 2) } }
-                                .padding(.bottom, compact ? 6 : 18)
+                                .padding(.bottom, tightInner ? 2 : compact ? 6 : 18)
                         }
                     }
                 } thread: {
@@ -394,6 +472,9 @@ struct MainView: View {
         .animation(.easeOut(duration: 0.2), value: model.fixDraft)
     }
 
+    /// The inner screen upright (the laptop, flat upright): the cover's view under the window.
+    var tightInner: Bool { posture.pose.isInner && posture.pose.foldAcross }
+
     /// Every iPhone but the Duo (its cover and inner screen have layouts of their own).
     var regularPhone: Bool { !barUsed && !posture.pose.isInner }
 
@@ -406,6 +487,15 @@ struct MainView: View {
     // MARK: The iPhone Duo's cover: the buttons in the vertical bar
 
     func micButton(size: CGFloat) -> some View {
+        micCore(size: size)
+            .matchedGeometryEffect(id: micID, in: micSpace)
+            // (The cover: the pill is the status line's, under the mic — above it are the window's
+            // answers, or the Thread. Nov 4 2026.)
+            .landedPill(on: !isCover)
+    }
+
+    /// The mic button itself, wherever a layout puts it.
+    func micCore(size: CGFloat) -> MicButton {
         MicButton(recording: isRecording,
                   finishing: isFinishing,
                   mode: filamentMode,
@@ -418,10 +508,6 @@ struct MainView: View {
                       model.toggleRecording()
                   },
                   size: size)
-            .matchedGeometryEffect(id: micID, in: micSpace)
-            // (The cover: the pill is the status line's, under the mic — above it are the window's
-            // answers, or the Thread. Nov 4 2026.)
-            .landedPill(on: !isCover)
     }
 
     /// The keyboard or the trackpad, a round glass button beside the cover's mic.
@@ -481,7 +567,7 @@ struct MainView: View {
     /// Done first, then the window's own buttons (Apple's order for the bar); at rest History and
     /// Settings. While the mic is open nothing: the transcript has the screen.
     @ToolbarContentBuilder var coverToolbar: some ToolbarContent {
-        if watcher.isShowing && !showLiveWords {
+        if barWindow && !showLiveWords {
             // Done is the last to fold into the bar's overflow (the keyboard leaves it short).
             if #available(iOS 27.0, *) {
                 ToolbarItem(placement: .topBarLeading) { coverDone }.visibilityPriority(.high)
@@ -519,7 +605,7 @@ struct MainView: View {
                     if !watcher.isDesktop { WatchWindowMenu(watcher: watcher, bar: true) }
                 }
             }
-        } else if showSettings {
+        } else if !barWindow && !showLiveWords {
             // The upper group: the Mac and the app's own pages.
             ToolbarItemGroup(placement: .topBarTrailing) {
                 CoverMacItem()

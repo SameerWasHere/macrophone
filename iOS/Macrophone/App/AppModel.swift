@@ -1665,6 +1665,9 @@ extension AppModel: LinkClientDelegate {
 
     /// The window view, from the inner screen's glance (after Done): the same window the pose opens.
     func showWindowForPose() {
+        #if DEBUG
+        HitchProbe.shared.begin("show")
+        #endif
         Haptics.tick()
         openedByPose = false
         let pick = settings.selection.target

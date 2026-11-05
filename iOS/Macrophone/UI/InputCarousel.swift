@@ -59,6 +59,10 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// animation — on Done the page grew in one frame, the window above was cut short and the
     /// mic jumped up before the rest of the screen moved.
     var smoothHeight = false
+    /// The mic alone, whatever the window is doing (the Duo's inner screen, Nov 4 2026): the cover's
+    /// view stays built beside the deck while a window is in hand, hidden, so it never shows the
+    /// window's pages — nor builds a keyboard field of its own.
+    var restOnly = false
     /// The mic page: the mic button and the status line, built by the mic screen.
     @ViewBuilder var mic: () -> Mic
     /// The Thread's band, between the row and the pages.
@@ -73,13 +77,16 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     @State private var micHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var multi: Bool { input.pages.count > 1 }
-    private var index: Int { input.pages.firstIndex(of: input.page) ?? 0 }
+    private var pages: [MacInput.Page] { restOnly ? [.mic] : input.pages }
+    private var current: MacInput.Page { restOnly ? .mic : input.page }
+    private var keysUp: Bool { !restOnly && input.keysUp }
+    private var multi: Bool { pages.count > 1 }
+    private var index: Int { pages.firstIndex(of: current) ?? 0 }
     /// The Thread shows on the mic page alone: the trackpad takes its room, the keyboard the foot.
     /// The Thread shows on the mic page alone — and not on a deck too short for it (the Duo
     /// folded with the window's question up: the mic keeps its room, the Thread folds away).
     /// While the keyboard is up (and on its way down) the Thread stays folded, whatever the page.
-    private var threadShown: Bool { input.page == .mic && !input.keysUp && !(fill.map { $0 < 175 } ?? false) }
+    private var threadShown: Bool { current == .mic && !keysUp && !(fill.map { $0 < 175 } ?? false) }
     private var motion: Animation { reduceMotion ? .easeInOut(duration: 0.2) : Motion.settle }
 
     var body: some View {
@@ -109,12 +116,12 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                 // carousel took that width and kept it, and the trackpad ran off both sides with
                 // the keyboard's button out of sight).
                 PagesLayout {
-                    ForEach(input.pages) { page in
+                    ForEach(pages) { page in
                         pageView(page)
                             .frame(width: width > 0 ? width : nil)
                             .offset(x: offset(of: page))
-                            .accessibilityHidden(page != input.page)
-                            .allowsHitTesting(page == input.page)
+                            .accessibilityHidden(page != current)
+                            .allowsHitTesting(page == current)
                     }
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -132,10 +139,10 @@ struct InputCarousel<Mic: View, Thread: View>: View {
             // Without a shape of its own the empty room beside the mic and under the Thread
             // would take no touch at all.
             .contentShape(Rectangle())
-            .simultaneousGesture(swipe, including: multi && input.page == .mic && !rowDimmed ? .all : .subviews)
+            .simultaneousGesture(swipe, including: multi && current == .mic && !rowDimmed ? .all : .subviews)
         }
-        .animation(motion, value: input.page)
-        .animation(motion, value: input.pages)
+        .animation(motion, value: current)
+        .animation(motion, value: pages)
     }
 
     /// The pages' height: the mic page's own; the trackpad's that plus the Thread's room (the
@@ -143,12 +150,12 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// on the keyboard) — until then the trackpad's room, so nothing moves before it rises, and
     /// the breath stays until it has gone again (`MacInput.keysUp`).
     private var pagesHeight: CGFloat? {
-        if input.keysUp { return InputCarouselLook.keyboardBreath + keyboardRoom }
+        if keysUp { return InputCarouselLook.keyboardBreath + keyboardRoom }
         if let fill {
             // The deck: whatever the row and the Thread leave.
             return max(0, fill - (multi && !rowHidden ? InputCarouselLook.row + InputCarouselLook.rowGap : 0) - (threadShown ? threadHeight : 0))
         }
-        switch input.page {
+        switch current {
         case .mic: return micHeight > 0 ? micHeight : nil
         case .trackpad, .keyboard: return micHeight > 0 ? micHeight + threadHeight : nil
         }
@@ -156,7 +163,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
 
     /// Where a page sits: the current one at 0, the others a width to each side.
     private func offset(of page: MacInput.Page) -> CGFloat {
-        guard let i = input.pages.firstIndex(of: page), width > 0 else { return page == input.page ? 0 : 10_000 }
+        guard let i = pages.firstIndex(of: page), width > 0 else { return page == current ? 0 : 10_000 }
         return CGFloat(i - index) * width + dragX
     }
 
@@ -201,14 +208,14 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         DragGesture(minimumDistance: 24, coordinateSpace: .local)
             .updating($dragX) { v, x, _ in
                 // One page (no window showing): nothing to slide to, so nothing moves.
-                guard input.pages.count > 1, !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
+                guard pages.count > 1, !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
                 var dx = v.translation.width
                 // No page that way: the finger meets a soft stop.
-                if (dx > 0 && index == 0) || (dx < 0 && index == input.pages.count - 1) { dx = dx / 4 }
+                if (dx > 0 && index == 0) || (dx < 0 && index == pages.count - 1) { dx = dx / 4 }
                 x = dx
             }
             .onEnded { v in
-                guard input.pages.count > 1, !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
+                guard pages.count > 1, !onMic(v.startLocation), abs(v.translation.width) > abs(v.translation.height) else { return }
                 let x = v.translation.width, flick = v.predictedEndTranslation.width
                 guard abs(x) > width / 4 || abs(flick) > width / 2 else { return }
                 // Right to left: the trackpad (the next page); left to right: the keyboard.

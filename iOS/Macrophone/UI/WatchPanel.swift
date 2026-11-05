@@ -55,6 +55,8 @@ struct WatchPanel: View {
     /// The Duo's inner screen with the laptop deck under it: the keys are the deck's, so no key
     /// row; Pan | Scroll joins the header.
     var deck = false
+    /// Built but hidden (the Duo's inner screen, while it glances): its window has no viewer.
+    var dormant = false
     /// The window just switched to, named for a moment ("Terminal — codex ~/api").
     @State private var switchedTo: String?
     @State private var switchedTask: Task<Void, Never>?
@@ -72,7 +74,7 @@ struct WatchPanel: View {
         VStack(spacing: compact ? 6 : 8) {
             // The cover: the name floats over the window's corner instead of taking a row.
             if !cover { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce) }
-            WatchWindow(watcher: watcher, interactive: true, footInset: floats && watcher.phase == .live ? floatingHeight : 0)
+            WatchWindow(watcher: watcher, interactive: true, footInset: floats && watcher.phase == .live ? floatingHeight : 0, dormant: dormant)
                 .frame(maxHeight: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
                 // The first times: what a tap, a hold, a pinch and the side swipe do (on the Duo's
@@ -107,7 +109,7 @@ struct WatchPanel: View {
                 .offset(x: slide)
             // A strip under the window, never a card over it (the inner screen, and the cover —
             // whose window is too short to lose to a card).
-            if (duo || cover), !bare {
+            if (duo || cover), !bare, !dormant {
                 WatchTipCard(watcher: watcher, sessions: sessions.count, inline: true)
             }
             // The cover: the answers carry Esc, and Pan | Scroll is in the vertical bar — the key
@@ -619,14 +621,20 @@ struct WatchWindow: View {
     /// The finger that held moving on, and lifting.
     var onHoldMoved: (CGVector, TimeInterval) -> Void = { _, _ in }
     var onHoldEnded: () -> Void = {}
+    /// Built but not on screen (the Duo's inner screen keeps the glance and the window in hand
+    /// both built, one hidden — Nov 4 2026): no viewer, so it never takes the video from the one
+    /// on screen, nor measures for the window's shape.
+    var dormant = false
 
     init(watcher: Watcher, interactive: Bool, bezelWidth: CGFloat = WatchLook.bezelWidth, corner: CGFloat = WatchLook.bezel, fill: Bool = false, footInset: CGFloat = 0,
+         dormant: Bool = false,
          onHold: ((CGPoint) -> Bool)? = nil, onHoldMoved: @escaping (CGVector, TimeInterval) -> Void = { _, _ in }, onHoldEnded: @escaping () -> Void = {}) {
         self.watcher = watcher
+        self.dormant = dormant
         self.onHold = onHold
         self.onHoldMoved = onHoldMoved
         self.onHoldEnded = onHoldEnded
-        self.interactive = interactive
+        self.interactive = interactive && !dormant
         self.bezelWidth = bezelWidth
         // A Mac's window is square-cornered, so the picture is too, everywhere: a rounded corner
         // only ever cut its corners off (Nov 1 2026, Sameer: "windows are always going to be sharp
@@ -665,7 +673,7 @@ struct WatchWindow: View {
             // stays under the video for a beat after the first frame: the video layer draws a
             // moment after it's handed the frame, and the plate never shows bare.
             let kept = watcher.hasPicture ? nil : watcher.lastPicture
-            if watcher.hasPicture || kept != nil {
+            if watcher.hasPicture || kept != nil, !dormant {
                 WindowViewer(image: kept ?? watcher.image ?? watcher.lastPicture, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
                              focus: watcher.focus, recenter: watcher.recenter, generation: watcher.windowSeq, kept: kept != nil,
                              interactive: interactive && watcher.phase == .live,

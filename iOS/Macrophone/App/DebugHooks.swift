@@ -88,6 +88,7 @@ import UIKit
 /// MACROPHONE_MIC_LOOK=pressed|holding|starting|finishing|sending|sent|queued|error|disabled
 ///                                            holds one of the mic button's looks (the Thread and the sky follow; holding
 ///                                            pairs with MACROPHONE_FAKE_RECORDING for "let go to send")
+/// MACROPHONE_HITCH=1                         time each action to the next frame (`HitchProbe`), marked in recordings
 /// MACROPHONE_A11Y=motion,transparency,contrast  the mic button as under Reduce Motion / Reduce Transparency / Increase
 ///                                            Contrast (the simulator can't flip those live; the button alone honours this)
 /// MACROPHONE_TYPE=xxxLarge|accessibility1…5  the whole app at that Dynamic Type size
@@ -380,6 +381,7 @@ enum DebugHooks {
                 if env["MACROPHONE_WATCH"] == "1" { model.watcher.open(model.selection.target) }
                 for a in (env["MACROPHONE_WATCH_ACTIONS"] ?? "").split(separator: ",").map(String.init) {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if a != "show" { HitchProbe.shared.begin(a) }
                     if a == "open" {
                         // The Dock's second tap / Show it here (as they call it: no animation of
                         // their own — the screens animate what changes).
@@ -557,6 +559,65 @@ enum DebugHooks {
                 model.debugInject(text, stoppedEarly: early)
             }
         }
+    }
+}
+
+/// MACROPHONE_HITCH=1: how long the main thread is held after a change (Show it here, Done, full
+/// screen, every MACROPHONE_WATCH_ACTIONS step) — the time to the next display frame after it, and
+/// the longest gap between frames in the 1.2 s after — logged as "HITCH <what>: …" (read it with
+/// `simctl spawn <udid> log show --predicate 'eventMessage CONTAINS "HITCH"'`), and a small square at
+/// the screen's foot changes colour the moment it starts, for a recording.
+@MainActor final class HitchProbe: NSObject {
+    static let shared = HitchProbe()
+    private var link: CADisplayLink?
+    private var start: CFTimeInterval = 0
+    private var last: CFTimeInterval = 0
+    private var label = ""
+    private var gaps: [Double] = []
+    private var first: Double?
+
+    func begin(_ what: String) {
+        guard DebugHooks.env["MACROPHONE_HITCH"] == "1" else { return }
+        link?.invalidate()
+        label = what
+        start = CACurrentMediaTime()
+        last = start
+        gaps = []
+        first = nil
+        let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        l.add(to: .main, forMode: .common)
+        link = l
+        // MACROPHONE_HITCH=1 also marks the moment in a recording: a small square in the screen's
+        // corner changes colour and is committed at once, before the change is laid out — the
+        // frames between it and the first one that moves are the time the main thread held.
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return }
+        if mark == nil {
+            let m = CALayer()
+            m.zPosition = 10_000
+            window.layer.addSublayer(m)
+            mark = m
+        }
+        marks += 1
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mark?.frame = CGRect(x: window.bounds.midX - 6, y: window.bounds.maxY - 14, width: 12, height: 12)
+        mark?.backgroundColor = (marks % 2 == 0 ? UIColor.systemGreen : UIColor.systemRed).cgColor
+        CATransaction.commit()
+        CATransaction.flush()
+    }
+    private var mark: CALayer?
+    private var marks = 0
+
+    @objc private func tick(_ l: CADisplayLink) {
+        let now = CACurrentMediaTime()
+        if first == nil { first = (now - start) * 1000 }
+        gaps.append((now - last) * 1000)
+        last = now
+        guard now - start > 1.2 else { return }
+        l.invalidate()
+        link = nil
+        let slow = gaps.filter { $0 > 25 }.count
+        NSLog("HITCH %@: first frame +%.0f ms, longest gap %.0f ms, %d frames, %d over 25 ms", label, first ?? 0, gaps.max() ?? 0, gaps.count, slow)
     }
 }
 #endif
