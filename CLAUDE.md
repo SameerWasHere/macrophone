@@ -794,11 +794,8 @@ Walked frame by frame on a Duo simulator's cover (`simctl io recordVideo --displ
   once, so the newest lines jumped up over an empty plate. `ViewerScrollView.followResize` copies
   the keyboard's own size animation onto the bounds origin, so the picture's foot rides the view's.
   The keyboard page's fold rides `MacInput.keysUp`'s own spring (the keyboard's duration, the
-  iPhone pass's) — nothing on the cover overrides it; `CoverFoot` moves in the same time. Left:
-  as the keyboard goes, the window still grows to the foot for ~5 frames before the mic row comes
-  back under it (the keyboard's safe area leaves in one step inside the NavigationStack; laying
-  the room out from `keyboardRoom` as the iPhone does was tried — the stack took the room a second
-  time and the window stopped ~250 pt above the keyboard).
+  iPhone pass's) — nothing on the cover overrides it. (The overshoot as the keyboard went is fixed
+  in the second pass, below.)
 - **Words over the mic:** the cover's one-line status could wrap over the mic row (now one line,
   `minimumScaleFactor`); the trackpad's how-to was drawn where its page would land while it slid in,
   across the mic and its buttons — it shows on its own page only, fading in once the slide is done.
@@ -810,9 +807,36 @@ Walked frame by frame on a Duo simulator's cover (`simctl io recordVideo --displ
 - `PlaceTileStyle`'s lit rim is a gradient masked by a plain stroke (a gradient stroke draws on the
   CPU). Hook: `MACROPHONE_WATCH_ACTIONS=…,tappage@trackpad|keyboard|mic` (as the cover's buttons).
 - Seen and left: the launch screen in dark is black for ~1 s before the fade-in (the launch image);
-  the cover's status crossfades two strings at two widths ("Cleaning up" → "Sending…", shared
-  `StatusLine`); the floating window name covers the Mac window's own title bar (Oct 30 decision);
-  the demo window can't reshape, so it letterboxes in Scroll.
+  the floating window name covers the Mac window's own title bar (Oct 30 decision); the demo window
+  can't reshape, so it letterboxes in Scroll.
+- **The second pass (the same day):**
+  - *The keyboard going no longer overshoots.* `CoverFoot` had its two steps the wrong way round:
+    `.ignoresSafeArea(.container)` then `.padding(.bottom, 34)` laid the padding out *in* the
+    stack's safe area, so the keyboard's room was already taken (and given back in one step as it
+    went: the window ran to the foot for ~5 frames), the foot's 34 counted twice (the mic screen
+    ended 68 pt up, not 34) and nothing inside could ignore either. Now it pads first and ignores
+    `.all` at the bottom outside, the same in every state; the cover lays the keyboard's room out
+    itself like the regular iPhone (`MainView.laysOutKeyboard`: `InputCarousel(keyboardRoom:)` =
+    `MacInput.keyboardRoom` − the 34). Measured: the mic screen 620 pt tall from the first frame,
+    keyboard up or down. Fixing a word: `FixWordCard` rides the keyboard from an overlay outside
+    `CoverFoot` (the screen under it doesn't move). The whole cover screen sits 34 pt lower than
+    before (the 34 it meant to have). On the simulator the cover's keyboard vanishes in one frame
+    as it goes; the window then grows down on the keyboard's spring — a device slides it.
+  - *One screen at a time* (`AnyTransition.handoffAfter`, `Motion.afterLeave`, cover only): the
+    window, the live words and Send to hand over in turn — what leaves goes in 0.12 s, what arrives
+    fades in after it; the Thread and the clock wait for the window too (they were drawn over its
+    answers). Status messages do the same (`StatusLine(swap:)`): out, then in at their own width.
+  - *The landed pill is the status line's in every state* (under the mic, the line hidden while it
+    shows): hung from the mic's frame by an alignment guide it landed ~40 pt off — over the disc
+    and both buttons beside a window, across the Thread and the mic's ring at rest — and jumped from
+    under to over on Done. The mic page sits on the foot while its height follows
+    (`InputCarousel`, `smoothHeight`): a taller page hung over the home indicator as the mic opened.
+  - *The mic's light follows its size* (`MicLightView.disc`, every device): the one mic is 64 beside
+    a window and 92 at rest; its bloom, rim and level kept the first size and a landing ring stayed
+    at the old middle, off to one side.
+  - Left: the mic's opening ring shows over the window's answers for the 0.12 s the window takes
+    to go; a first open of a window with no kept picture shows a plain plate (light in light mode)
+    until the first frame; the bar's buttons change a frame before the window moves (system bar).
 
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
