@@ -37,7 +37,10 @@ struct TrackpadPage: View {
             }
             TrackpadSurface(input: input, watcher: watcher)
                 .clipShape(shape)
-            if !input.trackpadUsed {
+            // Only on the trackpad's own page, and once it has slid into place (Nov 4 2026): the
+            // words were drawn where the page would land while the plate was still sliding in,
+            // across the mic and its buttons.
+            if !input.trackpadUsed, input.page == .trackpad {
                 VStack(spacing: 6) {
                     Image(systemName: "hand.point.up.left")
                         .font(.title3.weight(.semibold))
@@ -52,7 +55,8 @@ struct TrackpadPage: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 .allowsHitTesting(false)
-                .transition(.opacity)
+                .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.25).delay(0.3)),
+                                        removal: .opacity.animation(.easeOut(duration: 0.1))))
             }
         }
         .padding(.horizontal, inset)

@@ -350,12 +350,9 @@ struct MainView: View {
             // spring); and the keyboard's page folding away the moment the keyboard was asked for
             // stretched the window to the foot, then the keyboard rising squeezed it back — now
             // that fold rides the keyboard's own curve, so the window's foot moves once, up.
-            .transaction(value: input.page) { t in
-                if isCover, t.animation == nil, !reduceMotion { t.animation = Motion.settle }
-            }
-            .transaction(value: input.keysUp) { t in
-                if isCover, t.animation == nil { t.animation = reduceMotion ? nil : .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500) }
-            }
+            // (Constant off the cover, so the phone and the inner screen are untouched.)
+            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: isCover ? input.page : .mic)
+            .animation(reduceMotion ? nil : .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500), value: isCover && input.keysUp)
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }
