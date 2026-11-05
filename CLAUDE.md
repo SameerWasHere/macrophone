@@ -839,6 +839,50 @@ Walked frame by frame on a Duo simulator's cover (`simctl io recordVideo --displ
     to go; a first open of a window with no kept picture shows a plain plate (light in light mode)
     until the first frame; the bar's buttons change a frame before the window moves (system bar).
 
+## Settings and sheets polish (Nov 4 2026)
+
+Settings, History, every sheet, setup and pairing, walked on an iPhone 17 Pro, an SE (at an
+accessibility text size too) and a Duo's cover and inner screen, light and dark — still frames
+through the hooks and real taps recorded frame by frame (`SettingsWalkUITests`). What changed:
+- **Setup slides page by page.** A tapped Continue / Skip cut to the next page: the step was an
+  `@AppStorage` value, whose change reaches the view outside `withAnimation`. `OnboardingView`
+  shows a `@State` step (`shownRaw`) and stores it beside. Already-done steps pass in the same
+  slide (`isDone`; the mic page skipping itself cut the slide). The page is a `ZStack` round the
+  step's switch, so the slide moves it whole — on the bare switch the slide reached the step's own
+  views, and pairing's phases (each `.transition(.opacity)` now) faded in place or blanked and slid
+  in from the edge. Titles end without a full stop (the pairing pages never had one); the first is
+  "Steer your Mac from here".
+- **Pairing closes with ×** (`Button(role: .close)`, Cancel before iOS 26) on the leading side, as
+  a flow does — not Done; none on the success page, whose button finishes it.
+- **Grabbers only where a sheet moves:** Your Macs (medium/large) and Control Center keep it;
+  Settings, History, pairing, Open an App and Custom Cleanup (a bar with Done) don't.
+- **Settings:** Send to's section has no header (its first row says it); the Macs and Recording
+  footers are a sentence or two (the quiet sentence only while the switch is on); Unpair beside
+  each Mac is a small red capsule (as Open an App's Quit) plus a swipe and a long press (Make
+  Active · Unpair…); unpaired, the Mac section drops the Pair row (the banner pairs). "Use my
+  Mac's wallpaper" in sentence case like its neighbours. At the accessibility sizes Cleanup is a
+  checked list (`Picker(.inline)`) — the segmented control keeps small type there.
+- **The Mac's page** (`MacConnectionView`): ends in **Unpair This Mac** (asked first; pops back,
+  except as the inner screen's group page — `popsOnUnpair`); its name moves into the bar once the
+  header's has scrolled under it (`ScrolledPast`, iOS 18+), never twice on screen. Away from
+  home's fourteen-line footer is **Set Up Away from Home** (`AwaySetupView`, `SettingsRoute
+  .awaySetup`, `away-setup`): five numbered steps, then Without Tailscale.
+- **Custom Cleanup's editor grows with its words** (`TextField(axis: .vertical)`, 8 lines at
+  least; Return is a new line): a fixed 340 pt editor was a scroll inside the page's scroll, its
+  last line cut. Reset to Default is down the page. "Use Custom" stacks under its words at the
+  accessibility sizes (it broke "Cus-tom").
+- Hooks: `MACROPHONE_SCREEN=connection|awaysetup|settings-pairing|historypage|controls`;
+  `MACROPHONE_SCROLL=middle|bottom|<0…1>` scrolls the front sheet's list after
+  `MACROPHONE_SCROLL_AFTER` (2.5 s; launch is ~3 s, so shoot at ~8). `SettingsWalkUITests`
+  (`TEST_RUNNER_MACROPHONE_WALK=1`; grant the microphone first) walks Settings, History, pairing
+  and setup, a beat between steps for `recordVideo`. The Custom instructions UI tests select all
+  and type (the field is taller than the screen).
+- Seen and left: on the inner screen the simulator gives Settings / History a compact sheet
+  (~650 pt), so one column (known, Inner screen polish); History's Clear All sits top-left where a
+  Cancel would (it asks first); the Dictionary keeps the keyboard after Return to add the next word;
+  the onboarding test page's title wraps at the accessibility sizes and its pages scroll under the
+  pinned button (as Setup Assistant's); the Control Center caps its type at xxLarge (recorded).
+
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
 Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on

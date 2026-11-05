@@ -253,7 +253,7 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(probe(app, contains: "instructions=You clean up speech-to-text transcripts."))
         // Edited (Edit instructions): the next dictation follows his words.
         editCustom(app)
-        let editor = app.textViews["custom-instructions"]
+        let editor = app.descendants(matching: .any).matching(identifier: "custom-instructions").firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 3), "Edit instructions opens them")
         replaceText(editor, with: "Write it all in capital letters.")
         XCTAssertEqual(app.staticTexts["custom-count"].label, "32 characters")
@@ -285,13 +285,12 @@ final class MacrophoneUITests: XCTestCase {
 
     /// Puts the cursor after the last word (scrolled to the end, a tap past it), deletes everything,
     /// then types. (A plain tap leaves the cursor wherever it lands.)
+    /// Selects everything in the field and types over it (the Custom instructions grow with their
+    /// words since Nov 4 2026, taller than the screen, so there's no foot to tap the caret to).
     private func replaceText(_ field: XCUIElement, with text: String) {
         field.tap()
-        field.swipeUp(velocity: .fast)
-        field.swipeUp(velocity: .fast)
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.98)).tap()
-        let count = (field.value as? String)?.count ?? 0
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: count + 5) + text)
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(XCUIKeyboardKey.delete.rawValue + text)
     }
 
     /// The Custom instructions in Settings: prefilled with Medium's, "Use Custom" when another level
@@ -303,10 +302,14 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(link.waitForExistence(timeout: 8))
         XCTAssertTrue(link.label.contains("Default"), link.label)
         link.tap()
-        let editor = app.textViews["custom-instructions"]
+        let editor = app.descendants(matching: .any).matching(identifier: "custom-instructions").firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 3))
         XCTAssertTrue((editor.value as? String ?? "").hasPrefix("You clean up speech-to-text transcripts."), "prefilled with Medium's")
-        XCTAssertFalse(app.buttons["custom-reset"].isEnabled, "nothing to reset yet")
+        // Reset sits under the instructions, which grow with their words: down the page.
+        let reset = app.buttons["custom-reset"]
+        for _ in 0..<6 where !reset.exists { app.swipeUp() }
+        XCTAssertFalse(reset.isEnabled, "nothing to reset yet")
+        for _ in 0..<6 where !app.buttons["use-custom"].isHittable { app.swipeDown() }
         app.buttons["use-custom"].tap()
         XCTAssertTrue(app.buttons["use-custom"].waitForNonExistence(timeout: 3), "Custom is now the level")
         replaceText(editor, with: "Keep it short.")
