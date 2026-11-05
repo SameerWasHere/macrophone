@@ -737,10 +737,11 @@ MACROPHONE_WATCH_ACTIONS=show,fit@largest,done,show,close`, then launch flat por
   layout drew its own top bar (the Mac's pill, History, Settings) for a moment.
 - **The mic is matched within one screen** (`MainView.micID`: "mic" on the cover, "mic.inner"
   inside): matched across the fold, the inner mic flew in from where the cover's had been and was
-  missing for the first frames of every unfold.
+  missing for the first frames of every unfold. **[Inside, superseded by the second pass: one mic, `innerMic`.]**
 - **Show it here grows the glance, Done shrinks it back** (`DuoMacHalf.screenSpace`, a
   `matchedGeometryEffect` on every branch): the glance and the window in hand are one screen, not
-  one at its new size fading in over the other at its old. **On its side the left page stays put**
+  one at its new size fading in over the other at its old. **[Superseded by the second pass: both are built and
+  fade (`KeptHidden`); a flat upright half still grows with its frame.]** **On its side the left page stays put**
   (`openLandscapeBody`): only the right page changes (the deck or the cover's view); the whole
   spread used to be swapped, the window fading out and in with it.
 - **The deck beside the window arrives with its layout** (`DuoLaptopDeck`): its own 0.5 s entrance
@@ -757,13 +758,65 @@ MACROPHONE_WATCH_ACTIONS=show,fit@largest,done,show,close`, then launch flat por
   (`horizontalSizeClass`): the simulator's sheet is compact (~650 pt on its side, though 835 is
   asked), and the collapsed split opened Settings on Send to with a back button.
 - Hook: `MACROPHONE_WATCH_ACTIONS=…,show` (the glance's Show it here, `showWindowForPose`).
-- **Found, not fixed:** Show it here costs ~0.4 s of the main thread on the simulator's Debug build
-  (−O the same) before the window grows — building the deck (the carousel, the keyboard field) and
-  rebuilding the bar's items; needs a Release build on his phone to judge. While two layouts hand
-  over, the two mics (the deck's and the cover view's) fade through each other for ~0.15 s. The
-  simulator plays its own fold animation (the folding half blurs and darkens) — not the app. The
-  kept picture can show at another zoom than the live one for a frame (WatchWindow, the cover
-  pass's). Full screen's exit button sits over the Mac window's traffic lights.
+- **Found, not fixed (first pass):** the simulator plays its own fold animation (the folding half
+  blurs and darkens, and shows the old frame under it) — not the app. The kept picture can show at
+  another zoom than the live one for a frame (WatchWindow, the cover pass's). [The Show it here
+  pause, the two mics and full screen's exit button: the second pass, below.]
+
+**The second pass (Nov 4 2026, same day).** Profiled with `xctrace record --template 'Time Profiler'
+--device <udid> --attach <pid>` (the exported `time-profile` table, main-thread runs grouped per
+action) and measured with `MACROPHONE_HITCH=1` (`HitchProbe`, DebugHooks: each action's time to the
+next display frame, logged "HITCH …"; a square at the screen's foot turns red/green the moment it
+starts, so a recording shows the tap). Show it here held the main thread 370 ms the first time and
+~180 ms after (on its side; Done ~130 ms; leaving full screen ~245 ms): building the deck (its
+keyboard field, trackpad, keys), the window's panel (header, menus) and the cover's view each time,
+and re-vending the bar's UIKit items (`ToolbarBridge` → `UIKitBarButtonItemGroup.makeVended`,
+the menus' `UIKitMenuButton`), ~60–120 ms on its own.
+- **Built ahead, shown by a fade** (`MainView.keptPair`, `KeptHidden`, DuoView.swift): the cover's
+  view and the deck (on its side, the book, the laptop), the window in hand and the glance
+  (`DuoMacArea`, `DuoMacHalf`) are all built and stay built; Show it here and Done change opacity
+  (what leaves in `Motion.leave`, what arrives on the settle spring). A hidden one takes no touch,
+  is hidden from VoiceOver, its Thread stops (`threadPaused` → `ThreadView.paused`), and it keeps the
+  size it had when last on screen (the cover's view re-laid in a shorter deck kept that room's scroll
+  offset — its top bar came back cut in half). Only the one on screen has a viewer (`WatchWindow
+  (dormant:)`, `WatchPanel(dormant:)`, `DuoGlance(dormant:)`), so the video is never wanted twice; the
+  one leaving keeps its viewer through its fade (`DormantAfterFade`, 0.25 s) — gone at once it left an
+  empty plate fading. The cover's view on the inner screen is the rest view only (`windowHere`,
+  `phoneSettings`, `InputCarousel(restOnly:)`): never the window's pages, never a keyboard field.
+- **The bar changes after the motion** (`innerBarWindow`, `barFollows`): on the inner screen the
+  bar's items (Done · Sound · … or the Mac · History · Settings) swap 0.55 s after the window, once
+  it has settled; a pose change swaps at once. (Hiding the bar is as costly: the laptop keeps its
+  own top bar at rest, made to fit — `tightInner`: a breath less over the mic and a one-line status
+  upright inside; its top bar used to be cut in half above Send to.)
+- **Full screen lies over the layout**, which stays built, hidden (`innerAsleep`: its windows lose
+  their viewers 0.35 s in), so leaving it is a fade, not a rebuild; the column deck doesn't force its
+  trackpad page under full screen.
+- **One mic inside** (`MicSlot`, `micSlot`, `innerMic` → `InnerMic`): each inner layout keeps an
+  empty slot where its mic goes (the cover's view 92, the laptop's mic mode 112, the column 72) and
+  one `MicButton`, drawn over the inner screen (in `innerBarred`), goes to the slot of the layout on
+  screen (`micOwner`: pose + in hand or not; a layout fading out still reports its slot and is
+  ignored), drawn at 112 and scaled down. It glides from a slot that showed, appears in place from
+  one that didn't (the laptop on its trackpad, the keyboard up); never two. The cover and every other
+  iPhone keep their own (`micButton`, matched as before).
+- **Full screen's way out is beside the mic** (`FloatingMic(exitShown:exit:)`): a 40 pt glass circle
+  level with the disc, on the side towards the screen's middle, fading with the screen's controls
+  (3.5 s; always for VoiceOver), hidden while the mic is dragged. In the top-left corner it covered
+  the Mac window's close, minimise and zoom buttons — every Mac window has them there, and a touch
+  there raised it under the finger as the tap went through to them. Beside the mic it's wherever he
+  put the mic: somewhere he doesn't need on the Mac, under his thumb.
+- **Numbers** (Debug, simulator, a loaded Mac; base = main before this pass, alternated in one run):
+  main-thread time at Show it here 370 / ~180 ms → ~60 / 15–28 ms (first / later; the rest of each
+  frame of the spring is 8–13 ms); Done ~130 → 17–30 ms; leaving full screen ~245 → ~75 ms; the bar's
+  swap (~70–120 ms) now lands after the motion. `HITCH` first frame: Show it here 360–383 / 151–194
+  → 48–124 ms; Done 117–144 → 39–69 ms. Recorded from the red square to the first changed frame on
+  its side: Show it here 218–375 → 123–168 ms, Done 120–145 → 20–103 ms — the window's first frame
+  of motion still comes 2–6 frames after the tap on the simulator: the main thread is free (the
+  `sample` of the main thread shows no wait), the simulator's renderer takes that long to draw the
+  newly visible glass for the first time. Needs his phone, in Release.
+- **Left / pre-existing:** `DuoUITests.testLaptopPoseIsAMacAboveAndTheDeckBelow` (the iOS keyboard
+  doesn't come up) and `testOpenPortraitIsTheGlanceOverTheCoversView` (Send to 276 < 306 pt wide)
+  fail on main as well; the other Duo tests and `FullScreenUITests` pass. The column deck squeezes its
+  trackpad to a sliver if the keyboard is up while the mic is open (only reachable from a hook).
 
 ## Cover polish (Nov 4 2026)
 
