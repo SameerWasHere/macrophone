@@ -549,7 +549,8 @@ final class Watcher: ObservableObject {
     /// the new half a second in. The view's own measure still checks it once it's live (a shape
     /// off by more than 4% is sent again).
     private func shapeAhead() {
-        guard !glancing, !sizedByHand, let target, !isDesktop, canFitToPhone, !Self.keepsOwnSize(target),
+        guard macFeatures().contains(WatchShape.aheadFeature),
+              !glancing, !sizedByHand, let target, !isDesktop, canFitToPhone, !Self.keepsOwnSize(target),
               !fullScreen, viewerPose == input.pose, viewerFills == fillsView,
               viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
         shapeSent = viewerSize

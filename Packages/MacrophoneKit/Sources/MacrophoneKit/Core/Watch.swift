@@ -296,6 +296,10 @@ public enum WatchWindowCommand: String, Codable, Sendable, CaseIterable {
 /// nothing wasted and nothing to pan to. Only to a Mac whose welcome names the feature.
 public enum WatchShape {
     public static let feature = "fitPhone"
+    /// The Mac keeps a shape that comes with the watch, before the window is found, and gives it
+    /// before the first picture (Nov 4 2026). A Mac from before drops it: the phone then waits for
+    /// the view's own measure, as it always did.
+    public static let aheadFeature = "fitPhoneAhead"
 
     /// The window's new frame: `aspect` (width ÷ height, the phone's view) at the full height of
     /// `area` (the screen's visible frame, top-left origin), or its full width when that's what

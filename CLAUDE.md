@@ -649,6 +649,28 @@ Sameer picked two of "what would Apple build":
   Nothing when there's nowhere to point. `MACROPHONE_GLOW=x,y,w,h` (DEBUG) draws it every 1.5 s.
   Needs a real check: the ring round Claude's composer, Messages' field, the caret in Terminal.
 
+## The polish pass (Nov 4 2026)
+
+Sameer: "still pretty stuttery with window resizes as you open the app … go through it all in great
+detail … every detail considered … no detail is too small". Part 1 (this session), then three
+agents (the cover, the regular iPhone, the inner screen) each with their own section below.
+- **A window opens at its shape:** the phone sends its view's shape right behind the watch
+  (`Watcher.shapeAhead`, when the view was measured in this pose before), to a Mac naming
+  `WatchShape.aheadFeature` ("fitPhoneAhead", Mac 1.1.6); the Mac keeps it until the window is
+  found (`Watch.wantedShape`) and reshapes it before the first picture (`look`, as Aa's sizes),
+  so the phone never sees it at its own size and then jump. A reshape mid-watch (a fold, a turn)
+  holds the frames until the size settles (`VideoPipe.holdForReshape`: 0.3–0.9 s, then the settled
+  one at once).
+- **Launch:** `RootView` hides the main view until it has a real size and lets nothing animate
+  for its first 0.7 s — the first frames had been laid out at almost no size and the settle
+  spring grew the window, the Dock and the mic out of the corner.
+- **The kept picture on the first frame** (`WindowSnapshots.cached`, a small memory cache).
+- **One mic:** `matchedGeometryEffect(id: "mic", in: micSpace)` on both mic buttons, so a layout
+  change moves it rather than cross-fading two. **Hand-overs:** `AnyTransition.handoff` (what
+  leaves goes in 0.12 s, `Motion.leave`) between the Duo's layouts. The flat upright inner
+  screen's window grows into hand on the settle spring. The focus re-crop glides.
+- Hooks: `MACROPHONE_WATCH=rest` + actions `open`, `close`, `pick@<app>`, `sheet@…`.
+
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
 Sameer: the trackpad's cursor "a bit smaller … it should contextually change just like it does on
