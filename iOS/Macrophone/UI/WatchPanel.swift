@@ -1837,6 +1837,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let s = zoomScale, h = imageSize.height * s
         let top = contentOffset.y + contentInset.top
         let wasBottom = top >= max(0, h - max(1, oldHeight - footInset)) - 24
+        let before = contentOffset.y
         configureZoom()
         minimumZoomScale = min(minimumZoomScale, s)
         maximumZoomScale = max(maximumZoomScale, s)
@@ -1844,7 +1845,24 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let bottom = max(0, h - visibleHeight)
         let y = wasBottom ? bottom : min(max(top, 0), bottom)
         contentOffset = CGPoint(x: contentOffset.x, y: y - contentInset.top)
+        followResize(from: before, keepBottom: wasBottom)
         reportWhole()
+    }
+
+    /// The view's height changing inside the keyboard's own animation (Nov 4 2026): UIKit moves
+    /// its size on the keyboard's spring, but the spot it shows was set at once — the newest
+    /// lines jumped up and the empty plate showed under them until the size caught up. The spot
+    /// rides the same spring, so the foot of the picture stays on the view's foot all the way.
+    private func followResize(from oldY: CGFloat, keepBottom: Bool) {
+        guard let size = layer.animation(forKey: "bounds.size") as? CABasicAnimation, size.isAdditive,
+              let grow = (size.fromValue as? NSValue)?.cgSizeValue,
+              let follow = size.copy() as? CABasicAnimation else { return }
+        let dy = keepBottom ? -grow.height : oldY - contentOffset.y
+        guard abs(dy) > 0.5 else { return }
+        follow.keyPath = "bounds.origin"
+        follow.fromValue = NSValue(cgPoint: CGPoint(x: 0, y: dy))
+        follow.toValue = NSValue(cgPoint: .zero)
+        layer.add(follow, forKey: "keep.origin")
     }
 
     /// The scale that shows the column you type in across the width (or the whole window, if

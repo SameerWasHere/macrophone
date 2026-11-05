@@ -320,7 +320,12 @@ struct MainView: View {
                         }
                         .padding(.top, coverWatching ? 4 : 0)
                         if coverWatching {
+                            // One line in its 18 pt: a longer one (the trackpad's how-to) ran
+                            // over the mic and its buttons above (Nov 4 2026).
                             StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                                .padding(.horizontal, 12)
                                 .frame(height: 18)
                         } else {
                             statusSlot
@@ -339,6 +344,17 @@ struct MainView: View {
                 if live, input.page != .mic { input.show(.mic, quiet: true) }
                 // Back from the words (the window faded in): Done takes it into the Dock again.
                 if !live, !windowViaDock { Task { @MainActor in windowViaDock = true } }
+            }
+            // The cover (Nov 4 2026): the window above moves with the pages, never ahead of them.
+            // The trackpad taking its room shrank the window in one frame (only the pages had a
+            // spring); and the keyboard's page folding away the moment the keyboard was asked for
+            // stretched the window to the foot, then the keyboard rising squeezed it back — now
+            // that fold rides the keyboard's own curve, so the window's foot moves once, up.
+            .transaction(value: input.page) { t in
+                if isCover, t.animation == nil, !reduceMotion { t.animation = Motion.settle }
+            }
+            .transaction(value: input.keysUp) { t in
+                if isCover, t.animation == nil { t.animation = reduceMotion ? nil : .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500) }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { compact = geo.size.height < 700 }
@@ -1268,6 +1284,8 @@ private struct CoverFoot: ViewModifier {
         content
             .ignoresSafeArea(.container, edges: on ? .bottom : [])
             .padding(.bottom, on && !keyboard ? Self.screenFoot : 0)
+            // On the keyboard's own curve, beside it.
+            .animation(on ? .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500) : nil, value: keyboard)
             // Heard as it's posted, inside the keyboard's own animation (as `MacInput` hears it).
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboard = true }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboard = false }
