@@ -39,10 +39,19 @@ final class MacReach: ObservableObject {
         #endif
     }
 
-    func set(_ list: [MacDisplay]) { displays = Displays.ordered(list) }
+    func set(_ list: [MacDisplay]) {
+        displays = Displays.ordered(list)
+        UserDefaults.standard.set(list.count > 1, forKey: Self.hadSeveralKey)
+    }
 
     /// Picking one per display makes sense (two or more).
     var several: Bool { displays.count > 1 }
+
+    /// The Whole Screen glyph (one display or two): what the Mac said last time until it says
+    /// again — at launch the menu bar's `display` turned into `display.2` a beat after the
+    /// first frame (Nov 4 2026).
+    var looksSeveral: Bool { displays.isEmpty ? UserDefaults.standard.bool(forKey: Self.hadSeveralKey) : several }
+    private static let hadSeveralKey = "bar.had.severalDisplays"
 
     /// The display picked last, while the Mac still has it.
     var lastDisplay: MacDisplay? {

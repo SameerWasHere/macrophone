@@ -238,7 +238,7 @@ struct WholeScreenButton: View {
 
     @ViewBuilder private var icon: some View {
         if menuExtra {
-            Image(systemName: reach.several ? "display.2" : "display")
+            Image(systemName: reach.looksSeveral ? "display.2" : "display")
         } else {
             Image(systemName: reach.several ? "display.2" : "display").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
         }

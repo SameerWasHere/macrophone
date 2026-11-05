@@ -63,16 +63,22 @@ final class MacInput: ObservableObject {
             // No queue: heard as it's posted, inside the keyboard's own animation, so the room
             // given back moves in the same pass as the keyboard's (a spring of its own ran beside
             // it: the window dipped by the keyboard's height, then rose by the room).
-            keyboardWatch.append(nc.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
-                MainActor.assumeIsolated { self?.keyboardMoving(up: up) }
+            keyboardWatch.append(nc.addObserver(forName: name, object: nil, queue: nil) { [weak self] n in
+                let duration = (n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+                MainActor.assumeIsolated { self?.keyboardMoving(up: up, duration: duration) }
             })
         }
     }
 
-    private func keyboardMoving(up: Bool) {
+    private func keyboardMoving(up: Bool, duration: Double) {
         // Only the keyboard page's own keyboard (a word being fixed raises one too).
         guard up != keysUp, !up || page == .keyboard else { return }
-        keysUp = up
+        // A UIKit animation block doesn't carry into SwiftUI: changed bare, the key row, the
+        // Thread and the pages' room jumped to where they'd end while the keyboard still slid —
+        // on the way down the page row ran through the key row and the window dropped, then
+        // grew (Nov 4 2026). The keyboard's own curve (curve 7, as SwiftUI's keyboard avoidance
+        // draws it) over its own time, so it all moves as one with the keyboard.
+        withAnimation(duration > 0 ? .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500) : nil) { keysUp = up }
     }
 
     var macFeatures: () -> Set<String> = { [] }

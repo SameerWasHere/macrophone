@@ -242,20 +242,25 @@ struct WatchHeaderBar: View {
                 }
             }
         } else {
-            HStack(spacing: 10) {
+            HStack(spacing: narrow ? 6 : 10) {
                 name
                 fullScreenButton
                 if let middle {
                     middle.frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Spacer(minLength: 8)
+                    Spacer(minLength: narrow ? 4 : 8)
                 }
                 clusters
                 done
             }
             .frame(minHeight: WatchLook.header)
+            .onGeometryChange(for: Bool.self) { $0.size.width < 380 } action: { narrow = $0 }
         }
     }
+
+    /// A small phone's row (an SE, 355 pt): the gaps and Done's padding a little tighter, so the
+    /// app's name reads whole — it was "Te…" for Terminal there (Nov 4 2026).
+    @State private var narrow = false
 
     private var sessions: [LiveTarget] { model.watchSessions }
 
@@ -391,7 +396,7 @@ struct WatchHeaderBar: View {
             watcher.done()
         }
         .font(.subheadline.weight(.semibold))
-        .buttonStyle(WatchCellStyle(inset: 14, height: WatchLook.header))
+        .buttonStyle(WatchCellStyle(inset: narrow ? 11 : 14, height: WatchLook.header))
         .fixedSize()
         .watchGlass(Capsule())
         .accessibilityHint(watcher.glanceOnDone ? "Puts the controls away; the window stays in view." : "Stops showing the window and brings back Send to and Cleanup.")

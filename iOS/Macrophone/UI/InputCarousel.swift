@@ -48,6 +48,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// page carries its own row under the plate — the keyboard, back to the mic, close — in the
     /// places the mic page's row has them.
     var trackpadBar = false
+    /// The mic is open (the regular iPhone, Nov 4 2026): the page row stays in its place, so
+    /// nothing moves, but it's faded and takes no tap — the mic is the only page then.
+    var rowDimmed = false
     /// The mic page: the mic button and the status line, built by the mic screen.
     @ViewBuilder var mic: () -> Mic
     /// The Thread's band, between the row and the pages.
@@ -77,6 +80,10 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                 InputPageRow(input: input)
                     .frame(height: InputCarouselLook.row)
                     .padding(.bottom, InputCarouselLook.rowGap)
+                    .opacity(rowDimmed ? 0.3 : 1)
+                    .allowsHitTesting(!rowDimmed)
+                    .accessibilityHidden(rowDimmed)
+                    .animation(.easeInOut(duration: 0.2), value: rowDimmed)
                     .transition(.opacity)
             }
             // The Thread and the pages are one band: a swipe anywhere on it (off the mic) slides
@@ -112,7 +119,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
             // Without a shape of its own the empty room beside the mic and under the Thread
             // would take no touch at all.
             .contentShape(Rectangle())
-            .simultaneousGesture(swipe, including: multi && input.page == .mic ? .all : .subviews)
+            .simultaneousGesture(swipe, including: multi && input.page == .mic && !rowDimmed ? .all : .subviews)
         }
         .animation(motion, value: input.page)
         .animation(motion, value: input.pages)
@@ -326,7 +333,11 @@ struct InputPageRow: View {
                 .buttonStyle(.plain)
             }
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: input.page)
+        // The lit page changes at once, as a segmented control's does. Animated (it was a quick
+        // ease of its own), each word's colour cross-fade was drawn apart from its glyph and
+        // underline — leaving the keyboard, while the row rode down with it, the words, the glyphs
+        // and the bar came apart and met again (Nov 4 2026).
+        .animation(nil, value: input.page)
         // A kicker row of a fixed height: it keeps a kicker's size at accessibility sizes (the
         // words had grown past the row and the screen's width).
         .dynamicTypeSize(...DynamicTypeSize.xLarge)

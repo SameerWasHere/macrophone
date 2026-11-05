@@ -147,7 +147,8 @@ struct StatusLine: View {
             return (to.map { "Sending to \($0.name)…" } ?? "Sending to your Mac…", Light.cyan)
         case .landed(let l):
             // The pill over the mic says it (Nov 3 2026): the line stays quiet meanwhile.
-            if l.isSuccess, model.landedChip != nil { return ("", Light.mint) }
+            // (And after it: it said it — Nov 4 2026.)
+            if l.isSuccess, model.landedChip != nil || model.pillSaidIt { return ("", Light.mint) }
             return (l.sentence, l.isSuccess ? Light.mint : (l.copiedInstead ? Light.ochre : Light.rose))
         case .unconfirmed:
             return ("Your Mac received it but didn't confirm where it landed", Light.ochre)

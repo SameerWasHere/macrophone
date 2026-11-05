@@ -103,8 +103,14 @@ final class AppModel: ObservableObject {
 
     // Published state the screens read.
     @Published var status: DeliveryStatus = .ready {
-        didSet { if status != oldValue, note != nil { note = nil } }
+        didSet {
+            if status != oldValue, note != nil { note = nil }
+            if status != oldValue { pillSaidIt = false }
+        }
     }
+    /// The landed pill said where these words went (`showLanding`): the status line doesn't say
+    /// it again once the pill has gone — it read as an echo (Nov 4 2026).
+    private(set) var pillSaidIt = false
     /// A control just changed: the status line says what it now does, for a few seconds.
     @Published private(set) var note: String?
     private var noteTask: Task<Void, Never>?
@@ -988,6 +994,7 @@ final class AppModel: ObservableObject {
         if l.isSuccess {
             showChip(LandedChip(id: id, words: l.chipWords, ok: true,
                                 canUndo: result == .pasted && !late && client.macCanUndo))
+            pillSaidIt = true
         }
         bumpPulse()
         // Sent into an app: show its window, so the answer can be read (and approved) from here.

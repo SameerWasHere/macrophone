@@ -284,7 +284,11 @@ private struct DockIcon: View {
                 DockLabel(text: label, warning: notOpen ? "Not open" : nil)
                     .fixedSize()
                     .offset(y: -DockLook.headroom + 2 - (scale - 1) * dockIcon - (selected ? 5 : 0))
-                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
+                    // The old name goes at once (a Dock's label just moves to the next icon):
+                    // fading out over the new one's arrival, the two read as one garbled line
+                    // for a few frames (Nov 4 2026).
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)),
+                                            removal: .opacity.animation(.easeOut(duration: 0.06))))
                     .allowsHitTesting(false)
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("Send to: \(label)" + (notOpen ? ", not open on your Mac — it'll be copied instead" : "")

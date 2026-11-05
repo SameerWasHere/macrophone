@@ -257,7 +257,8 @@ struct MainView: View {
                               // takes a thumb's worth of room instead.
                               threadHeight: coverWatching ? (input.page == .trackpad ? 116 : 0) : filamentSlot,
                               rowHidden: isCover && watcher.isOpen,
-                              trackpadBar: coverWatching) {
+                              trackpadBar: coverWatching,
+                              rowDimmed: regularPhone && showLiveWords) {
                     // One mic button in every state: a hold on the cover's small mic flips the
                     // screen to the live words, and two branches made that a different button
                     // mid-press — the hold was lost (Oct 31 2026, Sameer: "press and hold on the
@@ -293,7 +294,24 @@ struct MainView: View {
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }
         }
+        // Fixing a word on a regular iPhone (Nov 4 2026): the keyboard rises over the mic as it
+        // would over any screen, and the word's card rides on the keyboard — the whole mic screen
+        // had shoved up for it, the Thread squeezed flat for a frame and the mic jumping down
+        // again when it went. (Only while the words show: the window's keyboard page moves the
+        // window once, `MacInput.keysUp`, as before.)
+        .ignoresSafeArea(.keyboard, edges: regularPhone && showLiveWords ? .bottom : [])
+        .overlay(alignment: .bottom) {
+            if regularPhone, showLiveWords, let draft = model.fixDraft {
+                FixWordCard(draft: draft)
+                    .padding(.horizontal, Space.margin - 8)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: model.fixDraft)
     }
+
+    /// Every iPhone but the Duo (its cover and inner screen have layouts of their own).
+    var regularPhone: Bool { !barUsed && !posture.pose.isInner }
 
     // MARK: The iPhone Duo's cover: the buttons in the vertical bar
 
@@ -503,7 +521,7 @@ struct MainView: View {
             DestinationLine(words: recorder.words)
                 .padding(.horizontal, Space.text)
                 .padding(.top, 14)
-            LiveWords(words: recorder.words, listening: isRecording)
+            LiveWords(words: recorder.words, listening: isRecording, cardInline: !regularPhone)
                 .padding(.horizontal, Space.text)
                 .padding(.top, 8)
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -716,6 +734,9 @@ struct LiveWords: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var words: LiveTranscript
     var listening: Bool
+    /// The fix card under the words (false: the screen draws it on the keyboard itself — the
+    /// regular iPhone, `MainView.phoneBody`).
+    var cardInline = true
 
     var body: some View {
         let parts = words.parts
@@ -734,6 +755,11 @@ struct LiveWords: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                         .contentTransition(.opacity)
+                        // A fix (and its card coming and going) lands at once: a fixed word
+                        // re-flows the lines, and the cross-fade drew both versions over each
+                        // other for a moment (Nov 4 2026).
+                        .animation(nil, value: model.wordFixes)
+                        .animation(nil, value: model.fixDraft)
                     Color.clear.frame(height: 1).id("end")
                 }
             }
@@ -759,7 +785,7 @@ struct LiveWords: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(parts.isEmpty ? "Listening" : WordFixes.apply(model.wordFixes, to: parts.text))
         .accessibilityHint(parts.settled.isEmpty ? "" : "Words can be fixed before they're sent: tap one.")
-        if let draft = model.fixDraft {
+        if cardInline, let draft = model.fixDraft {
             FixWordCard(draft: draft)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
