@@ -262,7 +262,7 @@ extension MainView {
                           onUp: pressUp,
                           onAccessibilityToggle: { model.toggleRecording() },
                           size: micSize)
-                    .matchedGeometryEffect(id: "mic", in: micSpace)
+                    .matchedGeometryEffect(id: micID, in: micSpace)
                     .landedPill()
                 if oneLine {
                     FixedSlot(alignment: .top) {

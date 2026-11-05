@@ -48,6 +48,10 @@ struct MainView: View {
     /// another (a window coming into hand on the Duo's inner screen, a pose) it moves to its new
     /// place instead of one fading out where it was while another fades in somewhere else.
     @Namespace var micSpace
+    /// …within one screen: the cover's mic and the inner screen's are different screens, and
+    /// matched across the fold the inner one flew in from where the cover's sat, unseen for its
+    /// first frames as the phone opened (Nov 4 2026).
+    var micID: String { posture.pose.isInner ? "mic.inner" : "mic" }
     /// The cover's lower buttons the Mac offered when it was last connected.
     @AppStorage("bar.had.wholeScreen") var barHadWholeScreen = false
     @AppStorage("bar.had.controls") var barHadControls = false
@@ -62,7 +66,10 @@ struct MainView: View {
     /// drawn on the cover, whose trait would otherwise speak for every pose — Nov 1 2026).
     /// Open flat and upright the controls go in the bar too (Nov 1 2026, Sameer: "in this fully
     /// opened portrait mode you should put controls into the duo side bar area").
-    var barUsed: Bool { (verticalBar && posture.pose.hasVerticalBar) || posture.pose == .open(landscape: false) }
+    /// On the inner screen on its side the pose says so by itself (Nov 4 2026): opening the phone,
+    /// the scene's first frames on the inner screen carry no vertical bar yet, and the layout drew
+    /// its own top bar (the Mac's pill, History, Settings) for a moment before the bar came.
+    var barUsed: Bool { ((verticalBar || posture.pose.isInner) && posture.pose.hasVerticalBar) || posture.pose == .open(landscape: false) }
 
     var isRecording: Bool { recorder.phase == .recording || recorder.phase == .starting || look == "starting" }
 
@@ -367,7 +374,7 @@ struct MainView: View {
                       model.toggleRecording()
                   },
                   size: size)
-            .matchedGeometryEffect(id: "mic", in: micSpace)
+            .matchedGeometryEffect(id: micID, in: micSpace)
             .landedPill()
     }
 
