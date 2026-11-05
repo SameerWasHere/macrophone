@@ -26,8 +26,11 @@ struct HistoryView: View {
         }
     }
 
+    /// The page pushed over the list (`MACROPHONE_SCREEN=historypage` opens the newest).
+    @State private var path: [UUID] = []
+
     private var stack: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if !model.settings.historyEnabled {
                     ContentUnavailableView {
@@ -57,6 +60,9 @@ struct HistoryView: View {
             .modifier(clearConfirmation)
         }
         .tint(Light.cyan)
+        #if DEBUG
+        .onAppear { if DebugHooks.env["MACROPHONE_SCREEN"] == "historypage", let first = ordered.first { path = [first.id] } }
+        #endif
     }
 
     @ViewBuilder private var clearAll: some View {

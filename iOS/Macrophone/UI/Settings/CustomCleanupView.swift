@@ -12,7 +12,7 @@ struct CustomCleanupView: View {
     @State private var text = ""
     @State private var confirmReset = false
     @FocusState private var focused: Bool
-    @ScaledMetric(relativeTo: .callout) private var editorHeight: CGFloat = 340
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var isDefault: Bool { trimmed.isEmpty || trimmed == CleanupPrompts.defaultCustomInstructions }
@@ -56,48 +56,47 @@ struct CustomCleanupView: View {
     /// Cleanup is on another level: the instructions only apply at Custom.
     private var useCustom: some View {
         Section {
-            HStack(spacing: 12) {
-                Text("Cleanup is set to \(settings.cleanupLevel.title). These apply when it's set to Custom.")
-                    .font(.subheadline)
-                    .foregroundStyle(Ink.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 4)
-                Button("Use Custom") {
-                    Haptics.tick()
-                    model.setCleanupLevel(.custom)
-                }
-                .font(.subheadline.weight(.semibold))
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .tint(Light.cyan)
-                .accessibilityIdentifier("use-custom")
+            let words = Text("Cleanup is set to \(settings.cleanupLevel.title). These apply when it's set to Custom.")
+                .font(.subheadline)
+                .foregroundStyle(Ink.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            // Stacked at the accessibility sizes: side by side the button broke "Cus-tom" in two.
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 10) { words; useCustomButton }
+                    .padding(.vertical, 4)
+            } else {
+                HStack(spacing: 12) { words; Spacer(minLength: 4); useCustomButton }
             }
         }
     }
 
-    private var editor: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $text)
-                .font(.callout)
-                .foregroundStyle(Ink.ink)
-                .lineSpacing(2)
-                .scrollContentBackground(.hidden)
-                .focused($focused)
-                .autocorrectionDisabled()
-                .frame(height: editorHeight)
-                .accessibilityLabel("Custom cleanup instructions")
-                .accessibilityIdentifier("custom-instructions")
-            if trimmed.isEmpty {
-                Text("Empty — Custom follows the default instructions, the same as Medium.")
-                    .font(.callout)
-                    .foregroundStyle(Ink.tertiary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 8)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
+    private var useCustomButton: some View {
+        Button("Use Custom") {
+            Haptics.tick()
+            model.setCleanupLevel(.custom)
         }
-        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+        .font(.subheadline.weight(.semibold))
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .tint(Light.cyan)
+        .fixedSize()
+        .accessibilityIdentifier("use-custom")
+    }
+
+    /// As tall as the words (Nov 4 2026): a fixed-height editor inside the scrolling page was a
+    /// scroll inside a scroll, its last line cut mid-word at the cell's foot. Now the page scrolls
+    /// and the cell grows, as a note does; Return starts a new line.
+    private var editor: some View {
+        TextField("Empty — Custom follows the default instructions, the same as Medium.", text: $text, axis: .vertical)
+            .font(.callout)
+            .foregroundStyle(Ink.ink)
+            .lineSpacing(2)
+            .lineLimit(8...)
+            .focused($focused)
+            .autocorrectionDisabled()
+            .accessibilityLabel("Custom cleanup instructions")
+            .accessibilityIdentifier("custom-instructions")
+            .padding(.vertical, 6)
     }
 
     /// Whose instructions these are, beside the count; then what the model does with them.

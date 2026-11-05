@@ -9,6 +9,8 @@ import UIKit
 ///
 /// MACROPHONE_RESET=1                         clear settings, history, queue (not pairings)
 /// MACROPHONE_SCREEN=onboarding|main|history|settings|pairing|dictionary|language|diagnostics|sendto|custom|settings-custom|openapp|macs
+///                                            |connection (the Mac's page)|awaysetup|settings-pairing|historypage (the newest open)|controls
+/// MACROPHONE_SCROLL=middle|bottom|<0…1>      a Settings / History / setup page opens scrolled that far down
 ///                                            (sendto: Settings › Send to, the full list of places)
 /// MACROPHONE_OPEN_APP=<name>                 with SCREEN=openapp: then open that app from the list
 ///                                            (custom: the Custom cleanup editor from the mic screen; settings-custom: from Settings)
@@ -183,6 +185,9 @@ enum DebugHooks {
         case "diagnostics": return [.diagnostics]
         case "settings-custom": return [.customCleanup]
         case "sendto": return [.sendTo]
+        case "connection": return [.connection]
+        case "awaysetup": return [.connection, .awaySetup]
+        case "settings-pairing": return [.pairing]
         default: return []
         }
     }
@@ -231,7 +236,39 @@ enum DebugHooks {
         }
     }
 
+    /// `MACROPHONE_SCROLL`: 2.5 s after the hooks run (`MACROPHONE_SCROLL_AFTER`), the frontmost sheet's tallest scroll view (a Form, a List,
+    /// a setup page) is scrolled that far down — the lower sections of a long page, shot without a finger.
+    @MainActor static func scrollFrontSheet() {
+        guard let v = env["MACROPHONE_SCROLL"] else { return }
+        let f: CGFloat = v == "bottom" ? 1 : v == "middle" ? 0.5 : CGFloat(Double(v) ?? 0)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64((Double(env["MACROPHONE_SCROLL_AFTER"] ?? "2.5") ?? 2.5) * 1e9))
+            let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            // The frontmost presented controller of each window (a paired phone has more than one).
+            let tops: [UIViewController] = windows.compactMap { w in
+                guard var top = w.rootViewController, top.presentedViewController != nil else { return nil }
+                while let p = top.presentedViewController { top = p }
+                return top
+            }
+            func scrollViews(_ v: UIView) -> [UIScrollView] {
+                ((v as? UIScrollView).map { [$0] } ?? []) + v.subviews.flatMap(scrollViews)
+            }
+            let all = tops.flatMap { scrollViews($0.view) }.filter { !$0.isHidden && $0.window != nil && $0.contentSize.height > $0.bounds.height }
+            guard let sv = all.max(by: { $0.contentSize.height < $1.contentSize.height }) else { return }
+            // A lazy list measures its rows as they come into view, so its height grows as it
+            // scrolls: aim again until it holds still.
+            for _ in 0..<6 {
+                let maxY = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
+                let minY = -sv.adjustedContentInset.top
+                sv.setContentOffset(CGPoint(x: 0, y: minY + (maxY - minY) * f), animated: false)
+                sv.layoutIfNeeded()
+                try? await Task.sleep(nanoseconds: 120_000_000)
+            }
+        }
+    }
+
     @MainActor static func apply(_ model: AppModel) {
+        scrollFrontSheet()
         if let mac = env["MACROPHONE_FAKE_PAIRED"] {
             model.debugFakePairing(mac: mac)
             if env["MACROPHONE_FAKE_TARGETS"] == nil { model.debugFakeTargets(sampleApps()) }
@@ -305,7 +342,9 @@ enum DebugHooks {
         }
         switch env["MACROPHONE_SCREEN"] {
         case "history": model.sheet = .history
-        case "settings", "dictionary", "language", "diagnostics", "settings-custom", "sendto": model.sheet = .settings
+        case "settings", "dictionary", "language", "diagnostics", "settings-custom", "sendto", "connection", "awaysetup", "settings-pairing": model.sheet = .settings
+        case "historypage": model.sheet = .history
+        case "controls": model.sheet = .macControls
         case "custom": model.sheet = .customCleanup
         case "openapp":
             // After the Mac connects, so the list is real (mpctl serve sends a sample list).

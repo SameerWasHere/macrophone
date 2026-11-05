@@ -84,6 +84,7 @@ struct SettingsView: View {
         case .sendTo: SendToList(settings: settings).navigationTitle("Send to").navigationBarTitleDisplayMode(.inline)
         case .customCleanup: CustomCleanupView(settings: settings)
         case .connection: MacConnectionView()
+        case .awaySetup: AwaySetupView()
         }
     }
 
@@ -168,7 +169,7 @@ struct SettingsView: View {
     @ViewBuilder private func groupPage(_ g: SettingsGroup) -> some View {
         switch g {
         case .mac:
-            if model.pairedMac != nil { MacConnectionView() } else { PairingView(embedded: true) }
+            if model.pairedMac != nil { MacConnectionView(popsOnUnpair: false) } else { PairingView(embedded: true) }
         default:
             Form {
                 switch g {
@@ -236,9 +237,9 @@ struct SettingsView: View {
                     .disabled(!target.canSend)
             }
             .accessibilityElement(children: .combine)
-        } header: {
-            Text("Send to")
         } footer: {
+            // No header: its first row already says "Send to" (a header saying it again read as
+            // a stutter, Nov 4 2026).
             Text((target.canSend
                   ? "Your Mac presses the app's send key after pasting. If you're at the Mac, you get a moment to cancel first."
                   : "\(target.displayName) can't send — sending after pasting is for apps.")
@@ -286,9 +287,26 @@ struct SettingsView: View {
 
     private var cleanupSection: some View {
         Section {
-            // The same five levels as by the mic.
-            CleanupPicker(settings: settings)
-                .padding(.vertical, 2)
+            // The same five levels as by the mic. At the accessibility sizes a segmented control
+            // keeps its small type (five segments can't grow on a phone's width), so the levels
+            // are a list with a check, as Settings' own choices are there.
+            if typeSize.isAccessibilitySize {
+                let available = CleanupWords.available(model, settings)
+                Picker("Cleanup", selection: Binding(get: { available ? settings.cleanupLevel : .off }, set: { l in
+                    guard l != settings.cleanupLevel else { return }
+                    Haptics.tick()
+                    model.setCleanupLevel(l)
+                })) {
+                    ForEach(CleanupLevel.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                .disabled(!available)
+                .accessibilityIdentifier("cleanup-level")
+            } else {
+                CleanupPicker(settings: settings)
+                    .padding(.vertical, 2)
+            }
         } header: {
             Text("Cleanup")
         } footer: {
@@ -341,7 +359,10 @@ struct SettingsView: View {
         } header: {
             Text("Recording")
         } footer: {
-            Text("Tap the button to start and tap again to send, or hold it while you talk and let go to send. Quiet only counts after you've started talking. One dictation can run up to 10 minutes.")
+            // What the quiet means only while that switch is on.
+            Text("Tap the button to start and tap again to send, or hold it while you talk and let go to send."
+                 + (settings.autoStop ? " Quiet only counts after you've started talking." : "")
+                 + " One dictation can run up to 10 minutes.")
         }
     }
 
@@ -356,7 +377,7 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier("appearance")
             Toggle(isOn: $settings.macWallpaper) {
-                Label { Text("Use My Mac's Wallpaper") } icon: { SettingsIcon(symbol: "photo.fill", color: Light.teal) }
+                Label { Text("Use my Mac’s wallpaper") } icon: { SettingsIcon(symbol: "photo.fill", color: Light.teal) }
             }
             .accessibilityIdentifier("mac-wallpaper")
             if settings.macWallpaper {
@@ -389,20 +410,36 @@ struct SettingsView: View {
                     MacRow(mac: mac, active: mac.id == model.pairedMac?.id, standing: model.standing(of: mac)) {
                         model.switchMac(to: mac.id)
                     }
+                    // A small red capsule, as Open an App's Quit (a bare red word beside the
+                    // check read as a stray label, Nov 4 2026); a swipe or a long press says it too.
                     Button("Unpair") { unpairing = mac }
-                        .buttonStyle(.borderless)
-                        .font(.subheadline)
-                        .foregroundStyle(Light.rose)
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                        .tint(Light.rose)
                         .accessibilityLabel("Unpair \(mac.name)")
                         .accessibilityIdentifier("unpair-\(mac.name)")
                 }
-            }
-            NavigationLink(value: SettingsRoute.pairing) {
-                Label { Text(model.isPaired ? "Pair Another Mac" : "Pair Your Mac") } icon: {
-                    SettingsIcon(symbol: "qrcode.viewfinder", color: Light.cyan)
+                .swipeActions(edge: .trailing) {
+                    Button("Unpair", role: .destructive) { unpairing = mac }.tint(Light.rose)
+                }
+                .contextMenu {
+                    if mac.id != model.pairedMac?.id {
+                        Button { model.switchMac(to: mac.id) } label: { Label("Make Active", systemImage: "checkmark.circle") }
+                    }
+                    Button(role: .destructive) { unpairing = mac } label: { Label("Unpair…", systemImage: "minus.circle") }
                 }
             }
-            .accessibilityIdentifier("pair-another-mac")
+            // Unpaired, the banner at the top is the way to pair; the row would say it twice.
+            if model.isPaired {
+                NavigationLink(value: SettingsRoute.pairing) {
+                    Label { Text("Pair Another Mac") } icon: {
+                        SettingsIcon(symbol: "qrcode.viewfinder", color: Light.cyan)
+                    }
+                }
+                .accessibilityIdentifier("pair-another-mac")
+            }
             let field = TextField("iPhone", text: $name)
                 .foregroundStyle(Ink.secondary)
                 .focused($nameFocused)
@@ -422,11 +459,11 @@ struct SettingsView: View {
                 Button("Use “\(suggestion)”") { name = suggestion; commitName() }
             }
         } header: {
-            Text(model.pairedMacs.count > 1 ? "Macs" : "Mac")
+            if model.isPaired { Text(model.pairedMacs.count > 1 ? "Macs" : "Mac") }
         } footer: {
-            Text((model.pairedMacs.count > 1 ? "What you say goes to the active Mac. Tap another to switch, or swipe up or down on the Mac's name at the top. " : "")
-                 + "What your Mac calls this iPhone shows next to each dictation; your Mac picks up a new name the next time this iPhone connects."
-                 + (model.isPaired ? " To reach your Mac away from home, tap it at the top." : ""))
+            // Two short sentences at most (it ran to six lines).
+            Text((model.pairedMacs.count > 1 ? "What you say goes to the active Mac; tap another to switch. " : "")
+                 + "Your Mac shows this iPhone's name next to each dictation.")
         }
         .confirmationDialog("Unpair \(unpairing?.name ?? model.macName)?", isPresented: Binding(get: { unpairing != nil }, set: { if !$0 { unpairing = nil } }),
                             titleVisibility: .visible, presenting: unpairing) { mac in
@@ -491,7 +528,7 @@ struct SettingsView: View {
 }
 
 enum SettingsRoute: Hashable {
-    case dictionary, language, diagnostics, pairing, sendTo, customCleanup, connection
+    case dictionary, language, diagnostics, pairing, sendTo, customCleanup, connection, awaySetup
 
     /// Where a page opens on the inner screen: the group it belongs to, and what's pushed in the
     /// detail column over that group's page (the Mac's page is the banner's group itself).
@@ -502,6 +539,7 @@ enum SettingsRoute: Hashable {
         case .diagnostics: return (.about, [self])
         case .sendTo: return (paired ? .sendTo : .mac, paired ? [self] : [])
         case .connection: return (.mac, [])
+        case .awaySetup: return (.mac, [self])
         case .pairing: return paired ? (.macs, [self]) : (.mac, [])
         }
     }
@@ -573,10 +611,18 @@ private struct SettingsDoneButton: ViewModifier {
 /// it away from home through Tailscale (or a forwarded port).
 struct MacConnectionView: View {
     @EnvironmentObject var model: AppModel
+    /// Pushed from the banner it goes back once its Mac is unpaired; as the inner screen's
+    /// group page there's nothing to go back to, so it shows the next Mac (or pairing).
+    var popsOnUnpair = true
     @State private var address = ""
     @State private var addressProblem = false
     @FocusState private var addressFocused: Bool
+    @State private var confirmUnpair = false
+    /// The header's name has scrolled under the bar: the bar says it instead (as Settings'
+    /// Apple Account page) — never the same name twice on screen.
+    @State private var headerGone = false
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Form {
@@ -590,9 +636,20 @@ struct MacConnectionView: View {
             }
             connectionSection
             awaySection
+            if model.pairedMac != nil { unpairSection }
         }
+        .modifier(ScrolledPast(150, past: $headerGone))
         .navigationTitle(model.pairedMac?.name ?? "Your Mac")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(model.pairedMac?.name ?? "Your Mac")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .opacity(model.pairedMac == nil || headerGone ? 1 : 0)
+                    .accessibilityHidden(!(model.pairedMac == nil || headerGone))
+            }
+        }
         .onAppear { address = model.typedAddress?.display ?? "" }
         .onChange(of: addressFocused) { _, focused in if !focused { commitAddress() } }
     }
@@ -659,18 +716,36 @@ struct MacConnectionView: View {
                     .font(.footnote).foregroundStyle(Light.ochre)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // The steps on a page of their own (they were a fourteen-line footer, Nov 4 2026).
+            NavigationLink(value: SettingsRoute.awaySetup) {
+                Label { Text("Set Up Away from Home") } icon: { SettingsIcon(symbol: "list.number", color: Light.cyan) }
+            }
+            .accessibilityIdentifier("away-setup")
         } header: {
             Text("Away from home")
         } footer: {
-            Text("""
-            When your Mac isn't nearby, this iPhone reaches it through Tailscale — free, and still no server of ours.
-            1. Install Tailscale on your Mac and on this iPhone.
-            2. Sign in to both with the same account (the same Google or Apple sign-in). In the iPhone's Tailscale app, your Mac should be in its list of devices.
-            3. Turn Tailscale on here, and allow the VPN when iOS asks. "Tailscale on this iPhone" above says On.
-            4. In Macrophone on your Mac: Devices › Away from home › turn on Remote access.
-            5. Open Macrophone here once at home: your Mac's address arrives by itself.
-            To try it, turn off Wi-Fi and Bluetooth here — otherwise a nearby iPhone talks to the Mac directly. No Tailscale? Forward the port on your router and type your home's address above.
-            """)
+            Text("When your Mac isn't nearby, this iPhone reaches it through Tailscale — free, and still no server of ours. No Tailscale? Forward the port on your router and type your home's address above.")
+        }
+    }
+
+    private var unpairSection: some View {
+        Section {
+            Button("Unpair This Mac", role: .destructive) { confirmUnpair = true }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("unpair-this-mac")
+        } footer: {
+            Text("To send to it again, pair with the code on your Mac.")
+        }
+        .confirmationDialog("Unpair \(model.macName)?", isPresented: $confirmUnpair, titleVisibility: .visible) {
+            Button("Unpair", role: .destructive) {
+                guard let id = model.pairedMac?.id else { return }
+                if popsOnUnpair { dismiss() }
+                Task { await model.unpair(id) }
+            }
+        } message: {
+            Text(model.pairedMacs.count > 1
+                 ? "This iPhone stops sending to it and switches to your other Mac."
+                 : "This iPhone stops sending to it.")
         }
     }
 
@@ -679,5 +754,25 @@ struct MacConnectionView: View {
         if t == (model.typedAddress?.display ?? "") || t == (model.typedAddress?.host ?? "") { addressProblem = false; return }
         addressProblem = !model.setTypedAddress(t)
         if !addressProblem { address = model.typedAddress?.display ?? "" }
+    }
+}
+
+/// Whether a list has scrolled more than `distance` down (iOS 18+; before, it never has — the
+/// bar's title then stays hidden behind the page's own header, as it was).
+struct ScrolledPast: ViewModifier {
+    var distance: CGFloat
+    @Binding var past: Bool
+    init(_ distance: CGFloat, past: Binding<Bool>) { self.distance = distance; _past = past }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { g in
+                g.contentOffset.y + g.contentInsets.top > distance
+            } action: { _, now in
+                withAnimation(.easeInOut(duration: 0.2)) { past = now }
+            }
+        } else {
+            content
+        }
     }
 }

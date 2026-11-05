@@ -91,7 +91,11 @@ struct RootView: View {
             }
             .environmentObject(model)
             .preferredColorScheme(settings.appearance.scheme)
-            .presentationDragIndicator(.visible)
+            // The grabber only where the sheet has somewhere to go or nothing else to close it:
+            // Your Macs (medium and large) and the Control Center panel. A page with a navigation
+            // bar and Done (Settings, History, pairing, Open an App, Custom Cleanup) has none, as
+            // Apple's own (Nov 4 2026).
+            .presentationDragIndicator(sheet == .macs || sheet == .macControls ? .visible : .hidden)
             // The Duo's inner screen: Settings and History take the screen (Nov 1 2026, two
             // columns each); the short sheets are a form in the middle; the Mac Controls panel
             // takes only the room its controls need.
