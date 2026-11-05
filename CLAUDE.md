@@ -764,6 +764,48 @@ MACROPHONE_WATCH_ACTIONS=show,fit@largest,done,show,close`, then launch flat por
   simulator plays its own fold animation (the folding half blurs and darkens) — not the app. The
   kept picture can show at another zoom than the live one for a frame (WatchWindow, the cover
   pass's). Full screen's exit button sits over the Mac window's traffic lights.
+## Cover polish (Nov 4 2026)
+
+Walked frame by frame on a Duo simulator's cover (`simctl io recordVideo --display=<cover>`,
+`mpdecimate`) against `mpctl serve`, light and dark. What was wrong and what changed:
+- **A window opened in three looks** (an empty plate, the kept picture whole and pale, then the
+  live one at another scale, double-exposed in the fade). The kept picture now goes into the
+  window's own `WindowViewer` until the first frame (`WatchWindow`: `kept`), so it opens at the
+  live view's zoom and spot and the first frame lands in its place, no dissolve (`ViewerScrollView
+  .kept`). Where you type is kept beside the picture (`WindowSnapshots.keep(focus:)`, read on open)
+  so the view starts framed on the column. The name says "Opening …" only after 450 ms
+  (`WatchKicker.slow`). A UIKit viewer takes its proposed size, so a `fill` kept picture no longer
+  grows the window past its room (the inner screen's flat-upright overflow). Everywhere, not only
+  the cover.
+- **Everything dropped 48 pt as a window opened** (and rose on Done): the cover's NavigationStack
+  kept a toolbar's height (82 pt) free at the foot for the `.bottomBar` group — whose items are in
+  the vertical bar — and gave it back when the toolbar changed. `CoverFoot` (MainView) ignores the
+  container inset at the foot and pads by the window's own (34 pt), or nothing while the keyboard
+  is up, on the keyboard's curve.
+- **The page row showed for one pass** as a window opened (tied to `watcher.isOpen`, which comes a
+  beat after the pages): `rowHidden` is the cover itself.
+- **The mic row and the window moved a frame apart:** the mic page's height is measured a frame
+  late, so on Done it landed unanimated and cut the window short (`InputCarousel(smoothHeight:)`);
+  the trackpad taking its room shrank the window in one frame — the cover's page buttons and the
+  trackpad bar now change the page inside the pages' spring (`withAnimation(Motion.settle)`), and
+  MainView animates on the page and on `keysUp` (keys constant off the cover).
+- **The keyboard:** the viewer's height shrinks on the keyboard's spring but its spot was set at
+  once, so the newest lines jumped up over an empty plate. `ViewerScrollView.followResize` copies
+  the keyboard's own size animation onto the bounds origin, so the picture's foot rides the view's.
+- **Words over the mic:** the cover's one-line status could wrap over the mic row (now one line,
+  `minimumScaleFactor`); the trackpad's how-to was drawn where its page would land while it slid in,
+  across the mic and its buttons — it shows on its own page only, fading in once the slide is done.
+- **The landed pill** sat over the window's answers (Esc, Yes) when a window was up: there it takes
+  the status line's place under the mic (`landedPill(below:)`, the status line hidden meanwhile); at
+  rest the Thread's check stays hidden while the pill says the same thing (it peeked out behind).
+- **The window lingered** full size under the Thread as the mic opened (it faded on the settle
+  spring): on the cover it leaves on `.handoff`.
+- `PlaceTileStyle`'s lit rim is a gradient masked by a plain stroke (a gradient stroke draws on the
+  CPU). Hook: `MACROPHONE_WATCH_ACTIONS=…,tappage@trackpad|keyboard|mic` (as the cover's buttons).
+- Seen and left: the launch screen in dark is black for ~1 s before the fade-in (the launch image);
+  the cover's status crossfades two strings at two widths ("Cleaning up" → "Sending…", shared
+  `StatusLine`); the floating window name covers the Mac window's own title bar (Oct 30 decision);
+  the demo window can't reshape, so it letterboxes in Scroll.
 
 ## The Mac's own pointer on the trackpad (Nov 1 2026)
 
