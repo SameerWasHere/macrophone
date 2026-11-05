@@ -159,10 +159,14 @@ struct SpecularEdge<S: InsettableShape>: View {
         if contrast == .increased {
             shape.strokeBorder(Ink.ink.opacity(0.45), lineWidth: 1)
         } else {
-            shape.strokeBorder(
-                LinearGradient(colors: [Ink.ink.opacity(0.30), Ink.line, Ink.ink.opacity(0.07)],
-                               startPoint: .top, endPoint: .bottom),
-                lineWidth: 1)
+            // The gradient masked by the hairline, not the hairline stroked with a gradient: a
+            // gradient stroke is drawn on the CPU into a backing store the plate's whole size, and
+            // a big plate (the watched window) cost ~200 ms a draw — on every frame of a resize
+            // (Nov 4 2026, measured on the Duo's Show it here). Masked, the GPU draws it.
+            LinearGradient(colors: [Ink.ink.opacity(0.30), Ink.line, Ink.ink.opacity(0.07)],
+                           startPoint: .top, endPoint: .bottom)
+                .mask(shape.strokeBorder(lineWidth: 1))
+                .allowsHitTesting(false)
         }
     }
 }

@@ -91,7 +91,9 @@ struct DuoLaptopDeck: View {
     }
 
     @ViewBuilder private var pad: some View {
-        if input.pages.contains(.trackpad) {
+        // Done puts the pages away as the deck fades: it fades as the trackpad it was, never as
+        // the note for a Mac without one (that flashed up on every Done — Nov 4 2026).
+        if input.pages.contains(.trackpad) || !watcher.isShowing {
             // The stacks beside it keep their own gap: the plate runs to it (no inset of its own).
             TrackpadPage(input: input, watcher: watcher, big: true, inset: 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
