@@ -203,9 +203,15 @@ extension MainView {
         GeometryReader { geo in
             let h = posture.halves(for: .book, in: geo.size)
             let rise = posture.rise
+            // The left page meets the screen's rounded corners on three sides: the picture sits in
+            // from them, as the laptop's does, so the curve never cuts the window's title bar or
+            // the answers under it (Nov 4 2026).
+            let inset = DuoLook.edgeInset
             HStack(spacing: 0) {
-                DuoMacHalf(main: self, vertical: true, room: h.mac.size)
+                DuoMacHalf(main: self, vertical: true, room: CGSize(width: max(0, h.mac.width - inset), height: max(0, h.mac.height - 2 * inset)))
                     .environment(\.fullScreenAvailable, true)
+                    .padding(.leading, inset)
+                    .padding(.vertical, inset)
                     .frame(width: max(0, h.mac.width))
                     .scaleEffect(reduceMotion ? 1 : 0.97 + 0.03 * rise, anchor: .leading)
                     .opacity(0.6 + 0.4 * rise)
@@ -870,10 +876,13 @@ struct DuoDeck: View {
                     // The modes, in the corner: over the trackpad's plate or the room above the
                     // Thread; the keyboard rises over it (hide comes back here).
                     .overlay(alignment: .topTrailing) {
-                        if input.pages.count > 1 {
+                        // Not while you talk: the words' card has the top of the deck then (the
+                        // cluster sat over its corner), and the mic is the only mode till it closes.
+                        if input.pages.count > 1, !main.showLiveWords {
                             InputCornerSwitcher(input: input)
                                 .padding(.top, 8)
                                 .padding(.trailing, 12)
+                                .transition(.opacity)
                         }
                     }
             }
@@ -888,6 +897,7 @@ struct DuoDeck: View {
         }
         .padding(.top, 6)
         .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.answers?.id)
+        .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: main.showLiveWords)
     }
 }
 

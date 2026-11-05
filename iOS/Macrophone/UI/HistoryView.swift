@@ -15,9 +15,11 @@ struct HistoryView: View {
     @ObservedObject private var posture = Posture.shared
     /// The dictation open in the second column (nil, or one since deleted: the newest shown).
     @State private var selected: UUID?
+    /// Two columns only in a sheet wide enough for them (a compact one collapsed onto the page).
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        if posture.pose.isInner, model.settings.historyEnabled, !model.historyItems.isEmpty {
+        if posture.pose.isInner, sizeClass == .regular, model.settings.historyEnabled, !model.historyItems.isEmpty {
             split
         } else {
             stack

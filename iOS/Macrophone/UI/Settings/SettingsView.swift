@@ -21,16 +21,21 @@ struct SettingsView: View {
     @ObservedObject private var posture = Posture.shared
     /// The group shown in the inner screen's second column (nil: the first one).
     @State private var group: SettingsGroup?
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Two columns only when the sheet is wide enough for them (Nov 4 2026): a sheet the system
+    /// gives a compact width collapsed the columns into the detail, so Settings opened on Send to
+    /// with a back button instead of on its list.
+    private var twoColumns: Bool { posture.pose.isInner && sizeClass == .regular }
 
     var body: some View {
         Group {
-            if posture.pose.isInner { split } else { stack }
+            if twoColumns { split } else { stack }
         }
         .tint(Light.cyan)
         .onAppear {
             name = settings.deviceName
             if path.isEmpty, !initialPath.isEmpty {
-                if posture.pose.isInner, let first = initialPath.first {
+                if twoColumns, let first = initialPath.first {
                     let (g, rest) = first.place(paired: model.isPaired)
                     group = g
                     path = rest + initialPath.dropFirst()
