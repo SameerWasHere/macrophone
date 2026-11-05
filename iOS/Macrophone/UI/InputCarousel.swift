@@ -54,6 +54,11 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The keyboard's room under the pages, laid out here (the regular iPhone, which ignores the
     /// keyboard's safe area — `MacInput.keyboardRoom`); 0 where the safe area gives it.
     var keyboardRoom: CGFloat = 0
+    /// The mic page's height follows its content on the same spring (the Duo's cover, Nov 4
+    /// 2026): measured a frame late, the new height used to land in a pass of its own with no
+    /// animation — on Done the page grew in one frame, the window above was cut short and the
+    /// mic jumped up before the rest of the screen moved.
+    var smoothHeight = false
     /// The mic page: the mic button and the status line, built by the mic screen.
     @ViewBuilder var mic: () -> Mic
     /// The Thread's band, between the row and the pages.
@@ -154,7 +159,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         switch page {
         case .mic:
             mic()
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { micHeight = $0 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                    if smoothHeight, micHeight > 0, !reduceMotion { withAnimation(motion) { micHeight = h } } else { micHeight = h }
+                }
                 // The deck: the mic in the middle of the room — or, on a folded deck, right under
                 // the Thread, the two as one group (the Thread's slot carries the room above).
                 .frame(maxHeight: fill != nil ? .infinity : nil, alignment: rowHidden ? .top : .center)

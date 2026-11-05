@@ -294,12 +294,17 @@ struct MainView: View {
                               // The cover: no Thread while a window shows; the trackpad page
                               // takes a thumb's worth of room instead.
                               threadHeight: coverWatching ? (input.page == .trackpad ? 116 : 0) : filamentSlot,
-                              rowHidden: isCover && watcher.isOpen,
+                              // The cover never draws the page row (its pages are the buttons
+                              // beside the mic): tied to the window being open, it showed for a
+                              // pass as the pages arrived first, and the window's top area
+                              // shrank by the row before it grew (Nov 4 2026).
+                              rowHidden: isCover,
                               trackpadBar: coverWatching,
                               rowDimmed: regularPhone && showLiveWords,
                               // The keyboard page's room, from the keyboard's own frame (this
                               // screen ignores the keyboard's safe area — below).
-                              keyboardRoom: regularPhone ? max(0, input.keyboardRoom - geo.safeAreaInsets.bottom) : 0) {
+                              keyboardRoom: regularPhone ? max(0, input.keyboardRoom - geo.safeAreaInsets.bottom) : 0,
+                              smoothHeight: isCover) {
                     // One mic button in every state: a hold on the cover's small mic flips the
                     // screen to the live words, and two branches made that a different button
                     // mid-press — the hold was lost (Oct 31 2026, Sameer: "press and hold on the
@@ -398,6 +403,12 @@ struct MainView: View {
         if barUsed {
             NavigationStack {
                 content
+                    // The cover: the lower group of bar buttons sits in the vertical bar, yet the
+                    // stack still kept a toolbar's height free at the foot (82 pt, not the home
+                    // indicator's 34) — and gave it back the moment a window opened, so everything
+                    // dropped 48 pt in one frame, then rose again on Done (Nov 4 2026). The foot is
+                    // the screen's own inset in every state.
+                    .modifier(CoverFoot(on: isCover))
                     .toolbar { coverToolbar }
                     .navigationBarTitleDisplayMode(.inline)
                     .coverBarStyle()
@@ -1243,6 +1254,29 @@ private struct DockZoom: ViewModifier {
 
     func body(content: Content) -> some View {
         content.scaleEffect(scale).offset(offset).opacity(fade)
+    }
+}
+
+/// The cover's foot (`barred`): the screen's own inset at the bottom (the home indicator's),
+/// never the bar's buttons' — they live in the vertical bar, not along the foot. The keyboard
+/// still lifts the content as ever; while it's up the foot is the keyboard's.
+private struct CoverFoot: ViewModifier {
+    var on: Bool
+    @State private var keyboard = false
+
+    func body(content: Content) -> some View {
+        content
+            .ignoresSafeArea(.container, edges: on ? .bottom : [])
+            .padding(.bottom, on && !keyboard ? Self.screenFoot : 0)
+            // Heard as it's posted, inside the keyboard's own animation (as `MacInput` hears it).
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboard = true }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboard = false }
+    }
+
+    /// The window's own inset at the foot: the system's, with no toolbar in it.
+    @MainActor static var screenFoot: CGFloat {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        return (windows.first(where: \.isKeyWindow) ?? windows.first)?.safeAreaInsets.bottom ?? 34
     }
 }
 
