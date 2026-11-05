@@ -85,11 +85,16 @@ struct EdgeGlow: View {
             let angle = Angle.degrees(reduceMotion ? 0 : (t * 40).truncatingRemainder(dividingBy: 360))
             let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
             let width = 3 + 9 * level
+            // The colours masked by the edge's band, not the band stroked with the colours: a
+            // gradient stroke is drawn on the CPU at the shape's whole size — here the whole
+            // screen, twice, thirty times a second while the mic is open (Nov 4 2026, the same
+            // finding as `SpecularEdge`). Masked, the GPU draws it.
+            let colours = AngularGradient(colors: MacOSLook.intelligence, center: .center, angle: angle)
             ZStack {
-                shape.strokeBorder(AngularGradient(colors: MacOSLook.intelligence, center: .center, angle: angle), lineWidth: width + 10)
+                colours.mask(shape.strokeBorder(lineWidth: width + 10))
                     .blur(radius: 18)
                     .opacity(0.75)
-                shape.strokeBorder(AngularGradient(colors: MacOSLook.intelligence, center: .center, angle: angle), lineWidth: width)
+                colours.mask(shape.strokeBorder(lineWidth: width))
                     .blur(radius: 4)
             }
         }

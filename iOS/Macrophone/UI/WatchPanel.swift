@@ -1042,8 +1042,9 @@ struct WatchDragSwitch: View {
                 .background {
                     if on {
                         Capsule().fill(Light.cyan)
-                            // Lit along its top, as the keys' glass is.
-                            .overlay(Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                            // Lit along its top, as the keys' glass is (the gradient masked by
+                            // the hairline, so the GPU draws it — `SpecularEdge`).
+                            .overlay(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .bottom).mask(Capsule().strokeBorder(lineWidth: 1)))
                             .matchedGeometryEffect(id: "pill", in: pill)
                     }
                 }
@@ -1372,7 +1373,7 @@ private struct WatchAnswerStyle: ButtonStyle {
                 configuration.label
                     .background {
                         shape.fill(Light.cyan)
-                            .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                            .overlay(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0)], startPoint: .top, endPoint: .bottom).mask(shape.strokeBorder(lineWidth: 1)))
                             .shadow(color: Light.cyan.opacity(reduceTransparency ? 0 : 0.3), radius: 12, y: 4)
                     }
             } else {
