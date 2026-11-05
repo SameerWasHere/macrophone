@@ -433,6 +433,13 @@ laptop's overlay header and floating answers are gone).
   to auto zoom when I open the keyboard"): while the keyboard page is up, and for a second after,
   a change of the view's height alone keeps the zoom and the spot (the bottom if it showed) —
   `ViewerScrollView.keyboardUp` / `keepZoom`; every other size change re-fits as before.
+  **And the window moves once when the keyboard comes or goes** (same day: "the window jumps up
+  and down too much"): what the keyboard replaces — the carousel's room and the Thread, the key
+  row, the cover's name (`bare`) — follows `MacInput.keysUp`, set from keyboardWillShow / WillHide
+  heard with no queue, so it lands in the keyboard's own animation pass. Until the keyboard rises
+  the keyboard page keeps the trackpad's room. Before, the window shrank by the keyboard's height
+  and then grew back by the room under a spring of its own (logged: 520 → 306 → 380 pt; now
+  520 → 380).
   He sizing it himself (a Window menu size, a text size) stops it until the next window
   (`sizedByHand`); **Back to How It Was or a text size keeps that app's own size from then on**
   (`watch.ownSize.<bundle id>`, or a remembered `watch.fit`); Fit to iPhone clears that. A window

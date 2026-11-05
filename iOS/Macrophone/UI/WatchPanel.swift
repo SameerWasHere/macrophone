@@ -659,7 +659,7 @@ struct WatchWindow: View {
                              drag: watcher.drag, phased: watcher.macCanScroll, fill: fill, footInset: footInset,
                              viewKey: interactive ? watcher.viewKey : nil,
                              pointer: interactive && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
-                             canDrag: interactive && watcher.canMouse, keyboardUp: input.page == .keyboard,
+                             canDrag: interactive && watcher.canMouse, keyboardUp: input.page == .keyboard || input.keysUp,
                              onTouch: { watcher.touch() },
                              onTap: { watcher.click($0, count: $1) }, onRightClick: { watcher.rightClick($0) },
                              onHold: interactive ? onHold : nil,
@@ -1100,7 +1100,8 @@ struct WatchActions: View {
         _input = ObservedObject(wrappedValue: watcher.input)
     }
 
-    private var keyboardUp: Bool { input.page == .keyboard }
+    /// The keyboard has risen (not just been asked for): the key row gives way with it.
+    private var keyboardUp: Bool { input.keysUp }
 
     var body: some View {
         Group {
@@ -1111,7 +1112,7 @@ struct WatchActions: View {
             }
         }
         .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86), value: watcher.answers?.id)
-        .animation(reduceMotion ? nil : Motion.settle, value: keyboardUp)
+        // The keyboard's own motion (`MacInput.keysUp` changes inside it), not a spring of its own.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 

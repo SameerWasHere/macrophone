@@ -49,6 +49,31 @@ final class MacInput: ObservableObject {
     @Published private(set) var switching = false
     /// The trackpad has been used once (its hint can go).
     @AppStorage("watch.trackpad.used") private(set) var trackpadUsed = false
+    /// The iOS keyboard is up for the keyboard page (Nov 4 2026, Sameer: "when I am switching to
+    /// the keyboard the window jumps up and down too much"). What the keyboard takes the place of —
+    /// the carousel's room, the Thread, the window's key row — gives way only when it actually
+    /// rises, in its own motion, and comes back as it goes: the window moves once each way
+    /// instead of growing, shrinking and growing again.
+    @Published private(set) var keysUp = false
+    private var keyboardWatch: [NSObjectProtocol] = []
+
+    init() {
+        let nc = NotificationCenter.default
+        for (name, up) in [(UIResponder.keyboardWillShowNotification, true), (UIResponder.keyboardWillHideNotification, false)] {
+            // No queue: heard as it's posted, inside the keyboard's own animation, so the room
+            // given back moves in the same pass as the keyboard's (a spring of its own ran beside
+            // it: the window dipped by the keyboard's height, then rose by the room).
+            keyboardWatch.append(nc.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.keyboardMoving(up: up) }
+            })
+        }
+    }
+
+    private func keyboardMoving(up: Bool) {
+        // Only the keyboard page's own keyboard (a word being fixed raises one too).
+        guard up != keysUp, !up || page == .keyboard else { return }
+        keysUp = up
+    }
 
     var macFeatures: () -> Set<String> = { [] }
     var sendMouse: (WatchMouseEvent) -> Bool = { _ in false }

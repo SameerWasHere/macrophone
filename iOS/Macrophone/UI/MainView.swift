@@ -217,7 +217,7 @@ struct MainView: View {
                     // Watching: the window takes the area (Done brings the settings back).
                     if watcher.isShowing && !showLiveWords {
                         WatchPanel(watcher: watcher, compact: compact, cover: isCover,
-                                   bare: isCover && input.page == .keyboard).transition(.opacity)
+                                   bare: isCover && input.keysUp).transition(.opacity)
                     }
                     if showLiveWords {
                         VStack(spacing: 0) {

@@ -67,7 +67,8 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The Thread shows on the mic page alone: the trackpad takes its room, the keyboard the foot.
     /// The Thread shows on the mic page alone — and not on a deck too short for it (the Duo
     /// folded with the window's question up: the mic keeps its room, the Thread folds away).
-    private var threadShown: Bool { input.page == .mic && !(fill.map { $0 < 175 } ?? false) }
+    /// While the keyboard is up (and on its way down) the Thread stays folded, whatever the page.
+    private var threadShown: Bool { input.page == .mic && !input.keysUp && !(fill.map { $0 < 175 } ?? false) }
     private var motion: Animation { reduceMotion ? .easeInOut(duration: 0.2) : Motion.settle }
 
     var body: some View {
@@ -118,18 +119,18 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     }
 
     /// The pages' height: the mic page's own; the trackpad's that plus the Thread's room (the
-    /// screen above never moves); the keyboard's a breath (its keys ride on the keyboard).
+    /// screen above never moves); the keyboard's a breath once the keyboard is up (its keys ride
+    /// on the keyboard) — until then the trackpad's room, so nothing moves before it rises, and
+    /// the breath stays until it has gone again (`MacInput.keysUp`).
     private var pagesHeight: CGFloat? {
+        if input.keysUp { return InputCarouselLook.keyboardBreath }
         if let fill {
-            // The deck: whatever the row and the Thread leave (the keyboard page stays a breath —
-            // the keyboard itself rises over the deck).
-            if input.page == .keyboard { return InputCarouselLook.keyboardBreath }
+            // The deck: whatever the row and the Thread leave.
             return max(0, fill - (multi && !rowHidden ? InputCarouselLook.row + InputCarouselLook.rowGap : 0) - (threadShown ? threadHeight : 0))
         }
         switch input.page {
         case .mic: return micHeight > 0 ? micHeight : nil
-        case .trackpad: return micHeight > 0 ? micHeight + threadHeight : nil
-        case .keyboard: return InputCarouselLook.keyboardBreath
+        case .trackpad, .keyboard: return micHeight > 0 ? micHeight + threadHeight : nil
         }
     }
 
