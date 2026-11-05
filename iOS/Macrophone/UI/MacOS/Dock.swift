@@ -50,6 +50,8 @@ struct SendToDock: View {
     @State private var centres: [String: CGFloat] = [:]
     /// The icons' own width; the shelf is that, or the screen's less a margin (then they scroll in it).
     @State private var contentWidth: CGFloat?
+    /// The pick's name label's width (it's kept on the shelf: `labelShift`).
+    @State private var labelWidth: CGFloat = 0
 
     var body: some View {
         let places = model.placeOptions(current: current)
@@ -133,9 +135,22 @@ struct SendToDock: View {
                         windowNeeds: { model.needs($0) != nil },
                         label: isPick ? current.displayName : nil,
                         notOpen: isPick && notOpen,
+                        labelShift: isPick ? labelShift(for: p.id) : 0,
+                        onLabelWidth: { labelWidth = $0 },
                         onWatch: { watch() }) { pick($0) }
             .id(p.id)
             .background(centre(p.id))
+    }
+
+    /// The pick's name kept on the shelf (Nov 4 2026): over an icon near either end it ran past
+    /// the shelf's side and was cut there ("alendar" over a Calendar just opened, first in
+    /// line). It slides in just enough to stay whole, as a Mac's Dock label stays on screen.
+    private func labelShift(for id: String) -> CGFloat {
+        guard !overflows, labelWidth > 0, let c = centres[id], let row = contentWidth else { return 0 }
+        let half = labelWidth / 2, edge: CGFloat = 4
+        let lo = half + edge, hi = row - half - edge
+        guard lo <= hi else { return row / 2 - c }
+        return min(max(c, lo), hi) - c
     }
 
     /// Records an icon's middle along the row (for the magnification).
@@ -199,6 +214,9 @@ private struct DockIcon: View {
     /// The pick's label: where the words go ("Terminal — claude — ~/app").
     var label: String?
     var notOpen = false
+    /// How far the label slides sideways to stay on the shelf.
+    var labelShift: CGFloat = 0
+    var onLabelWidth: (CGFloat) -> Void = { _ in }
     var onWatch: () -> Void
     var onPick: (TargetRef) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -283,7 +301,8 @@ private struct DockIcon: View {
             if let label {
                 DockLabel(text: label, warning: notOpen ? "Not open" : nil)
                     .fixedSize()
-                    .offset(y: -DockLook.headroom + 2 - (scale - 1) * dockIcon - (selected ? 5 : 0))
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { onLabelWidth($0) }
+                    .offset(x: labelShift, y: -DockLook.headroom + 2 - (scale - 1) * dockIcon - (selected ? 5 : 0))
                     // The old name goes at once (a Dock's label just moves to the next icon):
                     // fading out over the new one's arrival, the two read as one garbled line
                     // for a few frames (Nov 4 2026).

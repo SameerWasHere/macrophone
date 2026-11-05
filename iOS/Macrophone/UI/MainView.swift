@@ -337,7 +337,10 @@ struct MainView: View {
                   meter: recorder.meter,
                   onDown: pressDown,
                   onUp: pressUp,
-                  onAccessibilityToggle: { model.toggleRecording() },
+                  onAccessibilityToggle: {
+                      if watcher.isShowing, !isRecording { windowViaDock = false }
+                      model.toggleRecording()
+                  },
                   size: size)
             .matchedGeometryEffect(id: "mic", in: micSpace)
             .landedPill()
@@ -624,7 +627,14 @@ struct MainView: View {
         // The mic opening over a window: the window gives way to the words in place, not back
         // into the Dock (hidden under it) — said before the mic opens, so the window's last
         // look carries the plain fade.
-        if watcher.isShowing, !isRecording { windowViaDock = false }
+        if watcher.isShowing, !isRecording {
+            windowViaDock = false
+            // A press that opened nothing (the mic off): Done goes into the Dock again.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.5))
+                if !showLiveWords { windowViaDock = true }
+            }
+        }
         if isRecording {
             stopOnRelease = true
             startedByPress = false
