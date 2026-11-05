@@ -74,6 +74,18 @@ enum WindowSnapshots {
 
     private static let context = CIContext(options: [.cacheIntermediates: false])
 
+    /// Where you type in the window (the Mac's `focus`, fractions of it), kept with its picture.
+    static func keep(focus: CGRect?, key: String) {
+        let k = "watch.focus.\(key)"
+        if let f = focus { UserDefaults.standard.set([f.minX, f.minY, f.width, f.height], forKey: k) }
+        else { UserDefaults.standard.removeObject(forKey: k) }
+    }
+
+    static func focus(_ key: String?) -> CGRect? {
+        guard let key, let v = UserDefaults.standard.array(forKey: "watch.focus.\(key)") as? [Double], v.count == 4 else { return nil }
+        return CGRect(x: v[0], y: v[1], width: v[2], height: v[3])
+    }
+
     private static func shrink(_ image: UIImage) -> UIImage? {
         let size = image.size
         let scale = min(1, longSide / max(size.width, size.height))

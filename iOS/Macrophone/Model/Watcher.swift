@@ -84,6 +84,7 @@ final class Watcher: ObservableObject {
         guard let target, hasPicture, !stale, let key = WindowSnapshots.key(mac: macID(), target: target) else { return }
         if videoSize != nil, let frame = video.displayedFrame() { WindowSnapshots.save(frame, key: key) }
         else if let image { WindowSnapshots.save(image, key: key) }
+        WindowSnapshots.keep(focus: focus, key: key)
     }
 
     /// The first frame of a watch: the kept picture gives way, and a fresh one is kept every 30 s.
@@ -233,7 +234,11 @@ final class Watcher: ObservableObject {
         }
         let opening = !isOpen || glancing
         if switching || !isOpen {
-            lastPicture = WindowSnapshots.cached(WindowSnapshots.key(mac: macID(), target: target))
+            let key = WindowSnapshots.key(mac: macID(), target: target)
+            lastPicture = WindowSnapshots.cached(key)
+            // Where you type in it, as it was: the view opens framed on it at once (the kept
+            // picture and the live one alike) instead of gliding there when the Mac says so.
+            if focus == nil, lastPicture != nil { focus = WindowSnapshots.focus(key) }
             // A new window takes this view's shape once it's live (Oct 31 2026).
             sizedByHand = false
             askedForFit = false

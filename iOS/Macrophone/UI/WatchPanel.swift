@@ -544,7 +544,19 @@ struct WatchKicker: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
         .accessibilityIdentifier("watch-kicker")
+        // "Opening …" only once opening has taken a moment, as the window's own note: a window
+        // that comes up at once never flashes it (Nov 4 2026 — the name read "Opening Claude",
+        // then the two words cross-faded at two widths into "Claude", a beat after it opened).
+        .task(id: watcher.phase == .starting) {
+            slow = false
+            guard watcher.phase == .starting else { return }
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else { return }
+            slow = true
+        }
     }
+
+    @State private var slow = false
 
     /// `fits`: measured at its full width (a rung of the ladder); the last rung may shrink instead.
     private func label(_ text: String, fits: Bool = true) -> some View {
@@ -560,7 +572,7 @@ struct WatchKicker: View {
     private var words: String {
         let n = watcher.name
         switch watcher.phase {
-        case .starting: return "Opening \(n)"
+        case .starting: return slow ? "Opening \(n)" : n
         case .live: return n
         case .paused(.mac): return "Stopped · \(n)"
         case .paused: return "Paused · \(n)"
@@ -637,24 +649,20 @@ struct WatchWindow: View {
         let high = contrast == .increased
         ZStack {
             Ink.sunk
-            // Opening: what this window looked like last time, dimmed, until its first frame
-            // (Nov 3 2026) — then the live picture dissolves in over it.
-            // (It stays under the live viewer for a beat after the first frame: the video layer
-            // draws a moment after it's handed the frame, and the plate never shows bare.)
-            if let last = watcher.lastPicture {
-                Image(uiImage: last)
-                    .resizable()
-                    .aspectRatio(contentMode: fill ? .fill : .fit)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: fill ? .center : .top)
-                    .clipped()
-                    .opacity(0.55)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            if watcher.hasPicture {
-                WindowViewer(image: watcher.image, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
-                             focus: watcher.focus, recenter: watcher.recenter, generation: watcher.windowSeq,
+            // Opening: what this window looked like last time, until its first frame (Nov 3
+            // 2026). (Nov 4 2026) It's the same viewer as the live picture, handed the kept one
+            // until then: drawn as its own picture, whole and dimmed, it was smaller and paler
+            // than the live one, so a window showed three looks in a row — an empty plate, a
+            // ghost, then the real thing at another scale, the two double-exposed as one faded
+            // into the other (and a second viewer, laid out apart from the first as the window
+            // grew into its room, never lined up with it). Now the window opens at its own zoom
+            // and spot with what it last showed, and only what changed on the Mac changes. It
+            // stays under the video for a beat after the first frame: the video layer draws a
+            // moment after it's handed the frame, and the plate never shows bare.
+            let kept = watcher.hasPicture ? nil : watcher.lastPicture
+            if watcher.hasPicture || kept != nil {
+                WindowViewer(image: kept ?? watcher.image ?? watcher.lastPicture, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
+                             focus: watcher.focus, recenter: watcher.recenter, generation: watcher.windowSeq, kept: kept != nil,
                              interactive: interactive && watcher.phase == .live,
                              drag: watcher.drag, phased: watcher.macCanScroll, fill: fill, footInset: footInset,
                              viewKey: interactive ? watcher.viewKey : nil,
@@ -1414,6 +1422,8 @@ struct WindowViewer: UIViewRepresentable {
     var recenter: Int
     /// Which window this is (bumped on a switch): a new one starts its view fresh.
     var generation: Int = 0
+    /// The picture is the window's kept one (`Watcher.lastPicture`), until its first frame.
+    var kept = false
     var interactive: Bool
     var drag: Watcher.Drag
     /// The Mac takes a swipe's phases (it named "scroll").
@@ -1471,6 +1481,7 @@ struct WindowViewer: UIViewRepresentable {
         v.keyboardUp = keyboardUp
         v.fill = fill
         v.footInset = footInset
+        v.kept = kept
         v.update(image: image, video: video, videoSize: videoSize, focus: focus, recenter: recenter, generation: generation, interactive: interactive, drag: drag, phased: phased)
         v.showWhole(whole)
         v.setPointer(pointer, seq: pointerSeq)
@@ -1504,6 +1515,10 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     private var pressMarkTask: Task<Void, Never>?
     private let imageView = UIImageView()
     private var imageSize: CGSize = .zero
+    /// What's up is the window's kept picture: the first frame lands in its place, framed the
+    /// same, with no dissolve (one only showed the video at its raw size for a few frames).
+    var kept = false
+    private var keptShown = false
     private var focus: CGRect?
     /// The person zoomed or dragged: leave the view where they put it.
     private var adjusted = false { didSet { if adjusted != oldValue { onAdjusted(adjusted) } } }
@@ -1729,11 +1744,12 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         imageView.image = image
         adopt(video)
         let size = video != nil ? videoSize : image?.size ?? .zero
+        defer { if size != .zero { keptShown = kept } }
         guard size != .zero else { return }
         if size != imageSize {
             // A new size (first picture, another window, or the window was resized): start over —
             // under a short dissolve when a picture was already up, so the view never jumps.
-            let dissolve = hadPicture && !UIAccessibility.isReduceMotionEnabled
+            let dissolve = hadPicture && !keptShown && !UIAccessibility.isReduceMotionEnabled
             imageSize = size
             let apply = {
                 self.zoomScale = 1
