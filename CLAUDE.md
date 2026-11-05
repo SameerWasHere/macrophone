@@ -764,6 +764,7 @@ MACROPHONE_WATCH_ACTIONS=show,fit@largest,done,show,close`, then launch flat por
   simulator plays its own fold animation (the folding half blurs and darkens) — not the app. The
   kept picture can show at another zoom than the live one for a frame (WatchWindow, the cover
   pass's). Full screen's exit button sits over the Mac window's traffic lights.
+
 ## Cover polish (Nov 4 2026)
 
 Walked frame by frame on a Duo simulator's cover (`simctl io recordVideo --display=<cover>`,
