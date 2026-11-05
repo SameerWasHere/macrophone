@@ -65,7 +65,7 @@ import UIKit
 ///                                            newest (Newest's tap)
 /// MACROPHONE_SOUND=1                         Sound held on for this run (nothing stored; a real launch reads off)
 /// MACROPHONE_SOUND_TIMING=1                  a line each second of the Mac's sound: held, latency, underruns
-///                                            page@keyboard|mic|trackpad, point@dx@dy (the trackpad's pointer, phone
+///                                            page@keyboard|mic|trackpad (tappage@…: as the cover's buttons do it), point@dx@dy (the trackpad's pointer, phone
 ///                                            points), click@2 (a click at the pointer, with its count), rclick,
 ///                                            drag@dx@dy (press, move, release), tap@0.2@0.5@2 (a double-click there),
 ///                                            type@<words> (as the keyboard would), mod@command (a sticky modifier),
@@ -408,6 +408,9 @@ enum DebugHooks {
                     } else if a.hasPrefix("tap@") {
                         let xy = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if xy.count >= 2 { model.watcher.click(CGPoint(x: xy[0], y: xy[1]), count: xy.count > 2 ? Int(xy[2]) : 1) }
+                    } else if a.hasPrefix("tappage@"), let p = MacInput.Page(rawValue: String(a.dropFirst(8))) {
+                        // The cover's page buttons as tapped (on the pages' spring).
+                        withAnimation(Motion.settle) { model.watcher.input.show(p) }
                     } else if a.hasPrefix("page@"), let p = MacInput.Page(rawValue: String(a.dropFirst(5))) {
                         model.watcher.input.show(p)
                     } else if a.hasPrefix("point@") {

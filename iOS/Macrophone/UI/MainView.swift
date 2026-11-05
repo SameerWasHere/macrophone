@@ -399,7 +399,8 @@ struct MainView: View {
     /// The keyboard or the trackpad, a round glass button beside the cover's mic.
     @ViewBuilder func coverPageButton(_ p: MacInput.Page) -> some View {
         if input.pages.contains(p) {
-            Button { input.show(p) } label: {
+            // On the pages' spring, the whole screen at once (the window above moves with them).
+            Button { withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { input.show(p) } } label: {
                 Image(systemName: p.symbol).font(.title3.weight(.semibold)).frame(width: 30, height: 30)
             }
             .circleGlassButton()

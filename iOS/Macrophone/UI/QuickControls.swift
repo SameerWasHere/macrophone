@@ -585,8 +585,10 @@ private struct PlaceTileStyle: ButtonStyle {
                 if selected {
                     shape
                         .fill(LinearGradient(colors: [Light.cyan, Light.cyan.opacity(0.78)], startPoint: .top, endPoint: .bottom))
-                        .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05)],
-                                                                   startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                        // The lit rim: a gradient masked by a plain stroke (a gradient stroke is
+                        // drawn on the CPU — Nov 4 2026, as `SpecularEdge`).
+                        .overlay(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.05)], startPoint: .top, endPoint: .bottom)
+                            .mask(shape.strokeBorder(lineWidth: 1)))
                         .shadow(color: Light.cyan.opacity(0.45), radius: 10, y: 2)
                         .matchedGeometryEffect(id: "pick", in: plate)
                 } else if configuration.isPressed {

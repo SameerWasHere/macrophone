@@ -248,12 +248,13 @@ private struct PagesLayout: Layout {
 /// does — Sameer: "useless"; the middle says what two fingers do.)
 struct TrackpadBar: View {
     @ObservedObject var input: MacInput
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 0) {
             Group {
                 if input.pages.contains(.keyboard) {
-                    button("keyboard", "Keyboard", "trackpad-bar-keyboard") { input.show(.keyboard) }
+                    button("keyboard", "Keyboard", "trackpad-bar-keyboard") { go(.keyboard) }
                 } else { Color.clear }
             }
             .frame(maxWidth: .infinity)
@@ -264,11 +265,17 @@ struct TrackpadBar: View {
                 .minimumScaleFactor(0.8)
                 .frame(width: 96)
                 .accessibilityHidden(true)
-            button("xmark", "Close the trackpad", "trackpad-bar-close") { input.show(.mic) }
+            button("xmark", "Close the trackpad", "trackpad-bar-close") { go(.mic) }
                 .frame(maxWidth: .infinity)
         }
         .frame(height: 56)
         .padding(.bottom, 4)
+    }
+
+    /// On the pages' spring, the whole screen at once: the window above grows back as the
+    /// trackpad goes, instead of jumping to its new size under the plate (Nov 4 2026).
+    private func go(_ p: MacInput.Page) {
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Motion.settle) { input.show(p) }
     }
 
     private func button(_ symbol: String, _ label: String, _ id: String, _ action: @escaping () -> Void) -> some View {
