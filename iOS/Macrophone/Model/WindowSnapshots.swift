@@ -74,6 +74,13 @@ enum WindowSnapshots {
 
     private static let context = CIContext(options: [.cacheIntermediates: false])
 
+    /// The video's frame on screen as a picture, at its own size (held over a dropped link).
+    static func image(from buffer: CVPixelBuffer) -> UIImage? {
+        let ci = CIImage(cvPixelBuffer: buffer)
+        guard let cg = context.createCGImage(ci, from: ci.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
     /// Where you type in the window (the Mac's `focus`, fractions of it), kept with its picture.
     static func keep(focus: CGRect?, key: String) {
         let k = "watch.focus.\(key)"

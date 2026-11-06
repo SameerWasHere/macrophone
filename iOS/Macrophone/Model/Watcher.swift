@@ -34,14 +34,23 @@ final class Watcher: ObservableObject {
         case needsPermission
         /// Nothing to show, and why ("Claude isn't open on your Mac").
         case unavailable(String, canReveal: Bool)
-        /// The Mac isn't connected.
+        /// The link dropped (Nov 5 2026): the last picture holds, a shade darker, input held off,
+        /// until it's back — the same window then comes back in place (`WatchReconnect`).
+        case reconnecting
+        /// The Mac isn't connected (no link for `WatchReconnect.limit`, or never was).
         case offline
 
         var isPaused: Bool { if case .paused = self { return true }; return false }
+        /// Live, or holding the last picture while the link comes back: what's laid out round the
+        /// picture (the answers, the key row, the header's cells) stays where it was.
+        /// (The app away from the screen too: its snapshot, and the moment it's back, look as it was.)
+        var holdsLayout: Bool { self == .live || self == .reconnecting || self == .paused(.leftScreen) }
     }
 
     @Published private(set) var isOpen = false
-    @Published private(set) var phase: Phase = .starting
+    @Published private(set) var phase: Phase = .starting {
+        didSet { if phase != .reconnecting, oldValue == .reconnecting { reconnectTask?.cancel(); reconnectFallback = nil } }
+    }
     /// The iPhone Duo's glance (Oct 25 2026, the second pass): Done on the inner screen keeps the
     /// pictures coming but puts the controls away — the picked app's window stays live and big,
     /// not a placeholder, with Show it here to take it in hand again. Never on the cover or a
@@ -87,6 +96,16 @@ final class Watcher: ObservableObject {
         WindowSnapshots.keep(focus: focus, key: key)
     }
 
+    /// The video's frame on screen, held as the picture under the canvas: the decoder fails when
+    /// the app leaves the screen and the link going takes nothing with it, but neither may leave
+    /// the canvas empty — the frame holds until the next one is drawn over it (`cameLive`).
+    private var frozen = false
+    private func freezePicture() {
+        guard videoSize != nil, !frozen, let frame = video.displayedFrame(), let ui = WindowSnapshots.image(from: frame) else { return }
+        image = ui
+        frozen = true
+    }
+
     /// The first frame of a watch: the kept picture gives way, and a fresh one is kept every 30 s.
     private func cameLive() {
         keepTask?.cancel()
@@ -94,6 +113,8 @@ final class Watcher: ObservableObject {
             // A beat for the decoder to draw the first frame over it, then it goes.
             try? await Task.sleep(nanoseconds: 500_000_000)
             self?.lastPicture = nil
+            // The frame held over a drop gives way to the video drawn over it.
+            if let self, self.frozen { self.frozen = false; if self.videoSize != nil { self.image = nil } }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 guard let self, !Task.isCancelled, self.isOpen, self.phase == .live else { return }
@@ -243,6 +264,7 @@ final class Watcher: ObservableObject {
             sizedByHand = false
             askedForFit = false
             wantsAutoFit = true
+            resuming = false
         }
         isOpen = true
         if glancing { glancing = false; wantsAutoFit = true }
@@ -306,6 +328,9 @@ final class Watcher: ObservableObject {
         keepTask?.cancel()
         putBackAutoFit()
         isOpen = false
+        // Closed while the link was away: the next open asks afresh (and holds again if it must).
+        if phase == .reconnecting { phase = .offline }
+        resuming = false
         glancing = false
         fullScreen = false
         wantsAutoFit = false
@@ -341,8 +366,17 @@ final class Watcher: ObservableObject {
         video.ready()
         macCanFit = macFeatures().contains(WatchVideo.fitFeature)
         macCanScroll = macFeatures().contains(WatchScroll.feature)
-        phase = !hasPicture || stale ? .starting : phase == .live ? .live : .starting
-        if !sendWatch(target) { phase = .offline; return }
+        // Back from a dropped link: the held picture and its word stay until the Mac answers.
+        // (And back on screen: the same — it held its picture while the app was away.)
+        let holding = phase == .reconnecting || phase == .paused(.leftScreen)
+        phase = !hasPicture || stale ? .starting : phase == .live ? .live : holding ? .reconnecting : .starting
+        guard sendWatch(target) else {
+            // No link: hold on for as long as a dropped one is held.
+            if phase == .reconnecting { if reconnectFallback != .offline { holdUntil(WatchReconnect.limit, then: .offline) } } else { beginReconnecting() }
+            return
+        }
+        // The Mac's answer is due; if it never comes, the window shows it's opening, as any does.
+        if phase == .reconnecting { holdUntil(WatchReconnect.answerWait, then: .starting) }
         // A frame that stands on its own first (a Mac that sends pictures never hears this).
         askKeyframe()
         // The size this app's window is remembered at: the Mac applies it once it finds the window.
@@ -353,6 +387,7 @@ final class Watcher: ObservableObject {
     func pause(_ reason: PauseReason = .idle) {
         guard isOpen, !phase.isPaused else { return }
         keepPicture()
+        freezePicture()
         idleTask?.cancel()
         _ = sendWatch(nil)
         phase = .paused(reason)
@@ -368,6 +403,8 @@ final class Watcher: ObservableObject {
     /// The app is back on screen: a watch that only stopped because it left picks up by itself.
     func sceneBecameActive() {
         guard isOpen, phase == .paused(.leftScreen) else { return }
+        // The window it left, coming back as it was: no light round the rim, no tap.
+        resuming = hasPicture && !stale
         start()
         log?.add("watching resumed on return")
     }
@@ -875,7 +912,8 @@ final class Watcher: ObservableObject {
         #endif
         if awaitingFirstPicture {
             awaitingFirstPicture = false
-            cameAlive &+= 1
+            if !resuming { cameAlive &+= 1 }
+            resuming = false
             cameLive()
             log?.add("watching: first \(frame.keyframe ? "keyframe" : "frame") \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(frame.data.count / 1024) KB")
             autoFitSoon()
@@ -916,7 +954,8 @@ final class Watcher: ObservableObject {
         if phase != .live { phase = .live }
         if awaitingFirstPicture {
             awaitingFirstPicture = false
-            cameAlive &+= 1
+            if !resuming { cameAlive &+= 1 }
+            resuming = false
             cameLive()
             log?.add("watching: first \(how) \(Int(Date().timeIntervalSince(askedAt) * 1000)) ms after asking, \(bytes / 1024) KB")
             autoFitSoon()
@@ -948,14 +987,63 @@ final class Watcher: ObservableObject {
         input.windowPoints = CGSize(width: s.width / 2, height: s.height / 2)
     }
 
-    /// The link came or went.
-    func linkChanged(connected: Bool) {
+    /// The link came or went. `gone`: for good (the Mac forgot this phone) — no holding on.
+    func linkChanged(connected: Bool, gone: Bool = false) {
         guard isOpen else { return }
         input.linkChanged(connected: connected)
         if connected {
-            if phase == .offline { start() }
-        } else if !phase.isPaused {
-            phase = .offline
+            guard phase == .offline || phase == .reconnecting else { return }
+            // The same window, asked for again: it comes back in place, its first frame over the
+            // held one (no light round the rim — it never really went).
+            resuming = hasPicture && !stale
+            log?.add("watching: the link is back — asking for the window again")
+            start()
+        } else if gone {
+            if !phase.isPaused { phase = .offline }
+        } else if !phase.isPaused, phase != .offline {
+            beginReconnecting()
+        }
+    }
+
+    // MARK: A dropped link keeps the picture (Nov 5 2026)
+
+    // Sameer wanted it to behave like FaceTime or Screen Sharing: when the link blips while a window
+    // shows, the last frame stays, a shade darker, under a small "Reconnecting…" capsule; taps
+    // don't fire into nothing; when it's back the watch resumes on the same window in place — the
+    // same zoom, the same spot, the same input page (`windowSeq` never moves, so the viewer keeps
+    // its view) — and the first new frame lands over the old one with no dissolve. Only a link
+    // gone for `WatchReconnect.limit` says the Mac isn't connected.
+
+    /// While the link comes back: the Mac named this when it was here — its control holds its
+    /// place, dimmed, so nothing round the picture re-lays for a blip.
+    func heldFeature(_ feature: String) -> Bool { phase.holdsLayout && phase != .live && macFeatures().contains(feature) }
+
+    private var reconnectTask: Task<Void, Never>?
+    /// What the hold gives way to when it runs out (`holdUntil`).
+    private var reconnectFallback: Phase?
+    /// The next first frame is the same window coming back: no light round the rim, no haptic.
+    private var resuming = false
+
+    private func beginReconnecting() {
+        guard phase != .reconnecting else { return }
+        keepPicture()
+        freezePicture()
+        idleTask?.cancel()
+        keyframeRetry?.cancel()
+        phase = .reconnecting
+        log?.add("watching: the link dropped — holding the picture")
+        holdUntil(WatchReconnect.limit, then: .offline)
+    }
+
+    /// Still reconnecting after `seconds`: the window takes `phase` instead.
+    private func holdUntil(_ seconds: TimeInterval, then fallback: Phase) {
+        reconnectTask?.cancel()
+        reconnectFallback = fallback
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.isOpen, self.phase == .reconnecting else { return }
+            self.phase = fallback
+            self.log?.add(fallback == .offline ? "watching: no link for \(Int(seconds)) s — the window waits for the Mac" : "watching: the Mac hasn't answered yet")
         }
     }
 

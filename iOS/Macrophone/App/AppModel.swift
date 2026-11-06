@@ -479,9 +479,38 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The link to the Mac dropped and is being made again (Nov 5 2026): the status line says
+    /// "Reconnecting to ‹Mac›…" whatever the link goes through meanwhile (looking, connecting, not
+    /// found), for `WatchReconnect.limit` — then what's true now, as ever. A window being watched
+    /// holds its last picture for as long (`Watcher.Phase.reconnecting`).
+    @Published private(set) var reconnecting = false
+    private var reconnectTask: Task<Void, Never>?
+    /// The Mac the link was last made to (a switch to another Mac is no reconnect).
+    private var connectedMacID: UUID?
+    /// Connected when the app left the screen: coming back is a reconnect (the link is let go in
+    /// the background).
+    private var connectedWhenLeft = false
+
+    private func beginReconnecting() {
+        reconnecting = true
+        reconnectTask?.cancel()
+        reconnectTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(WatchReconnect.limit * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.reconnecting = false
+        }
+    }
+
+    private func endReconnecting() {
+        reconnectTask?.cancel()
+        if reconnecting { reconnecting = false }
+    }
+
     func scenePhaseChanged(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            if !sceneActive, connectedWhenLeft, !isConnected { beginReconnecting() }
+            connectedWhenLeft = false
             if !sceneActive { beginSettling() }
             sceneActive = true
             endBackgroundTask()
@@ -491,6 +520,7 @@ final class AppModel: ObservableObject {
             watcher.sceneBecameActive()
             if pendingStart { pendingStart = false; Task { await startRecording(override: recordingOverride) } }
         case .background:
+            if sceneActive { connectedWhenLeft = isConnected }
             sceneActive = false
             watcher.pause(.leftScreen)
             enterBackground()
@@ -1574,6 +1604,7 @@ extension AppModel: LinkClientDelegate {
         #if DEBUG
         if debugPairingLocked { return }
         #endif
+        let was = linkState
         linkState = state
         refreshMacs()
         isRemote = client.isRemote
@@ -1581,7 +1612,18 @@ extension AppModel: LinkClientDelegate {
         if case .connected = state { flushQueue() } else { targetsCurrent = false }
         // Another Mac, or none: its agents aren't this one's.
         if case .notPaired = state { needsYou = [] }
-        if case .connected = state { watcher.linkChanged(connected: true) } else { watcher.linkChanged(connected: false) }
+        // The link to the Mac it was connected to dropped while he's here: one word until it's back.
+        switch state {
+        case .connected, .notPaired: endReconnecting()
+        default:
+            if case .connected = was, sceneActive, pairedMac?.id == connectedMacID { beginReconnecting() }
+        }
+        if case .connected = state { connectedMacID = pairedMac?.id }
+        switch state {
+        case .connected: watcher.linkChanged(connected: true)
+        case .notPaired: watcher.linkChanged(connected: false, gone: true)
+        default: watcher.linkChanged(connected: false)
+        }
         // On the Duo's inner screen with nothing watched yet: the pick's window, now that the Mac is here.
         if case .connected = state { openWindowForPose() }
     }

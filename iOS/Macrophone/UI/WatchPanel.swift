@@ -74,7 +74,7 @@ struct WatchPanel: View {
         VStack(spacing: compact ? 6 : 8) {
             // The cover: the name floats over the window's corner instead of taking a row.
             if !cover { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce) }
-            WatchWindow(watcher: watcher, interactive: true, footInset: floats && watcher.phase == .live ? floatingHeight : 0, dormant: dormant)
+            WatchWindow(watcher: watcher, interactive: true, footInset: floats && watcher.phase.holdsLayout ? floatingHeight : 0, dormant: dormant)
                 .frame(maxHeight: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
                 // The first times: what a tap, a hold, a pinch and the side swipe do (on the Duo's
@@ -89,9 +89,7 @@ struct WatchPanel: View {
                             .padding(.horizontal, WatchLook.bezelWidth + 10)
                             .padding(.vertical, WatchLook.bezelWidth + 10)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { floatingHeight = watcher.answers == nil ? 0 : $0 }
-                            .opacity(watcher.phase == .live ? 1 : 0)
-                            .allowsHitTesting(watcher.phase == .live)
-                            .accessibilityHidden(watcher.phase != .live)
+                            .watchLive(watcher.phase)
                     }
                 }
                 // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
@@ -116,9 +114,7 @@ struct WatchPanel: View {
             // row steps aside while a question is up, and the window takes its room.
             if !deck, !(cover && watcher.answers != nil) {
                 WatchActions(watcher: watcher, keysOnly: floats, dragElsewhere: cover)
-                    .opacity(watcher.phase == .live ? 1 : 0)
-                    .allowsHitTesting(watcher.phase == .live)
-                    .accessibilityHidden(watcher.phase != .live)
+                    .watchLive(watcher.phase)
             }
         }
         .animation(reduceMotion ? nil : Motion.settle, value: watcher.answers?.id)
@@ -349,16 +345,19 @@ struct WatchHeaderBar: View {
         // The Mac's sound here, and its volume, brightness and media keys (Oct 19 2026,
         // Sameer: "Mac controls should be its own button rather than hidden in a sub menu"
         // — one tap from any window, on every page): one piece of glass.
-        if model.macAudio.macCanPlay || model.canMacControls {
+        // While the link comes back they hold their places, dimmed (the header never re-lays).
+        let sound = model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature)
+        let controls = model.canMacControls || watcher.heldFeature(MacControl.feature)
+        if sound || controls {
             HStack(spacing: 0) {
-                WatchSoundButton(player: model.macAudio)
-                if model.macAudio.macCanPlay, model.canMacControls { WatchCellDivider() }
-                if model.canMacControls { MacControlsButton(style: .cell) }
+                WatchSoundButton(player: model.macAudio, held: sound)
+                if sound, controls { WatchCellDivider() }
+                if controls { MacControlsButton(style: .cell).disabled(!model.canMacControls) }
             }
             .watchGlass(Capsule())
         }
-        if dragSwitch, watcher.phase == .live {
-            WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize()
+        if dragSwitch, watcher.phase.holdsLayout {
+            WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize().disabled(watcher.phase != .live)
         }
         if watcher.macCanFit, watcher.target != .clipboard {
             HStack(spacing: 0) {
@@ -584,16 +583,24 @@ struct WatchKicker: View {
         case .paused(.mac): return "Stopped · \(n)"
         case .paused: return "Paused · \(n)"
         case .needsPermission, .unavailable: return n
+        // The link dropped: the capsule over the picture says so; the name stays put.
+        case .reconnecting: return n
         case .offline: return "Mac not connected"
         }
     }
 
-    private var spoken: String { watcher.phase == .live ? "Live · \(watcher.name)" : words }
+    private var spoken: String {
+        switch watcher.phase {
+        case .live: return "Live · \(watcher.name)"
+        case .reconnecting: return "Reconnecting · \(watcher.name)"
+        default: return words
+        }
+    }
 
     private var color: Color {
         switch watcher.phase {
         case .live: return Light.cyan
-        case .starting: return Ink.tertiary
+        case .starting, .reconnecting: return Ink.tertiary
         case .paused: return Ink.tertiary
         case .needsPermission, .unavailable, .offline: return Light.ochre
         }
@@ -649,6 +656,8 @@ struct WatchWindow: View {
     @State private var dragNoteTask: Task<Void, Never>?
     /// "Opening …" shows only once a switch has taken a moment: a quick one never flashes it.
     @State private var opening = false
+    /// The link has been gone a moment (`WatchReconnect.quietFor`): the held picture's shade shows.
+    @State private var heldShown = false
     /// The pointer's sprite and the viewer that places it (the trackpad's pointer, drawn above
     /// everything over the picture).
     @StateObject private var pointer = PointerLink()
@@ -708,6 +717,15 @@ struct WatchWindow: View {
             // A switch: the last window's picture stays, dimmed, until the new one's first frame.
             if watcher.stale {
                 Ink.ground.opacity(0.5).transition(.opacity).allowsHitTesting(false).accessibilityHidden(true)
+            }
+            // The link dropped: the last frame holds, a shade darker, one calm word over it — only
+            // once it's been gone a moment (a hiccup shows nothing).
+            if watcher.phase == .reconnecting, heldShown {
+                Ink.ground.opacity(0.32).transition(.opacity).allowsHitTesting(false).accessibilityHidden(true)
+                if interactive {
+                    ReconnectingCapsule()
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
             }
             // The whole screen on the Duo's inner screen is the Mac's screen and nothing else
             // (Nov 1 2026, Sameer: "I don't want any overlays over it"): no Newest, no app chip.
@@ -807,6 +825,13 @@ struct WatchWindow: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.2)) { opening = true }
         }
+        .task(id: watcher.phase == .reconnecting) {
+            guard watcher.phase == .reconnecting else { heldShown = false; return }
+            try? await Task.sleep(nanoseconds: UInt64(WatchReconnect.quietFor * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) { heldShown = true }
+            if interactive { UIAccessibility.post(notification: .announcement, argument: "Reconnecting to your Mac") }
+        }
         .animation(.easeInOut(duration: 0.25), value: watcher.phase)
         .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
         .animation(.easeInOut(duration: 0.2), value: watcher.stale)
@@ -818,7 +843,7 @@ struct WatchWindow: View {
         switch watcher.phase {
         case .live: return Light.cyan
         case .needsPermission, .unavailable, .offline: return Light.ochre
-        case .starting, .paused: return Light.cyan
+        case .starting, .paused, .reconnecting: return Light.cyan
         }
     }
 
@@ -826,7 +851,7 @@ struct WatchWindow: View {
         switch watcher.phase {
         case .live: return interactive ? 0.22 : 0.14
         case .needsPermission, .unavailable, .offline: return 0.16
-        case .starting, .paused: return 0.06
+        case .starting, .paused, .reconnecting: return 0.06
         }
     }
 
@@ -839,6 +864,13 @@ struct WatchWindow: View {
                 Note(symbol: nil, title: "Opening \(watcher.name)'s window", detail: nil) { ProgressView().tint(Ink.secondary) }
                     .transition(.opacity)
             }
+        case .reconnecting:
+            // Drawn with the picture's shade (`heldShown`), for the glance too.
+            EmptyView()
+        case .paused(.leftScreen):
+            // The app left the screen: the picture as it was (the app switcher's snapshot, and the
+            // moment it's back) — it picks up again by itself.
+            EmptyView()
         case .paused(let reason):
             Dimmed {
                 Note(symbol: reason == .mac ? "stop.circle" : "pause.circle",
@@ -852,7 +884,7 @@ struct WatchWindow: View {
         case .offline:
             Dimmed {
                 Note(symbol: "wifi.exclamationmark", title: "Your Mac isn't connected",
-                     detail: "The window comes back when it is.") { EmptyView() }
+                     detail: "Macrophone keeps trying — the window comes back the moment it's connected.") { EmptyView() }
             }
         case .needsPermission:
             Dimmed {
@@ -880,6 +912,24 @@ struct WatchWindow: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Over the held picture while the link comes back: a spinner and one word, on a capsule of
+    /// glass in the middle of the window (FaceTime's frozen frame, in the app's look).
+    private struct ReconnectingCapsule: View {
+        var body: some View {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(Ink.secondary)
+                Text("Reconnecting…").font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink)
+            }
+            .padding(.leading, 12).padding(.trailing, 14).padding(.vertical, 9)
+            .watchGlass(Capsule())
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Reconnecting to your Mac")
+            .accessibilityIdentifier("watch-reconnecting")
         }
     }
 
@@ -1760,7 +1810,25 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let size = video != nil ? videoSize : image?.size ?? .zero
         defer { if size != .zero { keptShown = kept } }
         guard size != .zero else { return }
-        if size != imageSize {
+        if size != imageSize, hadPicture, bounds.width > 0, WatchReconnect.sameShape(imageSize, size) {
+            // The same window at another resolution (back from a dropped link at home, or away:
+            // 2,560 ↔ 1,600 px — Nov 5 2026): the view stays where it was, the picture drawn as
+            // large as before, only sharper or softer — never back to the start.
+            let zoom = WatchReconnect.carriedZoom(zoomScale, from: imageSize, to: size), offset = contentOffset
+            imageSize = size
+            zoomScale = 1
+            canvas.frame = CGRect(origin: .zero, size: size)
+            imageView.frame = canvas.bounds
+            video?.frame = canvas.bounds
+            contentSize = size
+            configureZoom()
+            minimumZoomScale = min(minimumZoomScale, zoom)
+            maximumZoomScale = max(maximumZoomScale, zoom)
+            setZoomScale(zoom, animated: false)
+            centerIfSmall()
+            contentOffset = offset
+            reportWhole()
+        } else if size != imageSize {
             // A new size (first picture, another window, or the window was resized): start over —
             // under a short dissolve when a picture was already up, so the view never jumps.
             let dissolve = hadPicture && !keptShown && !UIAccessibility.isReduceMotionEnabled
@@ -2336,5 +2404,16 @@ private struct WatchFrontChip: View {
         .accessibilityLabel("Watch \(front.name)'s window")
         .accessibilityHint("Leaves the whole screen for \(front.name)'s window, and sends there.")
         .accessibilityIdentifier("watch-front")
+    }
+}
+
+extension View {
+    /// What's only for a live window (the answers, the key row): shown and touchable while live;
+    /// while the link comes back, in its place but dimmed and untouchable (Nov 5 2026 — taps never
+    /// fire into nothing, and nothing round the picture moves); otherwise hidden.
+    func watchLive(_ phase: Watcher.Phase) -> some View {
+        opacity(phase == .live ? 1 : phase.holdsLayout ? 0.35 : 0)
+            .allowsHitTesting(phase == .live)
+            .accessibilityHidden(phase != .live)
     }
 }
