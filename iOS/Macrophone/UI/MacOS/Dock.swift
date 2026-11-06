@@ -7,8 +7,8 @@ import SwiftUI
 // little higher with its name over it, the way the Dock labels the icon under the pointer, so the
 // Dock says where the words go without a line of its own. A finger scrubbing along the shelf
 // magnifies the icons under it, as on a Mac with magnification on, and picks the one it lifts
-// from; a long press is the Dock's menu — the app's windows. The pick, tapped again, shows its
-// window.
+// from; a long press is the Dock's menu — the app's windows as pictures (`DockWindowsPopover`).
+// The pick, tapped again, shows its window.
 
 /// The icons' side in this Dock: `DockLook.icon`, or less when that many wouldn't fit across.
 private struct DockIconSize: EnvironmentKey { static let defaultValue: CGFloat = DockLook.icon }
@@ -72,10 +72,10 @@ struct SendToDock: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     HStack(alignment: .bottom, spacing: DockLook.spacing) {
-                        ForEach(apps) { p in icon(p, selected: selected, notOpen: notOpen, shelf: width) }
+                        ForEach(apps) { p in icon(p, selected: selected, notOpen: notOpen, shelf: width, room: outer.size.width - 24) }
                         // No open apps: nothing for the divider to divide (Nov 5 2026).
                         if !apps.isEmpty { DockDivider() }
-                        ForEach(stacks) { p in icon(p, selected: selected, notOpen: notOpen, shelf: width) }
+                        ForEach(stacks) { p in icon(p, selected: selected, notOpen: notOpen, shelf: width, room: outer.size.width - 24) }
                         DockApplications(scale: scale(for: "more")) { model.sheet = .openApp }
                             .background(centre("more"))
                     }
@@ -130,13 +130,17 @@ struct SendToDock: View {
         .allowsHitTesting(false)
     }
 
-    private func icon(_ p: PlaceOption, selected: String?, notOpen: Bool, shelf: CGFloat) -> some View {
+    private func icon(_ p: PlaceOption, selected: String?, notOpen: Bool, shelf: CGFloat, room: CGFloat) -> some View {
         let isPick = p.id == selected
         return DockIcon(place: p, selected: isPick, current: current,
                         scale: scale(for: p.id),
                         watchable: isPick && current != .clipboard && model.isConnected && !notOpen,
                         needs: model.isConnected ? model.needs(p) : nil,
-                        windowNeeds: { model.needs($0) != nil },
+                        windowNeeds: { model.isConnected ? model.needs($0) : nil },
+                        macID: model.pairedMac?.id,
+                        canWatchWindows: model.isConnected && p.kind == .app,
+                        room: room,
+                        onWatchWindow: { watch($0) },
                         label: isPick ? current.displayName : nil,
                         notOpen: isPick && notOpen,
                         labelShift: isPick ? labelShift(shelf: shelf) : 0,
@@ -194,6 +198,17 @@ struct SendToDock: View {
         model.watcher.open(current)
     }
 
+    /// Show Window from an icon's window previews: that window becomes the pick and shows — after
+    /// the popover has gone, so the window grows out of its icon (`DockSpot`) rather than under it.
+    private func watch(_ t: TargetRef) {
+        pick(t)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 320_000_000)
+            guard t == model.selection.target, t != .clipboard, model.isConnected, !model.isNotOpen(t) else { return }
+            model.watcher.open(t)
+        }
+    }
+
     private func pick(_ t: TargetRef) {
         guard t != model.selection.target else { return }
         Haptics.pick()
@@ -215,7 +230,13 @@ private struct DockIcon: View {
     var scale: CGFloat
     var watchable: Bool
     var needs: NeedsYou?
-    var windowNeeds: (LiveTarget) -> Bool
+    var windowNeeds: (LiveTarget) -> NeedsYou?
+    var macID: UUID?
+    /// Show Window is offered under an app's window previews.
+    var canWatchWindows = false
+    /// The previews' widest.
+    var room: CGFloat = 320
+    var onWatchWindow: (TargetRef) -> Void = { _ in }
     /// The pick's label: where the words go ("Terminal — claude — ~/app").
     var label: String?
     var notOpen = false
@@ -227,10 +248,19 @@ private struct DockIcon: View {
     var onPick: (TargetRef) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dockIcon) private var dockIcon
+    /// The window previews are up (a long press).
+    @State private var showsWindows = false
+    /// The long press's own lift isn't a tap.
+    @State private var swallowTap = false
+
+    /// A long press shows something: an app's windows, or Show Window on the pick.
+    private var hasPreviews: Bool { place.kind == .app && !place.windows.isEmpty }
+    private var hasMenu: Bool { hasPreviews || (selected && watchable) }
 
     var body: some View {
         let size = dockIcon
         Button {
+            if swallowTap { swallowTap = false; return }
             if let n = needs, let w = place.windows.first(where: n.concerns), !current.matches(w) { onPick(w.ref) }
             else if !place.holds(current) { onPick(place.target) }
             else { onWatch() }
@@ -282,28 +312,36 @@ private struct DockIcon: View {
         .buttonStyle(DockPress())
         .animation(Motion.pick(Motion.snap, reduce: reduceMotion), value: selected)
         .animation(Motion.snap, value: needs != nil)
-        .contentShape(.contextMenuPreview, AppIconShape())
-        .contextMenu {
-            if place.windows.count > 1 {
-                Section("\(place.name) windows") {
-                    ForEach(place.windows) { w in
-                        Button { onPick(w.ref) } label: {
-                            if current.matches(w) { Label(w.windowTitle ?? w.appName, systemImage: "checkmark") }
-                            else if windowNeeds(w) { Label(w.windowTitle ?? w.appName, systemImage: "circlebadge.fill") }
-                            else { Text(w.windowTitle ?? w.appName) }
-                            if windowNeeds(w) { Text("Answered you") }
-                        }
-                    }
-                }
-            }
-            if selected, watchable {
-                Button { onWatch() } label: { Label("Show Window", systemImage: "eye") }
-            }
+        // A long press: the app's windows as pictures over the icon (App Exposé), in a glass
+        // popover rather than a context menu — a context menu's preview takes no taps and
+        // doesn't scroll, and each card here is a window to pick. The scrub's drag moves the
+        // finger past the press's reach, so magnifying along the Dock never opens it.
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.42, maximumDistance: 10).onEnded { _ in
+            guard hasMenu else { return }
+            swallowTap = true
+            Haptics.grab()
+            showsWindows = true
+        })
+        .popover(isPresented: $showsWindows, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+            DockWindowsPopover(place: place, current: current, macID: macID, room: room,
+                               needs: windowNeeds,
+                               canWatch: hasPreviews ? canWatchWindows : watchable,
+                               onPick: { t in
+                                   showsWindows = false
+                                   onPick(t)
+                               },
+                               onWatch: { t in
+                                   showsWindows = false
+                                   if hasPreviews { onWatchWindow(t) } else { onWatch() }
+                               })
+                .presentationCompactAdaptation(.popover)
         }
+        .onChange(of: showsWindows) { _, up in if !up { swallowTap = false } }
         .accessibilityLabel(accessibilityName)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint(watchable ? "Tap again to watch its window on your Mac." : selected ? "" : "Sends your dictations here.")
         .accessibilityAction(named: "Watch") { if watchable { onWatch() } }
+        .accessibilityAction(named: hasPreviews ? "Show Windows" : "Options") { if hasMenu { showsWindows = true } }
         // The pick's name over it: its own element (VoiceOver reads it as the Send to heading),
         // outside the button so it never becomes the button's own words.
         .overlay(alignment: .top) {
