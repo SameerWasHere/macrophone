@@ -37,7 +37,8 @@ struct DictionaryView: View {
 
             Section {
                 if settings.dictionary.isEmpty {
-                    Text("No words yet.").foregroundStyle(Ink.secondary)
+                    EmptyState(symbol: "character.book.closed", title: "No words yet",
+                               message: "Names and terms you add show up here.")
                 } else {
                     ForEach(settings.dictionary, id: \.self) { term in
                         Text(term).foregroundStyle(Ink.ink)
@@ -77,8 +78,8 @@ struct LanguageView: View {
         List {
             Section {
                 if Languages.onDevice.isEmpty {
-                    Text("This iPhone hasn't downloaded any on-device speech languages yet. Add one in Settings › General › Keyboard › Dictation, then come back.")
-                        .foregroundStyle(Ink.secondary)
+                    EmptyState(symbol: "globe", title: "No speech languages yet",
+                               message: "Add a dictation language in Settings › General › Keyboard, then come back.")
                 }
                 ForEach(Languages.onDevice) { lang in
                     Button {

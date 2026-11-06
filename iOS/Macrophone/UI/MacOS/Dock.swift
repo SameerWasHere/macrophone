@@ -73,7 +73,8 @@ struct SendToDock: View {
                 ScrollView(.horizontal) {
                     HStack(alignment: .bottom, spacing: DockLook.spacing) {
                         ForEach(apps) { p in icon(p, selected: selected, notOpen: notOpen, shelf: width) }
-                        DockDivider()
+                        // No open apps: nothing for the divider to divide (Nov 5 2026).
+                        if !apps.isEmpty { DockDivider() }
                         ForEach(stacks) { p in icon(p, selected: selected, notOpen: notOpen, shelf: width) }
                         DockApplications(scale: scale(for: "more")) { model.sheet = .openApp }
                             .background(centre("more"))

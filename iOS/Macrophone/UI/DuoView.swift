@@ -1161,8 +1161,9 @@ struct DuoGlance: View {
                     .frame(width: geo.size.width, height: geo.size.height)
                 }
                 .transition(.opacity)
-            } else if model.isPaired, !model.isConnected, model.settling {
-                // The moment it connects at launch, nothing kept yet: the pick, and no alarm.
+            } else if model.isPaired, !model.isConnected, model.settling || !model.isUnreachable {
+                // The moment it connects (at launch, or looking for it again), nothing kept yet:
+                // the pick, and no alarm — only a Mac that wasn't found is news.
                 plate
                 VStack(spacing: 10) {
                     icon(target, size: 64)
@@ -1175,31 +1176,22 @@ struct DuoGlance: View {
                     .watchGlass(Capsule())
                 }
                 .transition(.opacity)
+            } else if !model.isPaired || !model.isConnected || model.isNotOpen(target) {
+                // Nothing to show, and why — as Apple's own empty states (Nov 5 2026).
+                plate
+                emptyState(target)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: 420)
+                    .transition(.opacity)
             } else {
                 plate
                 VStack(spacing: 14) {
-                    if !model.isPaired {
-                        GlyphPlate(symbol: "macbook.and.iphone", tint: Light.cyan, size: 56)
-                        Text("Pair your Mac").font(.serif(.title2)).foregroundStyle(Ink.ink)
-                        Text("Your Mac's windows show here, live, once Macrophone on your Mac is paired.")
-                            .font(.footnote).foregroundStyle(Ink.secondary)
-                        Button { model.sheet = .pairing } label: { Label("Pair a Mac", systemImage: "qrcode.viewfinder").fontWeight(.semibold) }
-                            .duoProminentButton()
-                            .accessibilityIdentifier("duo-pair")
-                    } else if !model.isConnected {
-                        GlyphPlate(symbol: "wifi.exclamationmark", tint: Ink.secondary, size: 56)
-                        Text("Looking for \(model.macName)").font(.serif(.title2)).foregroundStyle(Ink.ink)
-                        Text("Its window shows here the moment it's connected.")
-                            .font(.footnote).foregroundStyle(Ink.secondary)
-                    } else {
-                        icon(target, size: 64)
-                        Text(Places.appName(target, in: model)).font(.serif(.title2)).foregroundStyle(Ink.ink)
-                        Text(target == .clipboard || target == .frontApp ? "Your Mac's whole screen, live."
-                             : model.isNotOpen(target) ? "Not open on your Mac — pick another place, or open it from Send to."
-                             : "Its window on your Mac, live — and your words go there.")
-                            .font(.footnote).foregroundStyle(model.isNotOpen(target) ? Light.ochre : Ink.secondary)
-                        if !model.isNotOpen(target) { showButton }
-                    }
+                    icon(target, size: 64)
+                    Text(Places.appName(target, in: model)).font(.serif(.title2)).foregroundStyle(Ink.ink)
+                    Text(target == .clipboard || target == .frontApp ? "Your Mac's whole screen, live."
+                         : "Its window on your Mac, live — and your words go there.")
+                        .font(.footnote).foregroundStyle(Ink.secondary)
+                    showButton
                 }
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
@@ -1210,6 +1202,41 @@ struct DuoGlance: View {
         .animation(.easeInOut(duration: 0.25), value: model.settling)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your Mac")
+    }
+
+    /// No Mac paired, the Mac not found, or the pick not open on it: the symbol, the title, one
+    /// sentence and the button that fixes it.
+    @ViewBuilder private func emptyState(_ target: TargetRef) -> some View {
+        if !model.isPaired {
+            EmptyState(symbol: "macbook.and.iphone", title: "Pair your Mac",
+                       message: "Its windows show up here, live, once it's paired.") {
+                Button { model.sheet = .pairing } label: { Label("Pair a Mac", systemImage: "qrcode.viewfinder") }
+                    .emptyStateButton()
+                    .accessibilityIdentifier("duo-pair")
+            }
+        } else if !model.isConnected, model.localNetworkDenied {
+            EmptyState(symbol: "network.slash", title: "Local Network is off",
+                       message: "Turn it on in Settings so Macrophone can find \(model.macName) on this Wi-Fi.") {
+                Button("Open Settings") { openAppSettings() }.emptyStateButton()
+            }
+        } else if !model.isConnected {
+            EmptyState(symbol: "laptopcomputer.slash", title: "Can't find \(model.macName)",
+                       message: "Make sure it's awake with Macrophone open — its windows show up here when it is.") {
+                WakeMacAction()
+            }
+        } else if case let .app(bundleID, _, _) = target {
+            // The pick isn't open on the Mac: open it from here.
+            let name = Places.appName(target, in: model)
+            ContentUnavailableView {
+                Label { Text("\(name) isn't open") } icon: { icon(target, size: 64) }
+            } description: {
+                Text("Open it on your Mac to see its window here.")
+            } actions: {
+                Button("Open \(name)") { model.openOnMac(MacApp(bundleID: bundleID, name: name)) }
+                    .emptyStateButton()
+                    .accessibilityIdentifier("duo-open-app")
+            }
+        }
     }
 
     /// The empty screen: a plate of the window's bezel.

@@ -418,6 +418,12 @@ final class Recorder: ObservableObject {
 
     static var micStatus: AVAudioApplication.recordPermission { AVAudioApplication.shared.recordPermission }
     static var speechStatus: SFSpeechRecognizerAuthorizationStatus { SFSpeechRecognizer.authorizationStatus() }
+    /// A permission he turned off (denied, not just not asked yet): the mic can't open until it's on.
+    static var permissionOff: StartError? {
+        if micStatus == .denied { return .micDenied }
+        if speechStatus == .denied { return .speechDenied }
+        return nil
+    }
 
     static func requestMic() async -> Bool {
         await AVAudioApplication.requestRecordPermission()

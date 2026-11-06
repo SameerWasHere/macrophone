@@ -22,14 +22,19 @@ struct OpenAppSheet: View {
         NavigationStack {
             Group {
                 if !model.isConnected {
-                    ContentUnavailableView("Your Mac isn't connected", systemImage: "laptopcomputer.slash",
-                                           description: Text("Open Macrophone on your Mac, then try again."))
+                    EmptyState(symbol: "laptopcomputer.slash", title: "\(model.pairedMac?.name ?? "Your Mac") isn't connected",
+                               message: "Its apps show up here once it is — make sure Macrophone is open on it.") {
+                        WakeMacAction()
+                    }
                 } else if !model.macAppsLoaded {
                     ProgressView("Asking your Mac")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if shown.isEmpty, query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    ContentUnavailableView("No apps found", systemImage: "app.dashed",
-                                           description: Text("Your Mac didn't list any apps. Open the Applications folder on your Mac and try again."))
+                    EmptyState(symbol: "app.dashed", title: "No apps found",
+                               message: "Your Mac didn't list any apps this time.") {
+                        Button("Try Again") { Haptics.tick(); model.requestMacApps() }
+                            .emptyStateButton()
+                    }
                 } else if shown.isEmpty {
                     ContentUnavailableView.search(text: query)
                 } else {

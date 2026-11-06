@@ -22,6 +22,8 @@ import SwiftUI
 struct PhoneMenuBar: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
+    /// The desktop's empty state has Wake Your Mac (Nov 5 2026): the bar doesn't say it twice.
+    var wakeElsewhere = false
     /// What the Mac offered when it was last connected (MainView keeps these, as for the cover's
     /// bar): the extras stay in their places, dimmed, while it connects again — at launch they
     /// popped in a beat after the first frame and pushed History and Settings along (Nov 4 2026).
@@ -35,7 +37,7 @@ struct PhoneMenuBar: View {
             // the bar past both sides of the screen, the name cut at the left and Settings gone
             // (Nov 4 2026).
             MacPill(menuBar: true).layoutPriority(1)
-            WakeMacButton().controlSize(.small)
+            if !wakeElsewhere { WakeMacButton().controlSize(.small) }
         } trailing: {
             if model.isConnected ? watcher.canWatchDesktop : hadWholeScreen {
                 WholeScreenButton(watcher: watcher, menuExtra: true).disabled(!model.isConnected)
