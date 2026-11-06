@@ -6,6 +6,7 @@
 //   xcrun swiftc -O -parse-as-library -target arm64-apple-macos15.0 scripts/render-sky-icon.swift -o /tmp/render-sky-icon
 //   /tmp/render-sky-icon render <work dir>                    # the flats, the .icon bundles, the layers
 //   /tmp/render-sky-icon sheet <work dir> <out dir> [SameerOS appiconset]   # the side-by-side sheet
+//   /tmp/render-sky-icon appearances <work dir> <out dir> <ictool> [before.icon]   # every Home Screen style
 //   /tmp/render-sky-icon install                              # writes the shipped icon in place (repo root)
 //
 // scripts/sky-icon.sh runs the whole pipeline.
@@ -20,7 +21,7 @@
 // 70 px at 0.5 (the halo), the ribbon at 2.3× blurred 26 px at 0.9 (the glow), the ribbon itself, and a
 // white core at 0.36× blurred 8 px, plus-lighter at 0.48. Light, dark and tinted take SameerOS's stop
 // positions and brightness factors; the tinted icon (white and greys on near black, iOS reads its
-// luminance) is identical to SameerOS's.
+// luminance) is SameerOS's with the strand a step bolder (46 px half-width — `IconArt.half`).
 //
 // WHAT IS MACROPHONE'S. The spectrum is the Thread's at rest (Filament.swift `stops()` for .ready:
 // violet 0 · cyan 0.5 · mint 1 — the cool half of `RGB.thread`; SameerOS runs the whole spectrum to
@@ -30,11 +31,24 @@
 // and dawn rose. The haze behind the thread is cyan (SameerOS's is its second stop, also cyan).
 //
 // WHAT SHIPS. The same wiring as the Thread icon before it: iOS/Macrophone/AppIcon.icon and
-// Mac/Resources/AppIcon.icon (Icon Composer bundles — Liquid Glass on iOS 26 / macOS 26+; three groups,
-// each holding its light image and its dark one faded to 0 in the other appearance through
-// `opacity-specializations`, the only specialization Xcode 27's actool keeps; tinted = the thread in
-// white at 1, the light at ½, the sky hidden) and the classic AppIcon.appiconset PNGs (iOS 17–18:
-// light / dark / tinted 1024, opaque; macOS 14–15: the squircle at every size).
+// Mac/Resources/AppIcon.icon (Icon Composer bundles — Liquid Glass on iOS 26 / macOS 26+) and the
+// classic AppIcon.appiconset PNGs (iOS 17–18: light / dark / tinted 1024, opaque; macOS 14–15: the
+// squircle at every size).
+//
+// EVERY HOME SCREEN STYLE (Nov 5 2026). The bundle is four groups, front to back — Thread (glass:
+// thread-light, thread-dark, thread-mono), Light (the halo and glow: light-light, light-dark), Stars
+// (one stars.png), Sky (opaque: sky-light, sky-dark) — switched per appearance with
+// `opacity-specializations` (light / dark / tinted) plus a white `fill-specializations` for tinted;
+// Xcode 27's actool keeps both (assetutil: LayerOpacity per appearance, LayerGradientColorName on
+// ISAppearanceTintable) and drops `hidden-` and `image-name-specializations`, so a layer is never
+// hidden, only faded, and never swaps its image. Default (light) keeps the night sky — a glowing
+// strand needs the dark behind it, as Apple's own night icons keep theirs in light; Dark is the
+// deeper sky. "tinted" is both of iOS 26's mono styles, Clear and Tinted, which read only each
+// layer's alpha in one tone: the sky fades out (the system's glass or tint shows), the bolder white
+// mono strand comes in at 1, the glow stays only as a breath (`MonoLook.glow` — at ½ it was a white
+// fog over the glass) and the stars stay (`MonoLook.stars`), so Clear and Tinted are still a strand
+// at night. `appearances` renders all six with Icon Composer's ictool, before | after, onto
+// docs/icon/sky/appearances.png.
 
 import AppKit
 import SwiftUI
@@ -117,12 +131,18 @@ struct IconArt: View {
         static let stars = Parts(rawValue: 8), halo = Parts(rawValue: 16), glow = Parts(rawValue: 32)
         static let ribbon = Parts(rawValue: 64), core = Parts(rawValue: 128)
         static let all: Parts = [.sky, .haze, .stars, .halo, .glow, .ribbon, .core]
-        /// The bundle's layers: the opaque sky, the translucent light, the strand (glass).
+        /// The bundle's layers: the opaque sky, the stars, the translucent light, the strand (glass).
         /// (No `.grain`: `render` dithers at the last bit instead.)
         static let skyLayer: Parts = [.sky, .haze]
-        static let lightLayer: Parts = [.stars, .halo, .glow]
+        static let starsLayer: Parts = [.stars]
+        static let lightLayer: Parts = [.halo, .glow]
         static let threadLayer: Parts = [.ribbon, .core]
     }
+
+    /// The ribbon's half-width at 1024. The tinted (mono) strand is a step bolder: Clear and Tinted
+    /// draw it as one flat tone with no colour or glow to carry it, and at 40–60 pt the colour
+    /// strand's 72 px read as a hairline there.
+    static func half(_ v: Variant) -> CGFloat { v == .tinted ? 46 : 36 }
 
     static let side: CGFloat = 1024
     let variant: Variant
@@ -264,7 +284,7 @@ struct IconArt: View {
         let pts = centerline(size)
         let shading = GraphicsContext.Shading.linearGradient(
             Gradient(stops: threadStops), startPoint: CGPoint(x: pts[0].x, y: 0), endPoint: CGPoint(x: pts[pts.count - 1].x, y: 0))
-        let half: CGFloat = 36
+        let half = Self.half(variant)
 
         if parts.contains(.halo) {
             var spine = Path()
@@ -425,6 +445,13 @@ func readPNG(_ path: String) -> CGImage? {
 
 func color(_ c: RGB) -> String { String(format: "srgb:%.5f,%.5f,%.5f,1.00000", c.r, c.g, c.b) }
 
+/// Clear and Tinted (the bundle's "tinted"): how much of the glow and the stars shows round the
+/// white strand. Judged on Icon Composer's own renders of every appearance (`appearances` below).
+enum MonoLook {
+    static let glow = 0.22
+    static let stars = 0.9
+}
+
 /// `darkAsBase` swaps the appearances (the dark layers and fill as the base, the light ones under
 /// "dark") — a bundle only for proving the dark look through the system's renderer.
 func iconJSON(darkAsBase: Bool = false) -> [String: Any] {
@@ -444,23 +471,36 @@ func iconJSON(darkAsBase: Bool = false) -> [String: Any] {
         if tintedFill { l["fill-specializations"] = spec([("tinted", white)]) }
         return l
     }
+    /// A layer's light image and its dark one, each faded to 0 in the other appearance; `tinted` is
+    /// how much of the light one shows — in white, through its alpha — in Clear and Tinted.
     func pair(_ base: String, glass: Bool, tinted: Double) -> [[String: Any]] {
         [layer("\(base)-dark", image: "\(base)-dark.png", glass: glass, opacity: [(lightName, 0), ("tinted", 0), (darkName, 1)], tintedFill: false),
          layer("\(base)-light", image: "\(base)-light.png", glass: glass, opacity: [(darkName, 0), ("tinted", tinted)], tintedFill: tinted > 0)]
     }
-    // Front first (Icon Composer's sidebar order). The light-appearance layers show in light and —
-    // white, through their alpha — in tinted; the dark-appearance layers only in dark.
+    func group(_ name: String, _ layers: [[String: Any]], glass: Bool, shadow: [String: Any]) -> [String: Any] {
+        ["name": name, "layers": layers, "lighting": "individual", "hidden": false, "specular": glass,
+         "shadow": shadow, "translucency": ["enabled": false, "value": 0.45]]
+    }
+    let noShadow: [String: Any] = ["kind": "none", "opacity": 0]
+    // Front first (Icon Composer's sidebar order). Clear and Tinted ("tinted" here — iOS 26's mono
+    // appearances) are the system's: it hides nothing and colours nothing for us, it reads each
+    // layer's alpha in one tone (white, tinted, or glass) over its own ground. So there the sky goes
+    // (opacity 0 — the system's ground shows), the strand is its own bolder white layer at full, the
+    // glow round it stays only as a breath (a full glow there was a white fog over the glass), and
+    // the stars stay — the one thing besides the strand that says "night".
     let groups: [[String: Any]] = [
         // The strand: glass, so the system lights its edge; its halo is a chromatic shadow (the
-        // layer's own colour), as the Thread's glow is.
-        ["name": "Thread", "layers": pair("thread", glass: true, tinted: 1), "lighting": "individual", "hidden": false, "specular": true,
-         "shadow": ["kind": "layer-color", "opacity": 0.5], "translucency": ["enabled": false, "value": 0.45]],
-        // The light round it and the stars: no glass, no shadow — a translucent picture.
-        ["name": "Light", "layers": pair("light", glass: false, tinted: 0.5), "lighting": "individual", "hidden": false, "specular": false,
-         "shadow": ["kind": "none", "opacity": 0], "translucency": ["enabled": false, "value": 0.45]],
-        // The sky: the opaque ground, hidden in tinted (the system's tinted ground shows instead).
-        ["name": "Sky", "layers": pair("sky", glass: false, tinted: 0), "lighting": "individual", "hidden": false, "specular": false,
-         "shadow": ["kind": "none", "opacity": 0], "translucency": ["enabled": false, "value": 0.45]],
+        // layer's own colour), as the Thread's glow is. Light, dark, and the mono strand.
+        group("Thread", [
+            layer("thread-mono", image: "thread-mono.png", glass: true, opacity: [(lightName, 0), (darkName, 0), ("tinted", 1)], tintedFill: true),
+        ] + pair("thread", glass: true, tinted: 0), glass: true, shadow: ["kind": "layer-color", "opacity": 0.5]),
+        // The light round the strand: no glass, no shadow — a translucent picture.
+        group("Light", pair("light", glass: false, tinted: MonoLook.glow), glass: false, shadow: noShadow),
+        // The stars: one image (drawn at the dark sky's brightness), quieter on the light sky.
+        group("Stars", [layer("stars", image: "stars.png", glass: false, opacity: [(lightName, 2.0 / 3.0), (darkName, 1), ("tinted", MonoLook.stars)], tintedFill: true)],
+              glass: false, shadow: noShadow),
+        // The sky: the opaque ground, gone in Clear and Tinted (the system's ground shows instead).
+        group("Sky", pair("sky", glass: false, tinted: 0), glass: false, shadow: noShadow),
     ]
     let (lt, lb) = IconArt.fill(darkAsBase ? .dark : .light), (dt, db) = IconArt.fill(darkAsBase ? .light : .dark)
     return [
@@ -481,6 +521,10 @@ func writeIconBundle(at dir: String, darkAsBase: Bool = false) throws {
         writePNG(try render(a, parts: .lightLayer), "\(dir)/Assets/light-\(a.rawValue).png")
         writePNG(try render(a, parts: .threadLayer), "\(dir)/Assets/thread-\(a.rawValue).png")
     }
+    // One star field for every appearance (the bundle fades it on the light sky), and the mono
+    // strand: the tinted variant's bolder ribbon, whose alpha is all Clear and Tinted read.
+    writePNG(try render(.dark, parts: .starsLayer), "\(dir)/Assets/stars.png")
+    writePNG(try render(.tinted, parts: [.ribbon]), "\(dir)/Assets/thread-mono.png")
     let data = try JSONSerialization.data(withJSONObject: iconJSON(darkAsBase: darkAsBase), options: [.prettyPrinted, .sortedKeys])
     try data.write(to: URL(fileURLWithPath: "\(dir)/icon.json"))
     print("wrote \(dir)")
@@ -555,6 +599,117 @@ func sheet(_ work: String, out: String, sameerOS: String) throws {
     print("wrote \(out)/sheet.png")
 }
 
+// MARK: - Every Home Screen style: Icon Composer's own renders of the bundle
+
+/// iOS 26+ and macOS 26+ draw an app icon six ways: Default (light), Dark, Clear light / dark and
+/// Tinted light / dark. Icon Composer's `ictool` renders each from the bundle exactly as the system
+/// composes it (the glass, the specular edge, the shadows, the mono mapping).
+let renditions: [(name: String, label: String, dark: Bool)] = [
+    ("Default", "Default", false), ("Dark", "Dark", true), ("ClearLight", "Clear · light", false),
+    ("ClearDark", "Clear · dark", true), ("TintedLight", "Tinted · light", false), ("TintedDark", "Tinted · dark", true),
+]
+
+/// Renders `icon` in every rendition into `dir` (`<rendition>[-<tag>].png`). Returns false when ictool can't be run.
+func ictoolRender(_ ictool: String, icon: String, dir: String, px: Int, platform: String = "iOS",
+                  tint: (color: Double, strength: Double)? = nil, tag: String = "") -> Bool {
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    for r in renditions {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ictool)
+        var args = [icon, "--export-image", "--output-file", "\(dir)/\(r.name)\(tag).png", "--platform", platform,
+                    "--rendition", r.name, "--width", "\(px)", "--height", "\(px)", "--scale", "1"]
+        if let tint, r.name.hasPrefix("Tinted") { args += ["--tint-color", "\(tint.color)", "--tint-strength", "\(tint.strength)"] }
+        p.arguments = args
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        if p.terminationStatus != 0 { return false }
+    }
+    return true
+}
+
+/// The contact sheet: before | after in every rendition, the after at its real sizes (60 pt @3x
+/// the Home Screen, 29 pt @3x Settings, where Clear and Tinted have to hold up), another tint, and
+/// macOS, each on a light or a dark Home Screen.
+@MainActor
+func appearancesSheet(ictool: String, before: String?, after: String, work: String, out: String) throws {
+    let big = 300, small = [180, 87], pad = 40, gap = 20
+    var rows: [(title: String, dir: String, tag: String, sizes: [Int])] = []
+    if let before, ictoolRender(ictool, icon: before, dir: "\(work)/appearances/before", px: 1024) {
+        rows.append(("Before — the bundle as it shipped", "\(work)/appearances/before", "", [big]))
+    }
+    guard ictoolRender(ictool, icon: after, dir: "\(work)/appearances/after", px: 1024) else {
+        throw RenderError.render("ictool could not render \(after)")
+    }
+    rows.append(("After — iOS 27 (Icon Composer's renderer)", "\(work)/appearances/after", "", [big]))
+    rows.append(("After — 60 pt and 29 pt @3x, pixel for pixel", "\(work)/appearances/after", "", small))
+    if ictoolRender(ictool, icon: after, dir: "\(work)/appearances/after", px: 1024, tint: (0.08, 0.8), tag: "-amber") {
+        rows.append(("After — Tinted in another colour (amber)", "\(work)/appearances/after", "-amber", [big]))
+    }
+    _ = ictoolRender(ictool, icon: after, dir: "\(work)/appearances/after-mac", px: 1024, platform: "macOS")
+
+    let cellW = big + gap
+    let W = pad * 2 + renditions.count * cellW - gap
+    let rowH = big + 70
+    let H = pad * 2 + 70 + rows.count * rowH + rowH
+    let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: srgb,
+                        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    ctx.setFillColor(CGColor(colorSpace: srgb, components: [0.12, 0.12, 0.13, 1])!)
+    ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+    ctx.interpolationQuality = .high
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+    func label(_ s: String, _ x: Int, _ y: Int, size: CGFloat = 18, bold: Bool = false, dark: Bool = true) {
+        let attrs: [NSAttributedString.Key: Any] = [.font: bold ? NSFont.boldSystemFont(ofSize: size) : NSFont.systemFont(ofSize: size),
+                                                    .foregroundColor: NSColor(white: dark ? 0.86 : 0.2, alpha: 1)]
+        NSString(string: s).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+    }
+    /// A Home Screen behind each cell: a pale wallpaper for the light renditions, a night one for the dark.
+    func ground(_ rect: CGRect, dark: Bool) {
+        let colors = dark ? [RGB(r: 0.05, g: 0.06, b: 0.10), RGB(r: 0.13, g: 0.11, b: 0.20)]
+                          : [RGB(r: 0.86, g: 0.90, b: 0.96), RGB(r: 0.96, g: 0.88, b: 0.86)]
+        let g = CGGradient(colorsSpace: srgb, colors: colors.map(\.cg) as CFArray, locations: [0, 1])!
+        ctx.saveGState()
+        ctx.clip(to: rect)
+        ctx.drawLinearGradient(g, start: CGPoint(x: rect.minX, y: rect.maxY), end: CGPoint(x: rect.maxX, y: rect.minY), options: [])
+        ctx.restoreGState()
+    }
+    var top = H - pad
+    label("Macrophone's icon in every Home Screen style — Default · Dark · Clear · Tinted, light and dark", pad, top - 30, size: 26, bold: true)
+    top -= 70
+    func drawRow(_ title: String, images: [(CGImage?, Bool, String)], sizes: [Int]) {
+        label(title, pad, top - 26, size: 20, bold: true)
+        let y0 = top - 40 - big
+        for (i, (image, dark, name)) in images.enumerated() {
+            let x = pad + i * cellW
+            let cell = CGRect(x: x, y: y0, width: big, height: big)
+            ground(cell, dark: dark)
+            if let image {
+                if sizes.count == 1 {
+                    ctx.draw(image, in: cell.insetBy(dx: 18, dy: 18))
+                } else {
+                    // The small sizes side by side, drawn at their pixel size.
+                    var sx = x + 12
+                    for px in sizes {
+                        ctx.draw(resized(image, to: px, opaque: false), in: CGRect(x: sx, y: y0 + (big - px) / 2, width: px, height: px))
+                        sx += px + 10
+                    }
+                }
+            }
+            label(name, x + 10, y0 + 8, size: 15, dark: dark)
+        }
+        top -= rowH
+    }
+    for row in rows {
+        drawRow(row.title, images: renditions.map { (readPNG("\(row.dir)/\($0.name)\(row.tag).png"), $0.dark, $0.label) }, sizes: row.sizes)
+    }
+    // macOS: Default and Dark, Clear and Tinted as the Dock draws them.
+    drawRow("After — macOS 27", images: renditions.map { (readPNG("\(work)/appearances/after-mac/\($0.name).png"), $0.dark, $0.label) }, sizes: [big])
+    try FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
+    writePNG(ctx.makeImage()!, "\(out)/appearances.png")
+    print("wrote \(out)/appearances.png")
+}
+
 // MARK: - Main
 
 @main
@@ -563,7 +718,7 @@ struct Main {
     static func main() throws {
         let args = CommandLine.arguments
         guard args.count >= 2 else {
-            print("usage: render-sky-icon render <dir> | sheet <dir> <out> [SameerOS appiconset] | install")
+            print("usage: render-sky-icon render <dir> | sheet <dir> <out> [SameerOS appiconset] | appearances <dir> <out> <ictool> [before.icon] | install")
             exit(2)
         }
         switch args[1] {
@@ -578,6 +733,10 @@ struct Main {
             let sameerOS = args.count > 4 ? args[4]
                 : NSString(string: "~/claude-projects/SameerOS/SameerOS/Assets.xcassets/AppIcon.appiconset").expandingTildeInPath
             try sheet(args[2], out: args[3], sameerOS: sameerOS)
+        case "appearances":
+            // appearances <work dir> <out dir> <ictool> [the bundle before]
+            try appearancesSheet(ictool: args[4], before: args.count > 5 ? args[5] : nil,
+                                 after: "\(args[2])/sky/AppIcon.icon", work: args[2], out: args[3])
         case "install":
             // The Liquid Glass icon, one bundle per app (the same bytes; Xcode wants it beside each target).
             try writeIconBundle(at: "iOS/Macrophone/AppIcon.icon")

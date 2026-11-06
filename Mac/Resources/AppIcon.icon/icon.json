@@ -23,6 +23,41 @@
       "hidden" : false,
       "layers" : [
         {
+          "fill-specializations" : [
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "thread-mono.png",
+          "name" : "thread-mono",
+          "opacity-specializations" : [
+            {
+              "appearance" : "light",
+              "value" : 0
+            },
+            {
+              "appearance" : "dark",
+              "value" : 0
+            },
+            {
+              "appearance" : "tinted",
+              "value" : 1
+            }
+          ],
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
           "glass" : true,
           "hidden" : false,
           "image-name" : "thread-dark.png",
@@ -50,14 +85,6 @@
           }
         },
         {
-          "fill-specializations" : [
-            {
-              "appearance" : "tinted",
-              "value" : {
-                "solid" : "extended-gray:1.00000,1.00000"
-              }
-            }
-          ],
           "glass" : true,
           "hidden" : false,
           "image-name" : "thread-light.png",
@@ -69,7 +96,7 @@
             },
             {
               "appearance" : "tinted",
-              "value" : 1
+              "value" : 0
             }
           ],
           "position" : {
@@ -143,7 +170,7 @@
             },
             {
               "appearance" : "tinted",
-              "value" : 0.5
+              "value" : 0.22
             }
           ],
           "position" : {
@@ -157,6 +184,57 @@
       ],
       "lighting" : "individual",
       "name" : "Light",
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.45000000000000001
+      }
+    },
+    {
+      "hidden" : false,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "stars.png",
+          "name" : "stars",
+          "opacity-specializations" : [
+            {
+              "appearance" : "light",
+              "value" : 0.66666666666666663
+            },
+            {
+              "appearance" : "dark",
+              "value" : 1
+            },
+            {
+              "appearance" : "tinted",
+              "value" : 0.90000000000000002
+            }
+          ],
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Stars",
       "shadow" : {
         "kind" : "none",
         "opacity" : 0
