@@ -16,14 +16,22 @@ struct StatusLine: View {
     /// then the new one fades in at its own width — cross-faded, "Cleaning up" and "Sending…" were
     /// drawn over each other, centred at two widths, for a moment.
     var swap = false
+    /// The desktop's empty state says what's wrong (no Mac paired, the Mac not found, the
+    /// microphone off) and has the fix: the line says nothing about it meanwhile (Nov 5 2026).
+    var desktopSays = false
+    /// The desktop's empty state has the Open Settings button (the Duo's cover, where it's too
+    /// short to say the rest): the line keeps its words without a link of its own.
+    var desktopFixes = false
     @ScaledMetric(relativeTo: .subheadline) private var dotSize: CGFloat = 7
 
-    init(recorder: Recorder, holding: Bool, font: Font = .subheadline, swap: Bool = false) {
+    init(recorder: Recorder, holding: Bool, font: Font = .subheadline, swap: Bool = false, desktopSays: Bool = false, desktopFixes: Bool = false) {
         self.recorder = recorder
         self.words = recorder.words
         self.holding = holding
         self.font = font
         self.swap = swap
+        self.desktopSays = desktopSays
+        self.desktopFixes = desktopSays || desktopFixes
     }
 
     /// Out quickly, then in: never two lines on screen at once.
@@ -64,7 +72,7 @@ struct StatusLine: View {
         .animation(.easeInOut(duration: 0.2), value: text)
     }
 
-    private var settingsLink: Bool { if case .problem(_, true) = model.status { return true }; return false }
+    private var settingsLink: Bool { if !desktopFixes, case .problem(_, true) = model.status { return true }; return false }
 
     /// The line fills its fixed slot (MainView): a long one shrinks to fit whole — never cut.
     private func line(_ text: String, _ color: Color, link: Bool, check: Bool, miss: Bool = false) -> some View {
@@ -114,7 +122,10 @@ struct StatusLine: View {
             return ("Listening — tap to send", Light.ember)
         }
         switch model.status {
+        case .problem(_, true) where desktopSays:
+            return ("", Ink.tertiary)
         case .ready:
+            if !model.isPaired, desktopSays { return ("", Ink.tertiary) }
             if !model.isPaired { return ("Not paired — your words are copied on this iPhone", Ink.tertiary) }
             switch model.linkState {
             case .connected(let name):
@@ -134,6 +145,8 @@ struct StatusLine: View {
             // The first moments after the app comes up: one message until it's ready or something's
             // really wrong (Nov 3 2026 — "Looking for" → "Connecting to" → nothing, in a second).
             case _ where model.settling: return ("Connecting to \(model.macName)", Ink.tertiary)
+            case .unreachable where desktopSays:
+                return ("", Ink.tertiary)
             case .unreachable(let name):
                 if model.localNetworkDenied { return ("Local Network is off for Macrophone — turn it on in Settings to reach \(name)", Light.ochre) }
                 return ("\(name) not found — dictations will wait for it", Light.ochre)

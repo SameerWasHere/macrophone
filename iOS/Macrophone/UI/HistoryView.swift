@@ -33,17 +33,15 @@ struct HistoryView: View {
         NavigationStack(path: $path) {
             Group {
                 if !model.settings.historyEnabled {
-                    ContentUnavailableView {
-                        Label("History is off", systemImage: "clock.badge.xmark")
-                    } description: {
-                        Text("Dictations aren't kept on this iPhone. Turn history on in Settings to keep the last 50.")
+                    EmptyState(symbol: "clock.badge.xmark", title: "History is off",
+                               message: "Turn it on to keep your last 50 dictations on this iPhone.") {
+                        Button("Turn On History") { Haptics.pick(); model.setHistoryEnabled(true) }
+                            .emptyStateButton()
+                            .accessibilityIdentifier("history-turn-on")
                     }
                 } else if model.historyItems.isEmpty {
-                    ContentUnavailableView {
-                        Label("Nothing yet", systemImage: "clock.arrow.circlepath")
-                    } description: {
-                        Text("Your last 50 dictations will be here, on this iPhone only. Clearing them doesn't touch your Mac's history.")
-                    }
+                    EmptyState(symbol: "clock.arrow.circlepath", title: "No dictations yet",
+                               message: "Your last 50 show up here, on this iPhone only.")
                 } else {
                     list(selecting: false)
                 }
@@ -98,7 +96,7 @@ struct HistoryView: View {
                     if let id = shownID {
                         HistoryPage(id: id, onDelete: delete).id(id)
                     } else {
-                        ContentUnavailableView("No Dictation Selected", systemImage: "text.bubble")
+                        EmptyState(symbol: "text.bubble", title: "No dictation selected")
                     }
                 }
                 .toolbar {

@@ -22,7 +22,8 @@ import UIKit
 /// MACROPHONE_FAKE_RECORDING=<text>           the live recording screen, words appearing
 /// MACROPHONE_FAKE_HISTORY=1                  four sample history items
 /// MACROPHONE_FAKE_PAIRED=<Mac name>          looks paired + connected, with the sample open apps below
-///                                            ("Studio Mac|MacBook Air": several, the first active; a swipe on the pill rolls)
+///                                            ("Studio Mac|MacBook Air": several, the first active; a swipe on the pill rolls;
+///                                            "Studio Mac@offline": paired, the Mac not found; "none": no Mac paired)
 /// MACROPHONE_PILL_ROLL=<0…1>                 the pill held mid-roll at that point (with several fake Macs)
 /// MACROPHONE_SWITCH_MAC=<Mac name>           once connected, switch to that paired Mac (as a swipe or the list does)
 /// MACROPHONE_FAKE_TARGETS=default|long|none|many  stand-in for the Mac's open apps (long: a very long window name; many: 15)

@@ -10,25 +10,16 @@ struct MacsSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    ForEach(model.pairedMacs) { mac in
-                        MacRow(mac: mac, active: mac.id == model.pairedMac?.id, standing: model.standing(of: mac)) {
-                            model.switchMac(to: mac.id)
-                            dismiss()
-                        }
+            Group {
+                if model.pairedMacs.isEmpty {
+                    // The last one forgot this iPhone while the list was open.
+                    EmptyState(symbol: "macbook.and.iphone", title: "No Macs paired",
+                               message: "Pair a Mac to send what you say into its apps.") {
+                        Button { open(.pairing) } label: { Label("Pair a Mac", systemImage: "qrcode.viewfinder") }
+                            .emptyStateButton()
                     }
-                } footer: {
-                    Text("Swipe up or down on the Mac's name at the top to switch. What you say goes to the active Mac.")
-                }
-                Section {
-                    Button { open(.pairing) } label: {
-                        Label("Pair Another Mac…", systemImage: "plus")
-                    }
-                    .accessibilityIdentifier("pair-another-mac")
-                    Button { open(.settings) } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
+                } else {
+                    list
                 }
             }
             .navigationTitle("Your Macs")
@@ -39,6 +30,30 @@ struct MacsSheet: View {
         }
         .tint(Light.cyan)
         .presentationDetents([.medium, .large])
+    }
+
+    private var list: some View {
+        List {
+            Section {
+                ForEach(model.pairedMacs) { mac in
+                    MacRow(mac: mac, active: mac.id == model.pairedMac?.id, standing: model.standing(of: mac)) {
+                        model.switchMac(to: mac.id)
+                        dismiss()
+                    }
+                }
+            } footer: {
+                Text("Swipe up or down on the Mac's name at the top to switch. What you say goes to the active Mac.")
+            }
+            Section {
+                Button { open(.pairing) } label: {
+                    Label("Pair Another Mac…", systemImage: "plus")
+                }
+                .accessibilityIdentifier("pair-another-mac")
+                Button { open(.settings) } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+            }
+        }
     }
 
     /// Another sheet in this one's place: this one goes first, so the two never fight.

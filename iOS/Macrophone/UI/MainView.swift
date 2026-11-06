@@ -38,6 +38,8 @@ struct MainView: View {
     @State var verticalBar = VerticalBarProbe.atLaunch
     /// The settings' room while they last showed (`phoneBody`).
     @State var settingsRoom: CGFloat = 0
+    /// The menu bar's (the cover's top bar's) height: the desktop's empty state sits under it.
+    @State var desktopTop: CGFloat = 0
     /// Where the window shows (`phoneBody`, on screen): what it grows out of the Dock into.
     @State var watchArea: CGRect = .zero
     /// The window comes from the Dock and goes back into it (opened, Done) — but not when it
@@ -286,14 +288,24 @@ struct MainView: View {
                                         // last dictation as a widget (Nov 1 2026).
                                         // (The last-dictation widget is gone — Nov 1 2026,
                                         // Sameer: "I don't think is that useful".)
-                                        PhoneMenuBar(watcher: watcher)
+                                        PhoneMenuBar(watcher: watcher, wakeElsewhere: desktopTrouble == .notFound)
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .top)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { desktopTop = $0 }
                             }
                             .scrollBounceBehavior(.basedOnSize)
                             .scrollIndicators(.hidden)
                             .frame(maxHeight: .infinity, alignment: .top)
+                            // What stands between the mic and the Mac, in the desktop's empty room
+                            // under the menu bar (Nov 5 2026): one symbol, one sentence, the fix.
+                            .overlay {
+                                if let trouble = desktopTrouble {
+                                    DesktopEmptyState(trouble: trouble)
+                                        .padding(.top, desktopTop)
+                                }
+                            }
+                            .animation(.easeInOut(duration: 0.25), value: desktopTrouble)
                             Color.clear.frame(height: compact ? 8 : 14)
                             dockArea
                         }
@@ -479,6 +491,12 @@ struct MainView: View {
     /// Every iPhone but the Duo (its cover and inner screen have layouts of their own).
     var regularPhone: Bool { !barUsed && !posture.pose.isInner }
 
+    /// The desktop's empty state (the regular iPhone and the Duo's cover — inside, the glance
+    /// says it in the Mac's half).
+    var desktopTrouble: DesktopTrouble? {
+        posture.pose.isInner ? nil : DesktopTrouble.current(model, micOff: micOff)
+    }
+
     /// The mic screen lays the keyboard's room out itself (`MacInput.keyboardRoom`) rather than
     /// taking the keyboard's safe area: the regular iPhone, and the Duo's cover (Nov 4 2026 —
     /// inside the cover's NavigationStack the keyboard's safe area left in one step as the
@@ -649,7 +667,7 @@ struct MainView: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
                 MacPill().fixedSize()
-                WakeMacButton()
+                if desktopTrouble != .notFound { WakeMacButton() }
                 Spacer(minLength: 8)
                 topButtons
             }
@@ -657,7 +675,7 @@ struct MainView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack { Spacer(); topButtons }
                 MacPill()
-                WakeMacButton()
+                if desktopTrouble != .notFound { WakeMacButton() }
             }
         }
         .padding(.horizontal, Space.margin)
@@ -809,7 +827,11 @@ struct MainView: View {
             Text(typeSize.isAccessibilitySize ? "A\nB\nC" : "A\nB").font(.subheadline).lineSpacing(0)
                 .frame(maxWidth: .infinity)
         } content: {
-            StatusLine(recorder: recorder, holding: holding || look == "holding", swap: isCover)
+            StatusLine(recorder: recorder, holding: holding || look == "holding", swap: isCover,
+                       // The desktop's empty state says it (the cover's, too short for its
+                       // sentence, only gives the fix).
+                       desktopSays: regularPhone && phoneSettings && desktopTrouble != nil,
+                       desktopFixes: phoneSettings && desktopTrouble != nil)
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }

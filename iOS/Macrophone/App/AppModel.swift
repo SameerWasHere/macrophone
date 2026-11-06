@@ -397,6 +397,8 @@ final class AppModel: ObservableObject {
 
     var isPaired: Bool { pairedMac != nil }
     var isConnected: Bool { if case .connected = linkState { return true }; return false }
+    /// Paired, and the Mac wasn't found (not merely still being looked for).
+    var isUnreachable: Bool { if case .unreachable = linkState { return true }; return false }
     var macName: String { pairedMac?.name ?? "your Mac" }
 
     /// Where the next dictation goes (a Shortcut's pick wins while it records).
@@ -456,6 +458,13 @@ final class AppModel: ObservableObject {
         // it isn't on the phone yet).
         recorder.ready(language: settings.language, contextualStrings: settings.dictionary)
         Haptics.readyMic()
+        // A permission turned off in Settings says so before the first tap, not after it (Nov 5
+        // 2026): the mic shows its off look and the desktop the way to turn it on. (iOS relaunches
+        // the app when it's turned back on.)
+        if case .ready = status, let off = Recorder.permissionOff {
+            startError = off
+            status = .problem(off.message, openSettings: true)
+        }
         #if DEBUG
         if DebugHooks.env["MACROPHONE_CLEANUP_AVAILABLE"] == "1" { cleanupAvailability = .available }
         #endif
@@ -1584,10 +1593,13 @@ final class AppModel: ObservableObject {
     /// "Studio Mac" or "Studio Mac|MacBook Air": the first is active and connected, the rest paired.
     func debugFakePairing(mac: String) {
         debugPairingLocked = true
-        let names = mac.split(separator: "|").map(String.init)
+        // "none": no Mac paired; "<name>@offline": paired, and the Mac not found.
+        if mac == "none" { pairedMacs = []; pairedMac = nil; linkState = .notPaired; return }
+        let offline = mac.hasSuffix("@offline")
+        let names = mac.replacingOccurrences(of: "@offline", with: "").split(separator: "|").map(String.init)
         pairedMacs = names.enumerated().map { PairedPeer(id: UUID(), name: $1, pairedAt: Date().addingTimeInterval(Double($0) * 60 - 3_600)) }
         pairedMac = pairedMacs.first
-        linkState = .connected(names.first ?? mac)
+        linkState = offline ? .unreachable(names.first ?? mac) : .connected(names.first ?? mac)
     }
 
     /// The fake roll: the pill's name moves to the next fake Mac (no link to switch).
