@@ -1,6 +1,7 @@
 import CoreImage
 import CryptoKit
 import Foundation
+import ImageIO
 import MacrophoneKit
 import UIKit
 
@@ -55,6 +56,7 @@ enum WindowSnapshots {
         Task.detached(priority: .utility) {
             guard let small = shrink(image), let data = small.jpegData(compressionQuality: 0.6) else { return }
             try? data.write(to: url(key), options: .atomic)
+            forgetSmall(key)
         }
     }
 
@@ -69,8 +71,64 @@ enum WindowSnapshots {
             guard let cg = context.createCGImage(scaled, from: scaled.extent),
                   let data = UIImage(cgImage: cg).jpegData(compressionQuality: 0.6) else { return }
             try? data.write(to: url(key), options: .atomic)
+            forgetSmall(key)
         }
     }
+
+    // MARK: The Dock's window previews (Nov 5 2026)
+
+    /// The kept picture's size in pixels, read off the file's header (no decode): a card takes
+    /// its shape at once, before its picture is drawn, so the previews never change width.
+    static func pictureSize(_ key: String?) -> CGSize? {
+        guard let key else { return nil }
+        if let s = sizes.object(forKey: key as NSString) { return s.cgSizeValue }
+        guard let src = CGImageSourceCreateWithURL(url(key) as CFURL, nil),
+              let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = p[kCGImagePropertyPixelWidth] as? CGFloat, let h = p[kCGImagePropertyPixelHeight] as? CGFloat,
+              w > 0, h > 0 else { return nil }
+        let size = CGSize(width: w, height: h)
+        sizes.setObject(NSValue(cgSize: size), forKey: key as NSString)
+        return size
+    }
+
+    /// A card's picture: the kept one decoded small (ImageIO's thumbnail, `maxPixel` on its long
+    /// side), from memory once made. Nil when this window has no picture yet.
+    static func smallCached(_ key: String?) -> UIImage? {
+        guard let key else { return nil }
+        return smallMemory.object(forKey: key as NSString)
+    }
+
+    /// Made off the main thread (a few ms each).
+    static func small(_ key: String?, maxPixel: CGFloat) async -> UIImage? {
+        guard let key else { return nil }
+        if let m = smallMemory.object(forKey: key as NSString) { return m }
+        let file = url(key)
+        let made: UIImage? = await Task.detached(priority: .userInitiated) {
+            guard let src = CGImageSourceCreateWithURL(file as CFURL, nil) else { return nil }
+            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                            kCGImageSourceCreateThumbnailWithTransform: true,
+                                            kCGImageSourceShouldCacheImmediately: true,
+                                            kCGImageSourceThumbnailMaxPixelSize: maxPixel]
+            guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary) else { return nil }
+            return UIImage(cgImage: cg)
+        }.value
+        if let made { smallMemory.setObject(made, forKey: key as NSString) }
+        return made
+    }
+
+    /// A new picture was kept: the small one and its size are made again from it next time.
+    private static func forgetSmall(_ key: String) {
+        smallMemory.removeObject(forKey: key as NSString)
+        sizes.removeObject(forKey: key as NSString)
+    }
+
+    private static let smallMemory: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 40
+        return c
+    }()
+
+    private static let sizes = NSCache<NSString, NSValue>()
 
     private static let context = CIContext(options: [.cacheIntermediates: false])
 
