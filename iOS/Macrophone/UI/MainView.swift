@@ -277,8 +277,9 @@ struct MainView: View {
                                         // while it isn't connected (to say so, and to wake it).
                                         VStack(spacing: 0) {
                                             // (Not in the moment after launch while it connects:
-                                            // the pill would pop in and straight back out.)
-                                            if !barUsed || (!model.isConnected && !model.settling) { topBar }
+                                            // the pill would pop in and straight back out — nor
+                                            // while a dropped link comes back.)
+                                            if !barUsed || (!model.isConnected && !model.settling && !model.reconnecting) { topBar }
                                         }
                                     } else {
                                         // The phone: a little Mac desktop — the menu bar and the
@@ -580,16 +581,22 @@ struct MainView: View {
                     Button { Haptics.tick(); input.hideKeyboard() } label: { Label("Hide Keyboard", systemImage: "keyboard.chevron.compact.down") }
                         .accessibilityIdentifier("bar-keyboard-hide")
                 }
-                if model.macAudio.macCanPlay { CoverSoundItem(player: model.macAudio) }
-                if model.canMacControls {
+                // While the link comes back the bar's items hold their places, dimmed: the bar
+                // never re-vends its items for a blip.
+                if model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature) {
+                    CoverSoundItem(player: model.macAudio).disabled(!model.macAudio.macCanPlay)
+                }
+                if model.canMacControls || watcher.heldFeature(MacControl.feature) {
                     Button { Haptics.tick(); model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
+                        .disabled(!model.canMacControls)
                         .accessibilityIdentifier("mac-controls")
                 }
-                if watcher.phase == .live {
+                if watcher.phase.holdsLayout {
                     Button { Haptics.tick(); watcher.setDrag(watcher.drag == .pan ? .scroll : .pan) } label: {
                         Label(watcher.drag == .pan ? "Pan" : "Scroll", systemImage: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down")
                     }
                     .tint(watcher.drag == .scroll ? Light.cyan : nil)
+                    .disabled(watcher.phase != .live)
                     .accessibilityLabel("What one finger does")
                     .accessibilityValue(watcher.drag == .pan ? "Pan" : "Scroll")
                     .accessibilityHint("Switches between moving the picture and scrolling the window on your Mac.")

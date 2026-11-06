@@ -790,7 +790,6 @@ struct DuoMacHalf: View {
 
     /// The window in hand.
     @ViewBuilder private var handScreen: some View {
-        let live = watcher.phase == .live
         if !vertical {
             // The laptop (Oct 31 2026, Sameer: "the view window fully filling one half … the hot
             // keys to all be the bottom half … so that nothing blocks the view window"): the
@@ -818,14 +817,12 @@ struct DuoMacHalf: View {
                     // The answers alone (the deck beside it has the keys).
                     WatchActions(watcher: watcher, floating: true)
                         .padding(.horizontal, 12)
-                        .opacity(live ? 1 : 0)
-                        .allowsHitTesting(live)
-                        .accessibilityHidden(!live)
+                        .watchLive(watcher.phase)
                 }
                 Spacer(minLength: 0)
             }
         } else {
-            screen(footInset: live && !main.showLiveWords ? floatingHeight : 0, floating: true)
+            screen(footInset: watcher.phase.holdsLayout && !main.showLiveWords ? floatingHeight : 0, floating: true)
         }
     }
 
@@ -842,8 +839,7 @@ struct DuoMacHalf: View {
     /// — the answers or the words you're saying over its foot (the picture's foot scrolls up above
     /// the answers: `footInset`).
     private func screen(footInset: CGFloat, floating: Bool, header: Bool = true) -> some View {
-        let live = watcher.phase == .live
-        return WatchWindow(watcher: watcher, interactive: true, bezelWidth: bezel, corner: corner, fill: true, footInset: footInset, dormant: handDormant || asleep)
+        WatchWindow(watcher: watcher, interactive: true, bezelWidth: bezel, corner: corner, fill: true, footInset: footInset, dormant: handDormant || asleep)
             .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
             .overlay(alignment: .bottom) {
                 if floating {
@@ -855,9 +851,7 @@ struct DuoMacHalf: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { floatingHeight = watcher.answers == nil ? 0 : $0 }
-                            .opacity(live ? 1 : 0)
-                            .allowsHitTesting(live)
-                            .accessibilityHidden(!live)
+                            .watchLive(watcher.phase)
                     }
                 }
             }
@@ -1013,14 +1007,15 @@ struct DuoDeck: View {
     /// you talk, the words sit over the Thread; the mic under them never moves (a hold on it is
     /// never lost).
     private var laptopModes: some View {
-        let live = watcher.phase == .live
-        return VStack(spacing: 4) {
+        VStack(spacing: 4) {
             // The question's answers on a row of their own under the header, only while one is
             // up: the header has the name, the clusters and Done across the half's 669 points,
-            // and the answers squeezed between them showed one digit of the first.
-            if live, !main.showLiveWords, watcher.answers != nil {
+            // and the answers squeezed between them showed one digit of the first. (Held, dimmed,
+            // while the link comes back: the deck under them never moves for a blip.)
+            if watcher.phase.holdsLayout, !main.showLiveWords, watcher.answers != nil {
                 WatchActions(watcher: watcher, floating: true, oneLine: true)
                     .padding(.horizontal, 12)
+                    .watchLive(watcher.phase)
                     .transition(.opacity)
             }
             GeometryReader { g in
@@ -1138,7 +1133,7 @@ struct DuoGlance: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
                 }
-            } else if model.isPaired, !model.isConnected, model.settling, !fill, let kept = kept ?? WindowSnapshots.cached(keptKey), kept.size.width > 0, kept.size.height > 0 {
+            } else if model.isPaired, !model.isConnected, model.settling || model.reconnecting, !fill, let kept = kept ?? WindowSnapshots.cached(keptKey), kept.size.width > 0, kept.size.height > 0 {
                 // The moment it connects at launch: the window as it last looked, laid out as the
                 // live glance lays it (its shape, the bar under it), so the live one takes its
                 // place without a jump — and no alarm.
@@ -1161,7 +1156,7 @@ struct DuoGlance: View {
                     .frame(width: geo.size.width, height: geo.size.height)
                 }
                 .transition(.opacity)
-            } else if model.isPaired, !model.isConnected, model.settling {
+            } else if model.isPaired, !model.isConnected, model.settling || model.reconnecting {
                 // The moment it connects at launch, nothing kept yet: the pick, and no alarm.
                 plate
                 VStack(spacing: 10) {
@@ -1169,7 +1164,7 @@ struct DuoGlance: View {
                     Text(Places.appName(target, in: model)).font(.serif(.title2)).foregroundStyle(Ink.ink)
                     HStack(spacing: 8) {
                         ProgressView().tint(Ink.secondary)
-                        Text("Connecting to \(model.macName)").font(.footnote).foregroundStyle(Ink.secondary)
+                        Text(model.reconnecting ? "Reconnecting to \(model.macName)…" : "Connecting to \(model.macName)").font(.footnote).foregroundStyle(Ink.secondary)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .watchGlass(Capsule())
@@ -1208,6 +1203,7 @@ struct DuoGlance: View {
         }
         .task(id: keptKey) { kept = WindowSnapshots.load(keptKey) }
         .animation(.easeInOut(duration: 0.25), value: model.settling)
+        .animation(.easeInOut(duration: 0.25), value: model.reconnecting)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your Mac")
     }
@@ -1258,7 +1254,7 @@ struct DuoGlance: View {
     private var connectingWords: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(Places.appName(model.selection.target, in: model)).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
-            Text("Connecting to \(model.macName)…").font(.caption).foregroundStyle(Ink.secondary).lineLimit(1)
+            Text(model.reconnecting ? "Reconnecting to \(model.macName)…" : "Connecting to \(model.macName)…").font(.caption).foregroundStyle(Ink.secondary).lineLimit(1)
         }
     }
 
@@ -1275,8 +1271,16 @@ struct DuoGlance: View {
     private var liveWords: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(watcher.name).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
-            Text(watcher.phase.isPaused ? "Paused · Show it here to go on" : "Live on your Mac")
-                .font(.caption).foregroundStyle(watcher.phase.isPaused ? Light.ochre : Ink.secondary).lineLimit(1)
+            Group {
+                switch watcher.phase {
+                case .paused: Text("Paused · Show it here to go on").foregroundStyle(Light.ochre)
+                // The link dropped: the picture holds, and says so calmly (Nov 5 2026).
+                case .reconnecting: Text("Reconnecting to \(model.macName)…").foregroundStyle(Ink.secondary)
+                case .offline: Text("\(model.macName) isn't connected").foregroundStyle(Light.ochre)
+                default: Text("Live on your Mac").foregroundStyle(Ink.secondary)
+                }
+            }
+            .font(.caption).lineLimit(1)
         }
     }
 

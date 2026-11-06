@@ -127,6 +127,9 @@ struct StatusLine: View {
                 // the page" — the Mac's pill says which Mac and how). The line is for news.
                 _ = name
                 return ("", Light.cyan)
+            // The link dropped (Nov 5 2026): one message until it's back, whatever it goes
+            // through meanwhile — never "Looking for" → "Connecting to" → "not found" in a blip.
+            case _ where model.reconnecting: return ("Reconnecting to \(model.macName)…", Ink.tertiary)
             case .connecting(let name): return ("Connecting to \(name)", Ink.tertiary)
             // The first moments after the app comes up: one message until it's ready or something's
             // really wrong (Nov 3 2026 — "Looking for" → "Connecting to" → nothing, in a second).
@@ -168,6 +171,7 @@ struct StatusLine: View {
             return ("Your Mac received it but didn't confirm where it landed", Light.ochre)
         case .duplicate: return ("Already on your Mac", Light.mint)
         case .queued:
+            if model.reconnecting { return ("Queued — it'll send as soon as \(model.macName) is back", Ink.tertiary) }
             if model.localNetworkDenied { return ("Queued — Local Network is off for Macrophone. Turn it on in Settings and it'll send", Light.ochre) }
             return ("Mac not found — queued, it'll send when your Mac is back", Light.ochre)
         case .copiedOnPhone: return ("Copied on iPhone — paste it anywhere", Light.mint)

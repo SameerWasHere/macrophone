@@ -7,6 +7,8 @@ import SwiftUI
 /// (the polish pass): off is the usual state, and a slash read as something wrong.
 struct WatchSoundButton: View {
     @ObservedObject var player: MacAudioPlayer
+    /// Shown even while the Mac can't play right now (the link coming back): in place, dimmed.
+    var held = false
 
     private var symbol: String {
         guard player.isOn else { return "speaker" }
@@ -14,7 +16,7 @@ struct WatchSoundButton: View {
     }
 
     var body: some View {
-        if player.macCanPlay { button }
+        if player.macCanPlay || held { button.disabled(!player.macCanPlay) }
     }
 
     private var button: some View {
