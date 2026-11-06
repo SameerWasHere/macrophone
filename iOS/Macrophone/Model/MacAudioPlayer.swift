@@ -84,7 +84,7 @@ final class MacAudioPlayer: ObservableObject {
     func toggle() {
         isOn.toggle()
         SoundSetting.set(isOn, in: .standard)
-        Haptics.tick()
+        Haptics.pick()
         log?.add("sound \(isOn ? "on" : "off")")
         update()
     }

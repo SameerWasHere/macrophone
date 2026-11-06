@@ -291,7 +291,8 @@ struct TrackpadBar: View {
     }
 
     private func button(_ symbol: String, _ label: String, _ id: String, _ action: @escaping () -> Void) -> some View {
-        Button { Haptics.tick(); action() } label: {
+        // No haptic of its own: the page it goes to ticks (`MacInput.show`).
+        Button(action: action) {
             Image(systemName: symbol).font(.title3.weight(.semibold)).frame(width: 30, height: 30)
         }
         .circleGlassButton()

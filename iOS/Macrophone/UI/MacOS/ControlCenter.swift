@@ -13,6 +13,8 @@ struct MacControlCenter: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var measured: CGFloat?
+    /// Each key's taps: its glyph hops as it's pressed (the slider's steps don't).
+    @State private var taps: [MacControl: Int] = [:]
 
     var body: some View {
         VStack(spacing: 12) {
@@ -93,7 +95,10 @@ struct MacControlCenter: View {
         CCModule(title: "Now Playing") {
             HStack(spacing: 4) {
                 ForEach(MacControl.media) { c in
-                    Button { model.press(c) } label: { Image(systemName: c.symbol).font(.system(size: c == .playPause ? 22 : 17, weight: .semibold)) }
+                    Button { tap(c) } label: {
+                        Image(systemName: c.symbol).font(.system(size: c == .playPause ? 22 : 17, weight: .semibold))
+                            .symbolEffect(.bounce, value: taps[c] ?? 0)
+                    }
                         .buttonStyle(CCGlyphStyle())
                         .accessibilityLabel(c.title)
                         .accessibilityIdentifier("mac-control-\(c.rawValue)")
@@ -102,9 +107,15 @@ struct MacControlCenter: View {
         }
     }
 
+    private func tap(_ c: MacControl) {
+        taps[c, default: 0] += 1
+        model.press(c)
+    }
+
     private func volumeEnd(_ c: MacControl, symbol: String) -> some View {
-        Button { model.press(c) } label: {
+        Button { tap(c) } label: {
             Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(Ink.secondary)
+                .symbolEffect(c == .volumeUp ? .bounce.up : .bounce.down, value: taps[c] ?? 0)
                 .frame(width: 30, height: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -113,7 +124,7 @@ struct MacControlCenter: View {
     }
 
     private func keyButton(_ c: MacControl) -> some View {
-        Button { model.press(c) } label: { Image(systemName: c.symbol) }
+        Button { tap(c) } label: { Image(systemName: c.symbol).symbolEffect(.bounce, value: taps[c] ?? 0) }
             .buttonStyle(CCRoundStyle(on: false))
             .accessibilityLabel(c.title)
             .accessibilityHint("Presses it on your Mac.")
@@ -207,7 +218,7 @@ struct VolumeSlider: View {
                     let from = sentFrom ?? Int(((level ?? f) * 16).rounded())
                     guard step != from else { if sentFrom == nil { sentFrom = from }; return }
                     for _ in 0..<abs(step - from) { onStep(step > from) }
-                    Haptics.tick()
+                    Haptics.pick()
                     sentFrom = step
                 }
                 .onEnded { _ in
@@ -233,6 +244,7 @@ struct HearYourMacModule: View {
             HStack(spacing: 12) {
                 Image(systemName: player.isOn ? "speaker.wave.2.fill" : "speaker")
                     .font(.system(size: 17, weight: .semibold))
+                    .contentTransition(.symbolEffect(.replace))
                     .foregroundStyle(player.isOn ? Color.white : Ink.ink)
                     .frame(width: 44, height: 44)
                     .background(Circle().fill(player.isOn ? AnyShapeStyle(Light.cyan) : AnyShapeStyle(Ink.ink.opacity(0.1))))

@@ -389,7 +389,7 @@ struct PlacesRow: View {
         if model.isConnected {
             Button {
                 model.refreshTargets()
-                Haptics.tick()
+                Haptics.press()
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.6)) { refreshTurns += 1 }
             } label: {
                 Image(systemName: "arrow.clockwise").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
@@ -422,13 +422,12 @@ struct PlacesRow: View {
     /// The picked place tapped again: show its window (an app, or Where I'm typing, while connected).
     private func watch(_ t: TargetRef) {
         guard t != .clipboard, model.isConnected, !model.isNotOpen(t) else { return }
-        Haptics.tick()
         model.watcher.open(t)
     }
 
     private func pick(_ t: TargetRef) {
         guard t != model.selection.target else { return }
-        Haptics.tick()
+        Haptics.pick()
         withAnimation(Motion.pick(Motion.snap, reduce: reduceMotion)) { model.pick(t) }
         if let live = model.liveTarget(for: t), !live.typeable {
             model.explain(Places.tapFirst(live.appName))
@@ -458,13 +457,15 @@ private struct PlaceButton: View {
     /// The place already picked, tapped again: its window, live (Oct 18 2026, Sameer).
     var onWatch: () -> Void = {}
     var onPick: (TargetRef) -> Void
+    /// Taps that showed the window: the eye blinks open for each.
+    @State private var watches = 0
 
     var body: some View {
         Button {
             // An app already picked keeps its window; otherwise the one that answered you, else its newest.
             if let n = needs, let w = place.windows.first(where: n.concerns), !current.matches(w) { onPick(w.ref) }
             else if !place.holds(current) { onPick(place.target) }
-            else { onWatch() }
+            else { if watchable { watches += 1 }; onWatch() }
         } label: {
             // Icons only (Oct 18 2026, Sameer: "remove the sub text entirely and just show the App
             // logos in the selector for a cleaner look"): the picked place's name is the line above,
@@ -490,6 +491,7 @@ private struct PlaceButton: View {
                                 // Tap again to watch: the eye, on a small glass disc at the icon's corner.
                                 Image(systemName: "eye.fill")
                                     .font(.system(size: compact ? 8 : 9, weight: .bold))
+                                    .symbolEffect(.bounce, value: watches)
                                     .foregroundStyle(Ink.onTint)
                                     .frame(width: compact ? 16 : 18, height: compact ? 16 : 18)
                                     .background(Circle().fill(Ink.ink))
@@ -766,7 +768,7 @@ struct OptionsRow: View {
         let enabled = target.canSend
         let on = enabled && model.sendSetting(for: target)
         return Toggle(isOn: Binding(get: { on }, set: { new in
-            Haptics.tick()
+            Haptics.pick()
             withAnimation(Motion.snap) { model.setSend(new, for: target) }
             model.explain(Places.sentence(for: target, send: new))
         })) {
@@ -818,7 +820,9 @@ struct CleanupMenu: View {
             }
         } label: {
             HStack(spacing: 6) {
+                // A level picked: the wand flicks (its own setting, never availability arriving).
                 Image(systemName: "wand.and.sparkles").font(.footnote.weight(.semibold)).foregroundStyle(available ? Light.cyan : Ink.tertiary)
+                    .symbolEffect(.bounce.byLayer, value: settings.cleanupLevel)
                 Text(available ? (short ? level.title : "Cleanup: \(level.title)") : "Cleanup off")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Ink.ink)
@@ -834,7 +838,7 @@ struct CleanupMenu: View {
 
     private func pick(_ l: CleanupLevel) {
         guard l != settings.cleanupLevel else { return }
-        Haptics.tick()
+        Haptics.pick()
         model.setCleanupLevel(l)
         model.explain(CleanupWords.sentence(for: l, edited: model.customInstructionsEdited))
     }
@@ -877,7 +881,7 @@ struct SendAfterPastingRow: View {
     }
 
     private func set(_ new: Bool) {
-        Haptics.tick()
+        Haptics.pick()
         withAnimation(Motion.snap) { model.setSend(new, for: target) }
         model.explain(Places.sentence(for: target, send: new))
     }
@@ -903,7 +907,7 @@ struct CleanupPicker: View {
 
     private func pick(_ l: CleanupLevel) {
         guard l != settings.cleanupLevel else { return }
-        Haptics.tick()
+        Haptics.pick()
         model.setCleanupLevel(l)
         model.explain(CleanupWords.sentence(for: l, edited: model.customInstructionsEdited))
     }

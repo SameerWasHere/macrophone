@@ -97,6 +97,8 @@ struct DockOptions: View {
     @ObservedObject var settings: Settings
     @State private var pickingPhoto = false
     @State private var pickingFile = false
+    /// The switch's paper plane flies up when it's turned on and when a dictation is sent.
+    @State private var flights = 0
 
     var body: some View {
         let target = model.selection.target
@@ -108,6 +110,7 @@ struct DockOptions: View {
         .frame(maxWidth: .infinity)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
+        .onChange(of: model.landedChip?.sent == true) { _, sent in if sent { flights += 1 } }
     }
 
     private func bar(_ target: TargetRef, send: String, short: Bool) -> some View {
@@ -131,11 +134,16 @@ struct DockOptions: View {
         let enabled = target.canSend
         let on = enabled && model.sendSetting(for: target)
         return Toggle(isOn: Binding(get: { on }, set: { new in
-            Haptics.tick()
+            Haptics.pick()
+            if new { flights += 1 }
             withAnimation(Motion.snap) { model.setSend(new, for: target) }
             model.explain(Places.sentence(for: target, send: new))
         })) {
-            Label(words, systemImage: "paperplane")
+            Label {
+                Text(words)
+            } icon: {
+                Image(systemName: "paperplane").symbolEffect(.bounce.up.byLayer, value: flights)
+            }
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
                 .labelStyle(DockOptionLabel())
@@ -154,7 +162,7 @@ struct DockOptions: View {
     private var more: some View {
         Menu {
             if model.isConnected {
-                Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+                Button { model.refreshTargets(); Haptics.press() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
                     .accessibilityIdentifier("refresh-apps")
             }
             MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)

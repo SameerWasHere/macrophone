@@ -190,13 +190,12 @@ struct SendToDock: View {
 
     private func watch() {
         guard current != .clipboard, model.isConnected, !model.isNotOpen(current) else { return }
-        Haptics.tick()
         model.watcher.open(current)
     }
 
     private func pick(_ t: TargetRef) {
         guard t != model.selection.target else { return }
-        Haptics.tick()
+        Haptics.pick()
         withAnimation(Motion.pick(Motion.snap, reduce: reduceMotion)) { model.pick(t) }
         if let live = model.liveTarget(for: t), !live.typeable {
             model.explain(Places.tapFirst(live.appName))
