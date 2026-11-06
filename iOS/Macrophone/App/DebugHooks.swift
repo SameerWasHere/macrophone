@@ -483,6 +483,27 @@ enum DebugHooks {
                     } else if a.hasPrefix("tap@") {
                         let xy = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if xy.count >= 2 { model.watcher.click(CGPoint(x: xy[0], y: xy[1]), count: xy.count > 2 ? Int(xy[2]) : 1) }
+                    } else if a.hasPrefix("hwkeys@") {
+                        // A real keyboard's chord, as its presses would come (XCUITest can't press
+                        // Tab, and iOS keeps ⌘Tab): "command+tab+tab" holds ⌘, presses Tab twice,
+                        // lets ⌘ go; "option+tab" the stand-in switcher.
+                        var held: Set<WatchModifier> = []
+                        var heldUsages: [Int] = []
+                        for name in a.dropFirst(7).split(separator: "+").map(String.init) {
+                            guard let u = HardwareKeyNames.usage(for: name) else { continue }
+                            if let m = HardwareKeyNames.modifier(usage: u) {
+                                _ = model.watcher.input.hardwarePress(usage: u, characters: "", modifiers: held.union([m]))
+                                held.insert(m); heldUsages.append(u)
+                            } else {
+                                _ = model.watcher.input.hardwarePress(usage: u, characters: name == "tab" ? "\t" : name, modifiers: held)
+                                model.watcher.input.hardwareRelease(usage: u, modifiers: held)
+                            }
+                            try? await Task.sleep(nanoseconds: 300_000_000)
+                        }
+                        for u in heldUsages.reversed() {
+                            if let m = HardwareKeyNames.modifier(usage: u) { held.remove(m) }
+                            model.watcher.input.hardwareRelease(usage: u, modifiers: held)
+                        }
                     } else if a.hasPrefix("tappage@"), let p = MacInput.Page(rawValue: String(a.dropFirst(8))) {
                         // The cover's page buttons as tapped (on the pages' spring).
                         withAnimation(Motion.settle) { model.watcher.input.show(p) }

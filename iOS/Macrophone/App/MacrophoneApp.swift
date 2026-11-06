@@ -53,6 +53,11 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Ink.ground.ignoresSafeArea()
+            // A real keyboard's presses, on to the Mac while a window is in hand (Nov 5 2026).
+            HardwareKeysCatcher(watcher: model.watcher)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             mainView
                 .opacity(model.showOnboarding || !hasSize ? 0 : 1)
                 .transaction { if !settled { $0.animation = nil; $0.disablesAnimations = true } }

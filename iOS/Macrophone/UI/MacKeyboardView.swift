@@ -18,6 +18,7 @@ struct MacKeyboardField: UIViewRepresentable {
 
     func makeUIView(context: Context) -> KeyboardTextView {
         let v = KeyboardTextView()
+        v.input = input
         v.delegate = context.coordinator
         v.onEmptyDelete = { [weak input] in input?.typed(WatchTyping(delete: 1, text: "")) }
         // The keyboard went away while this page was up (hide, a swipe down, the system): the
@@ -178,6 +179,8 @@ final class KeyboardTextView: UITextView {
 
     override func resignFirstResponder() -> Bool {
         let r = super.resignFirstResponder()
+        // A real keyboard's ⌘ or ⌃ held on the Mac goes with it.
+        if r, !becoming { input?.hardwareReleaseAll() }
         if r, wantsKeyboard, !becoming {
             goneCheck?.cancel()
             let item = DispatchWorkItem { [weak self] in
@@ -196,6 +199,46 @@ final class KeyboardTextView: UITextView {
     override func deleteBackward() {
         if (text ?? "").isEmpty { onEmptyDelete(); return }
         super.deleteBackward()
+    }
+
+    // A real keyboard while the keyboard page is up (Nov 5 2026): its characters, Return, Tab and
+    // Delete go through this field like the phone's own keys (autocorrect's diff stays in step);
+    // its chords, Esc and the arrows go to the Mac as keys — never to this hidden field's caret or
+    // its Copy and Undo.
+    weak var input: MacInput?
+    /// Presses passed on to the field, so their ends go the same way.
+    private var passed: Set<Int> = []
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var rest = Set<UIPress>()
+        for p in presses {
+            guard let key = p.key, input?.hardwarePress(key, field: true) == true else {
+                rest.insert(p)
+                if let k = p.key { passed.insert(k.keyCode.rawValue) }
+                continue
+            }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = hardwareEnded(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = hardwareEnded(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    private func hardwareEnded(_ presses: Set<UIPress>) -> Set<UIPress> {
+        var rest = Set<UIPress>()
+        for p in presses {
+            guard let key = p.key else { rest.insert(p); continue }
+            input?.hardwareRelease(key)
+            if passed.remove(key.keyCode.rawValue) != nil { rest.insert(p) }
+        }
+        return rest
     }
 
     /// Every field alive, and the one that last took the keyboard. Two exist while the Duo's
