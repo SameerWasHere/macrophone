@@ -1,3 +1,4 @@
+import Combine
 import MacrophoneKit
 import SwiftUI
 import UIKit
@@ -62,7 +63,17 @@ final class MacInput: ObservableObject {
 
     init() {
         Self.listeners.append(Weak(self))
+        listenForHardwareKeyboard()
     }
+
+    // A real keyboard (Nov 5 2026, HardwareKeyboard.swift): what it holds on the Mac, the key it
+    // repeats, and whether it's been said that it types on the Mac.
+    var keys = HardwareKeyRouter()
+    var keyRepeat: Task<Void, Never>?
+    var repeatingUsage: Int?
+    var keyboardNoted = false
+    var lastKeyPress: Date?
+    var keyboardWatch: AnyCancellable?
 
     // One change for the keyboard's coming and going (Nov 4 2026). The safe area SwiftUI gives
     // the keyboard and `keysUp` arrived in different passes, a sixth of a second apart: rising,
@@ -142,6 +153,7 @@ final class MacInput: ObservableObject {
         refreshPages()
         let wanted = pose.isFolded ? deckPage(for: pose) : .mic
         if page != wanted { show(wanted, quiet: true) }
+        noteHardwareKeyboard()
     }
 
     // MARK: The Duo's deck (Oct 25 2026)
@@ -168,6 +180,9 @@ final class MacInput: ObservableObject {
     /// the keyboard is for the moment it's up, never what a deck opens on), else the trackpad
     /// (the mic when the Mac has no trackpad).
     func deckPage(for p: FoldPose) -> Page {
+        // A real keyboard on the desk (Nov 5 2026): the keys are there already, the deck is the
+        // trackpad.
+        if HardwareKeyboard.shared.connected, pages.contains(.trackpad) { return .trackpad }
         let stored = UserDefaults.standard.string(forKey: Self.deckKey(p)).flatMap(Page.init(rawValue:))
         let wanted = stored ?? .trackpad
         return pages.contains(wanted) ? wanted : .mic
@@ -191,6 +206,7 @@ final class MacInput: ObservableObject {
 
     /// The window view closed: back to the mic, nothing held or waiting.
     func closed() {
+        hardwareReleaseAll()
         if pointerShown { _ = sendMouse(WatchMouseEvent(.hide, at: pointer.point)) }
         pointerShown = false
         endSwitch(now: true)
@@ -212,6 +228,7 @@ final class MacInput: ObservableObject {
         } else {
             pointerShown = false
             switching = false
+            hardwareForget()
         }
     }
 
@@ -260,10 +277,12 @@ final class MacInput: ObservableObject {
         if modifiers.contains(m) { modifiers.remove(m) } else { modifiers.insert(m) }
     }
 
-    /// The modifiers for the next key or click, in menu order — taken, so they're one-shot.
+    /// The modifiers for the next key or click, in menu order — taken, so they're one-shot. ⇧ and
+    /// ⌥ held on a real keyboard go too (⇧-click from the trackpad).
     func takeModifiers() -> [WatchModifier] {
-        guard !modifiers.isEmpty else { return [] }
-        let taken = WatchModifier.allCases.filter { modifiers.contains($0) }
+        let held = hardwareClickModifiers
+        guard !modifiers.isEmpty || !held.isEmpty else { return [] }
+        let taken = WatchModifier.allCases.filter { modifiers.contains($0) || held.contains($0) }
         modifiers = []
         return taken
     }
