@@ -73,10 +73,14 @@ struct TargetEntity: AppEntity {
 
     static let clipboardID = "clipboard"
     static let frontID = "front"
+    /// Only for Watch: the Mac's whole screen (the Clipboard and Where I'm typing watch it too).
+    static let screenID = "screen"
     static var clipboard: TargetEntity { TargetEntity(id: clipboardID, name: "Clipboard", hint: "Copies it on your Mac") }
     static var front: TargetEntity { TargetEntity(id: frontID, name: "Where I'm typing", hint: "Pastes into the app in front on your Mac") }
+    static var wholeScreen: TargetEntity { TargetEntity(id: screenID, name: "Whole Screen", hint: "Your Mac's whole screen, live") }
 
-    /// "clipboard", "front" or "app:<bundleID>#<windowKey>".
+    /// "clipboard", "front", "screen" or "app:<bundleID>#<windowKey>" (an empty window key: the
+    /// app itself, whichever of its windows is in front).
     var id: String
     var name: String
     var hint: String? = nil
@@ -85,7 +89,8 @@ struct TargetEntity: AppEntity {
         let symbol: String
         switch id {
         case Self.clipboardID: symbol = "doc.on.clipboard"
-        case Self.frontID: symbol = "cursorarrow.rays"
+        case Self.frontID: symbol = "text.cursor"
+        case Self.screenID: symbol = "display"
         default: symbol = "macwindow"
         }
         if let hint { return DisplayRepresentation(title: "\(name)", subtitle: "\(hint)", image: .init(systemName: symbol)) }
@@ -99,24 +104,61 @@ struct TargetEntity: AppEntity {
     }
 }
 
-struct TargetQuery: EntityQuery {
+struct TargetQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [TargetEntity] {
-        let known = all()
+        let known = all() + [TargetEntity.wholeScreen]
         // A target that has since closed on the Mac still resolves (the Mac copies instead).
         return identifiers.map { id in known.first { $0.id == id } ?? TargetEntity(id: id, name: Self.fallbackName(id)) }
     }
 
     func suggestedEntities() async throws -> [TargetEntity] { all() }
 
-    private func all() -> [TargetEntity] {
-        [TargetEntity.clipboard, TargetEntity.front]
-            + CachedTarget.load().map { TargetEntity(id: $0.id, name: $0.name, hint: "Open on your Mac") }
+    /// Typed in Shortcuts' picker, or said to Siri ("Claude", "terminal").
+    func entities(matching string: String) async throws -> [TargetEntity] {
+        let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return all() }
+        return (all() + [TargetEntity.wholeScreen]).filter { $0.name.localizedStandardContains(s) }
+    }
+
+    /// Clipboard, Where I'm typing and the Mac's open apps as last heard. An app with several
+    /// windows is offered by its own name too ("Terminal"), so Siri has a short name to match —
+    /// it sends to whichever of its windows is in front.
+    func all() -> [TargetEntity] {
+        let cached = CachedTarget.load()
+        var apps: [TargetEntity] = []
+        var named = Set<String>()
+        for t in cached {
+            let (bid, key) = Self.parts(t.id)
+            guard !key.isEmpty, let app = t.name.components(separatedBy: " — ").first, !app.isEmpty else { continue }
+            // Its own entry when the app has no window-less one in the list already.
+            let appID = "app:\(bid)#"
+            guard !cached.contains(where: { $0.id == appID }), named.insert(appID).inserted else { continue }
+            apps.append(TargetEntity(id: appID, name: app, hint: "Open on your Mac"))
+        }
+        return [TargetEntity.clipboard, TargetEntity.front]
+            + cached.map { TargetEntity(id: $0.id, name: $0.name, hint: "Open on your Mac") }
+            + apps
+    }
+
+    /// "app:<bundleID>#<windowKey>" → (bundleID, windowKey).
+    static func parts(_ id: String) -> (String, String) {
+        let p = id.dropFirst(4).split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+        return (p.first ?? "", p.count > 1 ? p[1] : "")
     }
 
     private static func fallbackName(_ id: String) -> String {
+        if id == TargetEntity.screenID { return "Whole Screen" }
         guard id.hasPrefix("app:") else { return "Send To" }
         let bid = id.dropFirst(4).split(separator: "#").first.map(String.init) ?? ""
         return bid.split(separator: ".").last.map { $0.capitalized } ?? "App"
+    }
+}
+
+/// Watch's choices: the Mac's open apps and its whole screen (nowhere to look at for the
+/// Clipboard or Where I'm typing).
+struct WatchPlaceOptions: DynamicOptionsProvider {
+    func results() async throws -> [TargetEntity] {
+        [TargetEntity.wholeScreen] + TargetQuery().all().filter { $0.id.hasPrefix("app:") }
     }
 }
 

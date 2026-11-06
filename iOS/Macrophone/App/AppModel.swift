@@ -218,6 +218,8 @@ final class AppModel: ObservableObject {
         watcher.input.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
         watcher.onClosed = { [weak self] name, target in self?.windowClosed(name, target) }
         AgentAlerts.shared.install(self)
+        // The app icon's long press follows the pick, the open apps and the windows watched.
+        QuickActions.install(self)
         // The Duo's pose (Oct 25 2026): the inner screen opens the pick's window by itself, the
         // deck follows the pose, and closing the phone puts things back.
         Posture.shared.log = log
@@ -500,6 +502,9 @@ final class AppModel: ObservableObject {
     }
 
     private var pendingStart = false
+    /// The whole screen was asked for (a quick action, Watch) before the Mac was connected: it
+    /// opens on the connect (only then does the Mac say it can show it).
+    var waitingWholeScreen = false
     /// Dictations between "stopped" and "the Mac answered" (or queued).
     private var inFlight = 0
 
@@ -1182,6 +1187,7 @@ final class AppModel: ObservableObject {
         settings.forget(mac: id)
         try? FileManager.default.removeItem(at: AppFiles.targets(for: id))
         WallpaperStore.forget(id)
+        QuickActions.forget(mac: id)
         // Anything still waiting for it can't reach it now; it stays in history with Copy.
         for e in queue.entries(for: id) { updateItem(e.id) { $0.delivery = .failed; $0.detail = "Unpaired before it was sent" } }
         queue.removeAll(for: id)
@@ -1399,6 +1405,41 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Send Text (Shortcuts, Siri): the words go the way a dictation's do — into History, to the
+    /// active Mac, queued when it can't be reached — to the place named (else the Send to pick),
+    /// sent after pasting as asked (else as set for that place). Never cleaned: they were typed or
+    /// already said to Siri. Returns what Siri says back.
+    func sendTextFromIntent(_ text: String, targetID: String?, name: String?, send: Bool?) async -> String {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return "There was nothing to send." }
+        let sel = targetID.flatMap { intentSelection($0, name: name) } ?? settings.selection
+        let pressSend = sel.target.canSend && (send ?? sendSetting(for: sel.target))
+        // Run in the background (the app may have been launched just for this): nothing has
+        // started the link yet. A moment for it to connect, so it goes now rather than queued.
+        if isPaired {
+            client.start()
+            for _ in 0..<40 where !client.isConnected { try? await Task.sleep(nanoseconds: 150_000_000) }
+        }
+        let d = Dictation(raw: body, language: settings.language, target: sel.target, send: pressSend,
+                          sourceDevice: settings.deviceName)
+        history.add(HistoryItem(dictation: d, delivery: .sending))
+        refreshHistory()
+        log.add("intent: send text, target \(Self.kind(sel.target))\(pressSend ? " + send" : "")")
+        await deliver(d, resend: false)
+        let place = liveTarget(for: sel.target)?.appName ?? sel.target.displayName
+        switch item(d.id)?.delivery {
+        case .delivered?, .duplicate?:
+            switch sel.target {
+            case .clipboard: return "Copied on \(macName)."
+            default: return pressSend ? "Sent to \(place)." : "Pasted into \(place)."
+            }
+        case .queued?: return "\(macName) isn't reachable — it'll go to \(place) when it is."
+        case .copiedOnPhone?: return "No Mac is paired, so it's copied on this iPhone."
+        case .failed?: return "\(macName) couldn't deliver it to \(place)."
+        default: return "Sending it to \(place)."
+        }
+    }
+
     /// Records until the person stops (or auto-stop / the limit / an interruption), then
     /// returns what was said — cleaned when cleanup is on.
     /// "clipboard", "front", "app:<bundleID>#<windowKey>" → a one-recording choice. (A control set
@@ -1582,6 +1623,8 @@ extension AppModel: LinkClientDelegate {
         // Another Mac, or none: its agents aren't this one's.
         if case .notPaired = state { needsYou = [] }
         if case .connected = state { watcher.linkChanged(connected: true) } else { watcher.linkChanged(connected: false) }
+        // A quick action or Shortcut asked for the whole screen before the Mac was here.
+        if case .connected = state, waitingWholeScreen { waitingWholeScreen = false; watchWholeScreenWhenReady() }
         // On the Duo's inner screen with nothing watched yet: the pick's window, now that the Mac is here.
         if case .connected = state { openWindowForPose() }
     }
@@ -1978,6 +2021,14 @@ enum IntentBridge {
 
     @MainActor static func dictate() async -> String? {
         await AppModel.shared.dictateForIntent()
+    }
+
+    @MainActor static func sendText(_ text: String, targetID: String?, name: String?, send: Bool?) async -> String {
+        await AppModel.shared.sendTextFromIntent(text, targetID: targetID, name: name, send: send)
+    }
+
+    @MainActor static func watch(targetID: String?, name: String?) async {
+        AppModel.shared.watchFromIntent(targetID: targetID, name: name)
     }
 }
 

@@ -37,6 +37,9 @@ import UIKit
 ///                                            (and, at Custom, the instructions the cleaner was given)
 /// MACROPHONE_INTENT_TARGET=clipboard|front|<name>  runs Start Dictation the way a Shortcut / control does, with that
 ///                                            target (needs MACROPHONE_SIM_RECORD; stops after 3 s)
+/// MACROPHONE_INTENT_SEND=<place>@<text>[@send|@paste]  runs Send Text's perform() (place: clipboard|front|<name>,
+///                                            empty = the pick; no third part = the place's own Send after pasting)
+/// MACROPHONE_INTENT_WATCH=<place>             runs Watch's perform() (screen|<name>, empty = the pick)
 /// MACROPHONE_LANDINGS=ignore|ignore-old  drop the Mac's landing reports (a Mac that never confirms / an older one)
 /// MACROPHONE_STATUS=queued|delivered|failed|sending|copied|landing|landed-sent|landed-sent-spoken|landed-pasted|landed-clipboard|landed-failed|landed-copied|landed-cancelled|unconfirmed
 /// MACROPHONE_EXPLAIN=<sentence>             the status line's control explanation, held (layout checks)
@@ -237,6 +240,19 @@ enum DebugHooks {
         }
     }
 
+    /// A Send To place as Shortcuts and Siri see it (`TargetQuery`, over the cached open apps):
+    /// "clipboard", "front", "screen", else the first whose name is or contains this.
+    @MainActor static func intentEntity(named to: String, in model: AppModel) -> TargetEntity? {
+        switch to {
+        case "clipboard": return .clipboard
+        case "front": return .front
+        case "screen": return .wholeScreen
+        default:
+            let all = TargetQuery().all()
+            return all.first { $0.name == to } ?? all.first { $0.name.localizedStandardContains(to) }
+        }
+    }
+
     /// `MACROPHONE_SCROLL`: 2.5 s after the hooks run (`MACROPHONE_SCROLL_AFTER`), the frontmost sheet's tallest scroll view (a Form, a List,
     /// a setup page) is scrolled that far down — the lower sections of a long page, shot without a finger.
     @MainActor static func scrollFrontSheet() {
@@ -339,6 +355,23 @@ enum DebugHooks {
                 await IntentBridge.startRecording(targetID: id, name: to)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 model.stopRecording()
+            }
+        }
+        // Send Text and Watch run through their own perform(), as Shortcuts and Siri run them.
+        if let spec = env["MACROPHONE_INTENT_SEND"] {
+            let parts = spec.components(separatedBy: "@")
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64((Double(env["MACROPHONE_FAKE_DELAY"] ?? "2.5") ?? 2.5) * 1e9))
+                let entity = parts.first.flatMap { $0.isEmpty ? nil : intentEntity(named: $0, in: model) }
+                let send: Bool? = parts.count > 2 ? parts[2] == "send" : nil
+                let intent = SendTextIntent(text: parts.count > 1 ? parts[1] : "", target: entity, sendAfterPasting: send)
+                _ = try? await intent.perform()
+            }
+        }
+        if let to = env["MACROPHONE_INTENT_WATCH"] {
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64((Double(env["MACROPHONE_FAKE_DELAY"] ?? "2.5") ?? 2.5) * 1e9))
+                _ = try? await WatchPlaceIntent(target: to.isEmpty ? nil : intentEntity(named: to, in: model)).perform()
             }
         }
         switch env["MACROPHONE_SCREEN"] {
