@@ -294,7 +294,7 @@ struct SettingsView: View {
                 let available = CleanupWords.available(model, settings)
                 Picker("Cleanup", selection: Binding(get: { available ? settings.cleanupLevel : .off }, set: { l in
                     guard l != settings.cleanupLevel else { return }
-                    Haptics.tick()
+                    Haptics.pick()
                     model.setCleanupLevel(l)
                 })) {
                     ForEach(CleanupLevel.allCases) { Text($0.title).tag($0) }

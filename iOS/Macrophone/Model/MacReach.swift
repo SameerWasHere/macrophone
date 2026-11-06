@@ -78,7 +78,7 @@ final class MacReach: ObservableObject {
     func wake(_ info: WakeInfo, model: AppModel) {
         guard !waking else { return }
         waking = true
-        Haptics.tick()
+        Haptics.press()
         model.explain("Waking your Mac — on this Wi-Fi only. A closed laptop on battery may not wake.", for: 6)
         wakeTask?.cancel()
         wakeTask = Task { [weak self, weak model] in
@@ -110,7 +110,6 @@ extension AppModel {
     /// The Mac shows one display's whole screen (and it's remembered for next time).
     func watchWholeScreen(_ display: MacDisplay) {
         guard isConnected, watcher.canWatchDesktop else { return }
-        Haptics.tick()
         reach.remember(display)
         if settings.selection.target != .frontApp { pick(.frontApp) }
         watcher.open(reach.target(for: display))
@@ -121,7 +120,7 @@ extension AppModel {
 
     func press(_ control: MacControl) {
         guard canMacControls else { return }
-        Haptics.tick()
+        Haptics.press()
         if !client.macControl(control) { explain("Connect to your Mac first") }
     }
 
@@ -160,7 +159,7 @@ extension AppModel {
 
     func linkClient(_ client: LinkClient, macControlDone result: MacControlResult) {
         guard client === self.client else { return }
-        if !result.ok { Haptics.warning() }
+        if !result.ok { Haptics.caution() }
         reach.noteControl(result)
         explain(result.detail, for: result.ok ? 1.6 : 4)
     }

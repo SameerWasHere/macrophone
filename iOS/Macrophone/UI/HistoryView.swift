@@ -177,14 +177,14 @@ struct HistoryView: View {
                             }
                         }
                         .swipeActions(edge: .leading) {
-                            Button { model.resend(item); Haptics.tick() } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
+                            Button { model.resend(item); Haptics.press() } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
                                 .tint(Light.cyan)
                         }
                         .swipeActions(edge: .trailing) {
                             // Red by name: the stack's blue accent would otherwise win over the role.
                             Button(role: .destructive) { delete(item.id) } label: { Label("Delete", systemImage: "trash") }
                                 .tint(Light.rose)
-                            Button { model.copy(item, cleaned: true); Haptics.tick() } label: { Label("Copy", systemImage: "doc.on.doc") }
+                            Button { model.copy(item, cleaned: true); Haptics.press() } label: { Label("Copy", systemImage: "doc.on.doc") }
                                 .tint(Color(uiColor: .systemGray))
                         }
                         .contextMenu {
@@ -261,6 +261,8 @@ struct HistoryRow: View {
     @EnvironmentObject var model: AppModel
     var item: HistoryItem
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Landings seen while on screen (the paper plane's hop).
+    @State private var landings = 0
 
     var body: some View {
         Group {
@@ -321,18 +323,22 @@ struct HistoryRow: View {
         }
     }
 
-    /// The paper plane when it was sent, then how it landed.
+    /// The paper plane when it was sent, then how it landed. A row on screen as it lands (Send
+    /// Again) says so: the plane hops up, the mark turns from sending to landed in place.
     @ViewBuilder private var glyphs: some View {
         let mark = HistoryMark.of(item)
         if item.dictation.send == true {
             Image(systemName: "paperplane.fill")
                 .font(.caption)
                 .foregroundStyle(Ink.secondary)
+                .symbolEffect(.bounce.up, value: landings)
+                .onChange(of: item.delivery) { old, new in if new == .delivered, old != .delivered { landings += 1 } }
                 .accessibilityHidden(true)
         }
         Image(systemName: mark.symbol)
             .font(.footnote)
             .foregroundStyle(mark.color)
+            .contentTransition(.symbolEffect(.replace))
             .accessibilityHidden(true)
     }
 
@@ -483,14 +489,14 @@ struct HistoryPage: View {
                 Spacer()
                 Button {
                     model.copy(item, cleaned: cleaned)
-                    Haptics.tick()
+                    Haptics.press()
                     copied = true
                     Task { try? await Task.sleep(nanoseconds: 1_500_000_000); copied = false }
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                         .contentTransition(.symbolEffect(.replace))
                 }
-                Button { model.resend(item); Haptics.tick() } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
+                Button { model.resend(item); Haptics.press() } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
                     .accessibilityHint("Sends it to your Mac again. Your Mac ignores it if it already has it.")
             }
         }

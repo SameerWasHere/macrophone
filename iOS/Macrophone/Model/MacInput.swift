@@ -186,7 +186,7 @@ final class MacInput: ObservableObject {
         guard page == .keyboard else { return }
         let back: Page = pose.isFolded && pages.contains(underKeyboard) && underKeyboard != .keyboard ? underKeyboard : .mic
         show(back, quiet: true)
-        if !quiet { Haptics.tick() }
+        if !quiet { Haptics.pick() }
     }
 
     /// The window view closed: back to the mic, nothing held or waiting.
@@ -219,7 +219,7 @@ final class MacInput: ObservableObject {
         guard pages.contains(p) || p == .mic else { return }
         guard p != page else { return }
         watcher?.touch()
-        if !quiet { Haptics.tick() }
+        if !quiet { Haptics.pick() }
         let wasTrackpad = page == .trackpad
         if p == .keyboard { underKeyboard = page }
         page = p
@@ -256,7 +256,7 @@ final class MacInput: ObservableObject {
 
     func toggle(_ m: WatchModifier) {
         watcher?.touch()
-        Haptics.tick()
+        Haptics.pick()
         if modifiers.contains(m) { modifiers.remove(m) } else { modifiers.insert(m) }
     }
 
@@ -289,7 +289,7 @@ final class MacInput: ObservableObject {
         watcher?.touch()
         let key = fold(k, takeModifiers())
         guard sendKey(key) else { return }
-        Haptics.tick()
+        Haptics.press()
         watcher?.inputSent()
         watcher?.log?.add("watching: key")
     }
@@ -304,7 +304,7 @@ final class MacInput: ObservableObject {
             // The keyboard's bar says so too; over the window for the other pages.
             if page != .keyboard { watcher?.say("Switching apps — tap Switch App again for the next one", symbol: "macwindow.on.rectangle") }
         }
-        Haptics.tick()
+        Haptics.press()
         _ = sendKey(WatchKey("tab"))
         watcher?.inputSent()
         releaseSwitch?.cancel()
@@ -340,7 +340,7 @@ final class MacInput: ObservableObject {
         }()
         watcher?.touch()
         guard sendKey(key) else { return }
-        Haptics.soft()
+        Haptics.press()
         watcher?.say(words, symbol: symbol)
         watcher?.inputSent()
         watcher?.log?.add("watching: three-finger \(words)")
@@ -360,7 +360,7 @@ final class MacInput: ObservableObject {
         }()
         watcher?.touch()
         guard sendKey(key) else { return }
-        Haptics.soft()
+        Haptics.press()
         watcher?.say(words, symbol: symbol)
         watcher?.inputSent()
         watcher?.log?.add("watching: trackpad \(words)")
@@ -425,7 +425,7 @@ final class MacInput: ObservableObject {
     /// A tap on the trackpad: a click where the pointer is (count 2 for a double-tap's second tap).
     func tap(count: Int) {
         watcher?.touch()
-        Haptics.tick()
+        Haptics.press()
         _ = sendMouse(WatchMouseEvent(.click, at: pointer.point, count: count, modifiers: takeModifiers()))
         watcher?.inputSent()
         watcher?.log?.add("watching: trackpad click\(count > 1 ? " ×\(count)" : "")")
@@ -434,7 +434,7 @@ final class MacInput: ObservableObject {
     /// A two-finger tap on the trackpad: a right-click where the pointer is.
     func rightTap() {
         watcher?.touch()
-        Haptics.success()
+        Haptics.rightClick()
         _ = sendMouse(WatchMouseEvent(.click, at: pointer.point, right: true, modifiers: takeModifiers()))
         watcher?.inputSent()
         watcher?.log?.add("watching: trackpad right-click")
@@ -443,7 +443,7 @@ final class MacInput: ObservableObject {
     /// A drag from the trackpad (tap, tap and hold, then move): the button down where the pointer is.
     func dragBegan() {
         watcher?.touch()
-        Haptics.soft()
+        Haptics.grab()
         _ = sendMouse(WatchMouseEvent(.down, at: pointer.point, modifiers: takeModifiers()))
         watcher?.log?.add("watching: trackpad drag")
     }
@@ -485,7 +485,7 @@ final class MacInput: ObservableObject {
         pointer.put(p)
         let mods = kind == .down ? takeModifiers() : []
         _ = sendMouse(WatchMouseEvent(kind, at: p, modifiers: mods))
-        if kind == .down { Haptics.soft(); watcher?.log?.add("watching: drag") }
+        if kind == .down { Haptics.grab(); watcher?.log?.add("watching: drag") }
         if kind == .up { watcher?.inputSent() }
     }
 }

@@ -122,7 +122,7 @@ struct DeckKeyboard: View {
 
     private func shiftKey(width: CGFloat) -> some View {
         Button {
-            Haptics.tick()
+            Haptics.pick()
             if caps { caps = false; shift = false } else if shift { caps = true } else { shift = true }
         } label: { Image(systemName: caps ? "capslock.fill" : shift ? "shift.fill" : "shift") }
             .buttonStyle(DeckKeyStyle(width: width, lit: shift || caps))
@@ -139,12 +139,15 @@ struct DeckKeyboard: View {
     // MARK: Sending
 
     private func type(_ text: String) {
-        Haptics.tick()
+        Haptics.press()
         input.typed(WatchTyping(delete: 0, text: text))
         if shift, !caps { shift = false }
     }
 
-    private func delete() { input.typed(WatchTyping(delete: 1, text: "")) }
+    private func delete() {
+        Haptics.press()
+        input.typed(WatchTyping(delete: 1, text: ""))
+    }
 
     private func press(_ name: String) { input.press(WatchKey(name, shift: shift && !caps)); if !caps { shift = false } }
 
@@ -209,11 +212,11 @@ private struct RepeatingKey<Label: View>: View {
                 .onChanged { _ in
                     guard !pressed else { return }
                     pressed = true
-                    Haptics.tick()
                     action()
                     repeater = Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 420_000_000)
-                        while !Task.isCancelled { action(); try? await Task.sleep(nanoseconds: 70_000_000) }
+                        // Felt once, on the first press: the repeats go quietly.
+                        while !Task.isCancelled { Haptics.quietly(action); try? await Task.sleep(nanoseconds: 70_000_000) }
                     }
                 }
                 .onEnded { _ in pressed = false; repeater?.cancel(); repeater = nil })

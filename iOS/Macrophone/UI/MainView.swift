@@ -166,7 +166,7 @@ struct MainView: View {
         .onChange(of: posture.pose) { _, _ in innerBarTask?.cancel(); innerBarWindow = watcher.isShowing }
         // A pose settling: a soft tick, and VoiceOver hears what's where now.
         .onChange(of: posture.settleSeq) { _, _ in
-            Haptics.soft()
+            Haptics.arrived()
             UIAccessibility.post(notification: .layoutChanged, argument: posture.pose.spoken)
         }
     }
@@ -560,7 +560,7 @@ struct MainView: View {
     }
 
     var coverDone: some View {
-        Button { Haptics.tick(); watcher.done() } label: { Label("Done", systemImage: "checkmark") }
+        Button { watcher.done() } label: { Label("Done", systemImage: "checkmark") }
             .accessibilityHint(watcher.glanceOnDone ? "Puts the controls away; the window stays in view." : "Stops showing the window and brings back Send to and Cleanup.")
             .accessibilityIdentifier("watch-done")
     }
@@ -578,7 +578,7 @@ struct MainView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 // The keyboard up: putting it away is the first thing in the bar.
                 if input.page == .keyboard {
-                    Button { Haptics.tick(); input.hideKeyboard() } label: { Label("Hide Keyboard", systemImage: "keyboard.chevron.compact.down") }
+                    Button { input.hideKeyboard() } label: { Label("Hide Keyboard", systemImage: "keyboard.chevron.compact.down") }
                         .accessibilityIdentifier("bar-keyboard-hide")
                 }
                 // While the link comes back the bar's items hold their places, dimmed: the bar
@@ -587,13 +587,14 @@ struct MainView: View {
                     CoverSoundItem(player: model.macAudio).disabled(!model.macAudio.macCanPlay)
                 }
                 if model.canMacControls || watcher.heldFeature(MacControl.feature) {
-                    Button { Haptics.tick(); model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
+                    Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
                         .disabled(!model.canMacControls)
                         .accessibilityIdentifier("mac-controls")
                 }
                 if watcher.phase.holdsLayout {
-                    Button { Haptics.tick(); watcher.setDrag(watcher.drag == .pan ? .scroll : .pan) } label: {
+                    Button { watcher.setDrag(watcher.drag == .pan ? .scroll : .pan) } label: {
                         Label(watcher.drag == .pan ? "Pan" : "Scroll", systemImage: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down")
+                            .contentTransition(.symbolEffect(.replace))
                     }
                     .tint(watcher.drag == .scroll ? Light.cyan : nil)
                     .disabled(watcher.phase != .live)
@@ -627,13 +628,13 @@ struct MainView: View {
                     CoverWholeScreenItem(watcher: watcher).disabled(!model.isConnected)
                 }
                 if model.isConnected ? model.canMacControls : barHadControls {
-                    Button { Haptics.tick(); model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
+                    Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
                         .disabled(!model.isConnected)
                         .accessibilityIdentifier("mac-controls")
                 }
                 Menu {
                     if model.isConnected {
-                        Button { model.refreshTargets(); Haptics.tick() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+                        Button { model.refreshTargets(); Haptics.press() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
                     }
                     MacShareItems(pickingPhoto: $coverPickingPhoto, pickingFile: $coverPickingFile)
                 } label: { Label("More", systemImage: "ellipsis") }
@@ -1067,7 +1068,7 @@ struct FixWordCard: View {
                 .padding(.horizontal, 10).padding(.vertical, 7)
                 .background(Ink.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityIdentifier("fix-field")
-            Button { remember.toggle(); Haptics.tick() } label: {
+            Button { remember.toggle(); Haptics.pick() } label: {
                 Image(systemName: remember ? "character.book.closed.fill" : "character.book.closed").frame(width: 30, height: 34)
             }
             .foregroundStyle(remember ? Light.cyan : Ink.secondary)
@@ -1463,8 +1464,7 @@ struct LandedPill: View {
 
     private func pill(_ c: AppModel.LandedChip) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: c.undone ? "arrow.uturn.backward.circle.fill" : c.ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(c.ok ? Light.mint : Light.ochre)
+            LandedGlyph(chip: c)
             Text(c.words).font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
             if c.undoing {
                 ProgressView().controlSize(.small)
@@ -1482,6 +1482,40 @@ struct LandedPill: View {
         .fixedSize()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("landed-pill")
+    }
+}
+
+/// The pill's glyph, which says how it landed as it rises: the check draws itself on for a paste
+/// (iOS 26; a bounce before), the paper plane flies up for a send, and Undo's arrow replaces the
+/// check in place. Under Reduce Motion it's simply there.
+private struct LandedGlyph: View {
+    var chip: AppModel.LandedChip
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+
+    var body: some View {
+        let symbol = chip.undone ? "arrow.uturn.backward.circle.fill"
+            : !chip.ok ? "exclamationmark.circle.fill"
+            : chip.sent ? "paperplane.circle.fill" : "checkmark.circle.fill"
+        Image(systemName: symbol)
+            .foregroundStyle(chip.ok ? Light.mint : Light.ochre)
+            .contentTransition(.symbolEffect(.replace))
+            .modifier(Arrival(sent: chip.sent && chip.ok && !chip.undone, shown: shown || reduceMotion))
+            .onAppear { shown = true }
+    }
+
+    private struct Arrival: ViewModifier {
+        var sent: Bool
+        var shown: Bool
+        func body(content: Content) -> some View {
+            if sent {
+                content.symbolEffect(.bounce.up.byLayer, value: shown)
+            } else if #available(iOS 26.0, *) {
+                content.symbolEffect(.drawOn.byLayer, options: .nonRepeating, isActive: !shown)
+            } else {
+                content.symbolEffect(.bounce, value: shown)
+            }
+        }
     }
 }
 

@@ -12,6 +12,9 @@ struct LastDictationWidget: View {
     var lines = 4
     /// A body line's height, at the reader's text size.
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
+    /// Copy says "Copied" with a check for a moment, as the History page's does.
+    @State private var copied = false
+    @State private var copiedReset: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -57,10 +60,13 @@ struct LastDictationWidget: View {
                 .edgeFade(bottom: 14)
                 .accessibilityHidden(true)
             HStack(spacing: 8) {
-                Button { model.copy(item, cleaned: true); Haptics.tick() } label: { Label("Copy", systemImage: "doc.on.doc") }
+                Button { copy(item) } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .contentTransition(.symbolEffect(.replace))
+                }
                     .accessibilityIdentifier("widget-copy")
                 if item.delivery != .copiedOnPhone {
-                    Button { model.resend(item) } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
+                    Button { model.resend(item); Haptics.press() } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
                         .accessibilityIdentifier("widget-resend")
                 }
                 Spacer(minLength: 0)
@@ -78,6 +84,18 @@ struct LastDictationWidget: View {
         .accessibilityIdentifier("last-dictation-widget")
     }
 
+    private func copy(_ item: HistoryItem) {
+        model.copy(item, cleaned: true)
+        Haptics.press()
+        copied = true
+        copiedReset?.cancel()
+        copiedReset = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            copied = false
+        }
+    }
+
     private func status(_ item: HistoryItem) -> some View {
         let (symbol, color): (String, Color) = {
             switch item.delivery {
@@ -91,6 +109,8 @@ struct LastDictationWidget: View {
         return Image(systemName: symbol)
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(color)
+            // Sending → landed (Send Again, or the next one) turns in place.
+            .contentTransition(.symbolEffect(.replace))
             .accessibilityLabel(item.labels.first ?? "")
     }
 

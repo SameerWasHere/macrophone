@@ -72,7 +72,7 @@ struct CustomCleanupView: View {
 
     private var useCustomButton: some View {
         Button("Use Custom") {
-            Haptics.tick()
+            Haptics.pick()
             model.setCleanupLevel(.custom)
         }
         .font(.subheadline.weight(.semibold))

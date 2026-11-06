@@ -376,7 +376,6 @@ struct WatchHeaderBar: View {
     @ViewBuilder private var fullScreenButton: some View {
         if fullScreenAvailable {
             Button {
-                Haptics.tick()
                 watcher.setFullScreen(true)
             } label: {
                 Image(systemName: "arrow.up.backward.and.arrow.down.forward.rectangle")
@@ -393,7 +392,6 @@ struct WatchHeaderBar: View {
 
     private var done: some View {
         Button("Done") {
-            Haptics.tick()
             watcher.done()
         }
         .font(.subheadline.weight(.semibold))
@@ -805,7 +803,7 @@ struct WatchWindow: View {
                     .accessibilityHidden(true)
             }
         }
-        .onChange(of: watcher.cameAlive) { _, _ in if interactive { Haptics.soft() } }
+        .onChange(of: watcher.cameAlive) { _, _ in if interactive { Haptics.arrived() } }
         .onChange(of: watcher.noteSeq) { _, _ in
             guard interactive else { return }
             let words = watcher.noteWords

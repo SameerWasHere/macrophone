@@ -242,7 +242,7 @@ final class AppModel: ObservableObject {
             .sink { [weak self] settled in self?.cleanAhead(settled) }
             .store(in: &bag)
         recorder.$softCapReached.filter { $0 }.sink { [weak self] _ in
-            Haptics.warning()
+            Haptics.caution()
             self?.objectWillChange.send()
         }.store(in: &bag)
         if let mac = pairedMac { liveTargets = Self.loadTargets(for: mac.id) }
@@ -332,7 +332,7 @@ final class AppModel: ObservableObject {
         if watcher.isOpen { watcher.close() }
         client.setActiveMac(id)
         adoptMac(mac)
-        if haptic { Haptics.tick() }
+        if haptic { Haptics.pick() }
     }
 
     /// The next (1, a swipe up) or previous (−1, a swipe down) Mac, round the list.
@@ -455,6 +455,7 @@ final class AppModel: ObservableObject {
         // The mic and the newer speech engine, made ready ahead of the tap (the model fetched when
         // it isn't on the phone yet).
         recorder.ready(language: settings.language, contextualStrings: settings.dictionary)
+        Haptics.readyMic()
         #if DEBUG
         if DebugHooks.env["MACROPHONE_CLEANUP_AVAILABLE"] == "1" { cleanupAvailability = .available }
         #endif
@@ -600,7 +601,7 @@ final class AppModel: ObservableObject {
         // UI tests drive the real button and gestures with a stand-in recognizer
         // (the simulator can't load speech assets).
         if let words = DebugHooks.env["MACROPHONE_SIM_RECORD"] {
-            Haptics.light()
+            Haptics.micOpen()
             debugSimulateRecording(words)
             return
         }
@@ -608,7 +609,7 @@ final class AppModel: ObservableObject {
         statusReset?.cancel()
         startError = nil
         let level = effectiveCleanupLevel
-        Haptics.light()
+        Haptics.micOpen()
         status = .listening
         // The Mac gets the place ready while he talks (Oct 18 2026, the speed pass).
         let place = override?.target ?? selection.target
@@ -625,7 +626,7 @@ final class AppModel: ObservableObject {
         } catch let e as Recorder.StartError {
             startError = e
             status = .problem(e.message, openSettings: e.needsSettings)
-            Haptics.error()
+            Haptics.failed()
             resolveTextWaiters(nil)
         } catch {
             status = .problem("The microphone couldn't start. Try again.", openSettings: false)
@@ -644,7 +645,7 @@ final class AppModel: ObservableObject {
         }
         #endif
         guard recorder.isActive else { return }
-        Haptics.soft()
+        Haptics.micClose()
         recorder.stop(.user)
     }
 
@@ -657,6 +658,8 @@ final class AppModel: ObservableObject {
         var canUndo = false
         var undoing = false
         var undone = false
+        /// Sent after pasting (the pill's paper plane, not the check).
+        var sent = false
     }
     /// Where the last words landed, over the mic for a moment (`LandedPill`).
     @Published private(set) var landedChip: LandedChip?
@@ -676,7 +679,7 @@ final class AppModel: ObservableObject {
     /// The pill's Undo: the Mac takes the paste back (⌘Z in that app).
     func undoLanded() {
         guard var c = landedChip, c.canUndo, client.undoPaste(c.id) else { return }
-        Haptics.tick()
+        Haptics.press()
         c.undoing = true
         c.canUndo = false
         showChip(c, for: 4)
@@ -701,7 +704,7 @@ final class AppModel: ObservableObject {
         let ranges = WordFixes.words(settled)
         guard ranges.indices.contains(index) else { return }
         let original = (settled as NSString).substring(with: ranges[index])
-        Haptics.tick()
+        Haptics.pick()
         fixDraft = wordFixes.first { $0.index == index } ?? WordFix(index: index, original: original, replacement: original)
     }
 
@@ -740,7 +743,7 @@ final class AppModel: ObservableObject {
         guard !raw.isEmpty else {
             if o.reason == .recognizerFailed {
                 status = .problem("Speech recognition couldn't start on this iPhone. Try again in a moment.", openSettings: false)
-                Haptics.error()
+                Haptics.failed()
             } else if o.duration < 0.4, !o.reason.isEarly {
                 status = .ready   // a brush of the button — ignored, no item
             } else {
@@ -889,7 +892,7 @@ final class AppModel: ObservableObject {
             UIPasteboard.general.string = d.text
             updateItem(d.id) { $0.delivery = .copiedOnPhone; $0.deliveredAt = Date() }
             status = .copiedOnPhone
-            Haptics.success()
+            Haptics.landed()
             log.add("not paired: copied on iPhone")
             bumpPulse()
             return
@@ -916,7 +919,7 @@ final class AppModel: ObservableObject {
 
     private func setQueuedStatus() {
         status = .queued
-        Haptics.warning()
+        Haptics.caution()
         bumpPulse()
     }
 
@@ -932,10 +935,10 @@ final class AppModel: ObservableObject {
             }
         case .duplicate:
             updateItem(id) { $0.delivery = .duplicate; $0.macName = macName }
-            if isLatest || !late { status = .duplicate; Haptics.success() }
+            if isLatest || !late { status = .duplicate; Haptics.landed() }
         case .failed:
             updateItem(id) { $0.delivery = .failed; $0.detail = ack.detail; $0.macName = macName }
-            if isLatest || !late { status = .failed(mac: macName, detail: ack.detail); Haptics.error() }
+            if isLatest || !late { status = .failed(mac: macName, detail: ack.detail); Haptics.failed() }
         }
         log.add("ack \(ack.outcome.rawValue)\(late ? " (from queue)" : "")")
         bumpPulse()
@@ -1001,12 +1004,12 @@ final class AppModel: ObservableObject {
             self.awaitingLanding = nil
             if self.macReportsLandings {
                 self.updateItem(id) { $0.landingUnconfirmed = true }
-                if !self.recorder.isActive { self.status = .unconfirmed(mac: mac); Haptics.warning() }
+                if !self.recorder.isActive { self.status = .unconfirmed(mac: mac); Haptics.caution() }
                 self.log.add("no landing within \(Int(Self.landingTimeout))s")
             } else if !self.recorder.isActive {
                 // A Mac that never reports landings (an older version): the ack's own words, as before.
                 self.status = .delivered(mac: mac, detail: ackDetail, late: late, to: self.routeNote(id))
-                Haptics.success()
+                Haptics.landed()
             }
             self.bumpPulse()
         }
@@ -1020,10 +1023,10 @@ final class AppModel: ObservableObject {
         let l = Landing(result: result, detail: it.landingDetail ?? "", target: it.dictation.target, to: routeNote(id), late: late)
         guard !recorder.isActive else { return }   // the next one is being spoken: History has it
         status = .landed(l)
-        if l.isSuccess { Haptics.success() } else { Haptics.error() }
+        if l.isSuccess { Haptics.landed() } else { Haptics.failed() }
         if l.isSuccess {
             showChip(LandedChip(id: id, words: l.chipWords, ok: true,
-                                canUndo: result == .pasted && !late && client.macCanUndo))
+                                canUndo: result == .pasted && !late && client.macCanUndo, sent: result == .sent))
             pillSaidIt = true
         }
         bumpPulse()
@@ -1136,7 +1139,7 @@ final class AppModel: ObservableObject {
         if watcher.isOpen { watcher.close() }
         adoptMac(client.activeMac ?? peer)
         pairing = .paired(peer.name)
-        Haptics.success()
+        Haptics.landed()
         if !queue.isEmpty { log.add("paired with \(queue.count) waiting") }
     }
 
@@ -1161,7 +1164,7 @@ final class AppModel: ObservableObject {
         }
         pairing = .failed(message)
         log.add("pairing failed: \(String(describing: error))")
-        Haptics.error()
+        Haptics.failed()
     }
 
     func resetPairing() { pairing = .idle; pairingMayNeedLocalNetwork = false }
@@ -1261,10 +1264,10 @@ final class AppModel: ObservableObject {
     func openOnMac(_ app: MacApp) {
         guard client.openApp(app.bundleID) else {
             explain("Your Mac isn't connected — open \(app.name) when it is")
-            Haptics.warning()
+            Haptics.caution()
             return
         }
-        Haptics.tick()
+        Haptics.press()
         justOpened[app.bundleID] = Date()
         pick(.app(bundleID: app.bundleID, windowKey: nil, name: app.name))
         explain("Opening \(app.name) on your Mac", for: 6)
@@ -1297,10 +1300,10 @@ final class AppModel: ObservableObject {
     func quitOnMac(_ app: MacApp) {
         guard client.quitApp(app.bundleID) else {
             explain("Your Mac isn't connected — quit \(app.name) when it is")
-            Haptics.warning()
+            Haptics.caution()
             return
         }
-        Haptics.tick()
+        Haptics.press()
         quitting.insert(app.bundleID)
         explain("Quitting \(app.name) on your Mac", for: 6)
         log.add("asked the Mac to quit an app")
@@ -1318,7 +1321,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func watchSession(_ t: LiveTarget) -> Bool {
         guard !(watcher.target?.matches(t) ?? false) else { return false }
-        Haptics.tick()
+        Haptics.pick()
         pick(t.ref)
         watcher.open(t.ref)
         return true
@@ -1593,7 +1596,7 @@ final class AppModel: ObservableObject {
         macRollUp = step > 0
         pairedMac = next
         linkState = .connected(next.name)
-        Haptics.tick()
+        Haptics.pick()
     }
     #endif
 }
@@ -1710,7 +1713,6 @@ extension AppModel: LinkClientDelegate {
         #if DEBUG
         HitchProbe.shared.begin("show")
         #endif
-        Haptics.tick()
         openedByPose = false
         let pick = settings.selection.target
         if case .app = pick { if !isNotOpen(pick) { watcher.open(pick) } } else if watcher.canWatchDesktop { watcher.open(reach.wholeScreenTarget) }
@@ -1779,7 +1781,7 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, appQuit bundleID: String, ok: Bool, detail: String) {
         guard client === self.client else { return }
         quitting.remove(bundleID)
-        if ok { Haptics.success() } else { Haptics.warning() }
+        if ok { Haptics.landed() } else { Haptics.caution() }
         explain(detail)
         // The lists follow: its row says it's closed, and it leaves Send to.
         _ = client.listApps()
@@ -1789,7 +1791,7 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, appOpened bundleID: String, ok: Bool, detail: String) {
         guard client === self.client else { return }
         if ok {
-            Haptics.success()
+            Haptics.landed()
             explain("\(detail) — it's where you send now")
             // Its window shows up a moment after launch.
             Task { [weak self] in
@@ -1798,7 +1800,7 @@ extension AppModel: LinkClientDelegate {
             }
         } else {
             justOpened[bundleID] = nil
-            Haptics.error()
+            Haptics.failed()
             explain(detail)
         }
     }
@@ -1829,7 +1831,6 @@ extension AppModel: LinkClientDelegate {
     /// The Mac's whole screen, live — Send to stays as it is (dictations still go to the picked app).
     func watchWholeScreen() {
         guard isConnected, watcher.canWatchDesktop else { return }
-        Haptics.tick()
         // The whole screen's words go where you tap into a text box (Oct 18 2026).
         if settings.selection.target != .frontApp { pick(.frontApp) }
         watcher.open(reach.wholeScreenTarget)
@@ -1837,7 +1838,7 @@ extension AppModel: LinkClientDelegate {
 
     /// From the whole screen to the app in front's own window (and Send to with it).
     func watchApp(_ front: FrontApp) {
-        Haptics.tick()
+        Haptics.pick()
         if let t = liveTargets.first(where: { $0.bundleID == front.bundleID }) {
             pick(t.ref)
             watcher.open(t.ref)
@@ -1856,7 +1857,7 @@ extension AppModel: LinkClientDelegate {
     /// The Mac's clipboard onto this iPhone's.
     func copyMacClipboard() {
         guard client.requestClipboard() else { explain("Update Macrophone on your Mac to share its clipboard"); return }
-        Haptics.tick()
+        Haptics.press()
         explain("Asking your Mac for its clipboard…")
     }
 
@@ -1871,7 +1872,7 @@ extension AppModel: LinkClientDelegate {
             explain(item.text.map { $0.utf8.count > ClipboardItem.maxText } == true ? "That's too long to send" : "Update Macrophone on your Mac to share the clipboard")
             return
         }
-        Haptics.tick()
+        Haptics.press()
         log.add("clipboard: sent the phone's")
     }
 
@@ -1880,7 +1881,7 @@ extension AppModel: LinkClientDelegate {
         if let clipboard {
             if let t = clipboard.text { UIPasteboard.general.string = t }
             else if let d = clipboard.image, let img = UIImage(data: d) { UIPasteboard.general.image = img }
-            Haptics.success()
+            Haptics.landed()
             log.add("clipboard: the Mac's is on the phone")
         }
         explain(detail)
@@ -1916,7 +1917,7 @@ extension AppModel: LinkClientDelegate {
             explain(isConnected ? "Update Macrophone on your Mac to send photos and files" : "Your Mac isn't connected")
             return
         }
-        Haptics.tick()
+        Haptics.press()
         let what = kind == "image" ? "the photo" : "the file"
         sendingAttachment = downloads ? "Saving \(what) to your Mac's Downloads…" : "Sending \(what) to \(Places.appName(target, in: self))…"
         explain(sendingAttachment ?? "", for: 30)
@@ -1926,7 +1927,7 @@ extension AppModel: LinkClientDelegate {
     func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {
         guard client === self.client else { return }
         sendingAttachment = nil
-        if ok { Haptics.success() } else { Haptics.error() }
+        if ok { Haptics.landed() } else { Haptics.failed() }
         explain(detail, for: 4)
     }
 
@@ -2040,7 +2041,7 @@ final class ResumeOnce<T>: @unchecked Sendable {
 extension AppModel: LinkClientUndoDelegate {
     func linkClient(_ client: LinkClient, undoDone r: UndoResult) {
         log.add("undo: \(r.ok ? "done" : "not done")")
-        if r.ok { Haptics.success() } else { Haptics.warning() }
+        if r.ok { Haptics.landed() } else { Haptics.caution() }
         // The line under the mic says so once the pill has gone (not "Pasted into …" any more).
         if r.ok { updateItem(r.id) { $0.landingDetail = r.detail } }
         if r.ok, case .landed = status { status = .notice(r.detail); scheduleStatusReset(after: 6) }

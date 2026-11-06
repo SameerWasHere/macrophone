@@ -78,6 +78,7 @@ struct CoverSoundItem: View {
     var body: some View {
         Button { player.toggle() } label: {
             Label("Sound", systemImage: !player.isOn ? "speaker" : player.playing ? "speaker.wave.2.fill" : "speaker.fill")
+                .contentTransition(.symbolEffect(.replace))
         }
         .tint(player.isOn ? Light.cyan : nil)
         .accessibilityValue(player.isOn ? "On" : "Off")

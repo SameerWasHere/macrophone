@@ -496,7 +496,7 @@ struct DuoFullScreen: View {
     /// pointer shows — instead of a right-click (two fingers still right-click).
     private func summonPad(at p: CGPoint) -> Bool {
         guard input.pages.contains(.trackpad), !main.showLiveWords else { return false }
-        Haptics.soft()
+        Haptics.grab()
         padClock.last = Date()
         padClock.holding = true
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.2, dampingFraction: 0.85)) { padAt = p }
@@ -550,7 +550,6 @@ struct DuoFullScreen: View {
 
     private var exitButton: some View {
         Button {
-            Haptics.tick()
             watcher.setFullScreen(false)
         } label: {
             Image(systemName: "arrow.down.forward.and.arrow.up.backward")
@@ -637,7 +636,7 @@ struct FloatingMic<Exit: View>: View {
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
                 .onChanged { v in
-                    if !dragging { dragging = true; Haptics.soft() }
+                    if !dragging { dragging = true; Haptics.grab() }
                     drag = v.translation
                 }
                 .onEnded { v in
@@ -645,7 +644,7 @@ struct FloatingMic<Exit: View>: View {
                     if room.width > 0, room.height > 0 { fx = p.x / room.width; fy = p.y / room.height }
                     drag = .zero
                     dragging = false
-                    Haptics.tick()
+                    Haptics.arrived()
                 })
             .accessibilityHidden(true)
     }

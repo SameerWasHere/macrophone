@@ -359,16 +359,67 @@ extension View {
     func edgeFade(top: CGFloat = 0, bottom: CGFloat = 24) -> some View { modifier(EdgeFade(top: top, bottom: bottom)) }
 }
 
-/// The haptic vocabulary (DESIGN.md): light on start, soft on stop, success / warning / error,
-/// and a tick when a control by the mic changes.
+/// The haptic vocabulary (DESIGN.md) — one meaning, one feel, everywhere. Every haptic in the
+/// app goes through these; nothing makes a generator of its own.
+///
+/// - `micOpen()` rigid: the mic opens, at the finger. Prepared ahead (`readyMic()`).
+/// - `micClose()` soft: the mic closes, the words on their way.
+/// - `landed()` success: what you sent arrived — a dictation landed, a photo or file, the Mac's
+///   clipboard, an app opened or quit, a pairing made, an undo done.
+/// - `caution()` warning: held, not lost — queued, not confirmed, near the length limit, a Mac
+///   that couldn't do it this time.
+/// - `failed()` error: it didn't happen.
+/// - `pick()` selection: a choice among options moved — a place in the Dock or Send to, a page,
+///   a cleanup level, a switch, a Mac, a window, a size, a slider's detent.
+/// - `press()` light: a key, a click or a command went to the Mac — a key, a tap, an answer, a
+///   trackpad gesture, a Mac Control, a Window command, Copy, Send Again, Refresh, Wake. A held
+///   key's repeats are felt once (`quietly`).
+/// - `rightClick()` medium: a right-click (a hold, two fingers) — the context menu's firmer tap.
+/// - `grab()` soft, lighter: something taken in hand — a drag picked up, the floating mic
+///   lifted, the trackpad summoned.
+/// - `arrived()` soft: something settled into place — a window's first picture, a fold, a
+///   window closed on the Mac, the floating mic set down.
+///
+/// Nothing on navigation — opening a sheet, Done, Show it here, full screen, opening a window
+/// (its first picture is `arrived`): what moves on screen says it. One event, one haptic: a view
+/// calling a model method that already speaks stays quiet.
 @MainActor
 enum Haptics {
-    static func tick() { UISelectionFeedbackGenerator().selectionChanged() }
-    static func light() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-    static func soft() { UIImpactFeedbackGenerator(style: .soft).impactOccurred() }
-    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
-    static func error() { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+    private static let selection = UISelectionFeedbackGenerator()
+    private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
+    private static let light = UIImpactFeedbackGenerator(style: .light)
+    private static let medium = UIImpactFeedbackGenerator(style: .medium)
+    private static let soft = UIImpactFeedbackGenerator(style: .soft)
+    private static let notice = UINotificationFeedbackGenerator()
+    private static var hushed = 0
+
+    /// The mic starts on touch-down, so there's no moment before the tap to prepare in: the engine
+    /// is woken when the app comes forward and after each dictation, when a tap is likeliest
+    /// (`prepare` holds it a few seconds, then it sleeps again).
+    static func readyMic() { rigid.prepare() }
+
+    static func micOpen() { play { rigid.impactOccurred(intensity: 0.85) } }
+    static func micClose() { play { soft.impactOccurred(); rigid.prepare() } }
+    static func landed() { play { notice.notificationOccurred(.success) } }
+    static func caution() { play { notice.notificationOccurred(.warning) } }
+    static func failed() { play { notice.notificationOccurred(.error) } }
+    static func pick() { play { selection.selectionChanged() } }
+    static func press() { play { light.impactOccurred(intensity: 0.7) } }
+    static func rightClick() { play { medium.impactOccurred() } }
+    static func grab() { play { soft.impactOccurred(intensity: 0.6) } }
+    static func arrived() { play { soft.impactOccurred() } }
+
+    /// Runs `body` without a haptic: a held key's repeats, felt once on its first press.
+    static func quietly(_ body: () -> Void) {
+        hushed += 1
+        defer { hushed -= 1 }
+        body()
+    }
+
+    private static func play(_ feel: () -> Void) {
+        guard hushed == 0 else { return }
+        feel()
+    }
 }
 
 /// The page background: ground ink with a faint cool glow at the top.

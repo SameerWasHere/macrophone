@@ -130,9 +130,18 @@ own name and mark. No SameerOS names, no Thread-as-agent semantics, no "Aurora s
   the hero. Status kickers and timers in **SF Mono**, small caps tracking ~1.2. No emojis.
 - **Motion:** springs — settle (0.4, 0.85), snap (0.25, 0.7), arrive (0.35, 0.85),
   depart (0.45, 0.86). Everything respects Reduce Motion (fades, a still filament).
-- **Haptics (phone):** `light` on record start, `soft` on stop, `success` on delivered,
-  `warning` on queued, `error` on failure, and a selection `tick` when a control by the mic
-  changes (a place, Send after pasting, a cleanup step). Nothing on ordinary navigation taps.
+- **Haptics (phone, Nov 5 2026):** named by meaning in `Haptics` (Theme.swift, where the full
+  list lives): `micOpen` rigid (prepared ahead), `micClose` soft, `landed` success, `caution`
+  warning (queued, unconfirmed), `failed` error, `pick` selection (a place, a page, a switch, a
+  cleanup level, a Mac), `press` light (a key, a click, a command to the Mac; a held key's
+  repeats felt once), `rightClick` medium, `grab` (a drag picked up), `arrived` soft (a window's
+  first picture, a fold). One event, one haptic; nothing on navigation (a sheet, Done, Show it
+  here, full screen, opening a window).
+- **Symbol effects:** only when a glyph changes meaning or an action lands, never at rest —
+  `replace` for a state's glyph (Sound, Pan | Scroll, a dictation's mark, the route, Copy →
+  Copied, mute), a one-shot `bounce` for a press that lands (Mac Controls' keys, the eye on a
+  watch tap, the wand on a cleanup level, the paper plane on send), the landed pill's check drawn
+  on (`drawOn`, iOS 26).
 - **The mic screen (phone, Oct 13 2026, the native pass):** top to bottom — the top bar (Mac
   pill, History, Settings), the header ("Speak, and it's on your Mac." in serif + "Tap to talk, tap
   again to send. Or hold, and let go."), flexible space, then **the controls panel in thumb reach**

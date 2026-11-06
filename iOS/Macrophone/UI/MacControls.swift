@@ -43,7 +43,6 @@ struct MacControlsButton: View {
     }
 
     private func open() {
-        Haptics.tick()
         model.sheet = .macControls
     }
 }
@@ -239,8 +238,10 @@ struct WholeScreenButton: View {
     @ViewBuilder private var icon: some View {
         if menuExtra {
             Image(systemName: reach.looksSeveral ? "display.2" : "display")
+                .contentTransition(.symbolEffect(.replace))
         } else {
             Image(systemName: reach.several ? "display.2" : "display").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+                .contentTransition(.symbolEffect(.replace))
         }
     }
 }

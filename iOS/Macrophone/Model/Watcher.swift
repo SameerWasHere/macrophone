@@ -396,7 +396,6 @@ final class Watcher: ObservableObject {
 
     func resume() {
         guard isOpen else { return }
-        Haptics.tick()
         start()
     }
 
@@ -421,7 +420,7 @@ final class Watcher: ObservableObject {
 
     func perform(_ action: WatchAction) {
         touch()
-        Haptics.tick()
+        Haptics.press()
         sendAction(action)
         inputSeq &+= 1
         // The answer to a key shows at the bottom of the window: go back there.
@@ -433,7 +432,7 @@ final class Watcher: ObservableObject {
     /// keyboard page goes with it. A Mac from before "mouse" gets the plain click.
     func click(_ p: CGPoint, count: Int = 1) {
         touch()
-        Haptics.tick()
+        Haptics.press()
         if !input.windowClick(p, count: count, right: false) { sendClick(p) }
         if count > 1 { log?.add("watching: click ×\(count)") }
     }
@@ -445,7 +444,7 @@ final class Watcher: ObservableObject {
         if !input.windowClick(p, count: 1, right: true) {
             guard sendRightClick(p) else { return false }
         }
-        Haptics.success()
+        Haptics.rightClick()
         log?.add("watching: right-click")
         return true
     }
@@ -624,7 +623,7 @@ final class Watcher: ObservableObject {
         sizedByHand = false
         askedForFit = true
         autoFitted = false
-        Haptics.tick()
+        Haptics.press()
         if fit != .normal { setFitLocally(.normal) }
         if wholeWindow { toggleWholeWindow() }
         // Start from the whole window, not a zoom kept from its old shape.
@@ -644,7 +643,7 @@ final class Watcher: ObservableObject {
         let n = name, t = target
         log?.add("watching: the window closed — back to the main screen")
         close()
-        Haptics.soft()
+        Haptics.arrived()
         onClosed(n, t)
     }
 
@@ -670,7 +669,7 @@ final class Watcher: ObservableObject {
     func press(_ k: WatchKey) {
         touch()
         guard sendKey(k) else { return }
-        Haptics.tick()
+        Haptics.press()
         inputSeq &+= 1
         recenter &+= 1
         log?.add("watching: key")
@@ -680,7 +679,7 @@ final class Watcher: ObservableObject {
     func window(_ c: WatchWindowCommand) {
         touch()
         guard sendWindow(c) else { return }
-        Haptics.tick()
+        Haptics.press()
         inputSeq &+= 1
         if c.frame(in: .zero) != nil || c == .restore, fit != .normal { setFitLocally(.normal) }
         // Another size: no longer the phone's shape, and nothing reshapes it by itself until the
@@ -698,7 +697,7 @@ final class Watcher: ObservableObject {
     /// The zoom-out button: the whole window, or back to the column you type in.
     func toggleWholeWindow() {
         touch()
-        Haptics.tick()
+        Haptics.pick()
         wholeWindow.toggle()
     }
 
@@ -733,7 +732,7 @@ final class Watcher: ObservableObject {
         autoScroll = false
         guard d != drag else { return }
         touch()
-        Haptics.tick()
+        Haptics.pick()
         drag = d
         log?.add("watching: one finger \(d == .pan ? "moves the picture" : "scrolls the window")")
         say(d == .pan ? "One finger moves the picture" : "One finger scrolls your Mac's window", symbol: d == .pan ? "hand.draw" : "arrow.up.and.down")
@@ -743,7 +742,7 @@ final class Watcher: ObservableObject {
     func choose(_ index: Int) {
         guard let p = answers, p.choices.indices.contains(index) else { return }
         touch()
-        Haptics.success()
+        Haptics.press()
         answeredID = p.id
         objectWillChange.send()
         sendChoose(p, index)
@@ -770,7 +769,7 @@ final class Watcher: ObservableObject {
     func setFit(_ f: WatchFit) {
         guard f != fit else { return }
         touch()
-        Haptics.tick()
+        Haptics.pick()
         fit = f
         if let target { Self.remember(f, for: target); Self.setFitted(target, false) }
         sizedByHand = true

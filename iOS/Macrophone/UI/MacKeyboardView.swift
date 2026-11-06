@@ -549,7 +549,8 @@ struct RepeatKey<L: View>: View {
                     press()
                     timer?.invalidate()
                     timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { _ in
-                        timer = Timer.scheduledTimer(withTimeInterval: 0.07, repeats: true) { _ in press() }
+                        // Felt once, on the first press: the repeats go quietly.
+                        timer = Timer.scheduledTimer(withTimeInterval: 0.07, repeats: true) { _ in Haptics.quietly(press) }
                     }
                 }
                 .onEnded { _ in
