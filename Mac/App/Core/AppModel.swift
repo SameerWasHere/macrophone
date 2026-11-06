@@ -86,6 +86,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     /// Ticks the status item for a silent copy.
     var flashStatusItem: () -> Void = {}
+    /// What a dictation is doing, for the menu bar icon (StatusIconMotion).
+    var statusItemCue: (StatusIconCue) -> Void = { _ in }
 
     private var bag: Set<AnyCancellable> = []
 

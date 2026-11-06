@@ -82,6 +82,7 @@ final class DeliveryEngine {
         // Gone before we start: say so now rather than after a countdown.
         var early: PasteFailure?
         if !delayed, case .paste(let t, _, _) = route { early = Paster.precheck(t) }
+        app.statusItemCue(.arriving(d.id))
         deliver(d.text, id: d.id, route: route, delayed: delayed, source: source, early: early)
         return (.delivered, ack(route, delayed: delayed, early: early))
     }
@@ -104,6 +105,7 @@ final class DeliveryEngine {
             // From the phone's offline queue: clipboard only, never pasted or sent on its own.
             Paster.copy(text)
             app.updateOutcome(id, .copied, "Copied — delayed dictations are never pasted automatically")
+            app.statusItemCue(.landed(id))
             popup.show(PopupCard(text: text, source: source, delayed: true, phase: .copied, status: "Copied · delayed"))
             notifyIfAway(title: "Delayed dictation copied", body: text, id: id)
             return
@@ -118,6 +120,8 @@ final class DeliveryEngine {
             } else {
                 app.flashStatusItem()
             }
+            // After the tick (a silent copy), so the colour takes its shape too.
+            app.statusItemCue(.landed(id))
         case let .paste(target, send, name):
             let req = Paster.Request(text: text, target: target, send: send)
             let c = PopupCard(text: text, source: source, delayed: false, phase: .countdown, status: "")
@@ -193,6 +197,7 @@ final class DeliveryEngine {
         c.note = "Cancelled. It's in History if you want it."
         popup.refresh(c)
         app.updateOutcome(itemID, .cancelled, "Paste cancelled")
+        app.statusItemCue(.settled(itemID))
         log.add("paste cancelled")
     }
 
@@ -229,6 +234,7 @@ final class DeliveryEngine {
                 }
                 self.popup.refresh(c)
                 self.app.updateOutcome(itemID, .pasted, outcome)
+                self.app.statusItemCue(.landed(itemID))
                 // Pasted and not sent: the phone may ask to take it back (Undo).
                 self.lastPaste = r.pressedSend ? nil : LastPaste(id: itemID, pid: r.pid, windowID: r.windowID, appName: r.appName, at: Date())
                 // Sent: a chat now, waiting for its answer.
@@ -241,6 +247,7 @@ final class DeliveryEngine {
             } catch {
                 c.phase = .cancelled
                 self.popup.refresh(c)
+                self.app.statusItemCue(.settled(itemID))
             }
         }
     }
@@ -300,6 +307,7 @@ final class DeliveryEngine {
         }
         popup.refresh(c)
         app.updateOutcome(itemID, f.copiedInstead ? .copied : .failed, f.title)
+        app.statusItemCue(.failed(itemID))
         notifyIfAway(title: f.title, body: req.text, id: itemID)
     }
 

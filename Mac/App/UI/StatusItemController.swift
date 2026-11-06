@@ -4,7 +4,9 @@ import Combine
 import MacrophoneKit
 
 /// The menu bar presence: a template Filament (with a dot when a phone is connected) and its
-/// menu. The menu is rebuilt each time it opens, so nothing ticks while it's closed.
+/// menu. The menu is rebuilt each time it opens, so nothing ticks while it's closed. The icon
+/// answers what happens (StatusIconMotion): a pulse when a dictation lands, a shake when one
+/// fails, a breath while one is on its way in, the ring fading in while a phone watches.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -16,6 +18,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var visibilityWork: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
     private var visibleKVO: NSKeyValueObservation?
+    private var motion: StatusIconMotion!
+    /// The image on the button now (its asset name), so a change can fade.
+    private var shown = "MenuBarIcon"
 
     init(model: AppModel, updater: Updater) {
         self.model = model
@@ -29,6 +34,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             b.setAccessibilityLabel("Macrophone")
             b.toolTip = "Macrophone"
         }
+        motion = StatusIconMotion(button: item.button)
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -88,17 +94,32 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let on = model.connectedPeer != nil
         // The dot becomes a ring while a phone is looking at a window here: a glance at the menu
         // bar says this Mac is being shown somewhere, the way the camera light does.
-        let watched = model.watching.values.sorted().first
-        b.image = Self.image(watched != nil ? "MenuBarIconWatching" : on ? "MenuBarIconConnected" : "MenuBarIcon")
+        var watched = model.watching.values.sorted().first
+        #if DEBUG
+        if demoWatching { watched = watched ?? "Demo" }
+        #endif
+        show(watched != nil ? "MenuBarIconWatching" : on ? "MenuBarIconConnected" : "MenuBarIcon")
         let line = watched.map { "\(model.statusLine) · watching \($0)" } ?? model.statusLine
         b.setAccessibilityLabel(on ? "Macrophone — \(line)" : "Macrophone")
         b.toolTip = line
     }
 
+    /// The button's image by asset name; a change fades (and the ring settles in).
+    private func show(_ name: String) {
+        guard name != shown, let b = item.button else { return }
+        let ring = "MenuBarIconWatching"
+        motion.willSwapImage(watching: name == ring ? true : (shown == ring ? false : nil))
+        shown = name
+        b.image = Self.image(name)
+    }
+
+    /// What a dictation is doing, for the icon to answer.
+    func cue(_ c: StatusIconCue) { motion.cue(c) }
+
     /// A tick on the icon for two seconds (silent copies).
     func flashReceived() {
         flashing = true
-        item.button?.image = Self.image("MenuBarIconReceived")
+        show("MenuBarIconReceived")
         flashWork?.cancel()
         let w = DispatchWorkItem { [weak self] in
             self?.flashing = false
@@ -130,6 +151,48 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: Menu
 
     #if DEBUG
+    private var demoWatching = false
+    private var demoTimer: Timer?
+
+    /// MACROPHONE_MENUBAR_DEMO=cycle | landed | failed | arriving | watching | silent: plays the
+    /// icon's answers every 3 s (cycle: arriving → landed, arriving → failed, the ring in and out,
+    /// a silent copy's tick) through the same calls the delivery makes. ",reduced" plays them as
+    /// Reduce Motion would; "none" plays nothing (just the reduced look for real deliveries).
+    func debugDemo(_ value: String) {
+        let parts = value.split(separator: ",").map(String.init)
+        StatusIconMotion.debugReduceMotion = parts.contains("reduced")
+        guard let spec = parts.first, spec != "none", spec != "reduced" else { return }
+        var step = 0
+        let steps = spec == "cycle" ? ["arriving", "landed", "arriving", "failed", "watching", "watching", "silent"] : [spec]
+        let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let what = steps[step % steps.count]
+                step += 1
+                print("menubar demo: \(what)")
+                fflush(stdout)
+                switch what {
+                case "arriving":
+                    // A countdown's length, then the outcome the next step names.
+                    let id = UUID()
+                    let next = steps.count > 1 ? steps[step % steps.count] : "landed"
+                    if steps.count > 1 { step += 1 }
+                    self.cue(.arriving(id))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                        self.cue(next == "failed" ? .failed(id) : .landed(id))
+                    }
+                case "landed": self.cue(.landed(UUID()))
+                case "failed": self.cue(.failed(UUID()))
+                case "watching": self.demoWatching.toggle(); self.refreshIcon()
+                case "silent": self.flashReceived(); self.cue(.landed(UUID()))
+                default: break
+                }
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        demoTimer = t
+    }
+
     func openMenu() { item.button?.performClick(nil) }
     /// Stands in for a crowded / notched menu bar that has hidden the icon.
     func debugHide() {
