@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = StatusItemController(model: model, updater: updater)
         model.popup.statusItemFrame = { [weak self] in self?.statusItem.visibleFrame }
         model.flashStatusItem = { [weak self] in self?.statusItem.flashReceived() }
+        model.statusItemCue = { [weak self] in self?.statusItem.cue($0) }
         model.start()
         updater.start()
         // A way in when the menu bar icon is hidden (a crowded or notched menu bar).

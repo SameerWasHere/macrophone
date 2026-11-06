@@ -33,7 +33,10 @@ import SwiftUI
 ///                                   connected (homeNetwork|nearby|tailscale|internet) and names a window it's watching
 ///   MACROPHONE_TARGETS_DEBUG=1      print every target scan (timing, what was found) to stdout
 ///   MACROPHONE_GLOW=x,y,w,h         the landing glow round that rect (top-left points; w < 6 = a caret) every 1.5 s
-///   MACROPHONE_WATCH_TIMING=1       print each watched picture's or video frame's stages in milliseconds (WatchService)
+///   MACROPHONE_MENUBAR_DEMO=cycle   the menu bar icon's answers every 3 s (or one of landed | failed | arriving |
+///                                   watching | silent) through the calls the delivery makes (StatusIconMotion);
+///                                   ",reduced" as Reduce Motion would ("reduced" alone: real deliveries only)
+///   MACROPHONE_WATCH_TIMING=1      print each watched picture's or video frame's stages in milliseconds (WatchService)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
 ///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
 ///   "window"?: "<window key>", "send"?: bool, "delayed"?: bool, "level"?: "off|light|medium|heavy|custom"}.
@@ -108,6 +111,7 @@ enum DebugHooks {
             RunLoop.main.add(t, forMode: .common)
             bag.append(t)
         }
+        if let demo = env["MACROPHONE_MENUBAR_DEMO"] { app.debugStatusItem.debugDemo(demo) }
         guard let show = env["MACROPHONE_SHOW"] else { return false }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 
