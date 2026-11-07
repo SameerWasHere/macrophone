@@ -230,6 +230,9 @@ public enum Message: Codable, Sendable {
     /// Mac → phone (only to a phone naming MacWallpaper.feature): the Mac's desktop picture, as a
     /// JPEG — after the welcome and whenever it changes.
     case macWallpaper(MacWallpaper)
+    /// Mac → phone (only to a phone naming MacVolume.feature): the Mac's output volume and mute —
+    /// after the welcome and on every change.
+    case macVolume(MacVolume)
     /// Mac → phone (only to a phone naming MacCursor.feature): the Mac's pointer as it looks now,
     /// while the phone's trackpad pointer is up — when it shows and on each change.
     case macCursor(MacCursor)

@@ -67,5 +67,75 @@ enum MediaKeys {
             let m: Bool? = AudioObjectHasProperty(device, &addr) && AudioObjectGetPropertyData(device, &addr, 0, nil, &size, &mute) == noErr ? mute != 0 : nil
             return (v, m)
         }
+
+        static var current: MacVolume {
+            let v = read()
+            return MacVolume(volume: v.volume, muted: v.muted ?? false)
+        }
+    }
+}
+
+/// The Mac's volume as it changes (Nov 7 2026): its own keys, the menu bar, another output
+/// device picked. Core Audio's listeners on the default output (its volume — the main element and
+/// the first two channels, as a device may report either — and mute) and on which device is the
+/// default; a burst of changes (a key held, a slider dragged) is told once, 100 ms after it ends.
+@MainActor
+final class MacVolumeWatcher {
+    static let shared = MacVolumeWatcher()
+
+    var onChange: ((MacVolume) -> Void)?
+    private(set) var last: MacVolume?
+    private var device = AudioObjectID(0)
+    private var pending: DispatchWorkItem?
+    private lazy var listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+        MainActor.assumeIsolated { self?.changed() }
+    }
+
+    private static let system = AudioObjectID(kAudioObjectSystemObject)
+    private static let defaultOutput = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                                  mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    private static let deviceAddresses: [AudioObjectPropertyAddress] = {
+        let out = kAudioDevicePropertyScopeOutput
+        return [AudioObjectPropertyAddress(mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume, mScope: out, mElement: kAudioObjectPropertyElementMain),
+                AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar, mScope: out, mElement: kAudioObjectPropertyElementMain),
+                AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar, mScope: out, mElement: 1),
+                AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar, mScope: out, mElement: 2),
+                AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute, mScope: out, mElement: kAudioObjectPropertyElementMain)]
+    }()
+
+    func start() {
+        var addr = Self.defaultOutput
+        AudioObjectAddPropertyListenerBlock(Self.system, &addr, .main) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.follow(); self?.changed() }
+        }
+        follow()
+        last = MediaKeys.Volume.current
+    }
+
+    /// Listens to the device that's the default output now (and no longer to the one before).
+    private func follow() {
+        var id = AudioObjectID(0)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        var addr = Self.defaultOutput
+        guard AudioObjectGetPropertyData(Self.system, &addr, 0, nil, &size, &id) == noErr, id != device else { return }
+        if device != 0 { for var a in Self.deviceAddresses where AudioObjectHasProperty(device, &a) { AudioObjectRemovePropertyListenerBlock(device, &a, .main, listener) } }
+        device = id
+        guard id != 0 else { return }
+        for var a in Self.deviceAddresses where AudioObjectHasProperty(id, &a) { AudioObjectAddPropertyListenerBlock(id, &a, .main, listener) }
+    }
+
+    private func changed() {
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = MediaKeys.Volume.current
+                guard now != self.last else { return }
+                self.last = now
+                self.onChange?(now)
+            }
+        }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
     }
 }

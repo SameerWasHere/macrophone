@@ -70,4 +70,41 @@ final class MacReachUITests: XCTestCase {
         shot("8-after-mute")
         app.buttons["mac-controls-done"].tap()
     }
+
+    /// Nov 7 2026: the slider stands at the Mac's real volume before any key (serve says 56%), and
+    /// a drag to about 30% sends the keys for that distance — four down — not five more on top of
+    /// the real level from a drawn 0. With `TEST_RUNNER_MACROPHONE_REACH_OLD_MAC=1` (serve run with
+    /// `--no-volume`) the level is unknown: the bare track, and only the ends move it.
+    func testTheVolumeSliderStandsAtTheMacsLevelBeforeATouch() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["MACROPHONE_REACH": "controls"]
+        app.launch()
+        let slider = app.descendants(matching: .any)["mac-volume-slider"].firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 25), "the panel opens")
+        if ProcessInfo.processInfo.environment["MACROPHONE_REACH_OLD_MAC"] == "1" {
+            sleep(2)
+            XCTAssertEqual(slider.value as? String, "Unknown", "a Mac from before: no guessed level")
+            XCTAssertTrue(app.staticTexts["Press + or − to change your Mac's volume"].exists)
+            shot("old-mac-unknown")
+            app.buttons["mac-control-volumeUp"].tap()
+            let after = NSPredicate(format: "value ENDSWITH ' percent'")
+            expectation(for: after, evaluatedWith: slider)
+            waitForExpectations(timeout: 5)
+            shot("old-mac-after-plus")
+            return
+        }
+        let known = NSPredicate(format: "value == '56 percent'")
+        expectation(for: known, evaluatedWith: slider)
+        waitForExpectations(timeout: 8)
+        XCTAssertTrue(app.staticTexts["Volume 56%"].exists, "the footer says the level before any key")
+        shot("1-level-before-touch")
+        // From the fill's end (56%) to 30% of the track.
+        let start = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5625, dy: 0.5))
+        let end = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        let landed = NSPredicate(format: "value == '31 percent'")
+        expectation(for: landed, evaluatedWith: slider)
+        waitForExpectations(timeout: 8)
+        shot("2-after-drag")
+    }
 }

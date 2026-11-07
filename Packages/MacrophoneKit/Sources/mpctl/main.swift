@@ -45,6 +45,9 @@ import MacrophoneKit
 //   mpctl serve --no-input                     # a Mac from before them: the phone shows no trackpad or keyboard page
 //   mpctl serve [--wallpaper <path>]           # the desktop picture a phone naming "wallpaper" gets: the drawn demo, or that image
 //   mpctl listen --features wallpaper [--save-wallpaper out.jpg]   # prints WALLPAPER <w>×<h> <KB> KB when it comes (Nov 1 2026)
+//   mpctl serve --no-volume                    # a Mac from before it says its volume: the phone's slider has no level, ± still work
+//   mpctl serve --volume-after 6               # the volume told 6 s after the welcome (the phone's remembered level shows meanwhile)
+//   mpctl listen --features macVolume         # prints VOLUME 56% / VOLUME muted after the welcome and on each change (Nov 7 2026)
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -709,6 +712,7 @@ func run() async -> Int32 {
         if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }
         // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).
         if has("--no-input") { server.macFeatures.removeAll { [WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature].contains($0) } }
+        if !has("--jpeg"), !has("--no-volume") { server.macFeatures.append(MacVolume.feature) }
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")

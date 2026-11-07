@@ -604,6 +604,9 @@ public final class LinkServer: @unchecked Sendable {
                 if phoneFeatures?.contains(MacWallpaper.feature) == true {
                     sendWallpaperAfterWelcome(to: phoneID, on: session)
                 }
+                if phoneFeatures?.contains(MacVolume.feature) == true, macFeatures.contains(MacVolume.feature) {
+                    sendVolumeAfterWelcome(to: phoneID, on: session)
+                }
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
                 if seen.contains(d.id) {
@@ -734,7 +737,7 @@ public final class LinkServer: @unchecked Sendable {
                 handleAlertWatch(request, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macCursor, .undoDone, .alertWatches, .macAlert:
+            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .undoDone, .alertWatches, .macAlert:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

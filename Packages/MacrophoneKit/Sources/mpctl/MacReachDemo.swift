@@ -40,6 +40,18 @@ enum MacReachDemo {
             Task { await server.send(.displays(list), to: peer) }
             stdout("DISPLAYS sent \(list.count)")
         }
+        if server.phones(with: MacVolume.feature).contains(peer), server.macFeatures.contains(MacVolume.feature) {
+            // --volume-after <s>: a Mac slow to say (the phone shows what it remembered meanwhile).
+            if let after = flag("--volume-after").flatMap(Double.init) {
+                Task {
+                    try? await Task.sleep(nanoseconds: UInt64(after * 1e9))
+                    await server.sendMacVolume(current, to: peer)
+                    stdout("VOLUME sent \(current.line ?? "unknown") after \(after) s")
+                }
+            } else {
+                stdout("VOLUME sent \(current.line ?? "unknown")")
+            }
+        }
         if server.phones(with: WakeInfo.feature).contains(peer) {
             let info = wakeInfo()
             Task { await server.send(.wakeInfo(info), to: peer) }
@@ -110,13 +122,21 @@ extension ServeDelegate {
         }
         let r = result
         Task { await server.send(.macControlDone(r), to: peerID) }
+        // As the Mac's own listener would: every phone that shows the volume hears the change.
+        if control.isVolume, server.macFeatures.contains(MacVolume.feature) { server.broadcastMacVolume(MacReachDemo.current) }
     }
+}
+
+extension ServeDelegate: LinkServerVolumeDelegate {
+    func macVolume(_ server: LinkServer, for peerID: UUID) -> MacVolume? { flag("--volume-after") == nil ? MacReachDemo.current : nil }
 }
 
 extension MacReachDemo {
     nonisolated(unsafe) static var controlCounts: [MacControl: Int] = [:]
-    nonisolated(unsafe) static var volume = 0.5
+    /// 56%: nine of the Mac's sixteen steps.
+    nonisolated(unsafe) static var volume = 0.5625
     nonisolated(unsafe) static var muted = false
+    static var current: MacVolume { MacVolume(volume: volume, muted: muted) }
 }
 
 extension PhoneDelegate {
@@ -128,5 +148,11 @@ extension PhoneDelegate {
     }
     func linkClient(_ client: LinkClient, macControlDone r: MacControlResult) {
         stdout("MAC CONTROL DONE \(r.control.rawValue) \(r.ok ? "ok" : "not done") — \(r.detail)")
+    }
+}
+
+extension PhoneDelegate: LinkClientVolumeDelegate {
+    func linkClient(_ client: LinkClient, macVolume v: MacVolume, macID: UUID) {
+        stdout(v.muted ? "VOLUME muted" : "VOLUME \(v.volume.map { "\(Int(($0 * 100).rounded()))%" } ?? "unknown")")
     }
 }

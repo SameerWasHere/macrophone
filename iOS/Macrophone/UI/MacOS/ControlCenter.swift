@@ -59,8 +59,8 @@ struct MacControlCenter: View {
     // MARK: Modules
 
     private var soundModule: some View {
-        let r = reach.lastControl
-        let muted = r?.muted == true
+        let known = model.macVolumeShown
+        let muted = known?.muted == true
         return CCModule(title: "Sound") {
             HStack(spacing: 12) {
                 Button { model.press(.mute) } label: {
@@ -73,13 +73,16 @@ struct MacControlCenter: View {
                 // The slider between its two ends, as a Mac's: a tap on an end is one step.
                 HStack(spacing: 4) {
                     volumeEnd(.volumeDown, symbol: "speaker.fill")
-                    VolumeSlider(level: muted ? 0 : (r?.volume ?? reach.lastVolume), onStep: { up in model.press(up ? .volumeUp : .volumeDown) })
+                    VolumeSlider(level: known?.volume, muted: muted, onStep: { up in model.press(up ? .volumeUp : .volumeDown) })
                     volumeEnd(.volumeUp, symbol: "speaker.wave.3.fill")
                 }
             }
         } footer: {
-            Text(volumeWords(r)).contentTransition(.numericText())
+            Text(known?.line ?? "Press + or − to change your Mac's volume")
+                .contentTransition(.numericText())
+                .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: known)
         }
+        .onAppear { reach.forgetVolumes(except: model.pairedMacs.map(\.id)) }
     }
 
     private var displayModule: some View {
@@ -129,12 +132,6 @@ struct MacControlCenter: View {
             .accessibilityLabel(c.title)
             .accessibilityHint("Presses it on your Mac.")
             .accessibilityIdentifier("mac-control-\(c.rawValue)")
-    }
-
-    private func volumeWords(_ r: MacControlResult?) -> String {
-        guard let r else { return "Drag to change your Mac's volume" }
-        if r.control.isVolume, let line = MacControlResult.volumeLine(r.volume, muted: r.muted) { return line }
-        return r.ok ? r.detail : "\(r.control.title) — couldn't"
     }
 }
 
@@ -191,32 +188,41 @@ struct CCGlyphStyle: ButtonStyle {
 }
 
 /// The volume as a Mac's Control Center slider: a fat track, filled to the level. A drag crosses
-/// sixteenths and each one is a volume key on the Mac; the fill follows the finger at once and
-/// settles to what the Mac reads back.
+/// sixteenths and each one is a volume key on the Mac, counted from the Mac's real level, so the
+/// keys sent match the distance dragged; the fill follows the finger at once and settles to what
+/// the Mac reads back. Muted, the fill stays at the level, faded (a key unmutes from there).
+/// Unknown (a Mac that hasn't said), it's the bare track: nothing to drag from — the ends and
+/// mute still work.
 struct VolumeSlider: View {
-    /// The Mac's level, 0…1; nil until it has said.
+    /// The Mac's level, 0…1; nil while unknown.
     var level: Double?
+    var muted = false
     var onStep: (Bool) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dragging: Double?
     @State private var sentFrom: Int?
 
     var body: some View {
         GeometryReader { g in
-            let shown = dragging ?? level ?? 0
             ZStack(alignment: .leading) {
                 Capsule().fill(Ink.ink.opacity(0.12))
-                Capsule().fill(Ink.ink.opacity(0.85))
-                    .frame(width: max(g.size.height, g.size.width * shown))
-                    .opacity(level == nil && dragging == nil ? 0.35 : 1)
+                if let shown = dragging ?? level {
+                    Capsule().fill(Ink.ink.opacity(0.85))
+                        .frame(width: max(g.size.height, g.size.width * shown))
+                        .opacity(muted && dragging == nil ? 0.3 : 1)
+                        .transition(.opacity)
+                }
             }
             .contentShape(Capsule())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { v in
+                    guard let level else { return }
                     let f = min(1, max(0, v.location.x / max(1, g.size.width)))
                     dragging = f
-                    let step = Int((f * 16).rounded())
-                    let from = sentFrom ?? Int(((level ?? f) * 16).rounded())
-                    guard step != from else { if sentFrom == nil { sentFrom = from }; return }
+                    let from = sentFrom ?? MacVolume.step(of: level)
+                    let step = MacVolume.step(of: f)
+                    if sentFrom == nil { sentFrom = from }
+                    guard step != from else { return }
                     for _ in 0..<abs(step - from) { onStep(step > from) }
                     Haptics.pick()
                     sentFrom = step
@@ -225,13 +231,22 @@ struct VolumeSlider: View {
                     sentFrom = nil
                     withAnimation(.easeOut(duration: 0.3)) { dragging = nil }
                 })
+            .allowsHitTesting(level != nil)
         }
         .frame(height: 28)
+        .animation(reduceMotion || dragging != nil ? nil : .easeOut(duration: 0.25), value: level)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: muted)
         .accessibilityElement()
         .accessibilityLabel("Volume")
-        .accessibilityValue(level.map { "\(Int(($0 * 100).rounded())) percent" } ?? "unknown")
+        .accessibilityValue(accessibilityWords)
         .accessibilityAdjustableAction { d in onStep(d == .increment) }
         .accessibilityIdentifier("mac-volume-slider")
+    }
+
+    private var accessibilityWords: String {
+        guard let level else { return muted ? "Muted" : "Unknown" }
+        let percent = "\(Int((level * 100).rounded())) percent"
+        return muted ? "Muted, \(percent)" : percent
     }
 }
 

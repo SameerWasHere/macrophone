@@ -272,7 +272,7 @@ final class AppModel: ObservableObject {
         // The Mac says what it's allowed to do (MacPermissionNote.swift).
         c.features.append(MacPermissions.feature)
         // The Mac's displays, Wake Your Mac, Mac Controls (Oct 19 2026, Model/MacReach.swift).
-        c.features += [Displays.feature, WakeInfo.feature, MacControl.feature]
+        c.features += [Displays.feature, WakeInfo.feature, MacControl.feature, MacVolume.feature]
         // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
         c.features.append(MacWallpaper.feature)
         // Windows on watch, and every alert with a picture of its window (Nov 6 2026).
