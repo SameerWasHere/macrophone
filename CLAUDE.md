@@ -1094,7 +1094,7 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   rewrite would go to the Mac as typing). **One 44 pt bar** (`MacKeyboardBar`, was two rows /
   94 pt): esc · ⇥ · ← ↑ ↓ → (held repeat) · `KeyboardEcho` (the words just typed, grey, newest at
   the right; back to "Typing in ‹app›" 1.5 s after the last key; "⌘ next key" in blue, a chord as
-  "⌘K"; never logged) · **Mac Keys** (`keyboard-mac-keys`) · hide (`keyboard-hide`). Mac Keys swaps
+  "⌘K"; never logged) · **Mac Keys** (`keyboard-mac-keys`) **[superseded round 3: a plain text key, "Mac" / "ABC", never a lit ⌘]** · hide (`keyboard-hide`). Mac Keys swaps
   the field's `inputView` for `DeckKeyboardHost` in place, like the globe key (`reloadSoon()`, the
   next run-loop turn — never inside `updateUIView`), at the iOS keyboard's measured height on that
   screen (`keyboard.iosKeys.<surface>.<tall|wide>`; capped to the bottom half upright inside), so
@@ -1132,11 +1132,11 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   was last offered, so after open → Done the status line kept one line and the cover's desktop sat
   20 pt low until relaunch; it measures at its own height now (`InputCarousel`, fixedSize) —
   `StabilityUITests` holds rest = after Done (±0.5 pt). *The vertical bar's set is fixed while it
-  shows:* Done · Keyboard (one toggle, `bar-keyboard` / `bar-keyboard-hide`) · Sound · Mac Controls ·
+  shows:* Done · Keyboard (one toggle, `bar-keyboard` / `bar-keyboard-hide`; **[round 3: the cover only — the inner screen's deck has its own Keyboard mode]**) · Sound · Mac Controls ·
   bell · Pan|Scroll (there from the first moment, dimmed until live) · zoom out · Window; items only
   dim or change symbol, never come or go (each change re-vends the bar), and with the mic open the
   set stays, dimmed. The inner bar swaps in the layout's own transaction (`innerBarWindow` /
-  `barFollows` removed). *Pages change in place:* a tap fades the old page out and the new one in
+  `barFollows` removed) **[superseded round 3: on its side it swaps 50 ms after Show it here, with the deck]**. *Pages change in place:* a tap fades the old page out and the new one in
   with a 0.96 settle (Reduce Motion: fade); only a finger on the Thread slides them; pages sit on
   the room's foot; the keyboard page keeps the last page's room (`restBand`) until the keys rise.
   The keyboard page itself is never faded or scaled (an effect's new container made UIKit hand the
@@ -1397,7 +1397,50 @@ pill hung over the mic's ring and bloom. Now, one path in AppModel (`undo(id:)`,
   block-buffered to a file, so its `LANDED` line lands late — time a shot from the phone's
   diagnostics log instead.
 
-## One deck on every inner pose (Nov 7 2026, round 3)
+## Overnight polish, round 3 (Nov 7 2026)
+
+Round 3 of the overnight passes (Sameer's goal as in round 1). Emphasis: the Duo's inner screen as a
+mini Mac that never jumps, and the window view's touch targets, Mac Keys and VoiceOver basics. Four
+streams, merged together; frames `docs/screens/overnight-nov7/round-3/<stream>/`. In one breath:
+- **One deck on every inner pose** (`DuoDeck.modes`): the book and flat on its side get the laptop's
+  deck — one mode at a time filling the page, `DuoModeBar` (Trackpad · Mic · Keyboard) at its foot,
+  a glass **+** = Open an App (`deck-open-app`). `DuoLaptopDeck.swift` (the column of keycaps, the
+  lone ⌘ pill, Send to's menu) is deleted; the inner vertical bar has no Keyboard item (the cover
+  keeps it). The laptop's answers row hides whole while the keyboard is asked for or up.
+- **Typing never moves the Mac's screen:** the book keeps both pages and the crease, only their
+  heights giving way to the keyboard's top on its own curve; upright the Mac's half is laid out from
+  its rest room (left, width, scale and top fixed; only its foot gives way where the keyboard reaches
+  over the fold, never below half — `DuoLook.keyboardGap`, `typingMacFloor`); the zoom holds
+  ("viewer: the keyboard came/went — zoom X before, Y after"). `MACROPHONE_SEND_TO=screen` works.
+- **The inner screen settles:** the one mic (`InnerMic`) shows only in a slot that has held still
+  two frames with no fold in the last 0.45 s and no keyboard moving; it fades in there, glides only
+  between settled slots in one pose, and a finger on it keeps it. A folded launch (laptop, book)
+  goes straight to the window in hand on its kept picture (`Posture.provisional`: a pose guessed
+  before the hinge reading stays hidden and untouchable, 0.3 s at most). Full screen's floating mic
+  starts at the right edge, halfway down.
+- **The window view's basics:** 44 pt touch targets with no layout change (`WatchLook.reach`,
+  `View.watchTouch`, 6 pt either side); Mac Keys is a text key ("Mac" / "ABC"); `esc` one way
+  (VoiceOver: "Escape"); chips read "1, Yes", the highlighted one selected; the cover bar's Sound and
+  Alerts say On / Off. `accessibilityGone(_:)` (UI/AccessibilityGone.swift) is the one seam for a
+  hidden layer — `OutOfReach` and `KeptHidden` go through it.
+- **Integration (this merge):** the builders branched before round 2 — `InnerMic` keeps round 2's
+  `landedPill(size:namespace:)` (at `placedSize`), and the settings layer keeps round 2's
+  `OutOfReach` (now via `accessibilityGone`). Smoke-tested on a Duo (cover; flat on its side, flat
+  upright and the laptop with a window in hand through every mode, typing — `WATCH TYPE` — and Done;
+  a cold folded launch in dark; unfold to the glance) and an iPhone 17 Pro in dark, against `mpctl
+  serve`: the book kept its pages with the mode bar over the keyboard, flat upright and the laptop
+  kept the window's top while typing, the laptop opened straight in hand, nothing regressed seen.
+- **Needs a real Duo / phone:** the 50 ms bar delay on its side in Release; the hinge reading's
+  timing at launch (`Posture.provisional`); the Mac Keys input-assistant band (~57 pt) that makes
+  both keyboards reach ~68 pt over the fold on the laptop (subtracting it in `MacKeyboardView`'s cap
+  would leave the Mac's half whole); whether real VoiceOver skips the hidden layers (the XCUITest
+  tree and `performAccessibilityAudit` list them whatever `.accessibilityHidden` says).
+  **Open:** a folded cold launch opens before the link is up, so `Watcher` shows "Reconnecting…"
+  over the kept picture on a slow connect (it should say nothing, or "Connecting"); a stale app list
+  can open a watch the Mac reports unavailable; `DuoUITests` open portrait (Send to 276 < 306) still
+  fails; `FullScreenUITests`, `StabilityUITests`, `HardwareKeyboardUITests` weren't re-run.
+
+### One deck on every inner pose
 
 Sameer's brief that night: "The app often doesn't have perspective on what should be easy to access
 vs buried in a menu", and folding the Duo 90° changed the whole control model — the laptop's deck
@@ -1444,7 +1487,7 @@ the vertical bar. Now one vocabulary wherever the screen is. Frames:
   page, the mode bar under it, no column ids; the laptop's answers gone while the keyboard is up and
   back Esc first, `duo-window` unmoved); flat portrait's older failure (Send to 276 < 306) stands.
 
-## Typing on the inner screen never moves the Mac's screen (Nov 7 2026, round 3)
+### Typing on the inner screen never moves the Mac's screen
 
 Round 3's `duo-inner-typing` stream. Found frame by frame on a Duo simulator (`vid/…` under the
 round's scratch, 3 fps): on the book the keyboard rising gave the Mac's window the *whole* width
@@ -1487,7 +1530,7 @@ duo-inner-typing/`):
   the Whole Screen (44, 83, 581 × 373) unchanged, the bar's top at 408 of 951 (the fold at 475)
   with either keyboard.
 
-## The Duo's inner screen settles (Nov 7 2026, round 3)
+### The Duo's inner screen settles
 
 Nothing on the inner screen shows in the wrong place. Frames: `docs/screens/overnight-nov7/round-3/duo-inner-settle/`.
 - **The one mic only shows in a settled slot** (`InnerMic`, DuoView.swift): a slot's frame counts once it has held
@@ -1525,7 +1568,7 @@ Nothing on the inner screen shows in the wrong place. Frames: `docs/screens/over
   hand, and `mic-button` while the keyboard is up (the one mic at opacity 0, `accessibilityHidden(!visible)`) — check
   with VoiceOver whether they're reachable (the window-targets-voiceover stream's area); the test checks `duo-show`.
 
-## The window view's basics: touch targets, Mac Keys, VoiceOver (Nov 7 2026, round 3)
+### The window view's basics: touch targets, Mac Keys, VoiceOver
 
 Stream `window-targets-voiceover`. Frames and the trees / audits before | after:
 `docs/screens/overnight-nov7/round-3/window-targets-voiceover/`.
