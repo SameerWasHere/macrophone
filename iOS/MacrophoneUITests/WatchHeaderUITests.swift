@@ -63,8 +63,9 @@ final class WatchHeaderUITests: XCTestCase {
         XCTAssertTrue(answers.waitForExistence(timeout: 40), "the demo window asks its question")
         sleep(1)
         let asking = window.frame
-        // One row: no taller than the key row (38 pt) and its shadow.
-        XCTAssertLessThanOrEqual(answers.frame.height, 44, "the answers are one row: \(answers.frame.height) pt")
+        // One row: the key row's 38 pt plus the chips' 6 pt touch reach above and below (round
+        // 3, `WatchLook.reach`) — never a second row (84 pt and more).
+        XCTAssertLessThanOrEqual(answers.frame.height, 52, "the answers are one row: \(answers.frame.height) pt")
         let first = app.buttons["watch-answer-1"]
         XCTAssertTrue(first.exists)
         XCTAssertTrue(first.label.contains("don't ask again this session"), "the whole answer to VoiceOver: \(first.label)")
