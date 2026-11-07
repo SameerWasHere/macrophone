@@ -91,7 +91,8 @@ final class AccessibilityTreeUITests: XCTestCase {
     func testAWindowInHandLeavesTheDesktopOutOfTheTree() throws {
         let app = launch(["MACROPHONE_WATCH": "1", "MACROPHONE_SEND_TO": "Claude"])
         guard any(app, "watch-done").waitForExistence(timeout: 20) else { throw XCTSkip("no paired Mac: the window never came up") }
-        guard any(app, "input-pages").waitForExistence(timeout: 10) else { throw XCTSkip("the Mac names no pages") }
+        // (A regular iPhone: the keyboard and the trackpad are buttons beside the mic, no row.)
+        guard any(app, "phone-page-trackpad").waitForExistence(timeout: 10) else { throw XCTSkip("the Mac names no pages") }
         let gotIt = app.buttons["Got it"]
         for _ in 0..<6 where gotIt.waitForExistence(timeout: 1) { gotIt.tap() }
         sleep(1)
@@ -106,9 +107,7 @@ final class AccessibilityTreeUITests: XCTestCase {
         XCTAssertEqual(invisibleNamed(byAuditOf: app, Self.desktop + ["input-trackpad"]), [], "the audit names nothing invisible")
 
         // The trackpad page: the trackpad in, the mic page out.
-        let row = any(app, "input-pages")
-        let right = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.maxX - 20, dy: row.frame.midY))
-        right.tap()
+        any(app, "phone-page-trackpad").tap()
         let trackpad = any(app, "input-trackpad")
         XCTAssertTrue(trackpad.waitForExistence(timeout: 4), "the trackpad page came up")
         sleep(1)
@@ -119,8 +118,7 @@ final class AccessibilityTreeUITests: XCTestCase {
         for id in Self.desktop { XCTAssertFalse(tree.contains(id), "\(id) still out") }
 
         // Done: the desktop is back, the window's controls gone.
-        let left = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.midX, dy: row.frame.midY))
-        left.tap()
+        any(app, "trackpad-bar-close").tap()
         XCTAssertTrue(any(app, "mic-button").waitForExistence(timeout: 4))
         any(app, "watch-done").tap()
         XCTAssertTrue(any(app, "places").waitForExistence(timeout: 6), "the Dock is back")

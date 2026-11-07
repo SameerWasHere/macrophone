@@ -1,16 +1,32 @@
 import XCTest
 
-/// The three ways in (Oct 19 2026), with real touches: a swipe on the Thread slides to the
-/// trackpad, a drag on the trackpad moves the pointer, a swipe in from the trackpad's edge comes
-/// back, a swipe the other way opens the keyboard (the iOS keyboard rises), and the bar's hide
-/// button comes back to the mic — and none of it starts a dictation. Then Mac Controls' own
-/// button and panel, and a window closed from the phone bringing the main screen back. Needs a
-/// Mac that names the pages: `mpctl serve` paired with this simulator (the app opens its window
-/// view by itself with MACROPHONE_WATCH=1).
+/// The three ways in (Oct 19 2026), with real touches: a swipe beside the mic slides to the
+/// trackpad, a drag on the trackpad moves the pointer, its bar's close comes back, a swipe the
+/// other way opens the keyboard (the iOS keyboard rises), and the bar's hide
+/// button comes back to the mic — and none of it starts a dictation. While a window shows there is
+/// no page row and no Thread (every iPhone since Nov 7 2026, round 5 — the Duo's cover before it):
+/// the keyboard and the trackpad are buttons beside the mic, and the window never moves for them.
+/// Then Mac Controls' own button and panel, and a window closed from the phone bringing the main
+/// screen back. Needs a Mac that names the pages: `mpctl serve` paired with this simulator (the
+/// app opens its window view by itself with MACROPHONE_WATCH=1).
 final class InputCarouselUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
-    private func launchWatching() throws -> (XCUIApplication, XCUIElement, XCUIElement) {
+    /// The keyboard's or the trackpad's button beside the mic (the cover's ids on the Duo's cover).
+    private func pageButton(_ app: XCUIApplication, _ page: String) -> XCUIElement {
+        let phone = app.buttons["phone-page-\(page)"]
+        return phone.exists ? phone : app.buttons["cover-page-\(page)"]
+    }
+
+    /// The window's foot: the row under it (the answers, else the keys), whose top is the window's
+    /// bottom edge — the window's top never moves.
+    private func windowFoot(_ app: XCUIApplication) -> CGFloat {
+        let answers = app.descendants(matching: .any)["watch-answers"].firstMatch
+        if answers.exists { return answers.frame.minY }
+        return app.buttons["watch-more-keys"].firstMatch.frame.minY
+    }
+
+    private func launchWatching() throws -> (XCUIApplication, XCUIElement) {
         let app = XCUIApplication()
         app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_WATCH": "1"]
         app.launch()
@@ -19,12 +35,13 @@ final class InputCarouselUITests: XCTestCase {
         if allow.waitForExistence(timeout: 2) { allow.tap() }
         let mic = app.buttons["Start dictation"]
         XCTAssertTrue(mic.waitForExistence(timeout: 10))
-        let row = app.descendants(matching: .any)["input-pages"]
-        guard row.waitForExistence(timeout: 15) else { throw XCTSkip("no Mac naming the keyboard and trackpad pages is connected") }
+        let deadline = Date().addingTimeInterval(15)
+        while !pageButton(app, "trackpad").exists, Date() < deadline { usleep(250_000) }
+        guard pageButton(app, "trackpad").exists else { throw XCTSkip("no Mac naming the keyboard and trackpad pages is connected") }
         // The first-use tip, if it's up, would take the swipe.
         let gotIt = app.buttons["Got it"]
         for _ in 0..<6 where gotIt.waitForExistence(timeout: 1) { gotIt.tap() }
-        return (app, mic, row)
+        return (app, mic)
     }
 
     /// "Pointer 52 percent across, 61 percent down" → (52, 61).
@@ -33,46 +50,34 @@ final class InputCarouselUITests: XCTestCase {
         return (words.first ?? -1, words.dropFirst().first ?? -1)
     }
 
-    func testSwipesOnTheThreadAndBesideTheMicChangeThePage() throws {
-        let (app, mic, row) = try launchWatching()
-        XCTAssertEqual(row.value as? String, "Mic")
+    func testSwipesBesideTheMicChangeThePage() throws {
+        let (app, mic) = try launchWatching()
+        XCTAssertFalse(app.descendants(matching: .any)["input-pages"].exists, "no page row while a window shows")
+        sleep(1)
+        let foot = windowFoot(app)
 
-        // Right to left ON THE THREAD (the band right under the page row): the trackpad.
-        let threadY = row.frame.maxY + 40
-        // From the band's right side, measured off the row (the iPhone Duo's cover keeps a
-        // status bar down its right edge, outside the app's content: a start at the screen's
-        // edge there lands on nothing — Oct 25 2026).
-        let fromThread = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.maxX + 20, dy: threadY))
-        fromThread.press(forDuration: 0.05, thenDragTo: fromThread.withOffset(CGVector(dx: -240, dy: 0)))
+        // Right to left beside the mic (its right, above the trackpad's button): the trackpad.
+        let micFrame = mic.frame
+        let right = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: micFrame.maxX + 20, dy: micFrame.minY + 4))
+        right.press(forDuration: 0.05, thenDragTo: right.withOffset(CGVector(dx: -220, dy: 0)))
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
-        XCTAssertTrue(trackpad.waitForExistence(timeout: 3), "a swipe right to left on the Thread shows the trackpad")
-        XCTAssertEqual(row.value as? String, "Trackpad")
+        XCTAssertTrue(trackpad.waitForExistence(timeout: 3), "a swipe right to left beside the mic shows the trackpad")
         XCTAssertFalse(app.buttons["Stop and send"].exists, "the swipe never started a dictation")
-        // The trackpad took the Thread's room: it's taller than the mic's area was.
-        XCTAssertGreaterThan(trackpad.frame.height, 180)
+        XCTAssertTrue(app.buttons["trackpad-bar-close"].waitForExistence(timeout: 2), "the trackpad has its own row with a close")
 
-        // A drag on the trackpad moves the pointer (its place is the trackpad's value).
-        let before = pointer(trackpad)
-        let mid = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: trackpad.frame.midX + 40, dy: trackpad.frame.midY))
-        mid.press(forDuration: 0.05, thenDragTo: mid.withOffset(CGVector(dx: -140, dy: 30)))
-        let after = pointer(trackpad)
-        XCTAssertLessThan(after.0, before.0, "the pointer went left: \(before) → \(after)")
-        XCTAssertGreaterThanOrEqual(after.1, before.1, "and a little down")
-
-        // In from the trackpad's left edge: back to the mic.
-        let edge = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: trackpad.frame.minX + 8, dy: trackpad.frame.midY))
-        edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 160, dy: 0)))
-        XCTAssertTrue(mic.waitForExistence(timeout: 3))
+        // Close: back to the mic, the window where it was. (The swipe in from the plate's left
+        // edge isn't reached by a synthetic drag with the bar under the plate — as on the cover.)
+        sleep(1)
+        app.buttons["trackpad-bar-close"].tap()
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: mic)
         waitForExpectations(timeout: 3)
-        XCTAssertEqual(row.value as? String, "Mic")
+        sleep(1)
+        XCTAssertEqual(windowFoot(app), foot, accuracy: 0.5, "the window is back exactly where it was")
 
         // Left to right, beside the mic (its left): the keyboard rises.
-        let micFrame = mic.frame
-        let left = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: micFrame.minX - 50, dy: micFrame.midY + 40))
+        let left = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: micFrame.minX - 20, dy: micFrame.minY + 4))
         left.press(forDuration: 0.05, thenDragTo: left.withOffset(CGVector(dx: 220, dy: 0)))
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "the iOS keyboard comes up")
-        XCTAssertEqual(row.value as? String, "Keyboard")
         // iOS's own first-time keyboard tip, if it's there.
         let cont = app.buttons["Continue"]
         if cont.waitForExistence(timeout: 1) { cont.tap() }
@@ -83,14 +88,56 @@ final class InputCarouselUITests: XCTestCase {
         hide.tap()
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: mic)
         waitForExpectations(timeout: 3)
-        XCTAssertEqual(row.value as? String, "Mic", "hide comes back to the mic page")
         XCTAssertFalse(app.keyboards.firstMatch.exists)
         XCTAssertFalse(app.buttons["Stop and send"].exists)
+        sleep(1)
+        XCTAssertEqual(windowFoot(app), foot, accuracy: 0.5, "and back again after the keyboard")
+        app.buttons["watch-done"].tap()
+    }
+
+    /// The buttons beside the mic (every way in and out without a swipe, as VoiceOver goes): the
+    /// trackpad — a plate a thumb can use, a drag moves the pointer, close comes back — and the
+    /// keyboard, typing into the Mac, hide comes back. The window is where it was after each.
+    func testTheButtonsBesideTheMicAreTheWaysInAndOut() throws {
+        let (app, mic) = try launchWatching()
+        sleep(1)
+        let foot = windowFoot(app)
+        XCTAssertEqual(pageButton(app, "keyboard").label, "Keyboard")
+        XCTAssertEqual(pageButton(app, "trackpad").label, "Trackpad")
+
+        pageButton(app, "trackpad").tap()
+        let trackpad = app.descendants(matching: .any)["input-trackpad"]
+        XCTAssertTrue(trackpad.waitForExistence(timeout: 3))
+        sleep(1)
+        XCTAssertGreaterThan(trackpad.frame.height, 140, "a plate a thumb can use: \(trackpad.frame)")
+        let before = pointer(trackpad)
+        let mid = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: trackpad.frame.midX + 40, dy: trackpad.frame.midY))
+        mid.press(forDuration: 0.05, thenDragTo: mid.withOffset(CGVector(dx: -140, dy: 30)))
+        let after = pointer(trackpad)
+        XCTAssertLessThan(after.0, before.0, "the pointer went left: \(before) → \(after)")
+        app.buttons["trackpad-bar-close"].tap()
+        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: mic)
+        waitForExpectations(timeout: 3)
+        sleep(1)
+        XCTAssertEqual(windowFoot(app), foot, accuracy: 0.5, "close: the window is back exactly where it was")
+
+        pageButton(app, "keyboard").tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "the iOS keyboard comes up")
+        let cont = app.buttons["Continue"]
+        if cont.waitForExistence(timeout: 1) { cont.tap() }
+        app.typeText("one row")
+        let hide = app.buttons["Hide the keyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 3))
+        hide.tap()
+        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: mic)
+        waitForExpectations(timeout: 3)
+        sleep(1)
+        XCTAssertEqual(windowFoot(app), foot, accuracy: 0.5, "hide: the window is back exactly where it was")
         app.buttons["watch-done"].tap()
     }
 
     func testMacControlsIsItsOwnButtonInTheWindowView() throws {
-        let (app, _, _) = try launchWatching()
+        let (app, _) = try launchWatching()
         let button = app.buttons["mac-controls"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 5), "Mac Controls sits in the window view's header")
         button.tap()
@@ -108,7 +155,7 @@ final class InputCarouselUITests: XCTestCase {
     }
 
     func testClosingTheWindowBringsTheMainScreenBack() throws {
-        let (app, _, _) = try launchWatching()
+        let (app, _) = try launchWatching()
         let menu = app.descendants(matching: .any)["watch-window"].firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         menu.tap()

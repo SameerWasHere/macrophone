@@ -441,28 +441,32 @@ struct MainView: View {
                 .clipShape(FootOnly())
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: showLiveWords)
                 .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: windowHere)
-                // The Thread, one band in the same place in every state, and the mic under it —
-                // and, while a window shows, the page row above the Thread and the keyboard and
-                // the trackpad beside the mic (the Thread folds away on those pages: the trackpad
-                // takes its room, the keyboard the foot of the screen). The mic page is the same
-                // view on every page, so a hold on it is never lost.
-                let coverWatching = isCover && watcher.isOpen && !showLiveWords
+                // The Thread, one band in the same place in every state, and the mic under it.
+                // While a window shows (the cover since Oct 31, every iPhone since Nov 7 2026) the
+                // window takes the room: no Thread, no page row — one row under the key row, the
+                // keyboard · the mic · the trackpad. The mic page is the same view on every page,
+                // so a hold on it is never lost.
+                let watching = rowWatching
                 InputCarousel(input: input, watcher: watcher, compact: compact,
-                              // The cover: no Thread while a window shows; the trackpad page
-                              // takes a thumb's worth of room instead.
-                              threadHeight: coverWatching ? (input.page == .trackpad ? 116 : 0) : filamentSlot,
-                              // The cover never draws the page row (its pages are the buttons
-                              // beside the mic): tied to the window being open, it showed for a
-                              // pass as the pages arrived first, and the window's top area
-                              // shrank by the row before it grew (Nov 4 2026).
-                              rowHidden: isCover,
-                              trackpadBar: coverWatching,
+                              // No Thread while a window shows; the trackpad page takes a thumb's
+                              // worth of room instead (`trackpadRoom`).
+                              threadHeight: watching ? (input.page == .trackpad ? trackpadRoom : 0) : filamentSlot,
+                              // The page row is never drawn here (the pages are the buttons beside
+                              // the mic): tied to the window being open, it showed for a pass as
+                              // the pages arrived first, and the window's top area shrank by the
+                              // row before it grew (Nov 4 2026).
+                              rowHidden: isCover || regularPhone,
+                              trackpadBar: watching,
+                              // The phone's plate lines up with the window's edges above it.
+                              trackpadInset: regularPhone ? WatchLook.sideMargin : nil,
+                              // (The row is hidden; this keeps a swipe from changing the page
+                              // while the mic is open.)
                               rowDimmed: regularPhone && showLiveWords,
                               // The keyboard page's room, from the keyboard's own frame (this
                               // screen ignores the keyboard's safe area — below).
                               // (The cover's foot is padded by `CoverFoot`, outside this view.)
                               keyboardRoom: laysOutKeyboard ? max(0, input.keyboardRoom - (isCover ? CoverFoot.screenFoot : geo.safeAreaInsets.bottom)) : 0,
-                              smoothHeight: isCover,
+                              smoothHeight: isCover || regularPhone,
                               // The inner screen: this is the cover's view beside the window, never
                               // the window's own pages (it stays built, hidden, while one is in hand).
                               restOnly: posture.pose.isInner) {
@@ -470,24 +474,23 @@ struct MainView: View {
                     // screen to the live words, and two branches made that a different button
                     // mid-press — the hold was lost (Oct 31 2026, Sameer: "press and hold on the
                     // mic button is not working").
-                    VStack(spacing: coverWatching ? 2 : 0) {
+                    VStack(spacing: watching ? 2 : 0) {
                         // (Upright inside, the cover's view shares the screen with the window and the
                         // bar: a breath less over the mic, and the status on one line.)
-                        if !coverWatching { Color.clear.frame(height: tightInner ? 4 : compact ? 14 : 30) }
-                        // The cover, watching: one row under the thumb — the keyboard, the mic,
-                        // the trackpad.
+                        if !watching { Color.clear.frame(height: tightInner ? 4 : compact ? 14 : 30) }
+                        // Watching: one row under the thumb — the keyboard, the mic, the trackpad.
                         HStack(spacing: 0) {
-                            if coverWatching { coverPageButton(.keyboard).frame(maxWidth: .infinity) }
+                            if watching { pageButton(.keyboard).frame(maxWidth: .infinity) }
                             if posture.pose.isInner {
                                 // The inner screen's one mic sits here at rest (`innerMic`).
                                 micSlot(size: 92, inHand: false)
                             } else {
-                                micButton(size: coverWatching ? 64 : 92)
+                                micButton(size: watching ? 64 : 92)
                             }
-                            if coverWatching { coverPageButton(.trackpad).frame(maxWidth: .infinity) }
+                            if watching { pageButton(.trackpad).frame(maxWidth: .infinity) }
                         }
-                        .padding(.top, coverWatching ? 4 : 0)
-                        if coverWatching {
+                        .padding(.top, watching ? 4 : 0)
+                        if watching {
                             // One line in its 18 pt: a longer one (the trackpad's how-to) ran
                             // over the mic and its buttons above (Nov 4 2026).
                             StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2, swap: true)
@@ -529,12 +532,12 @@ struct MainView: View {
                         }
                     }
                 } thread: {
-                    if !coverWatching {
+                    if !watching {
                         threadBand
-                            // The cover, the mic opening over a window: the Thread and the clock
-                            // come once the window has gone (it leaves in `Motion.leave`) — they
-                            // were drawn over its answers as it faded (Nov 4 2026).
-                            .transition(isCover && !reduceMotion ? .asymmetric(insertion: .opacity.animation(Motion.afterLeave), removal: .opacity) : .opacity)
+                            // The mic opening over a window: the Thread and the clock come once
+                            // the window has gone (it leaves in `Motion.leave`) — they were drawn
+                            // over its answers as it faded (Nov 4 2026).
+                            .transition(!reduceMotion ? .asymmetric(insertion: .opacity.animation(Motion.afterLeave), removal: .opacity) : .opacity)
                     }
                 }
             }
@@ -634,8 +637,16 @@ struct MainView: View {
                   size: size)
     }
 
-    /// The keyboard or the trackpad, a round glass button beside the cover's mic.
-    @ViewBuilder func coverPageButton(_ p: MacInput.Page) -> some View {
+    /// A window shows on the cover or a regular iPhone (not while the mic is open over it): the
+    /// window takes the room, and the keyboard, the mic and the trackpad share one row under it.
+    var rowWatching: Bool { (isCover || regularPhone) && watcher.isOpen && !showLiveWords }
+
+    /// The trackpad page's room over the mic row's: a plate of ~144 pt on the cover (its screen is
+    /// short), ~150 on an SE and ~200 on a Pro, with its bar (close) under it.
+    var trackpadRoom: CGFloat { isCover ? 116 : compact ? 122 : 172 }
+
+    /// The keyboard or the trackpad, a round glass button beside the mic while a window shows.
+    @ViewBuilder func pageButton(_ p: MacInput.Page) -> some View {
         if input.pages.contains(p) {
             // On the pages' spring, the whole screen at once (the window above moves with them).
             Button { withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { input.show(p) } } label: {
@@ -643,7 +654,7 @@ struct MainView: View {
             }
             .circleGlassButton()
             .accessibilityLabel(p.title)
-            .accessibilityIdentifier("cover-page-\(p.rawValue)")
+            .accessibilityIdentifier(isCover ? "cover-page-\(p.rawValue)" : "phone-page-\(p.rawValue)")
         }
     }
 

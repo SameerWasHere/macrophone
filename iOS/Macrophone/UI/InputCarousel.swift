@@ -44,12 +44,15 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The page row isn't drawn here (a folded Duo's deck draws the switcher in a corner,
     /// `InputCornerSwitcher`, so the trackpad is the whole half).
     var rowHidden = false
-    /// The Duo's cover (Oct 31 2026, Sameer: "there's no way to close the trackpad"): the trackpad
+    /// The Duo's cover (Oct 31 2026, Sameer: "there's no way to close the trackpad") and every
+    /// iPhone while a window shows (Nov 7 2026, round 5): the trackpad
     /// page carries its own row under the plate — the keyboard, back to the mic, close — in the
     /// places the mic page's row has them.
     var trackpadBar = false
-    /// The mic is open (the regular iPhone, Nov 4 2026): the page row stays in its place, so
-    /// nothing moves, but it's faded and takes no tap — the mic is the only page then.
+    /// The trackpad plate's side inset (nil: 16 with the bar, else the window's own margin).
+    var trackpadInset: CGFloat? = nil
+    /// The mic is open (the regular iPhone, Nov 4 2026): the mic is the only page then — no swipe
+    /// to another, and a row (where one is drawn) stays in its place, faded, taking no tap.
     var rowDimmed = false
     /// The keyboard's room under the pages, laid out here (the regular iPhone, which ignores the
     /// keyboard's safe area — `MacInput.keyboardRoom`); 0 where the safe area gives it.
@@ -135,7 +138,10 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                             // back after it let go — `KeyboardTextView`.)
                             .scaleEffect(on || slideMode || reduceMotion || page == .keyboard ? 1 : 0.96, anchor: .bottom)
                             .opacity(on || slideMode || page == .keyboard ? 1 : 0)
-                            .animation(on || slideMode ? motion : leave, value: current)
+                            // For the keyboard the page leaving goes at once: faded, it was still
+                            // drawn under the keyboard's glass bar as the keys rose — the mic row's
+                            // buttons ghosted through "Typing in Claude" (Nov 7 2026).
+                            .animation(on || slideMode ? motion : current == .keyboard ? nil : leave, value: current)
                             // Out of the tree, not faded: the trackpad's and the keyboard's UIKit
                             // views stayed elements under the mic page (`accessibilityGone`).
                             .accessibilityGone(!on)
@@ -232,7 +238,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         case .trackpad:
             VStack(spacing: 0) {
                 TrackpadPage(input: input, watcher: watcher, big: rowHidden && !trackpadBar,
-                             inset: trackpadBar ? 16 : WatchLook.sideMargin, barSays: trackpadBar)
+                             inset: trackpadInset ?? (trackpadBar ? 16 : WatchLook.sideMargin), barSays: trackpadBar)
                     .frame(maxHeight: .infinity)
                 if trackpadBar { TrackpadBar(input: input) }
             }
