@@ -46,6 +46,13 @@ struct MainView: View {
     /// steps aside for the words while the mic is open, or comes back after them: it grew out
     /// of the hidden Dock then, as if opened again (Nov 4 2026).
     @State var windowViaDock = true
+    /// The desktop's window card opened it: it grows out of the card, and Done puts it back there.
+    @State var windowFromCard = false
+    /// The phone layout's window panel is built and kept (Nov 7 2026): under the words it gives up
+    /// its viewer (the strip has the video then).
+    @State var panelDormant = true
+    @State var panelUp = false
+    @State var panelTask: Task<Void, Never>?
     /// The pose's layout lies under full screen: its windows have no viewer (`poseBody`).
     @State var innerAsleep = false
     @State var innerAsleepTask: Task<Void, Never>?
@@ -299,9 +306,27 @@ struct MainView: View {
                                 if let trouble = desktopTrouble {
                                     DesktopEmptyState(trouble: trouble)
                                         .padding(.top, desktopTop)
+                                } else if showsDesktopWindow {
+                                    // Nothing in the way: the pick's window, one tap from the
+                                    // desktop (Nov 7 2026) — in the room that's there, never
+                                    // moving the Dock under it.
+                                    GeometryReader { g in
+                                        let room = g.size.height - desktopTop
+                                        if room >= DesktopWindowLook.leastRoom {
+                                            DesktopWindowCard(target: model.selection.target,
+                                                              room: CGSize(width: g.size.width - 2 * Space.margin,
+                                                                           height: room - (compact ? 14 : 28)),
+                                                              hidden: !phoneSettings,
+                                                              onWatch: watchFromCard)
+                                                .frame(width: g.size.width, height: room)
+                                                .padding(.top, desktopTop)
+                                        }
+                                    }
+                                    .transition(.opacity)
                                 }
                             }
                             .animation(.easeInOut(duration: 0.25), value: desktopTrouble)
+                            .animation(.easeInOut(duration: 0.25), value: showsDesktopWindow)
                             Color.clear.frame(height: compact ? 8 : 14)
                             dockArea
                         }
@@ -318,15 +343,23 @@ struct MainView: View {
                     .animation(nil, value: watcher.isShowing)
                     .animation(nil, value: showLiveWords)
                     .opacity(phoneSettings ? 1 : 0)
-                    // Out quickly (what comes in takes the stage), back in on the settle spring.
-                    // (The cover: back in once the window has gone — Motion.afterLeave.)
-                    .animation(phoneSettings ? (isCover && !reduceMotion ? Motion.afterLeave : Motion.pick(Motion.settle, reduce: reduceMotion)) : .easeOut(duration: 0.1), value: phoneSettings)
-                    .allowsHitTesting(phoneSettings)
-                    .accessibilityHidden(!phoneSettings)
-                    // Watching: the window takes the area (Done brings the settings back).
-                    if windowHere && !showLiveWords {
+                    .animation(settingsAnimation, value: phoneSettings)
+                    .modifier(OutOfReach(hidden: !phoneSettings))
+                    // Watching: the window takes the area (Done brings the settings back). Built
+                    // once and kept (Nov 7 2026): building it on every open held the main thread
+                    // for the best part of half a second before anything moved; now opening and
+                    // Done only change its opacity and its zoom out of the card or the Dock icon.
+                    // At rest it holds the pick's kept picture, ready; under the words it has no
+                    // viewer (`panelDormant`: the strip has the video then).
+                    if keepsPanel {
                         WatchPanel(watcher: watcher, compact: compact, cover: isCover,
-                                   bare: isCover && input.keysUp).transition(windowTransition)
+                                   bare: isCover && input.keysUp || !panelShown, dormant: panelDormant && !panelShown && windowHere)
+                            .environment(\.watchWindowHidden, !panelShown)
+                            .environment(\.watchRestPicture, panelShown || watcher.isOpen ? nil
+                                         : WindowSnapshots.cached(WindowSnapshots.key(mac: model.pairedMac?.id, target: model.selection.target)))
+                            .modifier(panelShown ? DockZoom.identity : panelHidden)
+                            .animation(panelAnimation, value: panelShown)
+                            .modifier(OutOfReach(hidden: !panelShown))
                     }
                     if showLiveWords {
                         VStack(spacing: 0) {
@@ -451,6 +484,21 @@ struct MainView: View {
                 if live, input.page != .mic { input.show(.mic, quiet: true) }
                 // Back from the words (the window faded in): Done takes it into the Dock again.
                 if !live, !windowViaDock { Task { @MainActor in windowViaDock = true } }
+            }
+            // The kept panel gives up its viewer once it has faded out, and Done's zoom has gone
+            // back into the card before the next open grows out of the Dock again.
+            .onChange(of: panelShown) { _, on in
+                panelTask?.cancel()
+                panelUp = on
+                guard !on else { panelDormant = false; return }
+                panelTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    guard !Task.isCancelled else { return }
+                    panelDormant = true
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    guard !Task.isCancelled else { return }
+                    windowFromCard = false
+                }
             }
             // The cover (Nov 4 2026): the window above moves with the pages, never ahead of them.
             // The trackpad taking its room shrank the window in one frame (only the pages had a
@@ -1437,28 +1485,79 @@ struct MacAppNudge: View {
 }
 
 extension MainView {
-    /// The window grows out of the pick's icon on the Dock and goes back into it (Nov 4 2026,
-    /// Sameer picked "the Dock icon opens into the window"), on the settle spring that already
-    /// carries it in and out. Where no Dock is drawn, or with Reduce Motion, it fades as before.
-    var windowTransition: AnyTransition {
-        // The cover (Nov 4 2026): the window leaves at once (the mic opening, Done) — fading on
-        // the settle spring it lingered, full size, under the Thread and the words arriving.
-        // And it arrives once what it replaces has gone (Send to, the words): faded in together,
-        // the two were read through each other.
-        if isCover { return reduceMotion ? .opacity : .handoffAfter }
-        guard !reduceMotion, windowViaDock, !(barUsed || posture.pose.isInner), let icon = DockSpot.shared.pick, watchArea.width > 0,
-              watchArea.insetBy(dx: -40, dy: -40).contains(CGPoint(x: icon.midX, y: icon.midY)) else { return .opacity }
-        let zoom = DockZoom(scale: max(0.06, icon.width / watchArea.width),
-                            offset: CGSize(width: icon.midX - watchArea.midX, height: icon.midY - watchArea.midY), fade: 0)
-        return .modifier(active: zoom, identity: DockZoom(scale: 1, offset: .zero, fade: 1))
+    /// The phone layout's window panel is kept built: the regular iPhone and the Duo's cover,
+    /// once a Mac is paired (on the inner screen this layout is the cover's view beside the
+    /// window, never the window).
+    var keepsPanel: Bool { model.isPaired && !posture.pose.isInner }
+
+    /// The window in hand shows in this layout's area.
+    var panelShown: Bool { windowHere && !showLiveWords }
+
+    /// The pick's window on the desktop (`DesktopWindowCard`): the regular iPhone and the cover,
+    /// paired, a place with a window (the Clipboard has none).
+    var showsDesktopWindow: Bool { model.isPaired && !posture.pose.isInner && model.selection.target != .clipboard }
+
+    /// The card's tap: what the Dock's second tap does, the window growing out of the card. Its
+    /// place is rendered as the window's starting point first, so the open on the next turn of
+    /// the run loop animates from the card rather than from wherever the window last went.
+    func watchFromCard() {
+        let t = model.selection.target
+        guard t != .clipboard, model.isConnected, !model.isNotOpen(t) else { return }
+        windowFromCard = true
+        DispatchQueue.main.async { model.watcher.open(t) }
+    }
+
+    /// The window grows out of where it was opened from and goes back into it (Nov 4 2026,
+    /// Sameer picked "the Dock icon opens into the window"; Nov 7 the desktop's card too), on the
+    /// settle spring that already carries it in and out — as state on a panel that's always
+    /// there, not an insertion. Stepping aside for the words, on the cover, or with Reduce
+    /// Motion, it only fades.
+    var panelHidden: DockZoom {
+        let fade = DockZoom(scale: 1, offset: .zero, fade: DockZoom.asleep)
+        guard !reduceMotion, windowViaDock, !(barUsed || posture.pose.isInner), watchArea.width > 0, watchArea.height > 0 else { return fade }
+        let card = windowFromCard ? DesktopWindowSpot.shared.frame : nil
+        guard let spot = card ?? DockSpot.shared.pick,
+              watchArea.insetBy(dx: -40, dy: -40).contains(CGPoint(x: spot.midX, y: spot.midY)) else { return fade }
+        // The card is a window: the panel shrinks to sit inside it. The icon: to its width.
+        let scale = card != nil ? min(spot.width / watchArea.width, spot.height / watchArea.height) : spot.width / watchArea.width
+        return DockZoom(scale: max(0.06, scale),
+                        offset: CGSize(width: spot.midX - watchArea.midX, height: spot.midY - watchArea.midY), fade: DockZoom.asleep)
+    }
+
+    /// The cover (Nov 7 2026): the desktop and the window cross-fade with an overlap — the
+    /// window's kept picture is in place on the first frame and the desktop fades out under it
+    /// (one leaving before the other arrived left an empty frame between them).
+    var panelAnimation: Animation {
+        guard isCover else { return Motion.pick(Motion.settle, reduce: reduceMotion) }
+        if reduceMotion { return .easeInOut(duration: 0.2) }
+        return panelShown ? .easeOut(duration: 0.18) : Motion.leave
+    }
+
+    /// The settings (the desktop): out quickly as the words take the stage, back in on the settle
+    /// spring. The cover: under the window coming in, slower than it arrives, and back with the
+    /// window going (overlapped); after the words, once they've gone (`Motion.afterLeave`).
+    var settingsAnimation: Animation {
+        if phoneSettings {
+            guard isCover, !reduceMotion else { return Motion.pick(Motion.settle, reduce: reduceMotion) }
+            return panelUp ? .easeOut(duration: 0.22) : Motion.afterLeave
+        }
+        if isCover, windowHere, !showLiveWords, !reduceMotion { return .easeOut(duration: 0.3) }
+        return .easeOut(duration: 0.1)
     }
 }
 
-/// The window at the icon's size and place (active), or its own (identity).
-private struct DockZoom: ViewModifier {
+/// The window at the card's or the icon's size and place, or its own (`identity`).
+struct DockZoom: ViewModifier {
     var scale: CGFloat
     var offset: CGSize
     var fade: Double
+
+    static let identity = DockZoom(scale: 1, offset: .zero, fade: 1)
+    /// Hidden, but still drawn: at 0 the renderer drops its layers, and the first frame of every
+    /// open drew the panel's glass and picture afresh (on the simulator an open's first frame came
+    /// 189–214 ms after it, then 72–102; kept drawn, 129, then 49–56). Shrunk into the Dock icon,
+    /// the cost is an icon's worth of pixels.
+    static let asleep: Double = 0.001
 
     func body(content: Content) -> some View {
         content.scaleEffect(scale).offset(offset).opacity(fade)

@@ -265,6 +265,7 @@ final class Watcher: ObservableObject {
             askedForFit = false
             wantsAutoFit = true
             resuming = false
+            decideDragAhead()
         }
         isOpen = true
         if glancing { glancing = false; wantsAutoFit = true }
@@ -714,6 +715,33 @@ final class Watcher: ObservableObject {
 
     /// Scroll that the zoom chose, not him: zooming back in returns to Pan.
     private var autoScroll = false
+
+    /// Pan or Scroll, picked as the window opens rather than by its first frame (Nov 7 2026): it
+    /// had opened in Pan and flipped to Scroll under the thumb once the first frame showed all of
+    /// the window, or once the window took the view's shape half a second in. A window about to
+    /// take the view's shape scrolls (as one fitted to the phone does); otherwise the kept picture
+    /// and the view's last size say whether all of it will be on screen at the start.
+    private func decideDragAhead() {
+        guard let target, drag == .pan else { return }
+        if !isDesktop, !sizedByHand, canFitToPhone, !Self.keepsOwnSize(target) {
+            drag = .scroll
+            autoScroll = false
+            log?.add("watching: starts in Scroll (it takes the view's shape)")
+            return
+        }
+        let whole: Bool
+        if isDesktop, wholeWindow {
+            whole = true
+        } else if let picture = lastPicture, viewerSize.width > 40, viewerSize.height > 40, viewerPose == input.pose, viewerFills == fillsView {
+            whole = ViewerScrollView.opensWhole(image: picture.size, view: viewerSize, focus: focus, fill: fillsView, viewKey: viewKey)
+        } else {
+            whole = false
+        }
+        guard whole else { return }
+        drag = .scroll
+        autoScroll = true
+        log?.add("watching: starts in Scroll (kept picture)")
+    }
 
     /// The whole window is on screen (fully zoomed out): nothing to pan to, so one finger scrolls
     /// the Mac's window; zoomed back in, it pans again — unless he picked the mode himself.

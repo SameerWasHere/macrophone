@@ -708,6 +708,12 @@ struct WatchWindow: View {
         self.footInset = footInset
         _input = ObservedObject(wrappedValue: watcher.input)
     }
+    /// Built and hidden at rest (the phone's kept panel, Nov 7 2026): the viewer stays, holding the
+    /// pick's kept picture, so an open builds no viewer — but it takes no touch and tells the
+    /// watcher nothing (not its size either: the panel is laid out without its header meanwhile).
+    @Environment(\.watchWindowHidden) private var hidden
+    @Environment(\.watchRestPicture) private var restPicture
+    private var live: Bool { interactive && !hidden }
     /// A moment of words after the Pan | Scroll switch flips or Aa changes: what happens now.
     @State private var dragNote: String?
     @State private var dragNoteTask: Task<Void, Never>?
@@ -738,34 +744,34 @@ struct WatchWindow: View {
             // and spot with what it last showed, and only what changed on the Mac changes. It
             // stays under the video for a beat after the first frame: the video layer draws a
             // moment after it's handed the frame, and the plate never shows bare.
-            let kept = watcher.hasPicture ? nil : watcher.lastPicture
+            let kept = watcher.hasPicture ? nil : watcher.lastPicture ?? (hidden ? restPicture : nil)
             if watcher.hasPicture || kept != nil, !dormant {
                 WindowViewer(image: kept ?? watcher.image ?? watcher.lastPicture, video: watcher.videoSize != nil ? watcher.video : nil, videoSize: watcher.videoSize ?? .zero,
                              focus: watcher.focus, recenter: watcher.recenter, generation: watcher.windowSeq, kept: kept != nil,
-                             interactive: interactive && watcher.phase == .live,
+                             interactive: live && watcher.phase == .live,
                              drag: watcher.drag, phased: watcher.macCanScroll, fill: fill, footInset: footInset,
                              viewKey: interactive ? watcher.viewKey : nil,
-                             pointer: interactive && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
-                             canDrag: interactive && watcher.canMouse, keyboardUp: input.page == .keyboard || input.keysUp,
+                             pointer: live && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
+                             canDrag: live && watcher.canMouse, keyboardUp: input.page == .keyboard || input.keysUp,
                              answersUp: watcher.answers != nil,
                              onLog: interactive ? { [weak watcher] in watcher?.log?.add($0) } : nil,
                              onTouch: { watcher.touch() },
                              onTap: { watcher.click($0, count: $1) }, onRightClick: { watcher.rightClick($0) },
-                             onHold: interactive ? onHold : nil,
+                             onHold: live ? onHold : nil,
                              onHoldMoved: onHoldMoved, onHoldEnded: onHoldEnded,
                              onDrag: { watcher.windowDrag($0, at: $1) }, whole: watcher.wholeWindow,
                              onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
-                             onAdjusted: { moved in if interactive { watcher.setMovedAway(moved) } },
-                             onWhole: { whole in if interactive { watcher.wholeShown(whole) } },
-                             pointerSprite: interactive ? pointer.sprite : nil,
+                             onAdjusted: { moved in if live { watcher.setMovedAway(moved) } },
+                             onWhole: { whole in if live { watcher.wholeShown(whole) } },
+                             pointerSprite: live ? pointer.sprite : nil,
                              onReady: { v in
-                                 guard interactive else { return }
+                                 guard live else { return }
                                  pointer.viewer = v
                                  // Where the trackpad's pointer starts: the middle of what shows.
                                  input.visibleCenter = { [weak v] in v?.visibleCenter }
                              })
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill, interactive: interactive) }
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill, interactive: live) }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
@@ -2102,24 +2108,48 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     /// The scale that shows the column you type in across the width (or the whole window, if
     /// it's narrow), never smaller than the whole window's width.
     private var startScale: CGFloat {
-        guard imageSize.width > 0, bounds.width > 0 else { return 1 }
-        let fitWidth = bounds.width / imageSize.width
-        let fillHeight = visibleHeight / imageSize.height
+        Self.startScale(image: imageSize, width: bounds.width, visibleHeight: visibleHeight, focus: focus, fill: fill, maxZoom: maximumZoomScale)
+    }
+
+    static func startScale(image: CGSize, width: CGFloat, visibleHeight: CGFloat, focus: CGRect?, fill: Bool, maxZoom: CGFloat) -> CGFloat {
+        guard image.width > 0, image.height > 0, width > 0 else { return 1 }
+        let fitWidth = width / image.width
+        let fillHeight = visibleHeight / image.height
         // A folded Duo's half: the picture covers it, the window's foot (the newest output) in
         // view — a window shaped nothing like the half (one the Mac can't reshape, on the book's
         // tall page) stops at the usual 1.8× rather than zooming onto a sliver.
-        if fill { return min(max(fitWidth, fillHeight), fitWidth * ViewerScrollView.fillCap, maximumZoomScale) }
+        if fill { return min(max(fitWidth, fillHeight), fitWidth * ViewerScrollView.fillCap, maxZoom) }
         // A window shaped like this view (Fit to iPhone gives it the view's own shape, square or
         // not): all of it, never zoomed onto a part.
-        let shapeRatio = (imageSize.width / imageSize.height) / (bounds.width / visibleHeight)
+        let shapeRatio = (image.width / image.height) / (width / visibleHeight)
         if abs(shapeRatio - 1) < 0.15 { return min(fitWidth, fillHeight) }
         // A window taller than it's wide (Aa's Larger and Largest make it about the phone's shape)
         // already fits the phone across: its whole width, never zoomed onto a bar inside it.
-        if imageSize.height > imageSize.width * 1.1 { return fitWidth }
+        if image.height > image.width * 1.1 { return fitWidth }
         if let f = focus, f.width > 0.12 {
-            return min(max(fitWidth, bounds.width / (f.width * imageSize.width * 1.08)), maximumZoomScale)
+            return min(max(fitWidth, width / (f.width * image.width * 1.08)), maxZoom)
         }
         return max(fitWidth, min(fillHeight, fitWidth * 1.8))
+    }
+
+    /// Whether a picture of this size opens with all of it on screen in a view of this size — the
+    /// viewer's own rule (its zoom range, the view he left this app's window at, else the start
+    /// scale), asked before the first frame so Pan | Scroll is picked once (Nov 7 2026).
+    static func opensWhole(image: CGSize, view: CGSize, focus: CGRect?, fill: Bool, viewKey: String?) -> Bool {
+        guard image.width > 0, image.height > 0, view.width > 0, view.height > 0 else { return false }
+        let fitAll = min(view.width / image.width, view.height / image.height)
+        var maxZoom = max(1.0, fitAll * 2)
+        if fill { maxZoom = max(maxZoom, view.width / image.width, view.height / image.height) }
+        let fitWidth = view.width / image.width
+        let s: CGFloat
+        if let viewKey, let data = UserDefaults.standard.data(forKey: viewKey),
+           let v = try? JSONDecoder().decode(SavedView.self, from: data),
+           abs(v.aspect - image.height / image.width) / (image.height / image.width) < 0.08 {
+            s = min(max(v.zoom * fitWidth, fitAll), maxZoom)
+        } else {
+            s = startScale(image: image, width: view.width, visibleHeight: view.height, focus: focus, fill: fill, maxZoom: maxZoom)
+        }
+        return s <= fitAll * 1.03
     }
 
     /// Filling a view with a picture shaped nothing like it stops here (a multiple of fitting the
@@ -2170,7 +2200,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     /// The view you left: zoom as a multiple of fitting the width, the middle of what showed as
     /// fractions of the window, whether you were at the bottom, and the window's shape then (a
     /// window reshaped since, by Aa or a size, starts fresh).
-    private struct SavedView: Codable { var zoom, x, y, aspect: CGFloat; var bottom: Bool }
+    fileprivate struct SavedView: Codable { var zoom, x, y, aspect: CGFloat; var bottom: Bool }
 
     private var savedView: SavedView? {
         guard let viewKey, let data = UserDefaults.standard.data(forKey: viewKey),

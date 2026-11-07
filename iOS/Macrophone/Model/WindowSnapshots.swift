@@ -50,13 +50,17 @@ enum WindowSnapshots {
         return c
     }()
 
+    /// A window's picture was kept (posted on the main thread, the key as the object): the
+    /// desktop's card draws the new one.
+    static let didKeep = Notification.Name("WindowSnapshots.didKeep")
+
     /// Kept off the main thread.
     static func save(_ image: UIImage, key: String) {
         memory.removeObject(forKey: key as NSString)
         Task.detached(priority: .utility) {
             guard let small = shrink(image), let data = small.jpegData(compressionQuality: 0.6) else { return }
             try? data.write(to: url(key), options: .atomic)
-            forgetSmall(key)
+            kept(small, key: key)
         }
     }
 
@@ -68,11 +72,20 @@ enum WindowSnapshots {
             let ci = CIImage(cvPixelBuffer: b)
             let scale = min(1, longSide / max(ci.extent.width, ci.extent.height))
             let scaled = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            guard let cg = context.createCGImage(scaled, from: scaled.extent),
-                  let data = UIImage(cgImage: cg).jpegData(compressionQuality: 0.6) else { return }
+            guard let cg = context.createCGImage(scaled, from: scaled.extent) else { return }
+            let ui = UIImage(cgImage: cg)
+            guard let data = ui.jpegData(compressionQuality: 0.6) else { return }
             try? data.write(to: url(key), options: .atomic)
-            forgetSmall(key)
+            kept(ui, key: key)
         }
+    }
+
+    /// The new picture is the one in memory — a screen that read the file while it was being
+    /// written would otherwise keep the old one until the next save — and the card hears of it.
+    private static func kept(_ image: UIImage, key: String) {
+        forgetSmall(key)
+        memory.setObject(image.preparingForDisplay() ?? image, forKey: key as NSString)
+        Task { @MainActor in NotificationCenter.default.post(name: didKeep, object: key) }
     }
 
     // MARK: The Dock's window previews (Nov 5 2026)
