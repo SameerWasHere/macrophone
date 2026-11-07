@@ -1659,7 +1659,8 @@ extension View {
     /// The Undo chip at the trailing end of this (the Thread's band), centred on it.
     func undoChip(on: Bool = true, namespace: Namespace.ID? = nil) -> some View {
         overlay(alignment: .trailing) {
-            if on { UndoChip(namespace: namespace).padding(.trailing, 4) }
+            // In from the band's end: on the inner screen upright the Thread runs edge to edge.
+            if on { UndoChip(namespace: namespace).padding(.trailing, 14) }
         }
     }
 }
