@@ -56,18 +56,18 @@ struct SettingsView: View {
     private var stack: some View {
         NavigationStack(path: $path) {
             Form {
+                // The settings review (Nov 7 2026): every section has a heading and a short footer,
+                // in the order of use — where the words go, how they're cleaned, the window, alerts,
+                // then the look, the devices, history and about.
                 bannerSection
-                // Where the words go and how they're cleaned first; then watching and alerts.
-                if model.isPaired { sendToSection }
+                dictationSection
                 cleanupSection
-                cleanupMoreSection
                 if model.isPaired {
                     watchSection
                     alertsSection
                 }
-                recordingSection
                 appearanceSection
-                macSection
+                devicesSection
                 historySection
                 aboutSection
             }
@@ -131,11 +131,11 @@ struct SettingsView: View {
         SettingsGroup.allCases.filter { model.isPaired || !$0.needsMac }
     }
 
-    /// The chosen group, else the first under the banner (Send to) — or the banner itself when no
-    /// Mac is paired yet, where pairing is the one thing to do.
+    /// The chosen group, else the first under the banner (Dictation) — or the banner itself when
+    /// no Mac is paired yet, where pairing is the one thing to do.
     private var shown: SettingsGroup {
         if let group, groups.contains(group) { return group }
-        return model.isPaired ? .sendTo : .mac
+        return model.isPaired ? .dictation : .mac
     }
 
     private var sidebar: some View {
@@ -169,7 +169,7 @@ struct SettingsView: View {
 
     private func sidebarRow(_ g: SettingsGroup) -> some View {
         Label { Text(g.title(macs: model.pairedMacs.count)) } icon: {
-            SettingsIcon(symbol: g == .macs ? MacGlyph.symbol(for: model.pairedMac?.name) : g.symbol, color: g.color)
+            SettingsIcon(symbol: g.symbol, color: g.color)
         }
         .tag(g)
         .accessibilityIdentifier("settings-group-\(g.rawValue)")
@@ -183,12 +183,12 @@ struct SettingsView: View {
         default:
             Form {
                 switch g {
-                case .sendTo: sendToSection
-                case .cleanup: cleanupSection; cleanupMoreSection
-                case .watching: watchSection; alertsSection
-                case .recording: recordingSection
+                case .dictation: dictationSection
+                case .cleanup: cleanupSection
+                case .watching: watchSection
+                case .alerts: alertsSection
                 case .appearance: appearanceSection
-                case .macs: macSection
+                case .devices: devicesSection
                 case .history: historySection
                 case .about: aboutSection
                 case .mac: EmptyView()
@@ -220,96 +220,197 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Send to (the same choice as the Dock)
+    // MARK: Dictation — where the words go, and how the mic listens
 
-    private var sendToSection: some View {
+    /// Send to and Send after pasting (paired only), then the language and the auto-stop: the
+    /// whole path of a dictation in one section, the explanations a sentence each.
+    private var dictationSection: some View {
         let target = settings.selection.target
         return Section {
-            NavigationLink(value: SettingsRoute.sendTo) {
-                LabeledContent {
-                    Text(target.displayName).multilineTextAlignment(.trailing)
-                } label: {
-                    Label {
-                        Text("Send to")
-                    } icon: {
-                        PlaceIcon(target: target, icon: model.liveTarget(for: target)?.icon)
+            if model.isPaired {
+                NavigationLink(value: SettingsRoute.sendTo) {
+                    LabeledContent {
+                        Text(target.displayName).multilineTextAlignment(.trailing)
+                    } label: {
+                        Label {
+                            Text("Send to")
+                        } icon: {
+                            PlaceIcon(target: target, icon: model.liveTarget(for: target)?.icon)
+                        }
                     }
                 }
+                // Only the switch is disabled for a place that can't send, the label dimmed beside
+                // it: a disabled Toggle's own label read as clipped text to the accessibility audit.
+                HStack {
+                    Label { Text("Send after pasting") } icon: { SettingsIcon(symbol: "paperplane.fill", color: Light.cyan) }
+                        .foregroundStyle(target.canSend ? Ink.ink : Ink.secondary)
+                    Spacer(minLength: 8)
+                    Toggle("Send after pasting", isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) }))
+                        .labelsHidden()
+                        .disabled(!target.canSend)
+                }
+                .accessibilityElement(children: .combine)
             }
-            // Only the switch is disabled for a place that can't send, the label dimmed beside it:
-            // a disabled Toggle's own label read as clipped text to the accessibility audit.
-            HStack {
-                Label { Text("Send after pasting") } icon: { SettingsIcon(symbol: "paperplane.fill", color: Light.cyan) }
-                    .foregroundStyle(target.canSend ? Ink.ink : Ink.secondary)
-                Spacer(minLength: 8)
-                Toggle("Send after pasting", isOn: Binding(get: { settings.selection.send }, set: { model.setSend($0) }))
-                    .labelsHidden()
-                    .disabled(!target.canSend)
+            NavigationLink(value: SettingsRoute.language) {
+                LabeledContent { Text(Languages.displayName(settings.language)) } label: {
+                    Label { Text("Language") } icon: { SettingsIcon(symbol: "globe", color: Light.cyan) }
+                }
             }
-            .accessibilityElement(children: .combine)
+            Toggle(isOn: $settings.autoStop) {
+                Label { Text("Stop when I stop talking") } icon: { SettingsIcon(symbol: "waveform", color: Color(uiColor: .systemPink)) }
+            }
+            if settings.autoStop {
+                VStack(alignment: .leading, spacing: 6) {
+                    LabeledContent("After") {
+                        Text("\(Int(settings.autoStopDelay)) seconds of quiet").monospacedDigit()
+                    }
+                    Slider(value: $settings.autoStopDelay, in: 2...8, step: 1) { Text("Silence before stopping") }
+                        minimumValueLabel: { Text("2").font(.caption).foregroundStyle(Ink.secondary) }
+                        maximumValueLabel: { Text("8").font(.caption).foregroundStyle(Ink.secondary) }
+                        .accessibilityValue("\(Int(settings.autoStopDelay)) seconds")
+                }
+            }
+        } header: {
+            Text("Dictation")
         } footer: {
-            // No header: its first row already says "Send to" (a header saying it again read as
-            // a stutter, Nov 4 2026).
-            Text((target.canSend
-                  ? "Your Mac presses the app's send key after pasting. If you're at the Mac, you get a moment to cancel first."
-                  : "\(target.displayName) can't send — sending after pasting is for apps.")
-                 + " The choice is the same on your Mac: change it in either place.")
+            Text(dictationFooter(target))
         }
     }
 
-    // Each switch explains itself in its own footer (the three explanations used to run together
-    // as one nine-line footer, Oct 18 2026).
-    @ViewBuilder private var watchSection: some View {
+    private func dictationFooter(_ target: TargetRef) -> String {
+        var words: [String] = []
+        if model.isPaired {
+            words.append(target.canSend
+                         ? "Send after pasting presses the app's send key for you. Send to is shared with your Mac."
+                         : "\(target.displayName) can't send — sending after pasting is for apps.")
+        }
+        if settings.autoStop { words.append("Quiet counts only after you start talking.") }
+        return words.isEmpty ? "Hold the mic while you talk, or tap to start and tap again to send." : words.joined(separator: " ")
+    }
+
+    // MARK: Cleanup
+
+    private var cleanupDisabledReason: String? {
+        if !settings.isEnglish { return "Cleanup and the dictionary work in English only for now. Other languages are sent exactly as heard." }
+        if !model.cleanupAvailability.isAvailable { return model.cleanupAvailability.explanation + " Until then, dictations are sent exactly as heard." }
+        return nil
+    }
+
+    private var levelSummary: String {
+        guard settings.cleanupLevel == .custom else { return settings.cleanupLevel.summary }
+        return model.customInstructionsEdited ? "Follows your own instructions." : "Follows your own instructions — the same as Medium until you edit them."
+    }
+
+    /// The level, what it does right under it, then the instructions and the dictionary: one
+    /// section (the level's words used to be a footer between two sections).
+    private var cleanupSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                // The same five levels as by the mic. At the accessibility sizes a segmented
+                // control keeps its small type (five segments can't grow on a phone's width), so
+                // the levels are a list with a check, as Settings' own choices are there.
+                if typeSize.isAccessibilitySize {
+                    let available = CleanupWords.available(model, settings)
+                    Picker("Cleanup", selection: Binding(get: { available ? settings.cleanupLevel : .off }, set: { l in
+                        guard l != settings.cleanupLevel else { return }
+                        Haptics.pick()
+                        model.setCleanupLevel(l)
+                    })) {
+                        ForEach(CleanupLevel.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                    .disabled(!available)
+                    .accessibilityIdentifier("cleanup-level")
+                } else {
+                    CleanupPicker(settings: settings)
+                }
+                Text(cleanupDisabledReason ?? levelSummary)
+                    .font(.footnote)
+                    .foregroundStyle(cleanupDisabledReason == nil ? Ink.secondary : Light.ochre)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: settings.cleanupLevel)
+            }
+            .padding(.vertical, 4)
+            NavigationLink(value: SettingsRoute.customCleanup) {
+                LabeledContent { Text(model.customInstructionsEdited ? "Your own" : "Default") } label: {
+                    Label { Text("Custom instructions") } icon: { SettingsIcon(symbol: "text.quote", color: Light.violet) }
+                }
+            }
+            .accessibilityIdentifier("custom-instructions-link")
+            NavigationLink(value: SettingsRoute.dictionary) {
+                LabeledContent { Text("\(settings.dictionary.count) of \(DictionaryPass.maxTerms)") } label: {
+                    Label { Text("Dictionary") } icon: { SettingsIcon(symbol: "character.book.closed.fill", color: Light.ember) }
+                }
+            }
+        } header: {
+            Text("Cleanup")
+        } footer: {
+            Text("Runs on this iPhone with Apple's on-device model. The raw words are always one tap away in History.")
+        }
+    }
+
+    // MARK: Watching — the window on the phone
+
+    private var watchSection: some View {
         Section {
             Toggle(isOn: $settings.watchAfterSending) {
                 Label { Text("Show the app after sending") } icon: { SettingsIcon(symbol: "eye.fill", color: Color(uiColor: .systemIndigo)) }
             }
+            trackpadSpeedRow
+        } header: {
+            Text("Watching")
         } footer: {
-            Text("Your iPhone shows that app's window live, so you can read the answer, tap to click, swipe to scroll, and press Esc, the arrows or Return. Only that window, and only while you look.")
+            Text("After a dictation lands, that app's window opens here live, so you can read the answer, tap to click and swipe to scroll. Only that window, and only while you look.")
         }
-        trackpadSection
     }
 
-    /// Trackpad Speed (Nov 7 2026, Sameer: "a trackpad sensitivity toggle in settings") — the
-    /// Mac's own Tracking speed: a slider from the tortoise to the hare, Normal in the middle.
-    private var trackpadSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label { Text("Trackpad speed") } icon: { SettingsIcon(symbol: "rectangle.and.hand.point.up.left.fill", color: Color(uiColor: .systemGray)) }
-                    Spacer(minLength: 8)
-                    Text(TrackpadSpeedWords.words(settings.trackpadSpeed))
-                        .foregroundStyle(Ink.secondary)
-                        .monospacedDigit()
+    /// Trackpad speed (Nov 7 2026, Sameer: "a trackpad sensitivity toggle in settings") — the
+    /// Mac's own Tracking speed: a slider from the tortoise to the hare, Normal in the middle. Off
+    /// Normal, Reset sits beside the value (no extra row that comes and goes).
+    private var trackpadSpeedRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label { Text("Trackpad speed") } icon: { SettingsIcon(symbol: "rectangle.and.hand.point.up.left.fill", color: Color(uiColor: .systemGray)) }
+                Spacer(minLength: 8)
+                if abs(settings.trackpadSpeed - 1) > 0.01 {
+                    Button("Reset") {
+                        Haptics.pick()
+                        withAnimation(Motion.settle) { settings.trackpadSpeed = 1 }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.subheadline)
+                    .accessibilityLabel("Back to Normal")
+                    .accessibilityIdentifier("trackpad-speed-reset")
+                    .transition(.opacity)
                 }
-                Slider(value: TrackpadSpeedWords.position($settings.trackpadSpeed), in: 0...1, step: 0.1) {
-                    Text("Trackpad speed")
-                } minimumValueLabel: {
-                    Image(systemName: "tortoise.fill").foregroundStyle(Ink.secondary)
-                } maximumValueLabel: {
-                    Image(systemName: "hare.fill").foregroundStyle(Ink.secondary)
-                } onEditingChanged: { editing in
-                    if !editing { Haptics.pick() }
-                }
-                .accessibilityValue(TrackpadSpeedWords.words(settings.trackpadSpeed))
-                .accessibilityIdentifier("trackpad-speed")
+                Text(TrackpadSpeedWords.words(settings.trackpadSpeed))
+                    .foregroundStyle(Ink.secondary)
+                    .contentTransition(.opacity)
             }
-            .padding(.vertical, 4)
-            if abs(settings.trackpadSpeed - 1) > 0.01 {
-                Button("Back to Normal") {
-                    withAnimation(Motion.settle) { settings.trackpadSpeed = 1 }
-                }
-                .accessibilityIdentifier("trackpad-speed-reset")
+            Slider(value: TrackpadSpeedWords.position($settings.trackpadSpeed), in: 0...1, step: 0.1) {
+                Text("Trackpad speed")
+            } minimumValueLabel: {
+                Image(systemName: "tortoise.fill").foregroundStyle(Ink.secondary).accessibilityHidden(true)
+            } maximumValueLabel: {
+                Image(systemName: "hare.fill").foregroundStyle(Ink.secondary).accessibilityHidden(true)
+            } onEditingChanged: { editing in
+                if !editing { Haptics.pick() }
             }
-        } footer: {
-            Text("How far the pointer moves when your finger does on the trackpad. A quick flick always goes further than a slow move.")
+            .accessibilityValue(TrackpadSpeedWords.words(settings.trackpadSpeed))
+            .accessibilityIdentifier("trackpad-speed")
         }
+        .padding(.vertical, 4)
+        .animation(.easeInOut(duration: 0.2), value: abs(settings.trackpadSpeed - 1) > 0.01)
     }
+
+    // MARK: Alerts
 
     private var alertsSection: some View {
         Section {
             Toggle(isOn: $settings.agentAlerts) {
-                Label { Text("Tell me when an agent asks something") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
+                Label { Text("When an agent asks something") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
             }
             .onChange(of: settings.agentAlerts) { _, on in
                 Task {
@@ -334,113 +435,22 @@ struct SettingsView: View {
                     }
                     Spacer(minLength: 8)
                     Button("Stop") { model.setAlertWatch(w.ref, on: false) }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(Light.rose)
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                        .tint(Light.rose)
                         .accessibilityLabel("Stop alerts for \(w.title)")
                 }
                 .accessibilityElement(children: .combine)
                 .swipeActions { Button("Stop", role: .destructive) { model.setAlertWatch(w.ref, on: false) } }
             }
         } header: {
-            if !model.alertWatches.isEmpty { Text("Alerts") }
+            Text("Alerts")
         } footer: {
             Text(model.canAlert || !model.alertWatches.isEmpty
-                 ? "Any window can be on watch: open it and pick Alert Me When It Changes from the Window menu, or hold its icon. You get a notification with a picture when it finishes, has something new or needs you, even when Macrophone is closed. Agents asking something come the same way."
-                 : "When an agent on your Mac stops to ask something, you get a notification with a picture of its window; tap it to answer.")
-        }
-    }
-
-    // MARK: Cleanup
-
-    private var cleanupDisabledReason: String? {
-        if !settings.isEnglish { return "Cleanup and the dictionary fix work in English only for now. Other languages are sent exactly as heard." }
-        if !model.cleanupAvailability.isAvailable { return model.cleanupAvailability.explanation + " Until then, dictations are sent exactly as heard." }
-        return nil
-    }
-
-    private var levelSummary: String {
-        guard settings.cleanupLevel == .custom else { return settings.cleanupLevel.summary }
-        return model.customInstructionsEdited ? "Follows your own instructions." : "Follows your own instructions — the same as Medium until you edit them."
-    }
-
-    private var cleanupSection: some View {
-        Section {
-            // The same five levels as by the mic. At the accessibility sizes a segmented control
-            // keeps its small type (five segments can't grow on a phone's width), so the levels
-            // are a list with a check, as Settings' own choices are there.
-            if typeSize.isAccessibilitySize {
-                let available = CleanupWords.available(model, settings)
-                Picker("Cleanup", selection: Binding(get: { available ? settings.cleanupLevel : .off }, set: { l in
-                    guard l != settings.cleanupLevel else { return }
-                    Haptics.pick()
-                    model.setCleanupLevel(l)
-                })) {
-                    ForEach(CleanupLevel.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                .disabled(!available)
-                .accessibilityIdentifier("cleanup-level")
-            } else {
-                CleanupPicker(settings: settings)
-                    .padding(.vertical, 2)
-            }
-        } header: {
-            Text("Cleanup")
-        } footer: {
-            Text(cleanupDisabledReason ?? levelSummary)
-                .foregroundStyle(cleanupDisabledReason == nil ? Ink.secondary : Light.ochre)
-        }
-    }
-
-    private var cleanupMoreSection: some View {
-        Section {
-            NavigationLink(value: SettingsRoute.customCleanup) {
-                LabeledContent { Text(model.customInstructionsEdited ? "Your own" : "Default") } label: {
-                    Label { Text("Custom instructions") } icon: { SettingsIcon(symbol: "text.quote", color: Light.violet) }
-                }
-            }
-            .accessibilityIdentifier("custom-instructions-link")
-            NavigationLink(value: SettingsRoute.dictionary) {
-                LabeledContent { Text("\(settings.dictionary.count) of \(DictionaryPass.maxTerms)") } label: {
-                    Label { Text("Dictionary") } icon: { SettingsIcon(symbol: "character.book.closed.fill", color: Light.ember) }
-                }
-            }
-        } footer: {
-            Text("Cleanup runs on this iPhone with Apple's on-device model. The raw words are always one tap away.")
-        }
-    }
-
-    // MARK: Recording
-
-    private var recordingSection: some View {
-        Section {
-            NavigationLink(value: SettingsRoute.language) {
-                LabeledContent { Text(Languages.displayName(settings.language)) } label: {
-                    Label { Text("Language") } icon: { SettingsIcon(symbol: "globe", color: Light.cyan) }
-                }
-            }
-            Toggle(isOn: $settings.autoStop) {
-                Label { Text("Stop when I stop talking") } icon: { SettingsIcon(symbol: "waveform", color: Color(uiColor: .systemPink)) }
-            }
-            if settings.autoStop {
-                VStack(alignment: .leading, spacing: 6) {
-                    LabeledContent("After") {
-                        Text("\(Int(settings.autoStopDelay)) seconds of quiet").monospacedDigit()
-                    }
-                    Slider(value: $settings.autoStopDelay, in: 2...8, step: 1) { Text("Silence before stopping") }
-                        minimumValueLabel: { Text("2").font(.caption).foregroundStyle(Ink.secondary) }
-                        maximumValueLabel: { Text("8").font(.caption).foregroundStyle(Ink.secondary) }
-                        .accessibilityValue("\(Int(settings.autoStopDelay)) seconds")
-                }
-            }
-        } header: {
-            Text("Recording")
-        } footer: {
-            // What the quiet means only while that switch is on.
-            Text("Tap the button to start and tap again to send, or hold it while you talk and let go to send."
-                 + (settings.autoStop ? " Quiet only counts after you've started talking." : "")
-                 + " One dictation can run up to 10 minutes.")
+                 ? "Put any window on watch from its Window menu, or by holding its icon. You get a notification with a picture when it finishes or needs you, even with Macrophone closed."
+                 : "When an agent on your Mac stops to ask something, you get a notification with a picture of its window. Tap it to answer.")
         }
     }
 
@@ -473,40 +483,47 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("wallpaper-strength")
             }
+        } header: {
+            Text("Appearance")
         } footer: {
-            Text("Automatic follows this iPhone's Light or Dark setting. Your Mac's wallpaper sits behind the app; fade it or turn it off if it makes things hard to read.")
+            Text(settings.macWallpaper
+                 ? "Fade your Mac's wallpaper, or turn it off, if it makes things hard to read."
+                 : "Automatic follows this iPhone's Light or Dark setting.")
         }
     }
 
-    // MARK: Macs
+    // MARK: Devices — the Macs and this iPhone
 
-    private var macSection: some View {
+    /// One Mac is the banner at the top (its page has Unpair); listing it again here read as a
+    /// stutter, so the Macs are listed only when there are several to choose between.
+    private var devicesSection: some View {
         Section {
-            // Every paired Mac (Oct 19 2026): a tap makes one active, Unpair beside each.
-            ForEach(model.pairedMacs) { mac in
-                HStack(spacing: 8) {
-                    MacRow(mac: mac, active: mac.id == model.pairedMac?.id, standing: model.standing(of: mac)) {
-                        model.switchMac(to: mac.id)
+            if model.pairedMacs.count > 1 {
+                ForEach(model.pairedMacs) { mac in
+                    HStack(spacing: 8) {
+                        MacRow(mac: mac, active: mac.id == model.pairedMac?.id, standing: model.standing(of: mac)) {
+                            model.switchMac(to: mac.id)
+                        }
+                        // A small red capsule, as Open an App's Quit (a bare red word beside the
+                        // check read as a stray label, Nov 4 2026); a swipe or a long press says it too.
+                        Button("Unpair") { unpairing = mac }
+                            .font(.subheadline.weight(.semibold))
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .controlSize(.small)
+                            .tint(Light.rose)
+                            .accessibilityLabel("Unpair \(mac.name)")
+                            .accessibilityIdentifier("unpair-\(mac.name)")
                     }
-                    // A small red capsule, as Open an App's Quit (a bare red word beside the
-                    // check read as a stray label, Nov 4 2026); a swipe or a long press says it too.
-                    Button("Unpair") { unpairing = mac }
-                        .font(.subheadline.weight(.semibold))
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .controlSize(.small)
-                        .tint(Light.rose)
-                        .accessibilityLabel("Unpair \(mac.name)")
-                        .accessibilityIdentifier("unpair-\(mac.name)")
-                }
-                .swipeActions(edge: .trailing) {
-                    Button("Unpair", role: .destructive) { unpairing = mac }.tint(Light.rose)
-                }
-                .contextMenu {
-                    if mac.id != model.pairedMac?.id {
-                        Button { model.switchMac(to: mac.id) } label: { Label("Make Active", systemImage: "checkmark.circle") }
+                    .swipeActions(edge: .trailing) {
+                        Button("Unpair", role: .destructive) { unpairing = mac }.tint(Light.rose)
                     }
-                    Button(role: .destructive) { unpairing = mac } label: { Label("Unpair…", systemImage: "minus.circle") }
+                    .contextMenu {
+                        if mac.id != model.pairedMac?.id {
+                            Button { model.switchMac(to: mac.id) } label: { Label("Make Active", systemImage: "checkmark.circle") }
+                        }
+                        Button(role: .destructive) { unpairing = mac } label: { Label("Unpair…", systemImage: "minus.circle") }
+                    }
                 }
             }
             // Unpaired, the banner at the top is the way to pair; the row would say it twice.
@@ -537,10 +554,9 @@ struct SettingsView: View {
                 Button("Use “\(suggestion)”") { name = suggestion; commitName() }
             }
         } header: {
-            if model.isPaired { Text(model.pairedMacs.count > 1 ? "Macs" : "Mac") }
+            Text("Devices")
         } footer: {
-            // Two short sentences at most (it ran to six lines).
-            Text((model.pairedMacs.count > 1 ? "What you say goes to the active Mac; tap another to switch. " : "")
+            Text((model.pairedMacs.count > 1 ? "What you say goes to the checked Mac; tap another to switch. " : "")
                  + "Your Mac shows this iPhone's name next to each dictation.")
         }
         .confirmationDialog("Unpair \(unpairing?.name ?? model.macName)?", isPresented: Binding(get: { unpairing != nil }, set: { if !$0 { unpairing = nil } }),
@@ -571,7 +587,7 @@ struct SettingsView: View {
         } header: {
             Text("History")
         } footer: {
-            Text("The last 50 dictations, on this iPhone only. Clearing them doesn't touch your Mac's history.")
+            Text("Your last 50 dictations, kept on this iPhone only. Clearing them leaves your Mac's history alone.")
         }
         .confirmationDialog("Clear all history on this iPhone?", isPresented: $confirmClear, titleVisibility: .visible) {
             Button("Clear All", role: .destructive) { model.clearHistory() }
@@ -600,7 +616,7 @@ struct SettingsView: View {
         } header: {
             Text("About")
         } footer: {
-            Text("Speech is transcribed on this iPhone. No audio is kept. Nothing leaves your devices — at home or away, it travels straight to your Mac. No account, no analytics.")
+            Text("Speech turns into text on this iPhone, and no audio is kept. Your words go straight to your Mac, at home or away. No account, no analytics.")
         }
     }
 }
@@ -613,36 +629,36 @@ enum SettingsRoute: Hashable {
     func place(paired: Bool) -> (SettingsGroup, [SettingsRoute]) {
         switch self {
         case .dictionary, .customCleanup: return (.cleanup, [self])
-        case .language: return (.recording, [self])
+        case .language: return (.dictation, [self])
         case .diagnostics: return (.about, [self])
-        case .sendTo: return (paired ? .sendTo : .mac, paired ? [self] : [])
+        case .sendTo: return (paired ? .dictation : .mac, paired ? [self] : [])
         case .connection: return (.mac, [])
         case .awaySetup: return (.mac, [self])
-        case .pairing: return paired ? (.macs, [self]) : (.mac, [])
+        case .pairing: return paired ? (.devices, [self]) : (.mac, [])
         }
     }
 }
 
 /// Settings' groups, as the inner screen's sidebar lists them: the Mac as the banner, then the
-/// phone list's sections gathered — the everyday ones first, then the Macs, History and About.
+/// phone list's sections one for one — the everyday ones first, then Devices, History and About.
 enum SettingsGroup: String, CaseIterable, Identifiable, Hashable {
-    case mac, sendTo, cleanup, watching, recording, appearance, macs, history, about
+    case mac, dictation, cleanup, watching, alerts, appearance, devices, history, about
     var id: String { rawValue }
 
     /// Only with a Mac paired (the phone list leaves these sections out too).
-    var needsMac: Bool { self == .sendTo || self == .watching }
+    var needsMac: Bool { self == .watching || self == .alerts }
     /// The sidebar's first block (under the banner).
-    var isFirstBlock: Bool { [.sendTo, .cleanup, .watching, .recording, .appearance].contains(self) }
+    var isFirstBlock: Bool { [.dictation, .cleanup, .watching, .alerts, .appearance].contains(self) }
 
     func title(macs: Int) -> String {
         switch self {
         case .mac: return "Your Mac"
-        case .sendTo: return "Send to"
+        case .dictation: return "Dictation"
         case .cleanup: return "Cleanup"
-        case .watching: return "Watching and alerts"
-        case .recording: return "Recording"
+        case .watching: return "Watching"
+        case .alerts: return "Alerts"
         case .appearance: return "Appearance"
-        case .macs: return macs > 1 ? "Your Macs" : "Your Mac and iPhone"
+        case .devices: return "Devices"
         case .history: return "History"
         case .about: return "About"
         }
@@ -651,12 +667,13 @@ enum SettingsGroup: String, CaseIterable, Identifiable, Hashable {
     /// Each group's Settings icon (the rows' own where a group has one).
     var symbol: String {
         switch self {
-        case .mac, .macs: return "laptopcomputer"
-        case .sendTo: return "paperplane.fill"
+        case .mac: return "laptopcomputer"
+        case .dictation: return "mic.fill"
         case .cleanup: return "wand.and.sparkles"
         case .watching: return "eye.fill"
-        case .recording: return "waveform"
+        case .alerts: return "bell.badge.fill"
         case .appearance: return "circle.lefthalf.filled"
+        case .devices: return "laptopcomputer.and.iphone"
         case .history: return "clock.fill"
         case .about: return "info"
         }
@@ -664,11 +681,12 @@ enum SettingsGroup: String, CaseIterable, Identifiable, Hashable {
 
     var color: Color {
         switch self {
-        case .mac, .sendTo, .appearance: return Light.cyan
+        case .mac, .appearance: return Light.cyan
+        case .dictation: return Color(uiColor: .systemPink)
         case .cleanup: return Light.violet
         case .watching: return Color(uiColor: .systemIndigo)
-        case .recording: return Color(uiColor: .systemPink)
-        case .macs, .history, .about: return Color(uiColor: .systemGray)
+        case .alerts: return Light.rose
+        case .devices, .history, .about: return Color(uiColor: .systemGray)
         }
     }
 }

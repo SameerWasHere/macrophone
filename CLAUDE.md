@@ -92,7 +92,7 @@ replaces are marked **superseded**); the sections below keep the mechanics and t
 | **First-use tips** (`UI/WatchTips.swift`) | Five at most, one card at a time over the window's top, each only when it works with this Mac: Tap to click / hold to right-click · Pinch to zoom, or Fit to iPhone · Swipe in from the side (two windows or more) · Pan or Scroll (auto-Scroll named)· More keys. `watch.tips.seen`; Window › Show Tips Again | — |
 | **Photos, files, the clipboard** (`Core/Share.swift`: features `attachments`, `clipboard`) | Send to's ⋯ and the Window menu — the same `MacShareItems`; a photo or file goes into the chat you send to (the watched window while one shows), the clipboard only when asked; the status line says where it landed | `Delivery/Attachments.swift` (kept a week in From iPhone; the image into a chat app, its path into a terminal), `ClipboardShare.swift` (a concealed copy never leaves) |
 | **Chats that answered you** (feature `needsYou`) | The ember dot on the app's icon in Send to, "Answered you" / "Asking you" by the pick's name, `circlebadge.fill` in the window menus, the mark on the widget; looking clears it | `Watch/ReplyWatcher.swift`: a window you sent to from the phone, answered by its hook agent or by its picture settling |
-| **Agents** (Claude Code, Codex, by their hooks) | Nothing to see: the notification the moment one asks ("Claude Code is asking you something" + the question; a tap watches that window) — Settings › Tell me when an agent asks something. The phone's Agents panel was removed Oct 18 ("not actually a useful section") and the `agents` wire with it | The **Agents** page (its own sidebar section, `AgentsPane`; Connect / Disconnect), the menu bar's **Connect Claude Code…** until it is; `Watch/AgentHub.swift` keeps the sessions for the alert, the Answered you mark and the lookout; `POST /v1/agent`, `mp hook` |
+| **Agents** (Claude Code, Codex, by their hooks) | Nothing to see: the notification the moment one asks ("Claude Code is asking you something" + the question; a tap watches that window) — Settings › Alerts › When an agent asks something. The phone's Agents panel was removed Oct 18 ("not actually a useful section") and the `agents` wire with it | The **Agents** page (its own sidebar section, `AgentsPane`; Connect / Disconnect), the menu bar's **Connect Claude Code…** until it is; `Watch/AgentHub.swift` keeps the sessions for the alert, the Answered you mark and the lookout; `POST /v1/agent`, `mp hook` |
 | **Alerts when nobody's looking** (feature `attention`, `attention-cloud`) | The notification; through iCloud when the app is closed (`Model/AgentAlerts.swift`, builds signed for it) | `AttentionWatcher` reads agent windows nobody watches (controls through Accessibility, else Vision); `CloudAlerts` writes the record |
 | **The Watch widget** (`iOS/MacrophoneControls/WatchWidget.swift`) | Up to four of the Mac's open apps with their icons and the ember mark; small 2 × 2, medium a row with names; a tap = `macrophone://watch?target=…` (watches, and picks it in Send to); fed through `Shared/WatchWidgetData.swift` | — |
 | **How it's connected** (`LinkRoute`) | The Mac pill's glyph (Wi-Fi, direct link, Tailscale shield, globe); the status line "Ready · ‹Mac› · Tailscale"; Settings › Connected now | The menu header "Connected · Tailscale · away from home" (`MenuWords.via` — the route's `short`, the same words as the status line and the phone); Devices › Away from home |
@@ -1896,6 +1896,21 @@ reads Slowest · Slower · Normal · Faster · Fastest; Back to Normal shows whi
 (`MacInput.pointerMoved` / `dragMoved`), every trackpad (the page, the Duo's deck, full screen's
 pad). Two-finger scrolling keeps its own speed. Ids `trackpad-speed`, `trackpad-speed-reset`.
 Frame: `docs/screens/trackpad-speed-nov7/`.
+
+## Settings, regrouped (Nov 7 2026)
+
+Sameer: "review the setting menu complete and make sure it's organized in an easy way to understand
+and has great ui". Wins over the older Settings sections where they differ. Every section has a
+heading and a footer of a sentence or two, in the order of use: the Mac banner · **Dictation**
+(Send to, Send after pasting — paired only —, Language, Stop when I stop talking + its delay) ·
+**Cleanup** (the level with what it does right under it in the same row — ochre when unavailable —,
+Custom instructions, Dictionary; one section, no footer between) · **Watching** (Show the app after
+sending, Trackpad speed — Reset beside the value off Normal, `trackpad-speed-reset`, no extra row)
+· **Alerts** (When an agent asks something, the iCloud status row, the windows on watch with a red
+Stop capsule) · **Appearance** · **Devices** (the Macs listed only with two or more — one Mac is
+the banner, Unpair on its page —, Pair Another Mac, This iPhone's name) · **History** · **About**.
+The inner screen's sidebar (`SettingsGroup`) is the same sections one for one: dictation, cleanup,
+watching, alerts, appearance, devices, history, about. Frames: `docs/screens/settings-nov7/`.
 
 ## The ten polish ideas (Nov 5 2026)
 
