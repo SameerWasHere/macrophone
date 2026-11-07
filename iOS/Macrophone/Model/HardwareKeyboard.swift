@@ -20,6 +20,11 @@ final class HardwareKeyboard: ObservableObject {
     static let shared = HardwareKeyboard()
 
     @Published private(set) var connected = false
+    /// It's been said where this keyboard's typing goes — once per keyboard. A disconnect that
+    /// comes straight back (the simulator's keyboard comes and goes with the responder) is the
+    /// same keyboard, so the note is forgotten only after it's been gone a while.
+    var noted = false
+    private var forgetNote: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
 
     private init() {
@@ -35,6 +40,14 @@ final class HardwareKeyboard: ObservableObject {
     private func set(_ on: Bool) {
         guard on != connected else { return }
         connected = on
+        forgetNote?.cancel()
+        if !on {
+            forgetNote = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.noted = false
+            }
+        }
         AppModel.shared.log.add("hardware keyboard \(on ? "connected" : "disconnected")")
     }
 
@@ -187,12 +200,15 @@ extension MacInput {
     }
 
     /// Once per keyboard connected, the first time a window is in hand with it: says where its
-    /// typing goes.
+    /// typing goes — in the status line under the mic for a few seconds, never over the picture
+    /// (Nov 6 2026, "nothing over the window").
     func noteHardwareKeyboard() {
-        guard HardwareKeyboard.shared.connected, !keyboardNoted, watcher?.isShowing == true, canHoldKeys || canType else { return }
+        let keyboard = HardwareKeyboard.shared
+        guard keyboard.connected, !keyboard.noted, let watcher, watcher.isShowing, canHoldKeys || canType else { return }
+        keyboard.noted = true
         keyboardNoted = true
-        watcher?.say("Keyboard connected — typing on your Mac", symbol: "keyboard")
-        watcher?.log?.add("watching: a hardware keyboard types on the Mac")
+        AppModel.shared.explain("Keyboard connected · typing on \(watcher.name)", for: 4)
+        watcher.log?.add("watching: a hardware keyboard types on the Mac")
     }
 
     /// Hears the keyboard come and go (from `init`).

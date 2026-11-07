@@ -59,10 +59,15 @@ public struct MacPreferences: @unchecked Sendable {
         }
     }
 
+    /// Where a Mac with no pick yet sends: Where I'm typing, pasted (Nov 7 2026 — the Clipboard
+    /// gave a freshly paired Mac no window card and no Send toggle, and the first prompt landed on
+    /// its clipboard). The Mac app's own default is its own.
+    public static let firstSelection = SendSelection(target: .frontApp)
+
     public func selection(for mac: UUID?) -> SendSelection {
         if let data = d.data(forKey: Self.key(Self.selectionKey, mac: mac)),
            let s = try? JSONDecoder().decode(SendSelection.self, from: data) { return s }
-        return .default   // a Mac just paired copies to its clipboard
+        return Self.firstSelection
     }
 
     public func setSelection(_ s: SendSelection, for mac: UUID?) {
