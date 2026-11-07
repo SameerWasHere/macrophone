@@ -1132,10 +1132,11 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   was last offered, so after open → Done the status line kept one line and the cover's desktop sat
   20 pt low until relaunch; it measures at its own height now (`InputCarousel`, fixedSize) —
   `StabilityUITests` holds rest = after Done (±0.5 pt). *The vertical bar's set is fixed while it
-  shows:* Done · Keyboard (one toggle, `bar-keyboard` / `bar-keyboard-hide`; **[round 3: the cover only — the inner screen's deck has its own Keyboard mode]**) · Sound · Mac Controls ·
+  shows:* Done · Keyboard (one toggle, `bar-keyboard` / `bar-keyboard-hide` **[round 5: one id, `bar-keyboard`, the title says the state]**; **[round 3: the cover only — the inner screen's deck has its own Keyboard mode]**) · Sound · Mac Controls ·
   bell · Pan|Scroll (there from the first moment, dimmed until live) · zoom out · Window; items only
   dim or change symbol, never come or go (each change re-vends the bar), and with the mic open the
-  set stays, dimmed. The inner bar swaps in the layout's own transaction (`innerBarWindow` /
+  set stays, dimmed **[amended round 5: separate items in tiers; with the keyboard up the system's
+  column holds two positions, so it shows Done · ⋯ itself — see "The cover's bar holds while typing"]**. The inner bar swaps in the layout's own transaction (`innerBarWindow` /
   `barFollows` removed) **[superseded round 3: on its side it swaps 50 ms after Show it here, with the deck]**. *Pages change in place:* a tap fades the old page out and the new one in
   with a 0.96 settle (Reduce Motion: fade); only a finger on the Thread slides them; pages sit on
   the room's foot; the keyboard page keeps the last page's room (`restBand`) until the keys rise.
@@ -1751,6 +1752,51 @@ frames `docs/screens/overnight-nov7/round-4/<stream>/`. Wins over round 2 where 
   to reach the phone; History's Undo tapped by a real finger; the not-open card state (no shot).
   **Open:** the cover's sheet's white panel stops short of the vertical bar while its glass runs
   under it (seen in Control Center; system).
+
+## Overnight polish, round 5 (Nov 7 2026)
+
+### The cover's bar holds while typing
+
+Stream `cover-bar-keyboard`. Cover, watching Claude, the keyboard page: the bar had Done ·
+Keyboard · Sound · Mac Controls · bell · Pan|Scroll · zoom out · Window; at the tap the glass
+emptied, shrank with the keyboard's rise, and settled as ✓ and ⋯ with every other item inside.
+Frames: `docs/screens/overnight-nov7/round-5/cover-bar-keyboard/` (before | after, light and dark,
+the rise frame by frame). Measured on a Duo simulator's cover (the UI test prints it):
+- **The column.** Keyboard down: Done's cell at y 175–213, then 52 pt a pitch (38 pt cells) to
+  Window at 547–585 — 410 pt for eight items on a 678 pt screen. Keyboard up: the cover's keyboard
+  spans the vertical bar's column too (its keys from y 433, our 44 pt bar over them at 335), and the
+  system lays the column out short of it: **two positions** (175–213 and 235–273, the second the
+  `BottomOverflowBarButtonItem`), whatever the app asks — 60 pt of air is left above the bar. `.ignoresSafeArea(.keyboard)` on the cover's NavigationStack changes nothing (tried: the
+  column is the system's, laid against the keyboard, not the stack's safe area); so does
+  `toolbarVerticalCompressionBehavior(.prefersToolbarItems)`, already set. Eight items can't fit
+  two positions, so **the keyboard-up bar is Done · ⋯ by the system's hand**, and the empty glass
+  during the rise is the system's own overflow transition (the folded items leave at
+  keyboardWillShow, the capsule shrinks with the keyboard, ⋯ fades in at the end) — not a re-vend
+  of ours: it's the same with nothing of ours changing identity.
+- **What changed** (`MainView.coverToolbar`, `coverKeyboardItem`, `BarTier`; CoverBar.swift
+  `ToolbarItemVisibilityPriority.bar`): the trailing group is **separate `ToolbarItem`s, each in a
+  tier** (`.done` above `.high`, `.keyboard` = `.high`, then `.window`, `.sound`, `.controls`,
+  `.drag`, `.alerts`, `.whole`, each a step lower — iOS 27's `visibilityPriority`; an older system
+  lays them out as they come), so a short column folds from the foot one item at a time, never the
+  set as one (as one group, the whole group went into ⋯ and only Done stayed; now any third position
+  the system finds goes to the keyboard's item, then the Window menu). **The keyboard's item keeps
+  one identity**: id `bar-keyboard` in both states, the title "Keyboard" / "Hide Keyboard" (what ⋯
+  shows), the symbol replaced in place; `bar-keyboard-hide` is gone. The bar's bell is `cover-alert`
+  (one id, value On / Off) for the same reason. Nothing is added or removed on `keysUp`.
+- **With the keyboard up** the bar is ✓ Done and ⋯ (Hide Keyboard · Sound · Mac Controls · Alerts
+  Off · Scroll (or Pan) · Whole Window · Window ›), and the keyboard's own bar has hide. Hiding from either
+  brings the eight back to the pixel. At rest the cover's bar is unchanged; the inner screen's bars
+  untouched (the inner vertical bar still has no Keyboard item). **Round 1's set list stands with
+  this amendment:** the set is fixed and nothing of ours comes or goes, but with the keyboard up the
+  system itself shows two of it.
+- `CoverBarKeyboardUITests` (a paired `mpctl serve`, a Duo cover): the eight ids in order and
+  hittable, the keyboard raised from the bar, Done in place and ⋯ hittable with it up, every folded
+  item in ⋯ with Hide Keyboard first, hide from there, the eight back at their frames (±1 pt).
+  `StabilityUITests` hides from the keyboard's bar now.
+- **Left:** a bar of eight that folds to two is the cover's real shape; the way to more while typing
+  is a shorter set (Whole Window and Alerts into the Window menu changes nothing here: two positions
+  are two) or the system giving the column the keyboard's bar height back — Apple's call. Dark mode
+  and the rest set were shot, not changed.
 
 ## The ten polish ideas (Nov 5 2026)
 

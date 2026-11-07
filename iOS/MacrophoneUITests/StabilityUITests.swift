@@ -62,16 +62,16 @@ final class StabilityUITests: XCTestCase {
         let ids = ["watch-done", "watch-sound", "mac-controls", "cover-drag", "watch-whole"]
         let before = ids.filter { app.buttons[$0].exists }
         keyboard.tap()
-        let hide = app.buttons["bar-keyboard-hide"].firstMatch
-        XCTAssertTrue(hide.waitForExistence(timeout: 5), "the same item now puts the keyboard away")
         // (A simulator with its Mac's keyboard connected keeps the iOS keyboard down.)
-        _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
-        XCTAssertFalse(app.buttons["bar-keyboard"].exists, "one keyboard item, never two")
-        // (With the keyboard up the bar is shorter: the system may fold its last items into ⋯,
-        // but Done and the keyboard's item stay.)
+        let keys = app.keyboards.firstMatch
+        guard keys.waitForExistence(timeout: 5) else { throw XCTSkip("the iOS keyboard didn't come up") }
+        // With the keyboard up the column holds Done and the system's ⋯ (round 5: the rest, Hide
+        // Keyboard first, fold into it one by one); Done never leaves.
         XCTAssertTrue(done.exists)
-        hide.tap()
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 3), "back to Keyboard, in the same place")
+        XCTAssertLessThanOrEqual(app.buttons.matching(identifier: "bar-keyboard").count, 1, "one keyboard item, never two")
+        app.buttons["keyboard-hide"].firstMatch.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "back to Keyboard, in the same place")
+        XCTAssertEqual(keyboard.label, "Keyboard")
         sleep(1)
         XCTAssertEqual(ids.filter { app.buttons[$0].exists }, before, "the bar has the items it had")
     }

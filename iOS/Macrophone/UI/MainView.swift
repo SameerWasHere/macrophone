@@ -698,61 +698,67 @@ struct MainView: View {
     /// set stays, dimmed (the transcript has the screen; the bar never empties under it).
     @ToolbarContentBuilder var coverToolbar: some ToolbarContent {
         if barWindow {
-            // Done is the last to fold into the bar's overflow (the keyboard leaves it short).
-            if #available(iOS 27.0, *) {
-                ToolbarItem(placement: .topBarLeading) { coverDone.disabled(showLiveWords) }.visibilityPriority(.high)
-            } else {
-                ToolbarItem(placement: .topBarLeading) { coverDone.disabled(showLiveWords) }
+            // Each item its own, in a tier (`BarTier`): the keyboard spans the cover, so with it up
+            // the system gives the column two positions and folds the lowest tiers into ⋯ — one
+            // item at a time, from the foot. As one group the whole set went in at once, Done
+            // alone left (Nov 7 2026, round 5). Nothing here comes or goes with the keyboard.
+            barItem(.done, placement: .topBarLeading) { coverDone.disabled(showLiveWords) }
+            if input.pages.contains(.keyboard), !posture.pose.isInner {
+                barItem(.keyboard) { coverKeyboardItem.disabled(showLiveWords) }
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Group {
-                    if input.pages.contains(.keyboard), !posture.pose.isInner { coverKeyboardItem }
-                    // While the link comes back the bar's items hold their places, dimmed.
-                    if model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature) {
-                        CoverSoundItem(player: model.macAudio).disabled(!model.macAudio.macCanPlay)
-                    }
-                    if model.canMacControls || watcher.heldFeature(MacControl.feature) {
-                        Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: MacControlsButton.symbol) }
-                            .disabled(!model.canMacControls)
-                            .accessibilityIdentifier("mac-controls")
-                    }
-                    if let t = watcher.target, model.canAlert || watcher.heldFeature(MacAlerts.feature), case .app = t, !DesktopWatch.isDesktop(t) {
-                        let on = model.alertWatch(for: t) != nil
-                        Button { model.toggleAlertWatch(t) } label: {
-                            Label(on ? "Alerts On" : "Alerts Off", systemImage: on ? "bell.fill" : "bell")
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .tint(on ? Light.gold : nil)
-                        .disabled(!model.canAlert)
-                        .accessibilityLabel("Alerts")
-                        .accessibilityValue(on ? "On" : "Off")
-                        .accessibilityHint("Notifies you when this window changes.")
-                        .accessibilityIdentifier(on ? "watch-alert-on" : "watch-alert-off")
-                    }
-                    // From the window's first moment, dimmed until its first picture (it arrived
-                    // with the picture, and the bar re-vended for it).
-                    Button { watcher.setDrag(watcher.drag == .pan ? .scroll : .pan) } label: {
-                        Label(watcher.drag == .pan ? "Pan" : "Scroll", systemImage: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down")
+            // While the link comes back the bar's items hold their places, dimmed.
+            if model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature) {
+                barItem(.sound) { CoverSoundItem(player: model.macAudio).disabled(!model.macAudio.macCanPlay || showLiveWords) }
+            }
+            if model.canMacControls || watcher.heldFeature(MacControl.feature) {
+                barItem(.controls) {
+                    Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: MacControlsButton.symbol) }
+                        .disabled(!model.canMacControls || showLiveWords)
+                        .accessibilityIdentifier("mac-controls")
+                }
+            }
+            if let t = watcher.target, model.canAlert || watcher.heldFeature(MacAlerts.feature), case .app = t, !DesktopWatch.isDesktop(t) {
+                let on = model.alertWatch(for: t) != nil
+                barItem(.alerts) {
+                    Button { model.toggleAlertWatch(t) } label: {
+                        Label(on ? "Alerts On" : "Alerts Off", systemImage: on ? "bell.fill" : "bell")
                             .contentTransition(.symbolEffect(.replace))
                     }
-                    .tint(watcher.drag == .scroll ? Light.cyan : nil)
-                    .disabled(watcher.phase != .live)
-                    .accessibilityLabel("What one finger does")
-                    .accessibilityValue(watcher.drag == .pan ? "Pan" : "Scroll")
-                    .accessibilityHint("Switches between moving the picture and scrolling the window on your Mac.")
-                    .accessibilityIdentifier("cover-drag")
-                    if watcher.macCanFit, watcher.target != .clipboard {
-                        Button { watcher.toggleWholeWindow() } label: {
-                            Label(watcher.wholeWindow ? "Zoom Back In" : "Whole Window",
-                                  systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .disabled(watcher.phase != .live)
-                        .accessibilityIdentifier("watch-whole")
-                        if !watcher.isDesktop { WatchWindowMenu(watcher: watcher, bar: true) }
-                    }
+                    .tint(on ? Light.gold : nil)
+                    .disabled(!model.canAlert || showLiveWords)
+                    .accessibilityLabel("Alerts")
+                    .accessibilityValue(on ? "On" : "Off")
+                    .accessibilityHint("Notifies you when this window changes.")
+                    .accessibilityIdentifier("cover-alert")
                 }
-                .disabled(showLiveWords)
+            }
+            // From the window's first moment, dimmed until its first picture (it arrived
+            // with the picture, and the bar re-vended for it).
+            barItem(.drag) {
+                Button { watcher.setDrag(watcher.drag == .pan ? .scroll : .pan) } label: {
+                    Label(watcher.drag == .pan ? "Pan" : "Scroll", systemImage: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down")
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .tint(watcher.drag == .scroll ? Light.cyan : nil)
+                .disabled(watcher.phase != .live || showLiveWords)
+                .accessibilityLabel("What one finger does")
+                .accessibilityValue(watcher.drag == .pan ? "Pan" : "Scroll")
+                .accessibilityHint("Switches between moving the picture and scrolling the window on your Mac.")
+                .accessibilityIdentifier("cover-drag")
+            }
+            if watcher.macCanFit, watcher.target != .clipboard {
+                barItem(.whole) {
+                    Button { watcher.toggleWholeWindow() } label: {
+                        Label(watcher.wholeWindow ? "Zoom Back In" : "Whole Window",
+                              systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .disabled(watcher.phase != .live || showLiveWords)
+                    .accessibilityIdentifier("watch-whole")
+                }
+                if !watcher.isDesktop {
+                    barItem(.window) { WatchWindowMenu(watcher: watcher, bar: true).disabled(showLiveWords) }
+                }
             }
         } else {
             // The upper group: the Mac and the app's own pages.
@@ -791,19 +797,37 @@ struct MainView: View {
     /// Upright on the inner screen at rest, the system lays those out in a bar at the foot.
     var uprightFootBar: Bool { posture.pose.foldAcross && innerBarShown && (barWholeScreen || barMacControls) }
 
+    /// The cover's bar while a window shows, from the top: what the system folds into ⋯ last when
+    /// the column is short (the keyboard up: two positions, Done and ⋯) comes first — Done, then
+    /// the keyboard's item, then the Window menu, which holds the rest's long forms too.
+    enum BarTier: Int, CaseIterable { case done, keyboard, window, sound, controls, drag, alerts, whole }
+
+    /// One item of the cover's bar in its tier (iOS 27; an older system lays them out as they come).
+    @ToolbarContentBuilder
+    func barItem<V: View>(_ tier: BarTier, placement: ToolbarItemPlacement = .topBarTrailing, @ViewBuilder content: () -> V) -> some ToolbarContent {
+        if #available(iOS 27.0, *) {
+            ToolbarItem(placement: placement) { content() }.visibilityPriority(.bar(tier))
+        } else {
+            ToolbarItem(placement: placement) { content() }
+        }
+    }
+
     /// The keyboard in the bar, one item in both states (Nov 7 2026): it raises the keyboard page
-    /// and, while that's up, puts it away — the symbol turns, the item stays.
+    /// and, while that's up, puts it away — the symbol turns, the item stays. One identity (one
+    /// id; the title says the state, and is what the system's ⋯ shows), so the tap never gives
+    /// the bar a new item to vend (round 5).
     var coverKeyboardItem: some View {
         let up = input.page == .keyboard
         return Button {
             if up { input.hideKeyboard() } else { withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { input.show(.keyboard) } }
         } label: {
+            // The title is what the system's ⋯ shows when the column is short.
             Label(up ? "Hide Keyboard" : "Keyboard", systemImage: up ? "keyboard.chevron.compact.down" : "keyboard")
                 .contentTransition(.symbolEffect(.replace))
         }
         .tint(up ? Light.cyan : nil)
         .accessibilityHint(up ? "Puts the keyboard away." : "Types on your Mac with the iPhone's keyboard.")
-        .accessibilityIdentifier(up ? "bar-keyboard-hide" : "bar-keyboard")
+        .accessibilityIdentifier("bar-keyboard")
     }
 
     // MARK: Top
