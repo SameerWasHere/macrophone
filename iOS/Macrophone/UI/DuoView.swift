@@ -367,37 +367,151 @@ extension MainView {
 }
 
 /// The inner screen's one mic (`MainView.innerMic`).
+///
+/// It only ever shows in a slot that has settled (Nov 7 2026). A slot's frame is measured
+/// mid-change — the keyboard's room collapsing in two passes, a layout handing over, the screen
+/// turning — and the mic used to turn up at the first frame it was given and glide from there: on
+/// the Mac window's text, over the Dock, over the glance, cut off in a corner. Now a frame counts
+/// once it has held still for two display frames with nothing on its way (no pose change in the
+/// last `poseQuiet`, the keyboard not coming or going); from hidden the mic fades in there; it
+/// glides only from a settled slot it showed in to another in the same pose; a pose change hides
+/// it until the new slot settles. A finger on it keeps it where it is, shown — a hold is never lost.
 struct InnerMic: View {
     let main: MainView
     let slots: [MicSlot]
-    /// It was on screen where it was: a move from there glides; one from a slot out of sight (the
-    /// laptop's deck on its trackpad, the keyboard up) is a fade in its new place — it flew in from
-    /// beside the trackpad.
-    @State private var wasShown = false
-    /// Where it was last placed: from nowhere (a layout's first frame, a slot not measured yet)
-    /// it's put in its place, never glided there from the screen's corner (Nov 7 2026).
+
+    /// Where it's drawn, at what size, in which pose — set only from a settled slot.
     @State private var placed: CGRect = .zero
+    @State private var placedSize: CGFloat = 92
+    @State private var placedPose: FoldPose?
+    @State private var shown = false
+    @State private var clock = SettleClock()
+    @State private var settleTask: Task<Void, Never>?
+
+    static let poseQuiet: TimeInterval = 0.45
+    static let keyboardQuiet: TimeInterval = 0.35
+    /// Two display frames.
+    static let still: TimeInterval = 0.034
+
+    /// What the slot says now and when anything last moved — a box, so the settling task reads
+    /// the newest without the view redrawing for it.
+    final class SettleClock {
+        var target: Target?
+        var rectChanged = Date.distantPast
+        var quietUntil = Date.distantPast
+    }
+
+    struct Target: Equatable {
+        var rect: CGRect
+        var size: CGFloat
+        var pose: FoldPose
+        var visible: Bool
+    }
+
+    private var fingerDown: Bool { main.holding || main.stopOnRelease }
 
     var body: some View {
         GeometryReader { geo in
             let want = main.micOwner(inHand: main.watcher.isShowing)
             let slot = slots.last { $0.owner == want }
-            let size = slot?.size ?? 92
+            let pose = main.posture.pose
             let r = slot.map { geo[$0.anchor] } ?? .zero
-            let shown = slot?.visible ?? false
-            let glide = wasShown && shown && placed.width > 1 && r.width > 1
+            let target = Target(rect: r, size: slot?.size ?? 92, pose: pose,
+                                visible: (slot?.visible ?? false) && r.width > 1 && r.height > 1)
+            // Never in a pose it wasn't placed in, not for a frame (unless a finger is on it).
+            let visible = shown && (placedPose == pose || fingerDown)
             main.micCore(size: MainView.innerMicBase)
-                .scaleEffect(size / MainView.innerMicBase)
-                .frame(width: size * 1.3, height: size * 1.25)
+                .scaleEffect(placedSize / MainView.innerMicBase)
+                .frame(width: placedSize * 1.3, height: placedSize * 1.25)
                 .landedPill()
-                .position(x: r.midX, y: r.midY)
-                .animation(glide ? Motion.pick(Motion.settle, reduce: main.reduceMotion) : nil, value: r)
-                .onChange(of: r, initial: true) { _, v in placed = v }
-                .opacity(shown ? 1 : 0)
-                .allowsHitTesting(shown)
-                .accessibilityHidden(!shown)
-                .animation(.easeOut(duration: 0.15), value: shown)
-                .onChange(of: shown, initial: true) { _, on in wasShown = on }
+                .opacity(visible ? 1 : 0)
+                .animation(nil, value: pose)
+                .position(x: placed.midX, y: placed.midY)
+                .allowsHitTesting(visible)
+                .accessibilityHidden(!visible)
+                .onChange(of: target, initial: true) { old, new in heard(new, was: old) }
+                .onChange(of: main.posture.settleSeq) { _, _ in poseMoved() }
+                .onChange(of: main.input.keysUp) { _, _ in quiet(for: Self.keyboardQuiet) }
+                .onDisappear { settleTask?.cancel(); settleTask = nil }
+        }
+    }
+
+    private func quiet(for seconds: TimeInterval) {
+        clock.quietUntil = max(clock.quietUntil, Date().addingTimeInterval(seconds))
+    }
+
+    private func poseMoved() {
+        quiet(for: Self.poseQuiet)
+        if !fingerDown { hide(animated: false) }
+        settle()
+    }
+
+    private func heard(_ new: Target, was old: Target) {
+        if new.rect != old.rect || clock.target == nil { clock.rectChanged = Date() }
+        if new.pose != old.pose { quiet(for: Self.poseQuiet); if !fingerDown { hide(animated: false) } }
+        clock.target = new
+        guard new.visible else {
+            settleTask?.cancel(); settleTask = nil
+            if !fingerDown { hide(animated: true) }
+            return
+        }
+        // A finger on it: it stays in hand and follows its slot, as before.
+        if fingerDown, shown {
+            withAnimation(Motion.pick(Motion.settle, reduce: main.reduceMotion)) { place(new) }
+            return
+        }
+        if shown, new.rect == placed, new.size == placedSize, new.pose == placedPose { return }
+        settle()
+    }
+
+    private func hide(animated: Bool) {
+        guard shown else { return }
+        if animated { withAnimation(.easeOut(duration: 0.1)) { shown = false } } else {
+            var t = Transaction(animation: nil); t.disablesAnimations = true
+            withTransaction(t) { shown = false }
+        }
+    }
+
+    private func place(_ t: Target) {
+        placed = t.rect
+        placedSize = t.size
+        placedPose = t.pose
+    }
+
+    /// Waits for the slot to hold still with nothing on its way, then shows the mic there.
+    private func settle() {
+        settleTask?.cancel()
+        let began = Date()
+        settleTask = Task { @MainActor in
+            while !Task.isCancelled {
+                guard let t = clock.target, t.visible else { return }
+                let now = Date()
+                // The keyboard page's keyboard still up after the page left it: on its way down
+                // (for a moment at most — a keyboard that stays isn't one going).
+                if main.input.keysUp, main.input.page != .keyboard, now.timeIntervalSince(began) < 0.6 { quiet(for: 0.05) }
+                let ready = max(clock.rectChanged.addingTimeInterval(Self.still), clock.quietUntil)
+                if ready > now {
+                    try? await Task.sleep(nanoseconds: UInt64(ready.timeIntervalSince(now) * 1e9) + 2_000_000)
+                    continue
+                }
+                commit(t)
+                return
+            }
+        }
+    }
+
+    private func commit(_ t: Target) {
+        settleTask = nil
+        if shown, placedPose == t.pose, placed.width > 1 {
+            withAnimation(Motion.pick(Motion.settle, reduce: main.reduceMotion)) { place(t) }
+            return
+        }
+        var still = Transaction(animation: nil); still.disablesAnimations = true
+        withTransaction(still) { shown = false; place(t) }
+        // Placed first, then faded in there (a frame later, so the move is never part of the fade).
+        Task { @MainActor in
+            guard clock.target == t else { return }
+            withAnimation(main.reduceMotion ? .easeInOut(duration: 0.15) : .easeOut(duration: 0.15)) { shown = true }
         }
     }
 }
@@ -585,8 +699,9 @@ struct FloatingMic<Exit: View>: View {
     /// The way out of full screen beside the disc (it fades with the screen's other controls).
     var exitShown = false
     @ViewBuilder var exit: () -> Exit
-    @AppStorage("duo.fullscreen.mic.x") private var fx = 0.93
-    @AppStorage("duo.fullscreen.mic.y") private var fy = 0.84
+    // First at the right edge, halfway down (Nov 7 2026): bottom-right sat on a chat's Send button.
+    @AppStorage("duo.fullscreen.mic.x") private var fx = 1.0
+    @AppStorage("duo.fullscreen.mic.y") private var fy = 0.5
     @State private var drag: CGSize = .zero
     @State private var dragging = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -598,7 +713,7 @@ struct FloatingMic<Exit: View>: View {
     static var exitSize: CGFloat { 40 }
 
     var body: some View {
-        let centre = place(CGPoint(x: fx * room.width + drag.width, y: fy * room.height + drag.height))
+        let centre = place(CGPoint(x: home.x + drag.width, y: home.y + drag.height))
         // The exit on the side towards the screen's middle (there's always room there), level
         // with the disc (the lip's frame is above it: 32 pt, less the 7 they overlap).
         let towardsLeft = centre.x > room.width / 2
@@ -639,7 +754,7 @@ struct FloatingMic<Exit: View>: View {
                     drag = v.translation
                 }
                 .onEnded { v in
-                    let p = place(CGPoint(x: fx * room.width + v.translation.width, y: fy * room.height + v.translation.height))
+                    let p = place(CGPoint(x: home.x + v.translation.width, y: home.y + v.translation.height))
                     if room.width > 0, room.height > 0 { fx = p.x / room.width; fy = p.y / room.height }
                     drag = .zero
                     dragging = false
@@ -647,6 +762,9 @@ struct FloatingMic<Exit: View>: View {
                 })
             .accessibilityHidden(true)
     }
+
+    /// Where it rests (kept on screen: a drag moves it from there at once, even from the edge).
+    private var home: CGPoint { place(CGPoint(x: fx * room.width, y: fy * room.height)) }
 
     /// The centre kept so the whole of it is on screen and out of the rounded corners.
     private func place(_ p: CGPoint) -> CGPoint {

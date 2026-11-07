@@ -1172,6 +1172,41 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   `HardwareKeyboardUITests.testAHardwareKeyboardTypesAndChordsOnTheMac`,
   `InputCarouselUITests.testClosingTheWindowBringsTheMainScreenBack`, `testMicButtonNeverMoves`.
 
+## The Duo's inner screen settles (Nov 7 2026, round 3)
+
+Nothing on the inner screen shows in the wrong place. Frames: `docs/screens/overnight-nov7/round-3/duo-inner-settle/`.
+- **The one mic only shows in a settled slot** (`InnerMic`, DuoView.swift): a slot's frame counts once it has held
+  still for two display frames (`still`) with nothing on its way — no pose change in the last `poseQuiet` (0.45 s),
+  the keyboard not coming or going (`keyboardQuiet` 0.35 s after `keysUp` changes; the keyboard page's keyboard still
+  up after the page left it, for 0.6 s at most). From hidden it's placed, then faded in there (0.15 s, the next
+  frame); it glides only from a slot it showed in to another in the same pose; a pose change hides it at once (in the
+  same frame — `placedPose` must be the pose) until the new slot settles. A finger on it (`holding`,
+  `stopOnRelease`) keeps it shown and following its slot. Before: on the laptop, keyboard → mic, the disc sat on the
+  Mac window's text for half a second; unfolding, it appeared over the glance and flew right. `micSlot` / `MicSlot`
+  / `micOwner` unchanged.
+- **Folded is the window in hand from the first frame** (`AppModel.openWindowForPose`): folded (the laptop, the
+  book) and paired, it opens before the link is up — the watch holds the kept picture and asks again when connected;
+  the pick's open state from the last list (unknown: open anyway), the whole screen from `bar.had.wholeScreen`. Flat
+  still waits for the link (the glance). `poseChanged` opens on folding with nothing open too: at launch the first
+  pose is guessed flat from the screen's size (`portrait (0×0)` in the log), then the laptop. **Seen, not fixed
+  (Watcher's, round 2's):** with the link slow, the held picture dims under "Reconnecting…" (`Watcher.start` with no
+  link → `beginReconnecting`) until the Mac answers — on a cold launch it should say nothing, or "Connecting".
+- **No frame from a guessed pose** (`Posture.provisional`): the inner screen measured before the hinge has spoken
+  (the no-hinge rule says "open") hides the layout (`MainView.poseBody`) until the hinge speaks or `hingeWait`
+  (0.3 s) passes.
+- **The side bar changes with the deck** (`MainView.innerBarWindow`, `followBar`): on its side, Show it here changes
+  the vertical bar's set 50 ms after the tap (it led the deck's fade by ~0.2 s on the simulator; 120 ms trailed it by
+  as much); Done and a pose change at once. The cover and upright are untouched (`barWindow`).
+- **A turn removes the old layout at once** (`MainView.turn`: insertion fades, removal is identity). Closed →
+  portrait still shows a stranded "Show it here" and a faint mic for a moment: that's the system's rotation
+  snapshot (the old landscape frame, rotated, fading) — the same before and after.
+- **Full screen's floating mic starts at the right edge, halfway down** (`FloatingMic`, `duo.fullscreen.mic.x/y`
+  1.0 / 0.5 — bottom-right sat on a chat's Send button); a saved place stays; a drag moves it from where it rests
+  (`home`), even from the clamped edge.
+- Tests: `DuoSettleUITests` (a real Duo sim in a real pose, `TEST_RUNNER_MACROPHONE_DUO_REAL=laptop|book`, a paired
+  `mpctl serve`): a folded launch never shows `places` / `send-toggle` while `duo-window` comes; on the laptop the
+  mic's first frame after keyboard → mic is its frame a second later.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

@@ -1719,7 +1719,9 @@ extension AppModel: LinkClientDelegate {
                 for window in scene.windows { window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
             }
         }
-        if pose.isInner, !was.isInner {
+        // (Folding with nothing open opens it too: at launch the first pose is the flat screen's,
+        // guessed from the screen's size before the scene's and the hinge's, then the laptop.)
+        if pose.isInner, !was.isInner || pose.isFolded && !was.isFolded && !watcher.isOpen {
             openWindowForPose()
         } else if pose.isFolded, !was.isFolded, watcher.glancing, let t = watcher.target {
             // Folding the open screen into a laptop or a book is picking the Mac up: the window
@@ -1736,16 +1738,23 @@ extension AppModel: LinkClientDelegate {
 
     /// The pick's window for the inner screen, when nothing is being watched.
     private func openWindowForPose() {
-        guard lastPose.isInner, !watcher.isOpen, isConnected, !recorder.isActive else { return }
+        // Folded it's the window in hand from the first frame (Nov 7 2026): opened or launched as
+        // a laptop or a book it drew the desktop first and cross-faded into the deck once the link
+        // came. Without the link the watch holds the window's kept picture and asks again when
+        // it's up; flat, the glance waits for the link as before.
+        let early = lastPose.isFolded && pairedMac != nil
+        guard lastPose.isInner, !watcher.isOpen, isConnected || early, !recorder.isActive else { return }
         watcher.glanceOnDone = true
         let pick = settings.selection.target
         switch pick {
         case .app:
-            // An app that isn't open on the Mac has no window to show (the glance says so).
+            // An app that isn't open on the Mac has no window to show (the glance says so). Not
+            // connected yet, the last list the Mac sent says (nothing known: open it anyway).
             guard !isNotOpen(pick) else { return }
             watcher.open(pick)
         case .clipboard, .frontApp:
-            guard watcher.canWatchDesktop else { return }
+            // The Mac's whole screen: what it offered when last connected, until it says again.
+            guard isConnected ? watcher.canWatchDesktop : UserDefaults.standard.bool(forKey: "bar.had.wholeScreen") else { return }
             watcher.open(reach.wholeScreenTarget)
         }
         guard watcher.isOpen else { return }
