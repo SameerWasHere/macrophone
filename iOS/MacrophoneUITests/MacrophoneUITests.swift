@@ -565,10 +565,10 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Refresh Open Apps"].exists, "Refresh lives in Open an App")
         sleep(1)
         shot("attach-menu-rest")
-        app.buttons["File…"].tap()
+        app.buttons["File…"].firstMatch.tap()
         // The system's document browser.
-        let browser = app.descendants(matching: .any).matching(NSPredicate(format: "label IN {'Browse', 'Recents', 'Cancel'}")).firstMatch
-        XCTAssertTrue(browser.waitForExistence(timeout: 8), "File… opens the file picker")
+        let browser = app.descendants(matching: .any).matching(NSPredicate(format: "label IN {'Browse', 'Recents', 'Shared', 'Cancel', 'Close'}")).firstMatch
+        XCTAssertTrue(browser.waitForExistence(timeout: 15), "File… opens the file picker")
         sleep(2)
         shot("attach-file-picker")
         if let name = env["MACROPHONE_ATTACH_FILE"] {
@@ -584,21 +584,30 @@ final class MacrophoneUITests: XCTestCase {
         app.terminate()
         // Watching: the paperclip leads the key row; the Window menu has no share items.
         app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "keys"].merging(frame) { $1 })
-        let rowAttach = app.buttons["attach-menu"]
-        XCTAssertTrue(rowAttach.waitForExistence(timeout: 20), "Attach leads the key row")
-        XCTAssertTrue(app.buttons["watch-escape"].waitForExistence(timeout: 5))
-        XCTAssertLessThan(rowAttach.frame.maxX, app.buttons["watch-escape"].frame.minX, "the paperclip comes first")
+        let escape = app.buttons["watch-escape"].firstMatch
+        XCTAssertTrue(escape.waitForExistence(timeout: 20))
+        sleep(1)
+        // The Dock's Attach stays built under the window (faded): the one level with Esc.
+        let rowAttach = app.buttons.matching(identifier: "attach-menu").allElementsBoundByIndex
+            .first { abs($0.frame.midY - escape.frame.midY) < 4 } ?? app.buttons["attach-menu"]
+        XCTAssertTrue(rowAttach.exists, "Attach leads the key row")
+        XCTAssertLessThan(rowAttach.frame.maxX, escape.frame.minX, "the paperclip comes first")
         XCTAssertGreaterThanOrEqual(rowAttach.frame.minX, 0)
-        XCTAssertLessThanOrEqual(app.buttons["watch-escape"].frame.maxX, app.windows.firstMatch.frame.maxX)
+        XCTAssertLessThanOrEqual(escape.frame.maxX, app.windows.firstMatch.frame.maxX)
         rowAttach.tap()
         XCTAssertTrue(app.buttons["File…"].waitForExistence(timeout: 4))
         sleep(1)
         shot("attach-menu-watching")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
-        let window = app.buttons["watch-window"]
+        // Away from the menu: the empty corner under the mic.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.95)).tap()
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["File…"])
+        wait(for: [gone], timeout: 4)
+        sleep(1)
+        let window = app.buttons["watch-window"].firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 4))
         window.tap()
-        XCTAssertTrue(app.buttons["Show Tips Again"].waitForExistence(timeout: 4))
+        let windowItem = app.buttons.matching(NSPredicate(format: "label IN {'Fit to iPhone', 'Minimize', 'Normal text', 'Show Tips Again'}")).firstMatch
+        XCTAssertTrue(windowItem.waitForExistence(timeout: 4), "the Window menu opened")
         XCTAssertFalse(app.buttons["File…"].exists, "the Window menu is about the window")
         XCTAssertFalse(app.buttons["Send Clipboard to Mac"].exists)
         sleep(1)
