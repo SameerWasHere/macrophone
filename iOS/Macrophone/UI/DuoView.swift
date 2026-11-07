@@ -16,45 +16,46 @@ import UIKit
 // Mac.**
 //
 //   laptop               upright, the hinge across — a little MacBook. The top half IS the Mac's
-//   (and flat, upright)  screen: the picture alone, edge to edge, the status bar gone; nothing
-//                        over it. The bottom half is the deck: the window's header across its top
-//                        (the name and menu, the question's answers, Sound, Mac Controls,
-//                        Pan | Scroll, zoom out, Window, Done), then one mode at a time taking
-//                        the whole of the rest — the trackpad, the mic with the Thread across the
-//                        half, or the iOS keyboard with the Mac's keys on its bar — the three as a
-//                        cluster in the corner. Nothing in hand: the picked app's window live on
-//                        top (the glance), the cover's own view below. Flat and upright it is the
-//                        same layout (the fold is in the same place), so folding it moves nothing
+//   (and flat, upright)  screen: the picture alone, just under the status bar; nothing over it.
+//                        The bottom half is the deck: one mode at a time taking its room — the
+//                        trackpad, the mic with the Thread across the half, or the iOS keyboard —
+//                        then the modes as a labelled control and the window's header (the name
+//                        and menu, Sound, Mac Controls, Pan | Scroll, zoom out, Window, Done) at
+//                        its foot; a question's answers a row at its top. Nothing in hand: the
+//                        picked app's window live on top (the glance), the cover's own view below.
+//                        Flat and upright it is the same layout (the fold is in the same place), so
+//                        folding it moves nothing
 //   book                 on its side, the hinge up and down — the Mac on the left page, the deck
-//                        down the right (the keys, the trackpad, Send to and the mic: the right
-//                        thumb's); nothing in hand: the glance left, the cover's view right
-//   open, on its side    the window tall on the left page; the deck down the right as the book's;
-//                        nothing in hand: the glance left, the cover's view right — what the
-//                        phone opens to (the cover becomes the right half as it opens)
+//   (and flat, on its    down the right (the keys, the trackpad, Send to and the mic: the right
+//   side)                thumb's); nothing in hand: the glance left, the cover's view right — what
+//                        the phone opens to. Folded or flat, one layout
 //
 // Done on the inner screen is the glance, not a closed window (`Watcher.glance`): the picked
 // app's window stays live and big, its controls put away, Show it here to take it in hand again —
 // and folding the screen (the laptop, the book) takes it in hand by itself. Nothing sits on the
-// fold: every pose splits at the fold's region (`FoldHalves`, the inactive region when flat). The
-// book's split follows the hinge (the deck rises as the angle closes, `Posture.rise`); the poses
-// cross-fade. Every pose keeps the state — the window, the zoom (kept per app), the carousel's
+// fold: every pose splits at the fold's region (`FoldHalves`, the inactive region when flat).
+// Turning the screen cross-fades the layouts; folding it moves nothing. Every pose keeps the state — the window, the zoom (kept per app), the carousel's
 // page, a dictation under way, a sheet.
 
 /// The Duo's measures.
 enum DuoLook {
-    /// The room kept clear each side of the fold's line on a flat inner screen.
-    static let foldGap: CGFloat = 14
     /// The mic on a folded deck: a half of the screen to itself, so the disc is a size up from the
     /// phone's 92 (not a cartoon — the glyph and the ring grow with it).
     static let deckMic: CGFloat = 112
-    /// The Thread across a folded deck: its slot, and the room kept over it for the pages'
-    /// cluster in the corner.
+    /// The Thread across a folded deck: its slot.
     static let deckThread: CGFloat = 96
-    static let deckThreadTop: CGFloat = 46
-    /// The rail beside the window when the screen is open on its side and the fold's line isn't
-    /// known: the right page's width less the bar (his phone names the line; a frame without
-    /// one falls back to this).
-    static let rail: CGFloat = 377
+    /// The least room over the Thread (the modes are a row of their own at the deck's foot).
+    static let deckThreadTop: CGFloat = 8
+    /// The mic button with its status line under it, as the carousel stacks them.
+    static func micGroup(_ mic: CGFloat) -> CGFloat { 8 + mic * 1.25 + 28 }
+    /// The mic and the Thread's slot a deck's mode room holds whole: a size up where it can, the
+    /// phone's 92 and a 56 pt Thread where it's short, smaller still only in a sliver.
+    static func deckMicFit(_ room: CGFloat) -> (mic: CGFloat, slot: CGFloat) {
+        if room >= deckThreadTop + deckThread + micGroup(deckMic) { return (deckMic, deckThread) }
+        if room >= deckThreadTop + 56 + micGroup(92) { return (92, 56) }
+        let mic: CGFloat = room >= deckThreadTop + 36 + micGroup(80) ? 80 : 64
+        return (mic, max(28, min(56, room - deckThreadTop - micGroup(mic))))
+    }
     /// A folded half's screen: a hair of bezel, the corner tight to the half's (the book's page;
     /// the laptop's screen has none — `DuoMacHalf.edge`).
     static let halfBezel: CGFloat = 2
@@ -63,8 +64,10 @@ enum DuoLook {
     static let headerHold: TimeInterval = 3.5
     /// Open flat and upright (Nov 1 2026, Sameer: "fully open in portrait mode it should have a
     /// different view with an even bigger window. The half view rule should only be of the laptop
-    /// mode"): the deck under the window is this tall — less while a window is in hand.
-    static let flatDeck: CGFloat = 300
+    /// mode"): the deck under the window is this tall with a window in hand — the header, the
+    /// modes, a question's answers and the phone's mic with its Thread, each whole (Nov 7 2026: at
+    /// 300 the mic was cut at the screen's foot) — and taller at rest (the cover's view).
+    static let flatDeck: CGFloat = 372
     static let flatDeckAtRest: CGFloat = 430
 
     /// The screen's own rounded corner, and how far a picture at the screen's edge sits in from
@@ -76,48 +79,72 @@ enum DuoLook {
     @MainActor static var edgeInset: CGFloat { ceil(displayCorner * (1 - 1 / 2.squareRoot())) }
     /// Square, like the window it shows (the inset alone keeps the screen's curve off it).
     static let edgeCorner: CGFloat = 0
+    /// Upright, the window under the status bar: the gap over it, and the margins either side —
+    /// the deck's own, so the window, the answers and the modes line up.
+    static let uprightTop: CGFloat = 6
+    static let uprightMargin: CGFloat = 12
 }
 
 extension MainView {
-    // MARK: Open, on its side (951 × 669 points, the vertical bar on the trailing side)
+    // MARK: On its side: the book, and laid flat (951 × 669 points, the vertical bar trailing)
 
-    var openLandscapeBody: some View {
+    /// The inner screen on its side, folded (the book) or flat — one layout (Nov 7 2026): the
+    /// fold is in the same place either way, so folding the open screen into the book, or opening
+    /// the book flat, moves nothing. (Two layouts cross-faded there: two copies of the window at
+    /// two zooms, and the mic flying in from the screen's corner.) The Mac on the left page — the
+    /// window in hand, its name a row above it and the answers a row under it, or the glance — and
+    /// the right page the cover's: its own view at rest (Nov 1 2026, Sameer: "the view that is on
+    /// the out screen should be what I see on the right half on the open duo screen with more
+    /// content on the left side"), the deck down it with a window in hand.
+    var sideBody: some View {
         GeometryReader { geo in
-            // The pages either side of the fold's line (the screen's middle, 84 pt of bar on
-            // the right): the window, or the glance, on the left; the right page the cover's.
-            let split = posture.foldLine.map { $0.midX } ?? (geo.size.width - DuoLook.rail - DuoLook.foldGap)
-            let left = max(0, split - DuoLook.foldGap)
-            let right = max(0, geo.size.width - left - 2 * DuoLook.foldGap)
-            // The left page is one view in hand or not (Nov 4 2026): only what's on it changes —
-            // the whole spread used to be swapped, so the window faded out and in again with it.
+            let h = posture.halves(for: .book, in: geo.size)
+            // The left page meets the screen's rounded corners on three sides: the picture sits in
+            // from them, so the curve never cuts the window's title bar or the answers under it.
+            let inset = DuoLook.edgeInset
+            // Typing: the keyboard is the screen's width, so the window takes the whole width over
+            // it, the deck's page giving way (in the tree, at no width: the keyboard's field lives
+            // there) — a moment's change, so the Mac's window isn't reshaped for it.
+            let typing = typingOver
+            let pageWidth = typing ? geo.size.width - inset - 8 : max(0, h.mac.width - inset)
+            let pageHeight = typing ? max(0, keyboardTop(in: geo) - inset - 8) : max(0, geo.size.height - 2 * inset)
+            let gap = typing ? 0 : max(0, h.deck.minX - h.mac.maxX)
             HStack(spacing: 0) {
-                DuoMacArea(main: self, deck: true)
+                DuoMacHalf(main: self, vertical: true, room: CGSize(width: pageWidth, height: pageHeight))
                     .environment(\.fullScreenAvailable, true)
-                    .padding(.top, 6)
-                    .frame(width: left, height: geo.size.height)
-                Color.clear.frame(width: 2 * DuoLook.foldGap)
-                // In hand, the deck down the right as the book's; nothing in hand (Nov 1 2026,
-                // Sameer: "the view that is on the out screen should be what I see on the right
-                // half on the open duo screen with more content on the left side"): the right page
-                // IS the cover — the same Send to, switches, Thread and mic, the same buttons in
-                // the vertical bar — and the left is what the cover had no room for: the picked
-                // app's window, live (the glance; Show it here takes it in hand).
-                keptPair(inHand: watcher.isShowing,
-                         rest: phoneBody,
-                         hand: DuoLaptopDeck(main: self, vertical: true))
-                    .frame(width: right, height: geo.size.height)
+                    .frame(width: pageWidth, height: pageHeight)
+                    .padding(.leading, inset)
+                    .padding(.top, inset)
+                    .frame(height: geo.size.height, alignment: .top)
+                Color.clear.frame(width: gap)
+                DuoDeck(main: self, vertical: true)
+                    .frame(width: typing ? 0 : max(0, geo.size.width - h.deck.minX))
+                    .clipped()
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
+            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
         }
+        // The keyboard rises over both pages: laid out from its own frame (`keyboardTop`).
+        .ignoresSafeArea(.keyboard)
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(FoldPose.open(landscape: true).spoken)
+        .accessibilityLabel(posture.pose.spoken)
     }
 
     // MARK: The laptop (upright: the hinge across — folded, or flat)
 
     /// The keyboard page is up with a window in hand.
     var keyboardUp: Bool { watcher.isShowing && input.page == .keyboard }
+    /// …and its keyboard has risen: what it covers gives way, in the keyboard's own motion
+    /// (`MacInput.keysUp` changes on the keyboard's curve). Until then the page keeps its room.
+    var typingOver: Bool { keyboardUp && input.keysUp }
+
+    /// The keyboard's top edge in a view laid out ignoring it (its room is from the screen's foot;
+    /// the view's foot is the home indicator's line above it). Read from the keyboard's own frame,
+    /// never assumed: the iOS keyboard with its predictions is taller than any deck.
+    func keyboardTop(in geo: GeometryProxy) -> CGFloat {
+        geo.size.height + geo.safeAreaInsets.bottom - input.keyboardRoom
+    }
 
     var laptopBody: some View {
         GeometryReader { geo in
@@ -129,11 +156,13 @@ extension MainView {
             // keyboard and the hide button … overlap with the view window"). A moment's change:
             // the Mac's window isn't reshaped for it. The deck stays in the tree at no height —
             // the keyboard's field lives in it.
-            let typing = keyboardUp
-            let deckHeight = typing ? 0 : flat ? min(geo.size.height * 0.52, watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
+            let typing = typingOver
+            // Flat and upright with a window in hand the deck is one height whatever its mode
+            // (the tallest's: the header, the modes, a question's answers and the mic with its
+            // Thread), so changing mode, a question coming or going, never moves the window.
+            let deckHeight = typing ? 0 : flat ? min(geo.size.height * (watcher.isShowing ? 0.45 : 0.52), watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
             let gap: CGFloat = typing ? 0 : flat ? 10 : h.deck.minY - h.mac.maxY
-            let macHeight = flat ? geo.size.height - deckHeight - gap : h.mac.height
-            let inset = DuoLook.edgeInset
+            let macHeight = typing ? max(0, keyboardTop(in: geo) - 8) : flat ? geo.size.height - deckHeight - gap : h.mac.height
             VStack(spacing: 0) {
                 // The Mac's screen: the picture as big as the half allows, in from the screen's
                 // rounded corners so none of it is cut (Nov 1 2026, Sameer: "the view window
@@ -147,9 +176,11 @@ extension MainView {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .frame(height: max(0, macHeight))
                 } else {
-                    DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * inset, height: macHeight - inset), edge: true)
-                        .padding(.horizontal, inset)
-                        .padding(.top, inset)
+                    // Just under the status bar, the deck's margins either side: the same top on
+                    // every path — in hand or the glance, the keyboard up or the mic open.
+                    DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * DuoLook.uprightMargin, height: macHeight - DuoLook.uprightTop), edge: true)
+                        .padding(.horizontal, DuoLook.uprightMargin)
+                        .padding(.top, DuoLook.uprightTop)
                         .frame(height: max(0, macHeight))
                 }
                 // The fold: nothing sits here.
@@ -165,8 +196,10 @@ extension MainView {
             // flat screen: the window grows to its new size on the same spring, never jumps.
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.isShowing)
         }
-        // The keyboard rises over the deck's half; with it up the window sits above it.
-        .ignoresSafeArea(keyboardUp ? [] : .keyboard)
+        // The keyboard rises over the deck; with it up the window takes what's above it
+        // (`keyboardTop`), on the keyboard's curve — laid out here, not by the safe area, which
+        // came a pass apart from the page and moved the window twice.
+        .ignoresSafeArea(.keyboard)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(posture.pose == .laptop ? FoldPose.laptop.spoken : FoldPose.open(landscape: false).spoken)
     }
@@ -179,70 +212,28 @@ extension MainView {
         guard watcher.isShowing, watcher.isDesktop, let size = watcher.videoSize ?? watcher.image?.size,
               size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return nil }
         let aspect = size.width / size.height
-        // A hair more than the corner's circle: the display's corner is a continuous curve.
-        let r = DuoLook.displayCorner + 2
-        func fits(_ w: CGFloat) -> Bool {
-            let m = (room.width - w) / 2
-            let top = m >= r ? 0 : r - (max(0, r * r - (r - m) * (r - m))).squareRoot()
-            return top + w / aspect <= room.height
-        }
-        var lo: CGFloat = 0, hi = room.width
-        if fits(hi) { lo = hi } else { for _ in 0..<24 { let w = (lo + hi) / 2; if fits(w) { lo = w } else { hi = w } } }
-        let w = lo.rounded(.down)
+        // Under the status bar the screen's rounded corners are out of the way: the side margins
+        // are the deck's.
+        let w = min(room.width - 2 * DuoLook.uprightMargin, room.height * aspect).rounded(.down)
         return CGSize(width: w, height: (w / aspect).rounded(.down))
-    }
-
-    // MARK: The book (on its side: the hinge up and down)
-
-    var bookBody: some View {
-        GeometryReader { geo in
-            let h = posture.halves(for: .book, in: geo.size)
-            let rise = posture.rise
-            // The left page meets the screen's rounded corners on three sides: the picture sits in
-            // from them, as the laptop's does, so the curve never cuts the window's title bar or
-            // the answers under it (Nov 4 2026).
-            let inset = DuoLook.edgeInset
-            HStack(spacing: 0) {
-                DuoMacHalf(main: self, vertical: true, room: CGSize(width: max(0, h.mac.width - inset), height: max(0, h.mac.height - 2 * inset)))
-                    .environment(\.fullScreenAvailable, true)
-                    .padding(.leading, inset)
-                    .padding(.vertical, inset)
-                    .frame(width: max(0, h.mac.width))
-                    .scaleEffect(reduceMotion ? 1 : 0.97 + 0.03 * rise, anchor: .leading)
-                    .opacity(0.6 + 0.4 * rise)
-                Color.clear.frame(width: max(0, h.deck.minX - h.mac.maxX))
-                DuoDeck(main: self, vertical: true)
-                    .frame(width: max(0, h.deck.width))
-                    .offset(x: reduceMotion ? 0 : (1 - rise) * 36)
-                    .opacity(0.2 + 0.8 * rise)
-            }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
-            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: rise)
-            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
-        }
-        // The keyboard is the screen's width: with it up both pages sit above it, so nothing of
-        // the window is under the keys.
-        .ignoresSafeArea(keyboardUp ? [] : .keyboard)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(FoldPose.book.spoken)
     }
 
     // MARK: The pieces
 
     /// The carousel — the page row, the Thread, the mic · keyboard · trackpad pages — as the phone
     /// builds it. `fill`: the room the pages take whole (the trackpad fills it, the mic sits in
-    /// the middle of it); `rowHidden`: a folded deck, where the switcher is a cluster in the
-    /// corner, the Thread spans the half under it, the mic is a size up and the status line a
-    /// size up — the Thread and the mic one group in the middle of the half.
+    /// the middle of it); `rowHidden`: the laptop's deck, where the modes are a row of their own
+    /// (`DuoModeBar`), the Thread spans the half, the mic is a size up where there's room and the
+    /// status line a size up — the Thread and the mic one group in the middle of the mode's room.
     func carousel(fill: CGFloat?, compact: Bool, rowHidden: Bool = false) -> some View {
         let deck = fill != nil
         // A flat inner screen's bottom bar is kept tight (the window has the room): the Thread's
         // slot a step slimmer and the status one line, as a deck's.
-        let slot: CGFloat = rowHidden ? DuoLook.deckThread : deck ? 48 : compact ? 48 : 84
-        let micSize = rowHidden ? DuoLook.deckMic : 92
-        // A folded deck: the room over the Thread — at least the cluster's row, more on a tall
-        // page so the Thread and the mic sit together in the middle.
-        let micGroup = 8 + micSize * 1.25 + 28
+        // The laptop's deck: a size up where the mode has the room, the phone's mic and a slimmer
+        // Thread where it hasn't (flat upright, a question's answers up) — never cut at the foot.
+        let (micSize, slot) = rowHidden ? DuoLook.deckMicFit(fill ?? .infinity) : (CGFloat(92), deck ? 48 : compact ? 48 : 84)
+        let micGroup = DuoLook.micGroup(micSize)
+        // The Thread and the mic one group in the middle of the mode's room.
         let threadTop: CGFloat = rowHidden ? max(DuoLook.deckThreadTop, ((fill ?? 0) - slot - micGroup) / 2) : 0
         let oneLine = deck || compact
         return InputCarousel(input: input, watcher: watcher, compact: compact, threadHeight: slot + threadTop, fill: fill, rowHidden: rowHidden) {
@@ -267,7 +258,7 @@ extension MainView {
             VStack(spacing: 0) {
                 if threadTop > 0 { Color.clear.frame(height: threadTop) }
                 ZStack {
-                    Filament(mode: filamentMode, meter: recorder.meter, height: rowHidden ? 120 : deck ? 56 : compact ? 56 : 96)
+                    Filament(mode: filamentMode, meter: recorder.meter, height: rowHidden ? slot * 1.25 : deck ? 56 : compact ? 56 : 96)
                         .frame(height: slot)
                     DeliveredCheck(visible: showCheck, color: checkColor)
                     timer.frame(maxHeight: .infinity, alignment: .bottom)
@@ -277,7 +268,7 @@ extension MainView {
             .frame(height: slot + threadTop)
             .padding(.horizontal, -4)
         }
-        .onChange(of: showLiveWords) { _, live in if live, input.page != .mic { input.show(.mic, quiet: true) } }
+        .onChange(of: showLiveWords) { _, live in input.micOpen(live) }
     }
 }
 
@@ -340,8 +331,11 @@ extension MainView {
     /// The size the one mic is drawn at, scaled to each slot (down, so it stays crisp).
     static let innerMicBase: CGFloat = DuoLook.deckMic
 
-    /// Whose slot the mic goes to: the pose's layout, in hand or at rest.
-    func micOwner(inHand: Bool) -> String { "\(posture.pose.name)/\(inHand ? "hand" : "rest")" }
+    /// Whose slot the mic goes to: the pose's layout (upright or on its side — folded or flat
+    /// it's one layout), in hand or at rest.
+    func micOwner(inHand: Bool) -> String {
+        "\(posture.pose.foldAcross ? "upright" : "side")/\(inHand ? "hand" : "rest")"
+    }
 
     /// A layout's place for the mic: the mic button's own frame, empty.
     func micSlot(size: CGFloat, inHand: Bool, visible: Bool = true) -> some View {
@@ -380,6 +374,9 @@ struct InnerMic: View {
     /// laptop's deck on its trackpad, the keyboard up) is a fade in its new place — it flew in from
     /// beside the trackpad.
     @State private var wasShown = false
+    /// Where it was last placed: from nowhere (a layout's first frame, a slot not measured yet)
+    /// it's put in its place, never glided there from the screen's corner (Nov 7 2026).
+    @State private var placed: CGRect = .zero
 
     var body: some View {
         GeometryReader { geo in
@@ -388,12 +385,14 @@ struct InnerMic: View {
             let size = slot?.size ?? 92
             let r = slot.map { geo[$0.anchor] } ?? .zero
             let shown = slot?.visible ?? false
+            let glide = wasShown && shown && placed.width > 1 && r.width > 1
             main.micCore(size: MainView.innerMicBase)
                 .scaleEffect(size / MainView.innerMicBase)
                 .frame(width: size * 1.3, height: size * 1.25)
                 .landedPill()
                 .position(x: r.midX, y: r.midY)
-                .animation(wasShown && shown ? Motion.pick(Motion.settle, reduce: main.reduceMotion) : nil, value: r)
+                .animation(glide ? Motion.pick(Motion.settle, reduce: main.reduceMotion) : nil, value: r)
+                .onChange(of: r, initial: true) { _, v in placed = v }
                 .opacity(shown ? 1 : 0)
                 .allowsHitTesting(shown)
                 .accessibilityHidden(!shown)
@@ -658,55 +657,6 @@ struct FloatingMic<Exit: View>: View {
     }
 }
 
-/// The Mac on a flat inner screen: the window view as the phone has it (its header, the window,
-/// the keys or the answers in a row), or — Done, or nothing watched — the glance.
-struct DuoMacArea: View {
-    let main: MainView
-    /// The laptop deck is under or beside it (the keys are there).
-    var deck = false
-    @ObservedObject private var watcher: Watcher
-
-    init(main: MainView, deck: Bool = false) {
-        self.main = main
-        self.deck = deck
-        _watcher = ObservedObject(wrappedValue: main.watcher)
-        // The one on screen has its viewer from the first frame (a pose's new layout).
-        _panelDormant = State(initialValue: !main.watcher.isShowing)
-        _glanceDormant = State(initialValue: main.watcher.isShowing)
-    }
-
-    var body: some View {
-        // The window in hand and the glance, both built, one hidden (Nov 4 2026): Show it here and
-        // Done only fade between them — building the window's header, menus and keys each time
-        // held the main thread a tenth of a second before the window moved. Only the one on
-        // screen has a viewer (`dormant`), so the video is never in two places.
-        let inHand = watcher.isShowing
-        ZStack {
-            WatchPanel(watcher: watcher, compact: false, duo: true, deck: deck, dormant: panelDormant || asleep)
-                .overlay(alignment: .bottom) {
-                    // The words you're saying over the picture's foot, as on a folded half.
-                    if deck, main.showLiveWords {
-                        GeometryReader { g in
-                            DuoLiveWords(main: main, room: g.size)
-                                .frame(maxHeight: .infinity, alignment: .bottom)
-                        }
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
-                }
-                .modifier(KeptHidden(hidden: !inHand))
-            DuoGlance(watcher: watcher, fill: false, dormant: glanceDormant || asleep)
-                .padding(.horizontal, WatchLook.sideMargin)
-                .padding(.vertical, 4)
-                .modifier(KeptHidden(hidden: inHand))
-        }
-        .modifier(DormantAfterFade(inHand: inHand, panel: $panelDormant, glance: $glanceDormant))
-    }
-
-    @State private var panelDormant: Bool
-    @State private var glanceDormant: Bool
-    @Environment(\.innerAsleep) private var asleep
-}
-
 /// The window in hand and the glance each give up their viewer only once they've faded out (a
 /// viewer gone at once left an empty plate fading where the picture had been); the one arriving
 /// has its viewer at once.
@@ -758,11 +708,15 @@ struct DuoMacHalf: View {
     private var corner: CGFloat { edge ? DuoLook.edgeCorner : DuoLook.halfCorner }
 
     var body: some View {
-        // The window in hand and the glance, both built, one hidden (Nov 4 2026, as `DuoMacArea`):
-        // Show it here and Done only fade between them; only the one on screen has a viewer.
+        // The window in hand and the glance, both built, one hidden (Nov 4 2026): Show it here
+        // and Done only fade between them; only the one on screen has a viewer.
         let inHand = watcher.isShowing
         ZStack {
-            handScreen.modifier(KeptHidden(hidden: !inHand))
+            handScreen
+                // The tests read the window's place off this (it must never move).
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("duo-window")
+                .modifier(KeptHidden(hidden: !inHand))
             glanceScreen.modifier(KeptHidden(hidden: inHand))
         }
         .modifier(DormantAfterFade(inHand: inHand, panel: $handDormant, glance: $glanceDormant))
@@ -818,7 +772,8 @@ struct DuoMacHalf: View {
                     .padding(.top, 8)
                 screen(footInset: 0, floating: true)
                 if watcher.answers != nil, !main.showLiveWords {
-                    WatchActions(watcher: watcher, floating: true)
+                    // One row while typing: the keyboard has the rest.
+                    WatchActions(watcher: watcher, floating: true, oneLine: main.typingOver)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 8)
                         .watchLive(watcher.phase)
@@ -830,12 +785,8 @@ struct DuoMacHalf: View {
     }
 
     /// The glance.
-    @ViewBuilder private var glanceScreen: some View {
-        if let short = shortPicture {
-            DuoGlance(watcher: watcher, fill: true, pictureHeight: short, edge: edge, dormant: glanceDormant || asleep)
-        } else {
-            DuoGlance(watcher: watcher, fill: true, edge: edge, dormant: glanceDormant || asleep)
-        }
+    private var glanceScreen: some View {
+        DuoGlance(watcher: watcher, fill: true, edge: edge, dormant: glanceDormant || asleep)
     }
 
     /// The screen: the picture edge to edge, nothing over it but — `floating`, only while the mic
@@ -929,20 +880,17 @@ struct DuoDeck: View {
 
     /// The laptop's deck while a window shows (Nov 1 2026, Sameer: "the trackpad is really small …
     /// I should still be able to select mic mode, keyboard mode to trackpad mode and have each of
-    /// those modes take up the full half"): the window's header across the top (its question's
-    /// answers in its middle, so nothing lies over the picture), then one mode at a time, the
-    /// whole of the rest — the trackpad edge to edge, the mic with the Thread across the half,
-    /// or the iOS keyboard with the Mac's keys on its bar — the three as a cluster of glass
-    /// cells in the deck's top-right corner (`InputCornerSwitcher`; the mic page keeps the room
-    /// over its Thread for it). The deck remembers its mode (the trackpad the first time). While
-    /// you talk, the words sit over the Thread; the mic under them never moves (a hold on it is
-    /// never lost).
+    /// those modes take up the full half"): one mode at a time, the whole of the deck's room — the
+    /// trackpad edge to edge, the mic with the Thread across the half, or the iOS keyboard — then,
+    /// at the deck's foot under the thumb, the modes as a labelled control of their own
+    /// (`DuoModeBar`, Nov 7 2026: they had been a cluster of bare glyphs over the trackpad's
+    /// corner) and the window's header. The question's answers take a row at the top while one is
+    /// up, the mode's room giving it up (the deck's height never changes, so the window never
+    /// moves). While you talk, the words sit over the Thread and the mic under them, lit to stop;
+    /// the modes stay in their place, dimmed.
     private var laptopModes: some View {
-        VStack(spacing: 4) {
-            // The question's answers on a row of their own under the header, only while one is
-            // up: the header has the name, the clusters and Done across the half's 669 points,
-            // and the answers squeezed between them showed one digit of the first. (Held, dimmed,
-            // while the link comes back: the deck under them never moves for a blip.)
+        VStack(spacing: 6) {
+            // (Held, dimmed, while the link comes back: the deck under them never moves for a blip.)
             if watcher.phase.holdsLayout, !main.showLiveWords, watcher.answers != nil {
                 WatchActions(watcher: watcher, floating: true, oneLine: true)
                     .padding(.horizontal, 12)
@@ -950,28 +898,23 @@ struct DuoDeck: View {
                     .transition(.opacity)
             }
             GeometryReader { g in
+                let mic = DuoLook.deckMicFit(g.size.height).mic
                 main.carousel(fill: g.size.height, compact: true, rowHidden: true)
                     .frame(width: g.size.width, height: g.size.height, alignment: .top)
                     .overlay(alignment: .top) {
                         if main.showLiveWords {
                             DuoLiveWords(main: main, room: g.size, below: true)
-                                .frame(height: max(96, g.size.height - DuoLook.deckMic * 1.25 - 52))
+                                .frame(height: max(72, g.size.height - DuoLook.micGroup(mic) - 4))
                                 .allowsHitTesting(false)
                                 .transition(.opacity)
                         }
                     }
-                    // The modes, in the corner: over the trackpad's plate or the room above the
-                    // Thread; the keyboard rises over it (hide comes back here).
-                    .overlay(alignment: .topTrailing) {
-                        // Not while you talk: the words' card has the top of the deck then (the
-                        // cluster sat over its corner), and the mic is the only mode till it closes.
-                        if input.pages.count > 1, !main.showLiveWords {
-                            InputCornerSwitcher(input: input)
-                                .padding(.top, 8)
-                                .padding(.trailing, 12)
-                                .transition(.opacity)
-                        }
-                    }
+            }
+            if input.pages.count > 1 {
+                DuoModeBar(input: input)
+                    .padding(.horizontal, 12)
+                    .opacity(main.showLiveWords ? 0.4 : 1)
+                    .allowsHitTesting(!main.showLiveWords)
             }
             // The window's controls at the deck's foot (Nov 1 2026, Sameer: "move all of the Mac
             // controls and … window selection tools to the bottom so that they don't interfere"):
@@ -989,20 +932,20 @@ struct DuoDeck: View {
 }
 
 /// The glance (Oct 25 2026): the picked app's window, live and big, with its controls put away —
-/// a bar over its foot names it and one tap takes it in hand (Show it here). Nothing watched yet:
-/// the picked app on a plate of the window's bezel and the same tap; or what's missing — a Mac
-/// to pair, a Mac to connect.
+/// a bar under it names it and one tap takes it in hand (Show it here). Nothing over the picture
+/// (Nov 6 2026), and the moment the Mac connects looks exactly like the live glance it becomes —
+/// the window's last picture in the same frame, the bar in the same place, only its words and
+/// whether Show it here can be pressed yet differ (Nov 7 2026: the bar dropped and the button
+/// jumped as it went live). Nothing watched yet: the picked app on a plate of the window's bezel
+/// and the same tap; or what's missing — a Mac to pair, a Mac to connect.
 struct DuoGlance: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
     /// A folded half: the picture fills it, edge to edge.
     var fill: Bool
-    /// A picture that can't fill the half (the book's tall page): this tall, at the top, with
-    /// the bar under it rather than over its foot.
-    var pictureHeight: CGFloat? = nil
     /// The laptop's screen: no bezel, no corner.
     var edge = false
-    /// Built but hidden behind the window in hand (`DuoMacArea`): its window has no viewer.
+    /// Built but hidden behind the window in hand (`DuoMacHalf`): its window has no viewer.
     var dormant = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     /// The pick's window as it last looked (Nov 3 2026): on the plate while the Mac connects.
@@ -1025,68 +968,16 @@ struct DuoGlance: View {
             // Opening, its last picture already there (the live one dissolves in over it).
             if watcher.isOpen, watcher.hasPicture || watcher.lastPicture != nil {
                 // Live, the pictures still coming: the same screen, without its controls.
-                let window = WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: fill, dormant: dormant)
-                if let pictureHeight {
-                    VStack(spacing: 0) {
-                        window.frame(height: pictureHeight)
-                        liveBar(under: true)
-                        Spacer(minLength: 0)
-                    }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
-                } else if !fill, let size = watcher.videoSize ?? watcher.image?.size ?? watcher.lastPicture?.size, size.width > 0, size.height > 0 {
-                    // The open screen: the window at its own shape (no band of empty bezel above
-                    // or below it), the bar under it when there's room, else over its foot.
-                    GeometryReader { geo in
-                        let b = bezelWidth, aspect = size.width / size.height
-                        let wide = (geo.size.width - 2 * b) / aspect + 2 * b
-                        let barRoom: CGFloat = 76
-                        Group {
-                            if wide + barRoom <= geo.size.height {
-                                VStack(spacing: 0) {
-                                    window.frame(height: wide)
-                                    liveBar(under: true)
-                                }
-                            } else {
-                                let h = min(wide, geo.size.height)
-                                window
-                                    .overlay(alignment: .bottom) { liveBar(under: false) }
-                                    .frame(width: wide > geo.size.height ? (h - 2 * b) * aspect + 2 * b : geo.size.width, height: h)
-                            }
-                        }
-                        .frame(width: geo.size.width, height: geo.size.height)
-                    }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
-                } else {
-                    window
-                        .overlay(alignment: .bottom) { liveBar(under: false) }
-                        .accessibilityElement(children: .contain)
-                        .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
+                pictured(watcher.videoSize ?? watcher.image?.size ?? watcher.lastPicture?.size, connecting: false) {
+                    WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: true, dormant: dormant)
                 }
-            } else if model.isPaired, !model.isConnected, model.settling || model.reconnecting, !fill, let kept = kept ?? WindowSnapshots.cached(keptKey), kept.size.width > 0, kept.size.height > 0 {
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("\(watcher.name)'s window on your Mac, live")
+            } else if model.isPaired, !model.isConnected, model.settling || model.reconnecting, let kept = kept ?? WindowSnapshots.cached(keptKey), kept.size.width > 0, kept.size.height > 0 {
                 // The moment it connects at launch: the window as it last looked, laid out as the
-                // live glance lays it (its shape, the bar under it), so the live one takes its
-                // place without a jump — and no alarm.
-                GeometryReader { geo in
-                    let b = bezelWidth, aspect = kept.size.width / kept.size.height
-                    let wide = (geo.size.width - 2 * b) / aspect + 2 * b
-                    Group {
-                        if wide + 76 <= geo.size.height {
-                            VStack(spacing: 0) {
-                                keptScreen(kept).frame(height: wide)
-                                liveBar(under: true, connecting: true)
-                            }
-                        } else {
-                            let h = min(wide, geo.size.height)
-                            keptScreen(kept)
-                                .overlay(alignment: .bottom) { liveBar(under: false, connecting: true) }
-                                .frame(width: wide > geo.size.height ? (h - 2 * b) * aspect + 2 * b : geo.size.width, height: h)
-                        }
-                    }
-                    .frame(width: geo.size.width, height: geo.size.height)
-                }
-                .transition(.opacity)
+                // live glance lays it, so the live one takes its place without a jump — and no alarm.
+                pictured(kept.size, connecting: true) { keptScreen(kept) }
+                    .transition(.opacity)
             } else if model.isPaired, !model.isConnected, model.settling || model.reconnecting || !model.isUnreachable {
                 // The moment it connects (at launch, or looking for it again), nothing kept yet:
                 // the pick, and no alarm — only a Mac that wasn't found is news.
@@ -1176,37 +1067,45 @@ struct DuoGlance: View {
             .overlay(SpecularEdge(shape: bezel))
     }
 
-    /// Over the live picture's foot (or under a short picture): the app, that it's live (or
-    /// paused), and Show it here — on one line, or the button on its own line when the page is
-    /// narrow (the book's).
-    /// `connecting`: the kept picture while the Mac connects (its words say so, Show it here waits).
-    private func liveBar(under: Bool, connecting: Bool = false) -> some View {
+    /// The bar under the picture: one height whatever it says, so nothing above or below it moves.
+    static let barHeight: CGFloat = 64
+
+    /// The picture at its own shape, as large as the room over the bar allows (the room's own
+    /// shape before a picture is known), at the top, and the bar under it as wide as it.
+    private func pictured<Screen: View>(_ aspect: CGSize?, connecting: Bool, @ViewBuilder screen: () -> Screen) -> some View {
+        let screen = screen()
+        return GeometryReader { geo in
+            let room = CGSize(width: geo.size.width, height: max(0, geo.size.height - Self.barHeight))
+            let frame = Self.fit(aspect, bezel: bezelWidth, in: room)
+            VStack(spacing: 0) {
+                screen.frame(width: frame.width, height: frame.height)
+                glanceBar(connecting: connecting)
+                    .frame(width: max(frame.width, min(geo.size.width, 320)), height: Self.barHeight)
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+        }
+    }
+
+    /// A picture of `aspect` (plus its bezel) fitted into `room`; the room itself when unknown.
+    static func fit(_ aspect: CGSize?, bezel: CGFloat, in room: CGSize) -> CGSize {
+        guard let a = aspect, a.width > 0, a.height > 0, room.width > 2 * bezel, room.height > 2 * bezel else { return room }
+        let ratio = a.width / a.height
+        var w = room.width
+        var h = (w - 2 * bezel) / ratio + 2 * bezel
+        if h > room.height { h = room.height; w = (h - 2 * bezel) * ratio + 2 * bezel }
+        return CGSize(width: w.rounded(.down), height: h.rounded(.down))
+    }
+
+    /// The app, that it's live (or paused, or still connecting), and Show it here on one line.
+    private func glanceBar(connecting: Bool) -> some View {
         let target = model.selection.target
-        let words = connecting ? AnyView(connectingWords) : AnyView(liveWords)
-        return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                icon(target, size: 30)
-                words
-                Spacer(minLength: 8)
-                showButton.fixedSize().disabled(connecting)
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) { icon(target, size: 30); words; Spacer(minLength: 0) }
-                showButton.disabled(connecting)
-            }
+        return HStack(spacing: 12) {
+            icon(target, size: 32)
+            Group { if connecting { connectingWords } else { liveWords } }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            showButton.fixedSize().disabled(connecting)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, under ? 12 : 22)
-        .padding(.bottom, 12)
-        .background {
-            if !under {
-                LinearGradient(colors: [.clear, Ink.ground.opacity(reduceTransparency ? 0.96 : 0.55), Ink.ground.opacity(reduceTransparency ? 0.96 : 0.86)],
-                               startPoint: .top, endPoint: .bottom)
-                    .allowsHitTesting(false)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .padding(bezelWidth)
+        .padding(.horizontal, 14)
     }
 
     private var connectingWords: some View {
@@ -1216,14 +1115,16 @@ struct DuoGlance: View {
         }
     }
 
-    /// The kept picture on the window's plate, dimmed.
+    /// The kept picture in the live window's own frame — its bezel and corner — a little dimmed.
     private func keptScreen(_ image: UIImage) -> some View {
-        plate.overlay {
-            Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
-                .opacity(0.55)
-                .padding(bezelWidth)
-                .accessibilityHidden(true)
-        }
+        let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
+        return Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+            .opacity(0.6)
+            .background(Ink.sunk)
+            .clipShape(shape)
+            .padding(bezelWidth)
+            .background(Ink.raised, in: shape)
+            .accessibilityHidden(true)
     }
 
     private var liveWords: some View {
@@ -1253,8 +1154,11 @@ struct DuoGlance: View {
 
     @ViewBuilder private func icon(_ target: TargetRef, size: CGFloat) -> some View {
         if let icon = model.liveTarget(for: target)?.icon, let img = UIImage(data: icon) {
+            let shape = RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
             Image(uiImage: img).resizable().frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+                .clipShape(shape)
+                // A hairline rim: a dark icon (Terminal) on a dark ground still has its edge.
+                .overlay(shape.strokeBorder(Ink.line, lineWidth: 0.5))
                 .accessibilityHidden(true)
         } else {
             GlyphPlate(symbol: target == .clipboard || target == .frontApp ? "macwindow.on.rectangle" : "app", tint: Light.cyan, size: size * 0.875)
