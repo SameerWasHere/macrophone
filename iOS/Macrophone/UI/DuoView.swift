@@ -504,7 +504,9 @@ struct InnerMic: View {
             main.micCore(size: MainView.innerMicBase)
                 .scaleEffect(placedSize / MainView.innerMicBase)
                 .frame(width: placedSize * 1.3, height: placedSize * 1.25)
-                .landedPill(size: placedSize, namespace: main.micSpace)
+                // At rest the cover's view has the slot under its mic (`LandedSlot`); in hand
+                // the deck has none, so the pill floats over the mic there.
+                .landedPill(on: want.hasSuffix("/hand"), size: placedSize, namespace: main.micSpace)
                 .opacity(visible ? 1 : 0)
                 .animation(nil, value: pose)
                 .position(x: placed.midX, y: placed.midY)

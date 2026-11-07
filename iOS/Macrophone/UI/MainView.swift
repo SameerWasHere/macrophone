@@ -520,11 +520,11 @@ struct MainView: View {
                                 // then Undo in the same place. Hung over the mic it had sat across
                                 // the Thread and the mic's ring, beside a check on the Thread and
                                 // a chip on its end — three sayings of one landing.
-                                // (The inner screen's one mic floats the pill itself, `InnerMic`;
-                                // the slot there carries the Undo that follows it.)
+                                // (In hand on the inner screen the one mic floats the pill
+                                // itself, `InnerMic` — the deck has no slot under it.)
                                 .opacity(model.landedChip != nil ? 0 : 1)
                                 .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
-                                .overlay { LandedSlot(pill: !posture.pose.isInner, namespace: micSpace) }
+                                .overlay { LandedSlot(namespace: micSpace) }
                                 .padding(.bottom, tightInner ? 2 : compact ? 6 : 18)
                         }
                     }

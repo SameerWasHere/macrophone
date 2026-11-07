@@ -30,7 +30,7 @@ focus should still be the mic." The plan and the token map are `docs/DESIGN.md`'
   as a real switch, Cleanup's menu, ⋯ = Refresh + the share items **[superseded Nov 7 2026, round 2: `SendToggle` · Cleanup · the paperclip `AttachMenu`; Refresh is in Open an App]**) and **the Dock** (`SendToDock`,
   `UI/MacOS/Dock.swift`: the open apps with running dots, a divider, Clipboard and Where I'm
   typing, + = Open an App; the pick lifted with its name over it — `send-to`; tapped again =
-  Watch, the eye badge; a long press = its windows; a finger scrubbing along it magnifies and
+  Watch, the eye badge **[superseded Nov 7 2026, round 4: no eye on the pick; the second tap still watches]**; a long press = its windows; a finger scrubbing along it magnifies and
   picks on lift; the shelf hugs the icons and never runs past the screen — past that they scroll
   inside it). The Thread and the mic are where they always were. Unpaired, the old panel stays.
   The Duo's cover and inner screen keep the tiles (`QuickControls(layout: .tiles)`).
@@ -1217,7 +1217,7 @@ and opening / returning without a hitch. Four streams, merged together; frames
 
 The room between the menu bar and the Dock was empty (the widget went Nov 1) and the only way to
 watch was the picked Dock icon's second tap. Frames: `docs/screens/overnight-nov7/round-2/watch-from-desktop/`.
-- **The pick's window on the desktop** (`UI/MacOS/DesktopWindow.swift`, `DesktopWindowCard`): the
+- **The pick's window on the desktop** **[the look and the zoom superseded Nov 7 2026, round 4: App Exposé's thumbnail, only the picture flies — see round 4]** (`UI/MacOS/DesktopWindow.swift`, `DesktopWindowCard`): the
   regular iPhone and the Duo's cover (never inside — the glance is the window there), in
   `phoneBody`'s room under the menu bar as an overlay (it never moves the Dock, its options, the
   Thread or the mic; below 140 pt of room it isn't drawn; `DesktopEmptyState` wins while there's
@@ -1361,7 +1361,7 @@ Sameer's round-2 emphasis ("what's primary vs buried … Undo kept longer"): the
 paste for 30 s (`UndoPaste.window`), but the phone offered Undo on the landed pill for 5 s and the
 pill hung over the mic's ring and bloom. Now, one path in AppModel (`undo(id:)`, `undoable`,
 `canUndo(_:)`; the chip, a shake and History all use it; it refuses after the window):
-- **The pill, then the chip.** The landed pill rises as before (2.2 s, `AppModel.pillHold`; its
+- **The pill, then the chip.** **[superseded Nov 7 2026, round 4: both sit in the status line's slot under the mic, the chip is "Undo Paste" — see round 4]** The landed pill rises as before (2.2 s, `AppModel.pillHold`; its
   foot now 18 pt clear of the ring at every mic size — `landedPill(size:)`, the frame is 1.25 × the
   disc and the ring 6 pt outside it). **[the guide was ignored; an offset since the merge — see round 2's integration note]** For a paste the Mac can take back (`LandedChip.canUndo`) it
   then shrinks into **`UndoChip`** (MainView.swift: `arrow.uturn.backward` + Undo on glass, 28 pt,
@@ -1673,6 +1673,84 @@ causes were left, all the system re-laying the screen a pass or more *after* the
   two frames before its fade (the bottom bar going). With the simulator's hardware keyboard
   connected a fold always opens the deck on the trackpad (`deckPage`), so the mic mode after an
   unfold needs `page@mic` (or a run with `GCKeyboard` kept out).
+
+## Overnight polish, round 4 (Nov 7 2026)
+
+Round 4 of the overnight passes (Sameer's goal as in round 1). Emphasis: polish what round 2 added
+and the everyday flows on the regular iPhone and the Duo's cover. Four streams, merged together;
+frames `docs/screens/overnight-nov7/round-4/<stream>/`. Wins over round 2 where they differ.
+- **The desktop card is App Exposé's thumbnail** (`DesktopWindowCard`): the kept picture whole
+  (corner 12, a 0.5 pt `Ink.line` edge, a shadow) — so the Mac window's own title bar is the only
+  one — a caption under it (icon · name · title · bell · Answered you), a decorative glass `eye`
+  badge in its corner; the whole card is the button. Nothing kept, or not open: a plate of regular
+  material, at most 180 pt (and half the room), never black in dark; not open adds Open. Centred in
+  the room with `DesktopWindowLook.air` (24 pt) above and below. No `MacWindowFrame`, no Watch
+  capsule. The Dock's pick has no eye badge; its second tap still watches (`DockSpot.watchedAt`).
+- **Only the picture flies on open and Done** (`UI/MacOS/WindowZoom.swift`): `DockZoom` is a fade
+  only now (`asleep` 0.001; once faded the hidden panel is parked at 0.02 scale —
+  `WindowZoom.panelParked` — so XCUITest doesn't take it as covering the desktop). `liftFromCard`
+  on the card's tap; `opened` aims at an estimate, then re-aims 50 ms in at the real viewer
+  (`viewerPlace` reads `ViewerScrollView`'s canvas through UIKit, so it lands on the viewer's zoom
+  and scroll; an estimate from the layout if the viewer is restructured); the chrome fades in at
+  0.28 s (`holdsPanel`), the flight hands over at 0.38 s. `closing` measures the viewer, fades the
+  view in `Motion.leave` (its header kept, `leaving`) and flies home — into the card, or the icon
+  if the Dock's tap opened it. `DesktopWindowSpot.frame` is the picture's rect; the card hides its
+  picture while a flight is up (`cardHidden`). No flight on the cover, the inner screen, with
+  Reduce Motion or for the live words (`MainView.flightAllowed`): the fade as before.
+- **One confirmation for a landing, in the status line's place** (`LandedSlot` under the mic on
+  every phone layout, the cover's already did): the Thread's check hides while the pill shows;
+  after 2.2 s the pill becomes **"↶ Undo Paste"** in the same spot (`UndoChip`: 44 pt target drawn
+  32 tall, a ring round the arrow draining over the undo life — static under Reduce Motion — fading
+  its last 5 s). The mic and the Thread never move. After Undo: "Undone", then "Took the paste out
+  of ‹App›" in teal (a scheduled status reset had wiped it early). On the inner screen the cover's
+  view at rest uses the slot; in hand the one mic floats the pill (`InnerMic`, `landedPill(on:
+  want.hasSuffix("/hand"))` — the deck has no slot); full screen's floating mic keeps it above.
+  **History** shows a bordered **Undo** at the newest row's end while the Mac can take it back, like
+  Mail's Unsend (its own accessibility element; the swipe and long press keep theirs).
+- **A photo or file is confirmed like a paste**: the pill with the photo itself (24 pt thumbnail,
+  made off the main thread after the send) and "Added to ‹App›", a document glyph for a file,
+  "Saved to your Mac's Downloads"; then "Say what it's for" in the status line (the Mac's words
+  for Downloads or a failure). `attachmentsInFlight` holds the thumbnail until the landing.
+- **Mac Controls' slider stands at the Mac's real volume before any touch** (MacrophoneKit
+  `Core/MacVolume.swift`, `Transport/VolumeLink.swift`, feature `macVolume`): the Mac
+  sends `.macVolume` after the welcome and on every change (Core Audio listeners on the default
+  output's volume, mute and which device is default — `Mac/App/Core/MacReach.swift`; a burst sent
+  once, 100 ms after it stops). The phone remembers each Mac's last level (opens there before the
+  Mac answers; cleared for unpaired Macs when Control Center opens, `forgetVolumes`), follows
+  keys pressed on the Mac, and a drag sends exactly the key presses for the distance (56% → 30% is
+  4 down). Muted: the level kept, faded, the slash. Unknown (an older Mac): the empty track and
+  "Press + or − to change your Mac's volume", never a guessed 0. `mpctl serve` reports 56%
+  (`--no-volume` = a Mac from before, `--volume-after N` delays it); `listen --features macVolume`
+  prints `VOLUME 56%`. `MacReachUITests.testTheVolumeSliderStandsAtTheMacsLevelBeforeATouch`.
+- **Flipping windows goes in the Dock's order and only looks** (`AppModel.watchSessions`,
+  `Watcher.watchCount`): the order is frozen for the length of a watch; a flip never changes Send
+  to, the Dock's pick or the card. While a window shows, a dictation goes to it as a
+  one-recording override (`AppModel.watchedPlace` → `recordingOverride`; the live words say "To
+  Messages"; after Done the pick is still what it was). The Duo's inner screen still picks on flip
+  (its glance and Show it here follow the pick). **A window flipped past is never reshaped**: one
+  reached by a switch owes its shape only after a second on screen (`Watcher.switchedAt`, no
+  `shapeAhead` on a switch), so no `WATCH SHAPE` / restore for pass-throughs — the cost is a
+  visible reshape after that second. Hooks `MACROPHONE_WATCH_PACE=<s>`, `wait@<s>`.
+- **The options bar reads one way in every state**: wand + level word (Off · Light · Medium ·
+  Heavy · Custom), never "Cleanup:" or "Cleanup off"; every level's word is laid hidden under the
+  visible one, so the bar is one width on a Pro, an SE and the cover whatever the level or Send;
+  unavailable reads "Off" with a grey wand. Settings' `CleanupMenu` keeps "Cleanup: Medium" and
+  says "Cleanup: Off".
+- **A freshly paired Mac starts on Where I'm typing** (pasted), not the Clipboard
+  (`MacPreferences.firstSelection`; stored picks untouched), so the card and the Send toggle show
+  right after pairing. "Keyboard connected · typing on ‹App›" is said once per keyboard in the
+  status line, never over the picture (`HardwareKeyboard.noted`, forgotten after 10 s gone; the
+  simulator's keyboard connects every launch).
+- **Integration (this merge):** the inner screen's pill at rest moved into the slot like the
+  phone's (above). Smoke-tested on an iPhone 17 Pro (light and dark) and a Duo (cover; flat open;
+  tabletop) against `mpctl serve`: pairing picked Where I'm typing, the card, open, trackpad click,
+  typing, a flip to Messages left the pick on Claude, Done back to the card, a landing → Undo Paste
+  under the mic, Control Center at 56% untouched; the Duo's glance, Show it here, every deck mode.
+- **Needs a real device:** the flight in Release; the Mac's Core Audio listener (keys, the menu
+  bar slider, AirPods, an HDMI output with no volume) — the Mac app must be installed for the level
+  to reach the phone; History's Undo tapped by a real finger; the not-open card state (no shot).
+  **Open:** the cover's sheet's white panel stops short of the vertical bar while its glass runs
+  under it (seen in Control Center; system).
 
 ## The ten polish ideas (Nov 5 2026)
 
@@ -2156,7 +2234,7 @@ Part of "control the Mac entirely from the iPhone". Three features, each named i
   (Esc and Keys stay small); a tap sends `watchChoose(promptID, index)` and the Mac presses the
   keys only if that question is still up (arrows from the highlighted answer, then Return).
 - **Flip between windows.** The name at the top is a menu of the Mac's windows, dots say where you
-  are, a swipe in from a side edge goes to the next/previous; Send to follows the window shown.
+  are, a swipe in from a side edge goes to the next/previous; Send to follows the window shown **[superseded Nov 7 2026, round 4: flips go in Dock order and only look; a dictation goes to the window on screen for that recording alone — the Duo's inner poses still pick on flip]**.
 - **Your agent needs you.** A phone puts `features: ["attention"]` in its hello (older peers never
   get a message they can't decode — an unknown message ends a session). While one is connected,
   `AttentionWatcher` looks at agent windows (`AppQuirks.terminals` + `agentApps` + the Send-to
