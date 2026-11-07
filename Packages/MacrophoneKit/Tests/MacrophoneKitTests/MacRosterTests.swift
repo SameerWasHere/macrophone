@@ -56,13 +56,14 @@ final class MacRosterTests: XCTestCase {
         p.rememberSend(true, for: claude, mac: a)
         p.rememberSend(false, for: messages, mac: a)
         XCTAssertEqual(p.selection(for: a), SendSelection(target: claude, send: true))
-        XCTAssertEqual(p.selection(for: b), .default, "a Mac with no pick yet copies to its clipboard")
+        XCTAssertEqual(p.selection(for: b), MacPreferences.firstSelection, "a Mac with no pick yet pastes where you're typing")
+        XCTAssertEqual(MacPreferences.firstSelection, SendSelection(target: .frontApp, send: false))
         XCTAssertTrue(p.rememberedSend(for: claude, mac: a))
         XCTAssertFalse(p.rememberedSend(for: claude, mac: b), "remembered per Mac")
         p.setSelection(SendSelection(target: messages), for: b)
         XCTAssertEqual(p.selection(for: a).target, claude, "b's pick doesn't touch a's")
         p.forget(mac: a)
-        XCTAssertEqual(p.selection(for: a), .default)
+        XCTAssertEqual(p.selection(for: a), MacPreferences.firstSelection)
         XCTAssertFalse(p.rememberedSend(for: claude, mac: a))
         XCTAssertEqual(p.selection(for: b).target, messages)
     }
@@ -82,7 +83,7 @@ final class MacRosterTests: XCTestCase {
         XCTAssertNil(d.object(forKey: MacPreferences.sendByTargetKey))
         XCTAssertFalse(p.adopt(legacyFor: first), "only once")
         XCTAssertFalse(p.adopt(legacyFor: second), "nothing left for a second Mac")
-        XCTAssertEqual(p.selection(for: second), .default, "a second Mac starts fresh")
+        XCTAssertEqual(p.selection(for: second), MacPreferences.firstSelection, "a second Mac starts fresh")
     }
 
     func testChosenMacIsKept() {

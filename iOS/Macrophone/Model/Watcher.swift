@@ -48,6 +48,8 @@ final class Watcher: ObservableObject {
     }
 
     @Published private(set) var isOpen = false
+    /// Counts each time the view opens from closed: one watch, however many windows it flips through.
+    private(set) var watchCount = 0
     @Published private(set) var phase: Phase = .starting {
         didSet { if phase != .reconnecting, oldValue == .reconnecting { reconnectTask?.cancel(); reconnectFallback = nil } }
     }
@@ -228,6 +230,8 @@ final class Watcher: ObservableObject {
         let switching = self.target != target
         // The window it leaves keeps its picture for next time.
         if switching, isOpen { keepPicture() }
+        if !isOpen { watchCount &+= 1 }
+        switchedAt = switching && isOpen ? Date() : nil
         self.target = target
         if !isOpen { drag = .pan; wholeWindow = false }
         // A window fitted to the phone shows whole: one finger scrolls it (nothing to pan to).
@@ -252,6 +256,7 @@ final class Watcher: ObservableObject {
             fit = Self.rememberedFit(for: target)
             // Another window: what was sent for the last one says nothing about this one's shape.
             shapeSent = nil
+            autoFitTask?.cancel()
         }
         let opening = !isOpen || glancing
         if switching || !isOpen {
@@ -270,7 +275,8 @@ final class Watcher: ObservableObject {
         isOpen = true
         if glancing { glancing = false; wantsAutoFit = true }
         start()
-        if wantsAutoFit { shapeAhead() }
+        // A window switched to may be passed through: its shape waits for the dwell, never ahead.
+        if wantsAutoFit, switchedAt == nil { shapeAhead() }
         // The mic, every time the window view opens (a switch keeps the page).
         if opening { input.opened() }
         log?.add("watching opened")
@@ -336,6 +342,7 @@ final class Watcher: ObservableObject {
         fullScreen = false
         wantsAutoFit = false
         shapeSent = nil
+        switchedAt = nil
         autoFitTask?.cancel()
         input.closed()
         idleTask?.cancel()
@@ -530,6 +537,11 @@ final class Watcher: ObservableObject {
     private var askedForFit = false
     /// The Mac's window has the view's shape because this view gave it, unasked.
     private var autoFitted = false
+    /// This window was switched to from another (the edge swipe, the window menu): it owes its
+    /// shape only once it's been on screen a second (`Self.dwell`) — a window flipped past is
+    /// never reshaped and so never put back (Nov 7 2026). Nil for a window opened from rest.
+    private var switchedAt: Date?
+    private static let dwell: TimeInterval = 1.0
 
     /// The input page changed: back at rest, a shape still owed goes now.
     func inputPageChanged() { autoFitSoon() }
@@ -563,13 +575,15 @@ final class Watcher: ObservableObject {
         if on { UserDefaults.standard.set(true, forKey: k) } else { UserDefaults.standard.removeObject(forKey: k) }
     }
 
-    /// A moment after the view stops changing, give the window its shape if it still wants one.
+    /// A moment after the view stops changing — and, for a window switched to, once it has been
+    /// on screen a second — give the window its shape if it still wants one.
     private func autoFitSoon() {
         autoFitTask?.cancel()
         guard wantsAutoFit, isOpen, !glancing, !sizedByHand, let target, !isDesktop,
               canFitToPhone, !Self.keepsOwnSize(target) else { return }
+        let wait = max(0.5, switchedAt.map { Self.dwell - Date().timeIntervalSince($0) } ?? 0)
         autoFitTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1e9))
             guard let self, !Task.isCancelled else { return }
             self.applyAutoFit()
         }

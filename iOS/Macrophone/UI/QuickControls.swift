@@ -862,12 +862,15 @@ private struct ToggleGlass: ViewModifier {
 }
 
 /// Cleanup as a small glass menu: "✦ Medium ⌄"; inside, each level with what it does, and Edit
-/// Custom Instructions when Custom is on. Unavailable (another language, no model yet): the menu
-/// says why.
+/// Custom Instructions when Custom is on. The word is always the level's — Off · Light · Medium ·
+/// Heavy · Custom — never "Cleanup off" (Nov 7 2026: one vocabulary whatever the state);
+/// unavailable (another language, no model yet) reads Off with the wand greyed, and the menu
+/// says why. Every level's word is laid under the visible one, hidden, so the menu is one width
+/// whichever is picked and whatever holds it never re-lays for a level.
 struct CleanupMenu: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
-    /// Just the level beside the wand, where "Cleanup:" doesn't fit.
+    /// Just the level beside the wand (the Dock's bar); else "Cleanup: Medium".
     var short = false
     /// Inside the Dock's options bar: no glass of its own (the bar is the glass).
     var plain = false
@@ -899,10 +902,17 @@ struct CleanupMenu: View {
                 // A level picked: the wand flicks (its own setting, never availability arriving).
                 Image(systemName: "wand.and.sparkles").font(.footnote.weight(.semibold)).foregroundStyle(available ? Light.cyan : Ink.tertiary)
                     .symbolEffect(.bounce.byLayer, value: settings.cleanupLevel)
-                Text(available ? (short ? level.title : "Cleanup: \(level.title)") : "Cleanup off")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Ink.ink)
-                    .contentTransition(.opacity)
+                ZStack(alignment: .leading) {
+                    ForEach(CleanupLevel.allCases) { l in
+                        Text(word(l)).hidden().accessibilityHidden(true)
+                    }
+                    Text(word(level))
+                        .foregroundStyle(Ink.ink)
+                        .contentTransition(.opacity)
+                }
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .fixedSize()
                 Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.secondary)
             }
         }
@@ -911,6 +921,8 @@ struct CleanupMenu: View {
         .accessibilityHint(available ? CleanupWords.line(level, edited: model.customInstructionsEdited) : CleanupWords.unavailableReason(model, settings))
         .accessibilityIdentifier("cleanup-menu")
     }
+
+    private func word(_ l: CleanupLevel) -> String { short ? l.title : "Cleanup: \(l.title)" }
 
     private func pick(_ l: CleanupLevel) {
         guard l != settings.cleanupLevel else { return }

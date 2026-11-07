@@ -60,7 +60,8 @@ import UIKit
 /// MACROPHONE_WATCH=rest                      the same, from the screen at rest (nothing opened first):
 ///                                            open (the Dock's second tap), show (the Duo glance's Show it here),
 ///                                            close, pick@<app>, sheet@settings|history|controls|openapp|none
-/// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart: escape, arrowUp, arrowDown, returnKey,
+/// MACROPHONE_WATCH_ACTIONS=a,b,c             …then do these 2 s apart (MACROPHONE_WATCH_PACE=<s> for another pace;
+///                                            wait@<s> is a pause of its own): escape, arrowUp, arrowDown, returnKey,
 ///                                            tap@0.2@0.5 (a click there), pan / scroll (what one finger does),
 ///                                            answer@1 (the window's question, second answer), keys, done (closes it;
 ///                                            the Duo's inner screen: the glance), say@<words> (the mic opening with
@@ -430,8 +431,11 @@ enum DebugHooks {
                 for _ in 0..<60 where !model.isConnected { try? await Task.sleep(nanoseconds: 250_000_000) }
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 if env["MACROPHONE_WATCH"] == "1" { model.watcher.open(model.selection.target) }
+                let pace = env["MACROPHONE_WATCH_PACE"].flatMap(Double.init) ?? 2
                 for a in (env["MACROPHONE_WATCH_ACTIONS"] ?? "").split(separator: ",").map(String.init) {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    // wait@<s>: a pause of its own (a flip's pace is MACROPHONE_WATCH_PACE, 2 s otherwise).
+                    if a.hasPrefix("wait@"), let s = Double(a.dropFirst(5)) { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)); continue }
+                    try? await Task.sleep(nanoseconds: UInt64(pace * 1e9))
                     if a != "show" { HitchProbe.shared.begin(a) }
                     if a == "open" {
                         // The Dock's second tap / Show it here (as they call it: no animation of
