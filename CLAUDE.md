@@ -1770,8 +1770,9 @@ frames `docs/screens/overnight-nov7/round-4/<stream>/`. Wins over round 2 where 
 - **Needs a real device:** the flight in Release; the Mac's Core Audio listener (keys, the menu
   bar slider, AirPods, an HDMI output with no volume) — the Mac app must be installed for the level
   to reach the phone; History's Undo tapped by a real finger; the not-open card state (no shot).
-  **Open:** the cover's sheet's white panel stops short of the vertical bar while its glass runs
-  under it (seen in Control Center; system).
+  **[Fixed Nov 7 2026:** the cover's Control Center and Your Macs — height-detent sheets, whose
+  system glass a cleared background doesn't remove — skip the card beside the column
+  (`InnerScreenSheet(floats:)`) and are the system's own sheet, the full width.**]**
 
 ## Overnight polish, round 5 (Nov 7 2026)
 

@@ -105,7 +105,8 @@ struct RootView: View {
             // The Duo's inner screen: Settings and History take the screen (Nov 1 2026, two
             // columns each); the short sheets are a form in the middle; the Mac Controls panel
             // takes only the room its controls need.
-            .modifier(InnerScreenSheet(posture: Posture.shared, size: InnerScreenSheet.size(for: sheet)))
+            .modifier(InnerScreenSheet(posture: Posture.shared, size: InnerScreenSheet.size(for: sheet),
+                                       floats: sheet == .macs || sheet == .macControls))
         }
     }
 
@@ -208,6 +209,11 @@ struct InnerScreenSheet: ViewModifier {
 
     @ObservedObject var posture: Posture
     var size: Size = .form
+    /// A sheet at a height detent (Control Center, Your Macs) floats as the system's glass, which
+    /// a cleared background doesn't take away: on the cover the card beside the column left that
+    /// glass showing under the column as a second, grey sheet (Nov 7 2026, Sameer: "looks a bit
+    /// odd"). Those keep the system's own sheet, the full width, with nothing of ours under it.
+    var floats = false
 
     static func size(for sheet: AppSheet) -> Size {
         switch sheet {
@@ -226,7 +232,7 @@ struct InnerScreenSheet: ViewModifier {
             // the phone re-sizes an open sheet to the new shape.
             case .screen: content.presentationSizing(InnerScreenFill(room: InnerScreenFill.room()))
             }
-        } else if let edge = VerticalBarProbe.edge {
+        } else if !floats, let edge = VerticalBarProbe.edge {
             // The Duo's cover (Nov 7 2026): a sheet ran the full width under the vertical bar,
             // the clock and Wi-Fi drawn over its white. The system already lays the content
             // beside the bar's column (and puts the sheet's Done in it, as the main screen's
