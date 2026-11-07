@@ -21,25 +21,32 @@ enum CloudAlerts {
 
     private static var database: CKDatabase { CKContainer(identifier: container).privateCloudDatabase }
 
-    static func post(_ a: MacAlert) async -> Bool {
-        guard available, let fields = CloudAlertRecord.fields(a) else { return false }
+    /// Writes the alert's record. Returns nil when iCloud took it, else why not (for the log).
+    static func post(_ a: MacAlert) async -> String? {
+        guard available else { return "this build isn't signed for iCloud" }
+        guard let fields = CloudAlertRecord.fields(a) else { return "the alert couldn't be written as a record" }
         let name = CloudAlertRecord.name(a)
         let r = CKRecord(recordType: CloudAlertRecord.recordType, recordID: CKRecord.ID(recordName: name))
         for (k, v) in fields { r[k] = v as CKRecordValue }
         let op = CKModifyRecordsOperation(recordsToSave: [r])
         op.savePolicy = .allKeys   // overwrite: each window keeps one record
         op.qualityOfService = .userInitiated
-        let ok = await withCheckedContinuation { c in
-            op.modifyRecordsResultBlock = { c.resume(returning: (try? $0.get()) != nil) }
+        let failure: String? = await withCheckedContinuation { c in
+            op.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success: c.resume(returning: nil)
+                case .failure(let e): c.resume(returning: "\((e as? CKError)?.code.rawValue ?? -1): \(e.localizedDescription)")
+                }
+            }
             database.add(op)
         }
-        if ok {
+        if failure == nil {
             var written = UserDefaults.standard.dictionary(forKey: writtenKey) as? [String: Date] ?? [:]
             written[name] = Date()
             UserDefaults.standard.set(written, forKey: writtenKey)
         }
         await sweep()
-        return ok
+        return failure
     }
 
     /// Deletes the records older than a day (deleting one the phone already took does nothing).

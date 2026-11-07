@@ -41,8 +41,13 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate {
 
     /// Subscribes once (saving it again is harmless). Needs notifications allowed and iCloud.
     func subscribeInCloud(force: Bool = false) async {
-        guard Self.cloudAvailable, force || model?.settings.agentAlerts == true || model?.alertWatches.isEmpty == false,
-              await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .authorized else { return }
+        guard force || model?.settings.agentAlerts == true || model?.alertWatches.isEmpty == false else { return }
+        guard Self.cloudAvailable else { model?.log.add("alerts: this build can't get alerts while closed (not signed for iCloud)"); return }
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        guard status == .authorized else {
+            model?.log.add("alerts: notifications aren't allowed (\(status.rawValue)), so none while the app is closed")
+            return
+        }
         UIApplication.shared.registerForRemoteNotifications()
         let sub = CKQuerySubscription(recordType: "Ask", predicate: NSPredicate(value: true), subscriptionID: Self.subscriptionID,
                                       options: [.firesOnRecordCreation, .firesOnRecordUpdate])

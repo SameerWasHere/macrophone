@@ -52,13 +52,16 @@ final class AlertCenter {
         let size = a.jpeg.map { " · picture \($0.count / 1024) KB" } ?? ""
         if !app.server.phones(with: MacAlerts.cloudPictureFeature).isEmpty { cloudPictures = true }
         if modern.isEmpty, older.isEmpty {
-            guard cloudWanted, CloudAlerts.available else { return }
+            // No phone connected (the usual case: an iPhone app off screen loses its link within
+            // seconds). Always through iCloud: a phone that subscribed gets the push, one that
+            // didn't gets nothing and the record is swept after a day. Waiting for the phone to
+            // say it subscribed (`cloudWanted`) dropped alerts without a word when it never did.
             // The picture goes into iCloud only for a phone that can show it (its extension takes
             // it and deletes the record); otherwise the headline and the window alone.
             var c = a
             if !cloudPictures { c.jpeg = nil }
-            let ok = await CloudAlerts.post(c)
-            app.log.add("alert: \(a.kind) in \(a.appName)\(size) — \(ok ? "sent through iCloud" : "iCloud didn't take it")")
+            let failure = await CloudAlerts.post(c)
+            app.log.add("alert: \(a.kind) in \(a.appName)\(size) — " + (failure.map { "iCloud didn't take it (\($0))" } ?? "sent through iCloud\(cloudWanted ? "" : " (the phone hasn't said it subscribed)")"))
             return
         }
         for p in modern { await app.server.send(.macAlert(a), to: p) }

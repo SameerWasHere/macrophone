@@ -12,6 +12,9 @@ extension AppModel: LinkClientAlertsDelegate {
     func linkClient(_ client: LinkClient, alertWatches list: [AlertWatch]) {
         guard client === self.client else { return }
         if alertWatches != list { alertWatches = list }
+        // Something on watch: make sure iCloud will bring its alerts while the app is closed (at
+        // launch the list wasn't here yet, so the launch's check passed this by).
+        if !list.isEmpty, !AgentAlerts.cloudReady { Task { await AgentAlerts.shared.subscribeInCloud() } }
     }
 
     func linkClient(_ client: LinkClient, macAlert a: MacAlert) {
