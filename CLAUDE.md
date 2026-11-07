@@ -1172,6 +1172,31 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   `HardwareKeyboardUITests.testAHardwareKeyboardTypesAndChordsOnTheMac`,
   `InputCarouselUITests.testClosingTheWindowBringsTheMainScreenBack`, `testMicButtonNeverMoves`.
 
+## The laptop's picture from the screen's top edge (Nov 7 2026)
+
+Sameer, on his Duo with build 11: "In laptop view, the window has gotten smaller … to accommodate
+the iPhone's time and status bar. I would rather not accommodate those elements … fill up as much
+of the screen without being cut off by the Duo's rounded corners." Wins over round 1's "only full
+screen hides it". Frames: `docs/screens/duo/nov7-laptop-fill/` (the 55 pt corners drawn on).
+- **Upright with a window in hand the status bar is hidden** (`MainView.hidesStatusBar`: full
+  screen, or `pose.foldAcross && watcher.isShowing` — the laptop and flat upright). At rest it
+  shows as before. The picture's top sits `uprightPictureTop` down: `DuoLook.cornerClear(side: 12)`
+  = 21 pt hidden (the square corner point on the 55 pt curve, the sides keeping the deck's 12),
+  6 under the status bar. Square, not concentric: a rounded plate would cut the traffic lights.
+- **The band was SwiftUI's root, not the layout** (measured with probes on a real Duo sim pose):
+  hiding the status bar there, the window's and the hosting view's safe area go to 0 but SwiftUI's
+  root keeps laying the app out from y = 82 with no inset left to reach into (a full-screen
+  `ignoresSafeArea()` reader reports its global minY as 82). `StatusBarRoomFix` (RootView) reads
+  that minY and pads the root's top by minus it — 0 on every other screen and pose. Proven on
+  `duo-sim.sh` tabletop / portrait / closed (launch folded, unfold, fold flat and back, close and
+  reopen, trackpad / mic / keyboard, Done and Show it here): no band frame, the top settles at 21.
+- **Mic, seen while there (not this change's):** on the inner screen the one mic sometimes shows at
+  a stale slot (over the glance's app icon) for ~0.5 s after an unfold and then glides down to its
+  slot; on Show it here it rises ~85 pt as the cover's view is re-laid in the shorter in-hand deck
+  before the fade; after Done it comes in low (behind the bottom toolbar) and rises ~65 pt over
+  0.6 s. Also a transient bottom inset of 82 (34 + a 48 pt bottom bar) for ~0.1 s at launch and
+  after an unfold, which shrinks the whole root for that moment. Same on build 11 (baseline run).
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.
