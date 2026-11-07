@@ -78,7 +78,7 @@ final class InputCarouselUITests: XCTestCase {
         if cont.waitForExistence(timeout: 1) { cont.tap() }
         let hide = app.buttons["Hide the keyboard"]
         XCTAssertTrue(hide.waitForExistence(timeout: 3), "the bar rides above the keys")
-        XCTAssertTrue(app.buttons["keyboard-command"].exists, "the modifiers are on the same bar")
+        XCTAssertTrue(app.buttons["keyboard-mac-keys"].exists, "Mac Keys is on the same bar")
         XCTAssertTrue(app.buttons["keyboard-escape"].exists, "and so are esc and the arrows")
         hide.tap()
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: mic)

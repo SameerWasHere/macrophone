@@ -541,7 +541,8 @@ enum DebugHooks {
                             model.watcher.input.dragEnded()
                         }
                     } else if a.hasPrefix("type@") {
-                        model.watcher.input.typed(WatchTyping(delete: 0, text: String(a.dropFirst(5))))
+                        let words = String(a.dropFirst(5))
+                        if !KeyboardTextView.debugType(words) { model.watcher.input.typed(WatchTyping(delete: 0, text: words)) }
                     } else if a.hasPrefix("mod@"), let m = WatchModifier(rawValue: String(a.dropFirst(4))) {
                         model.watcher.input.toggle(m)
                     } else if a.hasPrefix("key@") {

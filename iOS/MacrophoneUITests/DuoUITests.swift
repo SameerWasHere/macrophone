@@ -159,7 +159,7 @@ final class DuoUITests: XCTestCase {
         let split = inner.minX + inner.width / 2
         XCTAssertGreaterThan(trackpad.frame.minX, split - 2, "the trackpad is on the right page")
         XCTAssertGreaterThan(trackpad.frame.height, inner.height * 0.35, "and takes the most of it: \(trackpad.frame.height) of \(inner.height)")
-        XCTAssertGreaterThan(app.buttons["deck-return"].frame.minX, split - 2, "the keys are on the right page")
+        XCTAssertGreaterThan(app.buttons["deck-keyboard-button"].frame.minX, split - 2, "the keyboard is on the right page")
         XCTAssertGreaterThan(app.buttons["Start dictation"].frame.minX, split - 2, "and the mic")
         let answer = app.buttons["watch-answer-0"]
         XCTAssertTrue(answer.waitForExistence(timeout: 8))
@@ -209,7 +209,7 @@ final class DuoUITests: XCTestCase {
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
         XCTAssertTrue(trackpad.waitForExistence(timeout: 8), "in hand: the deck's trackpad is on the right page")
         XCTAssertGreaterThan(trackpad.frame.minX, split - 2)
-        XCTAssertGreaterThan(app.buttons["deck-return"].frame.minX, split - 2, "with the keys")
+        XCTAssertGreaterThan(app.buttons["deck-keyboard-button"].frame.minX, split - 2, "with the keyboard")
         shot("landscape")
     }
 }

@@ -19,7 +19,9 @@ import SwiftUI
 // pointer is always live; the keycaps press in the window shown; ⌘ ⌥ ⌃ ⇧ light up and go on the
 // next key or click; ⌨︎ brings the whole keyboard up over the deck (hide comes back here); the
 // Send to menu picks another app and shows its window, so the grid of places is only there when
-// no window is.
+// no window is. Since Nov 7 2026 the column leads with Keyboard (iOS's, the fast one) and Mac
+// Keys; the keycaps come out only with Mac Keys on (`keyboard.macKeys.inner`), the trackpad takes
+// their room otherwise, and while the keyboard is up the column steps away entirely.
 
 enum DeckLook {
     static let key: CGFloat = 46
@@ -36,7 +38,9 @@ struct DuoLaptopDeck: View {
     var vertical = true
     @ObservedObject private var watcher: Watcher
     @ObservedObject private var input: MacInput
+    @ObservedObject private var choice = KeyboardChoice.shared
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(main: MainView, vertical: Bool = true) {
         self.main = main
@@ -48,6 +52,13 @@ struct DuoLaptopDeck: View {
     var body: some View {
         column
         .padding(12)
+        // While the keyboard is up it is the deck: nothing of the column shows over it or beside it
+        // (no keycaps over keys that are already there, no sliver of trackpad). The field below
+        // stays — it holds the keyboard.
+        .opacity(typing ? 0 : 1)
+        .allowsHitTesting(!typing)
+        .accessibilityHidden(typing)
+        .animation(.easeOut(duration: 0.18), value: typing)
         // The field that takes the iOS keyboard when ⌨︎ is pressed (a clear point, never seen).
         .background(alignment: .topLeading) { KeyboardPage(input: input, watcher: watcher).frame(width: 1, height: 1) }
         // It arrives with the layout that holds it (the hand-over's fade), never on a beat of its
@@ -71,21 +82,62 @@ struct DuoLaptopDeck: View {
 
     // MARK: Layout
 
+    private var typing: Bool { input.page == .keyboard }
+    private var macKeys: Bool { choice.macKeys(on: .inner) }
+
     private var column: some View {
         VStack(spacing: 12) {
-            GeometryReader { g in
-                DeckKeys(input: input, watcher: watcher, width: min(64, (g.size.width - 3 * DeckLook.gap) / 4))
-                    .frame(width: g.size.width)
+            keyboardRow
+            if macKeys {
+                GeometryReader { g in
+                    DeckKeys(input: input, watcher: watcher, width: min(64, (g.size.width - 3 * DeckLook.gap) / 4))
+                        .frame(width: g.size.width)
+                }
+                .frame(height: 3 * DeckLook.keyHeight + 2 * DeckLook.gap)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            .frame(height: 4 * DeckLook.keyHeight + 3 * DeckLook.gap)
             pad
             HStack(spacing: 12) {
                 DeckSendTo(watcher: watcher).frame(maxWidth: .infinity, alignment: .leading)
-                // The one mic sits here (`MainView.innerMic`).
-                main.micSlot(size: 72, inHand: true)
+                // The one mic sits here (`MainView.innerMic`) — not while the keyboard is the deck.
+                main.micSlot(size: 72, inHand: true, visible: !typing)
             }
             StatusLine(recorder: main.recorder, holding: main.holding, font: .caption)
                 .frame(height: 20)
+        }
+    }
+
+    /// The way to type: the keyboard (iOS's, or the Mac's when Mac Keys is on), and Mac Keys — the
+    /// keycaps out on the deck, for a shortcut without a keyboard over the trackpad.
+    private var keyboardRow: some View {
+        HStack(spacing: 8) {
+            Button { input.show(.keyboard) } label: {
+                Label("Keyboard", systemImage: "keyboard")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(WatchCellStyle(height: 48))
+            .watchGlass(Capsule())
+            .disabled(!input.pages.contains(.keyboard))
+            .accessibilityHint("Brings up the keyboard to type into \(watcher.name).")
+            .accessibilityIdentifier("deck-keyboard-button")
+            Button {
+                withAnimation(reduceMotion ? nil : Motion.settle) { choice.toggle(on: .inner) }
+            } label: {
+                Image(systemName: "command")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(macKeys ? Light.cyan : .clear))
+                    .foregroundStyle(macKeys ? Ink.onTint : Ink.ink)
+            }
+            .buttonStyle(WatchCellStyle(width: 56, height: 48))
+            .watchGlass(Capsule())
+            .accessibilityLabel("Mac Keys")
+            .accessibilityValue(macKeys ? "on" : "off")
+            .accessibilityHint(macKeys ? "Puts the Mac's keys away." : "Shows esc, tab, the modifiers and the arrows on the deck.")
+            .accessibilityAddTraits(macKeys ? .isSelected : [])
+            .accessibilityIdentifier("deck-mac-keys")
         }
     }
 
@@ -107,11 +159,14 @@ struct DuoLaptopDeck: View {
 
 // MARK: The keys
 
-/// A MacBook's right hand: esc ⇥ ⌫ ⌨︎, the modifiers, return, fn and the inverted-T arrows.
+/// Mac Keys out on the deck, a MacBook's right hand: esc ⇥ ⌫ return, the modifiers in a Mac's
+/// order, fn and the inverted-T arrows.
 struct DeckKeys: View {
     @ObservedObject var input: MacInput
     @ObservedObject var watcher: Watcher
     var width: CGFloat
+
+    private static let order: [WatchModifier] = [.shift, .control, .option, .command]
 
     var body: some View {
         let g = DeckLook.gap, h = DeckLook.keyHeight
@@ -120,22 +175,14 @@ struct DeckKeys: View {
                 cap("esc", key: WatchKey("escape"), name: "Escape")
                 cap("⇥", key: WatchKey("tab"), name: "Tab")
                 cap(Image(systemName: "delete.left"), key: WatchKey("delete"), name: "Delete", repeats: true)
-                Button { input.show(.keyboard) } label: { Image(systemName: "keyboard") }
-                    .buttonStyle(KeycapStyle(width: width, tint: Light.cyan))
-                    .disabled(!input.pages.contains(.keyboard))
-                    .accessibilityLabel("Keyboard")
-                    .accessibilityHint("Brings up the keyboard to type into \(watcher.name).")
-                    .accessibilityIdentifier("deck-keyboard")
+                Button { input.press(WatchKey("return")) } label: { Image(systemName: "return") }
+                    .buttonStyle(KeycapStyle(width: width))
+                    .accessibilityLabel("Return")
+                    .accessibilityIdentifier("deck-return")
             }
             HStack(spacing: g) {
-                ForEach(WatchModifier.allCases, id: \.self) { m in modifier(m) }
+                ForEach(Self.order, id: \.self) { m in modifier(m) }
             }
-            Button { input.press(WatchKey("return")) } label: {
-                HStack(spacing: 8) { Text("return"); Image(systemName: "return") }
-            }
-            .buttonStyle(KeycapStyle(width: 4 * width + 3 * g))
-            .accessibilityLabel("Return")
-            .accessibilityIdentifier("deck-return")
             HStack(alignment: .bottom, spacing: g) {
                 DeckFnKey(input: input, width: width)
                 arrow("left", "arrowtriangle.left.fill", "Left arrow", height: h)
