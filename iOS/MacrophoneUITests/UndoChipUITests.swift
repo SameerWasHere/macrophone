@@ -74,7 +74,8 @@ final class UndoChipUITests: XCTestCase {
         let app = launch(actions: "pick@Claude,record,stoprecord,sheet@history", life: "12")
         let row = app.cells.firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 30))
-        let undo = app.buttons["history-undo"].firstMatch
+        // A swipe action's identifier doesn't always reach XCUITest: its title is the sure name.
+        let undo = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "history-undo", "Undo Paste")).firstMatch
         var offered = false
         for _ in 0..<12 where !offered {
             row.swipeRight()

@@ -1506,9 +1506,10 @@ extension MainView {
     /// the run loop animates from the card rather than from wherever the window last went.
     func watchFromCard() {
         let t = model.selection.target
-        guard t != .clipboard, model.isConnected, !model.isNotOpen(t) else { return }
+        guard t != .clipboard, model.looksConnected, !model.isNotOpen(t) else { return }
         windowFromCard = true
-        DispatchQueue.main.async { model.watcher.open(t) }
+        // Back from the background the link may only look up: it opens on the connect.
+        DispatchQueue.main.async { model.watchWhenConnected(t) }
     }
 
     /// The window grows out of where it was opened from and goes back into it (Nov 4 2026,
@@ -1749,7 +1750,9 @@ extension View {
             // The mic's frame is 1.25 × its disc; its ring sits 6 pt outside the disc. The pill's
             // foot is 18 pt clear of the ring at every size (hung a fixed 12 from the frame it
             // sat 14 over the 64 pt mic's ring and 17 over the 92's — Nov 7 2026).
-            if on { LandedPill(namespace: namespace).alignmentGuide(.top) { $0[.bottom] + 18 + 6 - size * 0.125 } }
+            // (An alignment guide here was ignored — the pill sat on the disc's top, its own frame's
+            // top at the mic's; the pill is a fixed 36 tall, so it's lifted by an offset instead.)
+            if on { LandedPill(namespace: namespace).offset(y: -(36 + 18 + 6 - size * 0.125)) }
         }
     }
 

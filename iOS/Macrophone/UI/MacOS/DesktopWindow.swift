@@ -69,7 +69,9 @@ struct DesktopWindowCard: View {
     private var key: String? { WindowSnapshots.key(mac: model.pairedMac?.id, target: target) }
     private var isDesktop: Bool { DesktopWatch.isDesktop(target) }
     private var notOpen: Bool { model.isNotOpen(target) }
-    private var canWatch: Bool { model.isConnected && !notOpen }
+    /// The looks hold through the return grace (`looksConnected`): back from the background the card
+    /// never flashes dim; a tap then opens on the connect (`watchWhenConnected`).
+    private var canWatch: Bool { model.looksConnected && !notOpen }
 
     private var name: String {
         if isDesktop { return "Whole Screen" }
@@ -127,7 +129,7 @@ struct DesktopWindowCard: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(spoken)
                 .accessibilityValue(needsWords ?? "")
-                .accessibilityHint(model.isConnected ? "Watch it live and control it from here." : "Waiting for your Mac to connect.")
+                .accessibilityHint(model.looksConnected ? "Watch it live and control it from here." : "Waiting for your Mac to connect.")
                 .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier("desktop-window")
             }
@@ -160,7 +162,7 @@ struct DesktopWindowCard: View {
     }
 
     private var needs: NeedsYou? {
-        guard model.isConnected, let live = model.liveTarget(for: target) else { return nil }
+        guard model.looksConnected, let live = model.liveTarget(for: target) else { return nil }
         return model.needs(live)
     }
 

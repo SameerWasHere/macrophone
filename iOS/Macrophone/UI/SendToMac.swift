@@ -83,7 +83,18 @@ struct AttachMenu: View {
     @Binding var pickingFile: Bool
 
     /// Anything to attach on this Mac (a Mac from before offers neither).
-    @MainActor static func available(_ model: AppModel) -> Bool { model.canAttach || model.canShareClipboard }
+    /// While the link only looks up (the return grace, `looksConnected`) it keeps what the Mac
+    /// offered last time (`bar.had.attach`), so the paperclip never pops out and back on a return;
+    /// a reconnect keeps it in its place too (the key row holds its layout, `Phase.holdsLayout`).
+    @MainActor static func available(_ model: AppModel) -> Bool {
+        let now = model.canAttach || model.canShareClipboard
+        let d = UserDefaults.standard
+        if model.isConnected {
+            if d.bool(forKey: "bar.had.attach") != now { d.set(now, forKey: "bar.had.attach") }
+            return now
+        }
+        return (model.looksConnected || model.reconnecting) && d.bool(forKey: "bar.had.attach")
+    }
 
     var body: some View {
         styled(Menu {

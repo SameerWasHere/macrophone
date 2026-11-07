@@ -27,7 +27,7 @@ focus should still be the mic." The plan and the token map are `docs/DESIGN.md`'
   menu extras: Whole Screen `display`, Control Center `switch.2`, History `clock`, Settings
   `gearshape`), the **last dictation as a desktop widget** (`LastDictationWidget`: Copy · Send
   Again · History), then in thumb reach **the Dock's options** (`DockOptions`: Send after pasting
-  as a real switch, Cleanup's menu, ⋯ = Refresh + the share items) and **the Dock** (`SendToDock`,
+  as a real switch, Cleanup's menu, ⋯ = Refresh + the share items **[superseded Nov 7 2026, round 2: `SendToggle` · Cleanup · the paperclip `AttachMenu`; Refresh is in Open an App]**) and **the Dock** (`SendToDock`,
   `UI/MacOS/Dock.swift`: the open apps with running dots, a divider, Clipboard and Where I'm
   typing, + = Open an App; the pick lifted with its name over it — `send-to`; tapped again =
   Watch, the eye badge; a long press = its windows; a finger scrubbing along it magnifies and
@@ -85,10 +85,10 @@ replaces are marked **superseded**); the sections below keep the mechanics and t
 
 | Feature | iPhone | Mac |
 | --- | --- | --- |
-| **Send to** (the shared choice, "Send to" everywhere — never "Send To") | The controls panel by the mic: `SEND TO` kicker, the pick's name, a row of app icons only (a long press lists an app's windows), **+** at the end = Open an App (the only way to open one that isn't open), **⋯** = Send a Photo… · Send a File… · Copy Mac's Clipboard · Send Clipboard to Mac · Refresh Open Apps. Settings › Send to is the full list. `UI/QuickControls.swift`, `UI/SendTo.swift`, `UI/SendToMac.swift` | The menu bar menu's Send to section (a check on the current, the first six apps, More Apps, Send after pasting as its own toggle); the `SendToCard` above every window pane; the first-run step. `UI/StatusItemController.swift`, `UI/Components/SendTo.swift` |
+| **Send to** (the shared choice, "Send to" everywhere — never "Send To") | The controls panel by the mic: `SEND TO` kicker, the pick's name, a row of app icons only (a long press lists an app's windows), **+** at the end = Open an App (the only way to open one that isn't open), **⋯** = Send a Photo… · Send a File… · Copy Mac's Clipboard · Send Clipboard to Mac · Refresh Open Apps **[superseded Nov 7 2026, round 2: one paperclip, `AttachMenu`; Refresh in Open an App]**. Settings › Send to is the full list. `UI/QuickControls.swift`, `UI/SendTo.swift`, `UI/SendToMac.swift` | The menu bar menu's Send to section (a check on the current, the first six apps, More Apps, Send after pasting as its own toggle); the `SendToCard` above every window pane; the first-run step. `UI/StatusItemController.swift`, `UI/Components/SendTo.swift` |
 | **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, tap twice = double-click, tap then hold-and-move = drag, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons; the **KEYBOARD · MIC · TRACKPAD** row above the Thread (Oct 19 2026 — the pages slide under it; the trackpad takes the Thread's room); **Mac Controls** beside Sound in the header (the carousel fixes). `UI/WatchPanel.swift`, `Model/Watcher.swift`, `UI/InputCarousel.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, drags, the pointer, typing, keys and trackpad-style scrolls (`InputService.swift`, `ScrollPoster.swift`); the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
 | **The header cluster** by Done: **zoom out** (`arrow.down.right.and.arrow.up.left`, the whole window and back), **Window** (`macwindow`) | One piece of glass; each only when the connected Mac names its feature. `UI/WatchReader.swift` is Text: your text size, selectable, Copy All, follows the newest line, asked every 2.5 s | Reader: a terminal's own text, else recognition over the column you type in (`WindowReader.swift`); `mpctl reader` |
-| **The Window menu** (in order of use) | Fit to iPhone · Text size on this iPhone (Normal · Larger · Largest, per app) · Size on your Mac (Fill the Screen `rectangle.inset.filled` · Left Half · Right Half · Middle · Back to How It Was) · Minimize · Close Window (asked first) · the photo / file / clipboard items (the same as Send to's ⋯, here because the panel is away) · Show Tips Again | `WindowFit.swift` resizes through Accessibility and restores on Done / Quit |
+| **The Window menu** (in order of use) | Fit to iPhone · Text size on this iPhone (Normal · Larger · Largest, per app) · Size on your Mac (Fill the Screen `rectangle.inset.filled` · Left Half · Right Half · Middle · Back to How It Was) · Minimize · Close Window (asked first) · the photo / file / clipboard items (the same as Send to's ⋯, here because the panel is away) **[superseded Nov 7 2026, round 2: gone — the paperclip leads the key row]** · Show Tips Again | `WindowFit.swift` resizes through Accessibility and restores on Done / Quit |
 | **First-use tips** (`UI/WatchTips.swift`) | Five at most, one card at a time over the window's top, each only when it works with this Mac: Tap to click / hold to right-click · Pinch to zoom, or Fit to iPhone · Swipe in from the side (two windows or more) · Pan or Scroll (auto-Scroll named)· More keys. `watch.tips.seen`; Window › Show Tips Again | — |
 | **Photos, files, the clipboard** (`Core/Share.swift`: features `attachments`, `clipboard`) | Send to's ⋯ and the Window menu — the same `MacShareItems`; a photo or file goes into the chat you send to (the watched window while one shows), the clipboard only when asked; the status line says where it landed | `Delivery/Attachments.swift` (kept a week in From iPhone; the image into a chat app, its path into a terminal), `ClipboardShare.swift` (a concealed copy never leaves) |
 | **Chats that answered you** (feature `needsYou`) | The ember dot on the app's icon in Send to, "Answered you" / "Asking you" by the pick's name, `circlebadge.fill` in the window menus, the mark on the widget; looking clears it | `Watch/ReplyWatcher.swift`: a window you sent to from the phone, answered by its hook agent or by its picture settling |
@@ -363,7 +363,7 @@ This section wins over the four passes above where they differ.
   `UITraitCollection.verticalBarEdge != .unspecified` (`VerticalBarProbe`, iOS 27.1), never by
   width (a `> 440` check never fired on hardware). At rest the bar holds Mac (`CoverMacItem`, the
   pill's tap) · History · Settings, then (`.bottomBar`, nearer the thumb) Whole Screen · Mac
-  Controls · ⋯ (Refresh, photo, file, clipboard); watching it holds Done (`visibilityPriority(.high)`,
+  Controls · ⋯ (Refresh, photo, file, clipboard) **[the ⋯ superseded Nov 7 2026, round 2: Attach by the cover's Dock]**; watching it holds Done (`visibilityPriority(.high)`,
   it never folds into the overflow) · Sound · Mac Controls · Pan|Scroll · zoom out · Window.
 - **Cover, at rest:** no Mac pill row while connected; Send to's name on one line, the places as a
   named grid (`QuickControls(cover:)`, three rows), Send after pasting and Cleanup on one row; the
@@ -615,7 +615,7 @@ Sameer picked three of the experience ideas.
   name, not the window's title — `Landing.chipWords`) rises from the mic for 2.2 s on a landing
   that succeeded; the status line stays quiet meanwhile. `AppModel.landedChip`.
 - **Undo** (MacrophoneKit `Core/UndoPaste.swift`, `Transport/UndoLink.swift`, feature `undo`):
-  for a paste that wasn't sent, from a Mac that names it, the pill carries Undo for 5 s →
+  for a paste that wasn't sent, from a Mac that names it, the pill carries Undo for 5 s **[superseded Nov 7 2026, round 2: 28 s, the `UndoChip` by the Thread, a shake, History]** →
   `.undoPaste(id)`; the Mac (`DeliveryEngine.undo`, Mac 1.1.4) undoes only its last paste, not
   sent, within 30 s (`UndoPaste.window`): the app (and window, `Paster.Result.pid`/`windowID`)
   brought forward, ⌘Z, History marked "Undone from the phone"; `.undoDone(UndoResult)` → the pill
@@ -730,7 +730,7 @@ MACROPHONE_WATCH_ACTIONS=show,fit@largest,done,show,close`, then launch flat por
   mic grew out of the corner as the laptop opened flat. Where the pose has no system bar (the
   laptop) the toolbars are hidden (`.toolbar(.hidden, for:)`), and `controlsInVerticalBar` follows
   `barUsed`. Flat upright keeps its items in the bar (Mac · History · Settings up top beside the
-  clock, Whole Screen · Mac Controls · ⋯ at the foot; Done and the window's clusters in hand), as
+  clock, Whole Screen · Mac Controls · ⋯ at the foot **[the ⋯ superseded Nov 7 2026, round 2: Attach is by the Dock]**; Done and the window's clusters in hand), as
   Sameer asked on Nov 1 — it's the system's own bar, nothing drawn over the window.
 - **The bar from the first frame on its side** (`barUsed`: on the inner screen the pose alone says
   there's a bar): opening the phone, the scene's first frames had no vertical-bar trait yet and the
@@ -1079,60 +1079,6 @@ needs only now and then; `ReplyWatcher`'s still threshold is 0.6%, which is why 
   (which state it shows), then an alert through iCloud with the app closed; **needs the installed
   Mac build:** a Terminal command finishing and a Claude reply with the window on watch.
 
-## Overnight polish, round 2: back without a hitch (Nov 7 2026)
-
-Round 2's "return-without-a-hitch" stream (Sameer: "the apps layout was jumping around and was not
-reliable"). Frames: `docs/screens/overnight-nov7/round-2/return-without-a-hitch/`.
-- **A return grace** (`AppModel`, "Back without a hitch"). The link is let go in the background
-  and made again on return (~400 ms on home Wi-Fi), and every return flashed "Reconnecting to
-  ‹Mac›…", a dimmed Whole Screen and Mac Controls, the eye badge gone from the pick, the pill's
-  light grey. Now `returning` is set the moment the app leaves with the link up (`holdLooks` in
-  `scenePhaseChanged(.background)` — the app switcher's snapshot and the first frame back show
-  the populated bar; the link's states while away change nothing on screen) and ends on the
-  connect or `returnGrace` (1.5 s) after the scene is active again; only then is a link still
-  down a reconnect (`beginReconnecting`, as a drop while here). `looksConnected` =
-  `isConnected || returning || (settling && connectedLastSession)` (`link.wasConnected`, written
-  on connect, cleared on not found / unpaired) is for **looks only**: the Dock's eye badge, needs
-  marks and window previews, the menu bar's extras (`PhoneMenuBar`), the cover bar's items and
-  `CoverMacItem`, the pill's light and glyph (`shownRoute` = the live route, else `lastRoute`),
-  the cover tiles, `DesktopTrouble`. The status line keeps the words it had on leaving (the
-  `.connected` branch also matches `returning`; never "Connecting…"). An action needing the link
-  waits: the eye / a tile tapped again calls `watchWhenConnected`, which keeps `waitingWatch`
-  and opens it on the connect (dropped only if the reconnect limit passes). A watched window:
-  `Watcher.sceneBecameActive(quietFor:)` sets `quietUntil`, and `WatchPanel`'s capsule waits
-  `capsuleWait` (the longer of `WatchReconnect.quietFor` and what's left of the grace) — the held
-  picture stays bare through it; a real drop while active (`beginReconnecting` clears
-  `quietUntil`) shows it after 0.5 s as before. Proven on an iPhone 17 Pro simulator against
-  `mpctl serve`, recorded (`simctl io recordVideo`, 4 fps tiles): before, "Reconnecting to…"
-  under the mic for ~1 s on every return; after, nothing — unless the link really takes longer
-  than the grace (this Mac, loaded with seven serves, took 2–8 s some runs: then the line comes
-  at 1.5 s and goes on the connect, the extras dim with it). Serve killed while away: the grace,
-  then "Reconnecting to ‹Mac›…"; serve back: connected.
-- **Settings' first frame, measured, not fixed.** `HITCH sheet@settings` on the Pro: 389 ms the
-  first open, 153–167 ms after (before); 395 / 154–165 (after). `sample` of the open: no app
-  code in the top frames — ~200 ms is `CABackingStoreUpdate_` waiting on the render server
-  (`CA::Render::Context::wait_for_synchronize`, the simulator's software renderer) and ~125 ms
-  SwiftUI laying out the Form's cells (`UICollectionView` list cells measured one by one,
-  `_UIHostingView.layoutSubviews`). What moved anyway: `refreshAvailability()` runs 0.6 s after
-  the sheet rises (`.task`), not in `onAppear`'s pass, and the Thread's display link pauses under
-  a sheet that covers the screen (`AppSheet.coversScreen` → `threadPaused`; `ThreadView.tick` was
-  36 of the main thread's samples while the sheet came up). Needs his phone (Release, a real
-  render server) before chasing it further; the under-100 ms target wasn't met here.
-- **The cover's sheets beside the vertical bar** (`InnerScreenSheet`'s cover branch, iOS 27.1,
-  `VerticalBarProbe.edge` / `.width`): the system already lays a sheet's content beside the
-  bar's column and vends its Done / × into the column (as the main screen's items), but the
-  sheet's white ran the full width under the clock and Wi-Fi. Now the sheet's ground is cleared
-  (`presentationBackground(.clear)`) and a card of the system's ground (grouped for Settings /
-  History, plain for the rest) is drawn beside the column with the sheet's top corners; Settings
-  hides the Form's own ground there (`scrollContentBackground(.hidden)`). Pairing's inline title
-  is a `.principal` item on the cover, so it reads centred as on every other iPhone. Tried and
-  dropped: padding the content itself by the bar's width — the NavigationStack inside still
-  reserves the column from its own bounds (the trait says the bar is there), so the form came out
-  230 pt wide. Inner-screen sheets and every other iPhone are untouched.
-- Hooks / scripts used: `MACROPHONE_HITCH=1 MACROPHONE_WATCH=rest MACROPHONE_WATCH_ACTIONS=
-  sheet@settings,sheet@none,…`; the return is `simctl launch com.apple.Preferences`, a wait, then
-  `simctl launch com.sameer.macrophone` under `recordVideo`.
-
 ## Overnight polish, round 1 (Nov 7 2026)
 
 Sameer, going to sleep: "make macrophone the best iPhone Mac controller period … polish and detail
@@ -1226,7 +1172,47 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   `HardwareKeyboardUITests.testAHardwareKeyboardTypesAndChordsOnTheMac`,
   `InputCarouselUITests.testClosingTheWindowBringsTheMainScreenBack`, `testMicButtonNeverMoves`.
 
-## Watch from the desktop (Nov 7 2026, overnight round 2)
+## Overnight polish, round 2 (Nov 7 2026)
+
+Round 2 of the overnight passes (Sameer's goal as in round 1). Emphasis: what's primary vs buried,
+and opening / returning without a hitch. Four streams, merged together; frames
+`docs/screens/overnight-nov7/round-2/<stream>/`. In one breath:
+- **Watch is one tap from the desktop:** the pick's window sits in the desktop's room as a small Mac
+  window (`DesktopWindowCard`, `desktop-window`) on the regular iPhone and the cover; the window
+  panel is built once and kept (`MainView.keepsPanel`), so Open grows it out of the card or the
+  Dock icon and Done shrinks it back; Pan | Scroll is decided at open (`Watcher.decideDragAhead`).
+- **Back from the background without the Reconnecting flash:** a return grace (`AppModel.returning`,
+  1.5 s, `looksConnected` for looks only; `watchWhenConnected` for a tap during it).
+- **Send after pasting is a labelled toggle** (`SendToggle`: "Paste only" / "Paste & Send") and
+  **attachments are one paperclip** (`AttachMenu`) by the Dock, leading the key row, or in the
+  inner deck's header; the Window menu, the cover bar's ⋯ and the Send to panel's ⋯ lost the share
+  items; Refresh Open Apps lives in Open an App.
+- **Undo lasts as long as the Mac can take it back** (28 s): the landed pill shrinks into an
+  `UndoChip` at the Thread's end; a shake asks; History offers Undo Paste.
+- **Integration (this merge):** the desktop card follows the return grace too — it never dims on a
+  return and its tap waits for the connect (`DesktopWindowCard.canWatch` = `looksConnected`,
+  `MainView.watchFromCard` → `watchWhenConnected`); the paperclip keeps its place through the grace
+  and a reconnect (`AttachMenu.available` remembers `bar.had.attach`, as the bar's `bar.had.*`) —
+  without it the app switcher's snapshot and the first frame back had no paperclip. The landed pill
+  sat on the mic's disc (its alignment guide was ignored — the builder's own frame shows it too);
+  `View.landedPill` lifts it by an offset now (36 + 18 + 6 − size × 0.125), and
+  `UndoChipUITests` pill → chip and the chip's Undo (`UNDO <id>` at serve) pass, with the shake
+  test, `DesktopWindowUITests` and `StabilityUITests`. Smoke-tested on
+  an iPhone 17 Pro and a Duo (cover, flat on its side, flat upright, the laptop, the book, closed
+  again) against `mpctl serve`: the card, open from rest, trackpad / keyboard / mic pages, typing
+  (`WATCH TYPE`), a click, Done back into the card; a return from Settings.app keeps the bar, the
+  pill and the paperclip (the cover too). (Two simulators can't pair with one `serve` here — give each its own
+  `--name` and `--state`.)
+- **Needs a real Duo / phone:** the first open after launch (244 ms on the simulator; warm the
+  header at launch next); the hidden panel kept at opacity 0.001 (battery); Settings' first frame
+  in Release (150–400 ms on the simulator, the render server); the cover sheets' card beside the
+  vertical bar; the shake alert; VoiceOver skipping the hidden desktop under an open window.
+  **Open:** `UndoChipUITests.testHistoryOffersUndoPasteOnlyWhileItCan` fails (three runs: no Undo
+  Paste in the row's leading swipe, by identifier or by title) — the History path is unproven; check
+  whether the landing reaches `rememberUndoable` while the History sheet is up, and whether the
+  first cell is the newest.
+
+### Watch from the desktop
 
 The room between the menu bar and the Dock was empty (the widget went Nov 1) and the only way to
 watch was the picked Dock icon's second tap. Frames: `docs/screens/overnight-nov7/round-2/watch-from-desktop/`.
@@ -1270,7 +1256,61 @@ watch was the picked Dock icon's second tap. Frames: `docs/screens/overnight-nov
   stand-in Mac a second time; the recording opened from the Dock); a card for a pick that isn't
   open wasn't shot. `DesktopWindowUITests` (a paired `mpctl serve`, Claude open).
 
-## Attach and Send after pasting, in plain sight (Nov 7 2026, overnight round 2)
+### Back without a hitch
+
+Round 2's "return-without-a-hitch" stream (Sameer: "the apps layout was jumping around and was not
+reliable"). Frames: `docs/screens/overnight-nov7/round-2/return-without-a-hitch/`.
+- **A return grace** (`AppModel`, "Back without a hitch"). The link is let go in the background
+  and made again on return (~400 ms on home Wi-Fi), and every return flashed "Reconnecting to
+  ‹Mac›…", a dimmed Whole Screen and Mac Controls, the eye badge gone from the pick, the pill's
+  light grey. Now `returning` is set the moment the app leaves with the link up (`holdLooks` in
+  `scenePhaseChanged(.background)` — the app switcher's snapshot and the first frame back show
+  the populated bar; the link's states while away change nothing on screen) and ends on the
+  connect or `returnGrace` (1.5 s) after the scene is active again; only then is a link still
+  down a reconnect (`beginReconnecting`, as a drop while here). `looksConnected` =
+  `isConnected || returning || (settling && connectedLastSession)` (`link.wasConnected`, written
+  on connect, cleared on not found / unpaired) is for **looks only**: the Dock's eye badge, needs
+  marks and window previews, the menu bar's extras (`PhoneMenuBar`), the cover bar's items and
+  `CoverMacItem`, the pill's light and glyph (`shownRoute` = the live route, else `lastRoute`),
+  the cover tiles, `DesktopTrouble`. The status line keeps the words it had on leaving (the
+  `.connected` branch also matches `returning`; never "Connecting…"). An action needing the link
+  waits: the eye / a tile tapped again calls `watchWhenConnected`, which keeps `waitingWatch`
+  and opens it on the connect (dropped only if the reconnect limit passes). A watched window:
+  `Watcher.sceneBecameActive(quietFor:)` sets `quietUntil`, and `WatchPanel`'s capsule waits
+  `capsuleWait` (the longer of `WatchReconnect.quietFor` and what's left of the grace) — the held
+  picture stays bare through it; a real drop while active (`beginReconnecting` clears
+  `quietUntil`) shows it after 0.5 s as before. Proven on an iPhone 17 Pro simulator against
+  `mpctl serve`, recorded (`simctl io recordVideo`, 4 fps tiles): before, "Reconnecting to…"
+  under the mic for ~1 s on every return; after, nothing — unless the link really takes longer
+  than the grace (this Mac, loaded with seven serves, took 2–8 s some runs: then the line comes
+  at 1.5 s and goes on the connect, the extras dim with it). Serve killed while away: the grace,
+  then "Reconnecting to ‹Mac›…"; serve back: connected.
+- **Settings' first frame, measured, not fixed.** `HITCH sheet@settings` on the Pro: 389 ms the
+  first open, 153–167 ms after (before); 395 / 154–165 (after). `sample` of the open: no app
+  code in the top frames — ~200 ms is `CABackingStoreUpdate_` waiting on the render server
+  (`CA::Render::Context::wait_for_synchronize`, the simulator's software renderer) and ~125 ms
+  SwiftUI laying out the Form's cells (`UICollectionView` list cells measured one by one,
+  `_UIHostingView.layoutSubviews`). What moved anyway: `refreshAvailability()` runs 0.6 s after
+  the sheet rises (`.task`), not in `onAppear`'s pass, and the Thread's display link pauses under
+  a sheet that covers the screen (`AppSheet.coversScreen` → `threadPaused`; `ThreadView.tick` was
+  36 of the main thread's samples while the sheet came up). Needs his phone (Release, a real
+  render server) before chasing it further; the under-100 ms target wasn't met here.
+- **The cover's sheets beside the vertical bar** (`InnerScreenSheet`'s cover branch, iOS 27.1,
+  `VerticalBarProbe.edge` / `.width`): the system already lays a sheet's content beside the
+  bar's column and vends its Done / × into the column (as the main screen's items), but the
+  sheet's white ran the full width under the clock and Wi-Fi. Now the sheet's ground is cleared
+  (`presentationBackground(.clear)`) and a card of the system's ground (grouped for Settings /
+  History, plain for the rest) is drawn beside the column with the sheet's top corners; Settings
+  hides the Form's own ground there (`scrollContentBackground(.hidden)`). Pairing's inline title
+  is a `.principal` item on the cover, so it reads centred as on every other iPhone. Tried and
+  dropped: padding the content itself by the bar's width — the NavigationStack inside still
+  reserves the column from its own bounds (the trait says the bar is there), so the form came out
+  230 pt wide. Inner-screen sheets and every other iPhone are untouched.
+- Hooks / scripts used: `MACROPHONE_HITCH=1 MACROPHONE_WATCH=rest MACROPHONE_WATCH_ACTIONS=
+  sheet@settings,sheet@none,…`; the return is `simctl launch com.apple.Preferences`, a wait, then
+  `simctl launch com.sameer.macrophone` under `recordVideo`.
+
+### Attach and Send after pasting, in plain sight
 
 Sameer: "doesn't have perspective on what should be easy to access vs buried in a menu". The two
 things a developer uses every dictation are now one obvious tap in every state. Wins over the map's
@@ -1314,7 +1354,7 @@ Frames: `docs/screens/overnight-nov7/round-2/attach-and-send-toggle/`.
   browser doesn't list the app's Documents, so the pick itself is the hook's. On a Duo simulator:
   the cover at rest and watching, the laptop's and the book's header.
 
-## Overnight polish, round 2: Undo you can reach (Nov 7 2026)
+### Undo you can reach
 
 Sameer's round-2 emphasis ("what's primary vs buried … Undo kept longer"): the Mac undoes its last
 paste for 30 s (`UndoPaste.window`), but the phone offered Undo on the landed pill for 5 s and the
@@ -1322,7 +1362,7 @@ pill hung over the mic's ring and bloom. Now, one path in AppModel (`undo(id:)`,
 `canUndo(_:)`; the chip, a shake and History all use it; it refuses after the window):
 - **The pill, then the chip.** The landed pill rises as before (2.2 s, `AppModel.pillHold`; its
   foot now 18 pt clear of the ring at every mic size — `landedPill(size:)`, the frame is 1.25 × the
-  disc and the ring 6 pt outside it). For a paste the Mac can take back (`LandedChip.canUndo`) it
+  disc and the ring 6 pt outside it). **[the guide was ignored; an offset since the merge — see round 2's integration note]** For a paste the Mac can take back (`LandedChip.canUndo`) it
   then shrinks into **`UndoChip`** (MainView.swift: `arrow.uturn.backward` + Undo on glass, 28 pt,
   `landed-undo-chip`) — a `matchedGeometryEffect` pair in `micSpace` (`LandedMatch`; Reduce
   Motion: a fade). The chip sits at the trailing end of the Thread's band, centred on it
