@@ -56,27 +56,29 @@ final class InputCarouselUITests: XCTestCase {
         sleep(1)
         let foot = windowFoot(app)
 
-        // Right to left beside the mic (its right, above the trackpad's button): the trackpad.
+        // Right to left beside the mic, from the trackpad's button (the mic's own ground — 70 pt
+        // either side of the middle — is the mic's): the trackpad. (XCUITest lists the hidden
+        // pages' elements too, so the page is told by the window giving it room.)
         let micFrame = mic.frame
-        let right = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: micFrame.maxX + 20, dy: micFrame.minY + 4))
-        right.press(forDuration: 0.05, thenDragTo: right.withOffset(CGVector(dx: -220, dy: 0)))
+        let right = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: micFrame.midX + 105, dy: micFrame.midY))
+        right.press(forDuration: 0.05, thenDragTo: right.withOffset(CGVector(dx: -200, dy: 0)))
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
-        XCTAssertTrue(trackpad.waitForExistence(timeout: 3), "a swipe right to left beside the mic shows the trackpad")
+        let shown = NSPredicate { _, _ in self.windowFoot(app) < foot - 60 }
+        expectation(for: shown, evaluatedWith: app)
+        waitForExpectations(timeout: 4)
+        XCTAssertTrue(trackpad.exists, "a swipe right to left beside the mic shows the trackpad")
         XCTAssertFalse(app.buttons["Stop and send"].exists, "the swipe never started a dictation")
-        XCTAssertTrue(app.buttons["trackpad-bar-close"].waitForExistence(timeout: 2), "the trackpad has its own row with a close")
+        XCTAssertTrue(app.buttons["trackpad-bar-close"].isHittable, "the trackpad has its own row with a close")
 
-        // Close: back to the mic, the window where it was. (The swipe in from the plate's left
-        // edge isn't reached by a synthetic drag with the bar under the plate — as on the cover.)
+        // Close: back to the mic, the window where it was.
         sleep(1)
         app.buttons["trackpad-bar-close"].tap()
-        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: mic)
-        waitForExpectations(timeout: 3)
-        sleep(1)
+        sleep(2)
         XCTAssertEqual(windowFoot(app), foot, accuracy: 0.5, "the window is back exactly where it was")
 
-        // Left to right, beside the mic (its left): the keyboard rises.
-        let left = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: micFrame.minX - 20, dy: micFrame.minY + 4))
-        left.press(forDuration: 0.05, thenDragTo: left.withOffset(CGVector(dx: 220, dy: 0)))
+        // Left to right, beside the mic (from the keyboard's button): the keyboard rises.
+        let left = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: micFrame.midX - 105, dy: micFrame.midY))
+        left.press(forDuration: 0.05, thenDragTo: left.withOffset(CGVector(dx: 200, dy: 0)))
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "the iOS keyboard comes up")
         // iOS's own first-time keyboard tip, if it's there.
         let cont = app.buttons["Continue"]

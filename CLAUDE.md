@@ -1788,9 +1788,12 @@ wallpaper. Now the regular iPhone does what the Duo's cover does (`MainView.rowW
 - Tests: `InputCarouselUITests` (no row; a swipe beside the mic to the trackpad and the keyboard;
   the buttons as every way in and out — trackpad drag, close, keyboard typing, hide — with the
   window's foot ±0.5 pt after each), `AccessibilityTreeUITests` taps the buttons.
-- Left: the swipe in from the trackpad plate's left edge isn't reached by XCUITest's synthetic
-  drag with the bar under the plate (as on the cover) — close is the way back; the answers row
-  under the window still blinks out for a moment as the keyboard goes (WatchActions, round 1).
+- A swipe has to start off the mic's own ground (70 pt either side of the middle — `onMic`), so
+  with no Thread it starts on the keyboard's or the trackpad's button. XCUITest lists the hidden
+  pages' elements (`input-trackpad`, `trackpad-bar-close`) on the mic page too: tests tell the
+  page by the window's foot, not by existence.
+- Left: the answers row under the window blinks out for a moment as the keyboard goes
+  (WatchActions, round 1); the plate's left-edge swipe back wasn't re-proven (close is the way).
 
 ## The ten polish ideas (Nov 5 2026)
 
