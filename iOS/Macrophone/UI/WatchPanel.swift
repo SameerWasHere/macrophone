@@ -334,6 +334,11 @@ struct WatchHeaderBar: View {
             }
             .watchGlass(Capsule())
         }
+        // Alert Me: a bell you tap to toggle (Nov 6 2026, Sameer: "move the bell icon on the
+        // main page … simple toggle on and off"). Off by default; the gold bell says it's on.
+        if let t = watcher.target, model.canAlert, case .app = t, !DesktopWatch.isDesktop(t) {
+            WatchAlertToggle(watcher: watcher)
+        }
         if dragSwitch, watcher.phase.holdsLayout {
             WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize().disabled(watcher.phase != .live)
         }
@@ -504,6 +509,44 @@ struct WatchCellUnlessBar: ViewModifier {
 
     func body(content: Content) -> some View {
         if bar { content } else { content.buttonStyle(WatchCellStyle(width: width, height: WatchLook.header, tint: tint)) }
+    }
+}
+
+/// A bell that toggles the alert watch for the current window (Nov 6 2026). One tap turns it on
+/// (gold bell), another turns it off. Off by default. The icon sits in the header's cluster row
+/// so it's always in reach while a window shows.
+struct WatchAlertToggle: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var watcher: Watcher
+
+    private var isOn: Bool {
+        guard let t = watcher.target else { return false }
+        return model.alertWatch(for: t) != nil
+    }
+
+    private var watch: AlertWatch? {
+        guard let t = watcher.target else { return nil }
+        return model.alertWatch(for: t)
+    }
+
+    var body: some View {
+        Button {
+            guard let t = watcher.target else { return }
+            model.toggleAlertWatch(t)
+        } label: {
+            Image(systemName: isOn ? "bell.fill" : "bell")
+                .font(.subheadline.weight(.semibold))
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(WatchCellStyle(width: 42, height: WatchLook.header, tint: isOn ? Light.gold : Ink.ink))
+        .watchGlass(Capsule())
+        .fixedSize()
+        .accessibilityLabel(isOn ? "Alerts on" : "Alerts off")
+        .accessibilityHint(isOn
+            ? (watch?.calm == true ? "Only when it stops changing for a while. Tap to stop." : "You'll hear when \(watcher.name) changes. Tap to stop.")
+            : "Tap to get a notification when \(watcher.name) changes.")
+        .accessibilityIdentifier(isOn ? "watch-alert-on" : "watch-alert-off")
+        .animation(Motion.snap, value: isOn)
     }
 }
 

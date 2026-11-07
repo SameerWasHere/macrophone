@@ -609,6 +609,15 @@ struct MainView: View {
                         .disabled(!model.canMacControls)
                         .accessibilityIdentifier("mac-controls")
                 }
+                if let t = watcher.target, model.canAlert, case .app = t, !DesktopWatch.isDesktop(t) {
+                    let on = model.alertWatch(for: t) != nil
+                    Button { model.toggleAlertWatch(t) } label: {
+                        Label(on ? "Alerts On" : "Alerts Off", systemImage: on ? "bell.fill" : "bell")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .tint(on ? Light.gold : nil)
+                    .accessibilityIdentifier(on ? "watch-alert-on" : "watch-alert-off")
+                }
                 if watcher.phase.holdsLayout {
                     Button { watcher.setDrag(watcher.drag == .pan ? .scroll : .pan) } label: {
                         Label(watcher.drag == .pan ? "Pan" : "Scroll", systemImage: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down")
