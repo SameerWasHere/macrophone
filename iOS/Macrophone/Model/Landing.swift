@@ -62,8 +62,9 @@ struct Landing: Equatable {
         case .sent:
             s = "In \(name) — sent"
         case .pasted:
-            // The Mac's line says more when there's more ("Pasted into Claude — still in the message box").
-            s = macLine.hasPrefix("Pasted into") ? macLine : "Pasted into \(name)"
+            // The Mac's line says more when there's more ("Pasted into Claude — still in the message box");
+            // "Undone from the phone" once it was taken back.
+            s = macLine.hasPrefix("Pasted into") || macLine.hasPrefix("Undone") ? macLine : "Pasted into \(name)"
         case .copied where toClipboard:
             s = "On your Mac's clipboard"
         case .copied:
@@ -98,7 +99,7 @@ struct Landing: Equatable {
     var chip: String {
         switch result {
         case .sent: return "Sent to \(name)"
-        case .pasted: return macLine.hasPrefix("Pasted into") ? macLine : "Pasted into \(name)"
+        case .pasted: return macLine.hasPrefix("Pasted into") || macLine.hasPrefix("Undone") ? macLine : "Pasted into \(name)"
         case .copied where toClipboard: return "On your Mac's clipboard"
         case .copied: return "Didn't land: \(macLine.isEmpty ? "copied instead" : macLine)"
         case .cancelled: return "Didn't land: cancelled on your Mac"

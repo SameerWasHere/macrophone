@@ -412,7 +412,10 @@ struct MainView: View {
                                 // frame it rode up over the disc and both buttons — Nov 4 2026).
                                 .opacity(model.landedChip == nil ? 1 : 0)
                                 .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
-                                .overlay { LandedPill() }
+                                .overlay { LandedPill(namespace: micSpace) }
+                                // And the Undo chip after it, in the same quiet place: under the
+                                // mic row, never over the window above (Nov 7 2026).
+                                .overlay { UndoChip(namespace: micSpace) }
                         } else {
                             Group {
                                 if tightInner {
@@ -507,7 +510,7 @@ struct MainView: View {
             .matchedGeometryEffect(id: micID, in: micSpace)
             // (The cover: the pill is the status line's, under the mic — above it are the window's
             // answers, or the Thread. Nov 4 2026.)
-            .landedPill(on: !isCover)
+            .landedPill(on: !isCover, size: size, namespace: micSpace)
     }
 
     /// The mic button itself, wherever a layout puts it.
@@ -771,6 +774,9 @@ struct MainView: View {
         }
         .frame(height: filamentSlot)
         .padding(.horizontal, -4)
+        // Undo, for as long as the Mac can: at the band's trailing end, centred on the Thread,
+        // where the mic's bloom never reaches (Nov 7 2026).
+        .undoChip(namespace: micSpace)
     }
 
     // MARK: While the mic is open: the transcript takes the whole area
@@ -1505,13 +1511,17 @@ private struct FootOnly: Shape {
 struct LandedPill: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Shared with the Undo chip it shrinks into (`UndoChip`), when one is drawn on this screen.
+    var namespace: Namespace.ID? = nil
 
     var body: some View {
         ZStack {
-            if let c = model.landedChip {
+            if let c = model.landedChip, !c.compact {
                 pill(c)
+                    .modifier(LandedMatch(namespace: reduceMotion ? nil : namespace))
+                    // Going as the chip arrives it follows the chip's frame (the matched geometry).
                     .transition(reduceMotion ? .opacity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 14)).combined(with: .scale(scale: 0.92, anchor: .bottom)),
-                                                                     removal: .opacity.combined(with: .offset(y: -6))))
+                                                                     removal: .opacity))
             }
         }
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.38, dampingFraction: 0.82), value: model.landedChip)
@@ -1525,7 +1535,7 @@ struct LandedPill: View {
                 ProgressView().controlSize(.small)
             } else if c.canUndo {
                 Rectangle().fill(Ink.line).frame(width: 1, height: 16)
-                Button { model.undoLanded() } label: { Text("Undo").font(.footnote.weight(.semibold)) }
+                Button { model.undo(id: c.id) } label: { Text("Undo").font(.footnote.weight(.semibold)) }
                     .tint(Light.cyan)
                     .accessibilityHint("Takes the paste back on your Mac.")
                     .accessibilityIdentifier("landed-undo")
@@ -1537,6 +1547,66 @@ struct LandedPill: View {
         .fixedSize()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("landed-pill")
+    }
+}
+
+/// The pill's and the chip's shared geometry: as the pill's moment ends it shrinks into the
+/// chip's place (one leaves as the other arrives, as SwiftUI's own hero pairs do).
+private struct LandedMatch: ViewModifier {
+    var namespace: Namespace.ID?
+    func body(content: Content) -> some View {
+        if let namespace {
+            content.matchedGeometryEffect(id: "landed", in: namespace, properties: .frame)
+        } else {
+            content
+        }
+    }
+}
+
+/// Undo, for as long as the Mac can take the paste back (Nov 7 2026, round 2: "Undo kept
+/// longer"): once the landed pill has had its moment it shrinks into this small glass chip —
+/// `arrow.uturn.backward` + Undo — at the trailing end of the Thread's band, clear of the mic's
+/// ring and bloom, never moving the mic, the Thread or the status line. It stays until a breath
+/// under the Mac's own 30 s (`AppModel.undoLife`), the next dictation, the next landing, or
+/// Undo; it fades a little for its last seconds. A shake asks the same question (`ShakeToUndo`).
+struct UndoChip: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var namespace: Namespace.ID? = nil
+
+    var body: some View {
+        ZStack {
+            if let c = model.landedChip, c.compact, c.canUndo {
+                chip(c)
+                    .modifier(LandedMatch(namespace: reduceMotion ? nil : namespace))
+                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
+            }
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.42, dampingFraction: 0.84), value: model.landedChip)
+    }
+
+    private func chip(_ c: AppModel.LandedChip) -> some View {
+        Button { model.undo(id: c.id) } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.caption.weight(.bold))
+                Text("Undo")
+                    .font(.footnote.weight(.semibold))
+            }
+            .foregroundStyle(Light.cyan)
+            .padding(.horizontal, 11)
+            .frame(height: 28)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .watchGlass(Capsule())
+        .fixedSize()
+        .opacity(c.fading ? 0.55 : 1)
+        .animation(.easeInOut(duration: 0.8), value: c.fading)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .accessibilityLabel("Undo paste into \(model.undoable?.appName ?? "your Mac")")
+        .accessibilityHint("Takes the paste back on your Mac.")
+        .accessibilityIdentifier("landed-undo-chip")
     }
 }
 
@@ -1577,9 +1647,19 @@ private struct LandedGlyph: View {
 extension View {
     /// The landed pill floats just above this (the mic), never moving it. (Off: it's drawn
     /// elsewhere — the cover's status line while a window shows.)
-    func landedPill(on: Bool = true) -> some View {
+    func landedPill(on: Bool = true, size: CGFloat = 92, namespace: Namespace.ID? = nil) -> some View {
         overlay(alignment: .top) {
-            if on { LandedPill().alignmentGuide(.top) { $0[.bottom] + 12 } }
+            // The mic's frame is 1.25 × its disc; its ring sits 6 pt outside the disc. The pill's
+            // foot is 18 pt clear of the ring at every size (hung a fixed 12 from the frame it
+            // sat 14 over the 64 pt mic's ring and 17 over the 92's — Nov 7 2026).
+            if on { LandedPill(namespace: namespace).alignmentGuide(.top) { $0[.bottom] + 18 + 6 - size * 0.125 } }
+        }
+    }
+
+    /// The Undo chip at the trailing end of this (the Thread's band), centred on it.
+    func undoChip(on: Bool = true, namespace: Namespace.ID? = nil) -> some View {
+        overlay(alignment: .trailing) {
+            if on { UndoChip(namespace: namespace).padding(.trailing, 4) }
         }
     }
 }

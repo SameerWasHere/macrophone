@@ -389,7 +389,7 @@ struct InnerMic: View {
             main.micCore(size: MainView.innerMicBase)
                 .scaleEffect(size / MainView.innerMicBase)
                 .frame(width: size * 1.3, height: size * 1.25)
-                .landedPill()
+                .landedPill(size: size, namespace: main.micSpace)
                 .position(x: r.midX, y: r.midY)
                 .animation(glide ? Motion.pick(Motion.settle, reduce: main.reduceMotion) : nil, value: r)
                 .onChange(of: r, initial: true) { _, v in placed = v }
@@ -614,6 +614,12 @@ struct FloatingMic<Exit: View>: View {
             .scaleEffect(dragging ? 1.06 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: dragging)
             .position(centre)
+            // Undo, while the Mac can take the paste back: just above the lip, with the mic
+            // wherever he left it — the exit sits beside the disc, so the two never meet.
+            if !dragging {
+                UndoChip()
+                    .position(x: centre.x, y: max(centre.y - 37 - 8 - 14, 22))
+            }
             if exitShown, !dragging {
                 exit()
                     .position(x: disc.x + (towardsLeft ? -gap : gap), y: disc.y)
@@ -1181,7 +1187,7 @@ private extension View {
 /// them all; this narrows it). The hinge decides first: UIKit asks while the phone is opening,
 /// with the window still on the cover, and "upright only" then kept the app upright and boxed on
 /// the open screen (Nov 1 2026).
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         if Posture.shared.hingeOpen { return .all }
         guard let screen = window?.windowScene?.screen ?? window?.screen else { return .portrait }

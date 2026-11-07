@@ -174,7 +174,14 @@ struct HistoryView: View {
                                 }
                             }
                         }
-                        .swipeActions(edge: .leading) {
+                        // The Mac's last paste, while it can still take it back: Undo Paste first
+                        // (a full swipe never undoes by accident — Nov 7 2026).
+                        .swipeActions(edge: .leading, allowsFullSwipe: !model.canUndo(item.id)) {
+                            if model.canUndo(item.id) {
+                                Button { model.undo(id: item.id) } label: { Label("Undo Paste", systemImage: "arrow.uturn.backward") }
+                                    .tint(Light.ember)
+                                    .accessibilityIdentifier("history-undo")
+                            }
                             Button { model.resend(item); Haptics.press() } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
                                 .tint(Light.cyan)
                         }
@@ -186,6 +193,9 @@ struct HistoryView: View {
                                 .tint(Color(uiColor: .systemGray))
                         }
                         .contextMenu {
+                            if model.canUndo(item.id) {
+                                Button { model.undo(id: item.id) } label: { Label("Undo Paste", systemImage: "arrow.uturn.backward") }
+                            }
                             Button { model.copy(item, cleaned: true) } label: { Label("Copy", systemImage: "doc.on.doc") }
                             if item.hasCleaned {
                                 Button { model.copy(item, cleaned: false) } label: { Label("Copy Raw", systemImage: "text.quote") }
@@ -240,6 +250,7 @@ enum HistoryMark {
     static func of(_ item: HistoryItem) -> (symbol: String, color: Color) {
         switch item.delivery {
         case .delivered:
+            if item.wasUndone { return ("arrow.uturn.backward.circle.fill", Ink.secondary) }
             if let l = item.landed, !l.isSuccess {
                 return l.copiedInstead ? ("doc.on.clipboard.fill", Light.ochre) : ("exclamationmark.circle.fill", Light.rose)
             }
@@ -493,6 +504,11 @@ struct HistoryPage: View {
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                         .contentTransition(.symbolEffect(.replace))
+                }
+                if model.canUndo(item.id) {
+                    Button { model.undo(id: item.id) } label: { Label("Undo Paste", systemImage: "arrow.uturn.backward") }
+                        .accessibilityHint("Takes the paste back on your Mac.")
+                        .accessibilityIdentifier("history-page-undo")
                 }
                 Button { model.resend(item); Haptics.press() } label: { Label("Send Again", systemImage: "arrow.uturn.right") }
                     .accessibilityHint("Sends it to your Mac again. Your Mac ignores it if it already has it.")
