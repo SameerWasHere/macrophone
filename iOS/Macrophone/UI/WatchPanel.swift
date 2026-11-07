@@ -195,7 +195,7 @@ struct WatchHeaderBar: View {
     var body: some View {
         if nameOnly || inBar {
             HStack(spacing: 10) {
-                name
+                nameDotsIfRoom
                 fullScreenButton
                 if let middle, !nameOnly {
                     middle.frame(maxWidth: .infinity, alignment: .leading)
@@ -207,30 +207,56 @@ struct WatchHeaderBar: View {
         } else if twoRows {
             VStack(spacing: 6) {
                 HStack(spacing: 10) {
-                    name
+                    nameDotsIfRoom
                     fullScreenButton
                     Spacer(minLength: 8)
                     done
                 }
                 HStack(spacing: 10) {
-                    clusters
+                    clusters()
                     Spacer(minLength: 0)
                 }
             }
-        } else {
+        } else if let middle {
             HStack(spacing: narrow ? 6 : 10) {
-                name
+                name()
                 fullScreenButton
-                if let middle {
-                    middle.frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Spacer(minLength: narrow ? 4 : 8)
-                }
-                clusters
+                middle.frame(maxWidth: .infinity, alignment: .leading)
+                clusters()
                 done
             }
             .frame(minHeight: WatchLook.header)
             .onGeometryChange(for: Bool.self) { $0.size.width < 380 } action: { narrow = $0 }
+        } else {
+            // Title first, as a Mac's window and an iOS bar put it (Nov 7 2026, Sameer: the app
+            // read "C…" beside four pieces of glass): the row that fits, giving way in order —
+            // the page dots, then "Paused ·" before the name, then zoom out (into the Window
+            // menu). The app's own name always reads whole; only a row narrower than any phone
+            // lets it shrink.
+            ViewThatFits(in: .horizontal) {
+                row(.full)
+                row(.noDots)
+                row(.nameAlone)
+                row(.zoomInMenu)
+                row(.squeezed)
+            }
+            .frame(minHeight: WatchLook.header)
+            .onGeometryChange(for: Bool.self) { $0.size.width < 380 } action: { narrow = $0 }
+        }
+    }
+
+    /// How much the one row keeps, from all of it to the least.
+    private enum Fit { case full, noDots, nameAlone, zoomInMenu, squeezed }
+
+    private func row(_ fit: Fit) -> some View {
+        // 8 between the pieces of glass (10 had a Pro's row 3 pt short of keeping zoom out).
+        HStack(spacing: narrow ? 6 : 8) {
+            name(dots: fit == .full, words: fit == .full || fit == .noDots)
+                .fixedSize(horizontal: fit != .squeezed, vertical: false)
+            fullScreenButton
+            Spacer(minLength: narrow ? 2 : 4)
+            clusters(zoomInMenu: fit == .zoomInMenu || fit == .squeezed)
+            done
         }
     }
 
@@ -264,7 +290,7 @@ struct WatchHeaderBar: View {
         }
     }
 
-    private var sessionMenu: some View {
+    private func sessionMenu(words: Bool) -> some View {
         Menu {
             // The whole screen first: for a pop-up that isn't in any one window.
             if watcher.canWatchDesktop {
@@ -292,7 +318,7 @@ struct WatchHeaderBar: View {
             }
         } label: {
             HStack(spacing: 6) {
-                WatchKicker(watcher: watcher)
+                WatchKicker(watcher: watcher, nameOnly: !words)
                 Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
             }
             .frame(minHeight: WatchLook.header)
@@ -303,23 +329,44 @@ struct WatchHeaderBar: View {
         .accessibilityIdentifier("watch-sessions")
     }
 
-    /// The name keeps its room; the page dots step aside when the controls need it.
-    @ViewBuilder private var name: some View {
-        if sessions.count > 1 || watcher.canWatchDesktop || !model.everyWindow.isEmpty {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    sessionMenu
-                    if sessions.count <= 8, let i = current { WatchPageDots(count: sessions.count, current: i) }
-                }
-                sessionMenu
+    /// The window's name (a menu of the Mac's windows when there are others), the bell when it's
+    /// on watch for changes, and the page dots. `words`: "Paused · Claude" rather than "Claude".
+    @ViewBuilder private func name(dots: Bool = true, words: Bool = true) -> some View {
+        HStack(spacing: 8) {
+            if sessions.count > 1 || watcher.canWatchDesktop || !model.everyWindow.isEmpty {
+                sessionMenu(words: words)
+            } else {
+                WatchKicker(watcher: watcher, nameOnly: !words)
             }
-            .layoutPriority(1)
-        } else {
-            WatchKicker(watcher: watcher).layoutPriority(1)
+            if alertOn, !inBar { WatchAlertBadge() }
+            if dots, sessions.count > 1, sessions.count <= 8, let i = current {
+                WatchPageDots(count: sessions.count, current: i)
+            }
         }
+        .layoutPriority(1)
+        .animation(Motion.snap, value: alertOn)
     }
 
-    @ViewBuilder private var clusters: some View {
+    /// The name with the page dots when they fit beside it, else without (the controls are in the
+    /// vertical bar or on a row of their own).
+    private var nameDotsIfRoom: some View {
+        ViewThatFits(in: .horizontal) {
+            name().fixedSize(horizontal: true, vertical: false)
+            name(dots: false)
+        }
+        .layoutPriority(1)
+    }
+
+    /// This window is on watch for changes (the Window menu's Alert Me). The vertical bar, where
+    /// there is one, shows its own bell.
+    private var alertOn: Bool {
+        guard let t = watcher.target else { return false }
+        return model.alertWatch(for: t) != nil
+    }
+
+    /// The clusters by Done. `zoomInMenu`: zoom out is the Window menu's first item instead of a
+    /// cell of its own (a row too narrow for the name otherwise).
+    @ViewBuilder private func clusters(zoomInMenu: Bool = false) -> some View {
         // The Mac's sound here, and its volume, brightness and media keys (Oct 19 2026,
         // Sameer: "Mac controls should be its own button rather than hidden in a sub menu"
         // — one tap from any window, on every page): one piece of glass.
@@ -334,21 +381,19 @@ struct WatchHeaderBar: View {
             }
             .watchGlass(Capsule())
         }
-        // Alert Me: a bell you tap to toggle (Nov 6 2026, Sameer: "move the bell icon on the
-        // main page … simple toggle on and off"). Off by default; the gold bell says it's on.
-        if let t = watcher.target, model.canAlert, case .app = t, !DesktopWatch.isDesktop(t) {
-            WatchAlertToggle(watcher: watcher)
-        }
+        // Alert Me is the Window menu's first item, and the gold bell by the name says it's on
+        // (Nov 7 2026: a bell of its own here cost the name its room — "C…").
         if dragSwitch, watcher.phase.holdsLayout {
             WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize().disabled(watcher.phase != .live)
         }
         if watcher.macCanFit, watcher.target != .clipboard {
+            // The whole screen has no window to size, minimize or close: zoom out stays its cell.
+            let folded = zoomInMenu && !watcher.isDesktop
             HStack(spacing: 0) {
-                WatchWholeButton(watcher: watcher)
-                // The whole screen has no window to size, minimize or close.
+                if !folded { WatchWholeButton(watcher: watcher) }
                 if !watcher.isDesktop {
-                    WatchCellDivider()
-                    WatchWindowMenu(watcher: watcher)
+                    if !folded { WatchCellDivider() }
+                    WatchWindowMenu(watcher: watcher, zoomItem: folded)
                 }
             }
             .watchGlass(Capsule())
@@ -436,6 +481,8 @@ struct WatchWindowMenu: View {
     @ObservedObject var watcher: Watcher
     /// A toolbar item (the Duo cover's vertical bar): the system draws it, not a glass cell.
     var bar = false
+    /// Zoom out lives here (a header too narrow for its own cell beside the window's name).
+    var zoomItem = false
     @State private var confirmClose = false
     @State private var pickingPhoto = false
     @State private var pickingFile = false
@@ -445,6 +492,15 @@ struct WatchWindowMenu: View {
             // Alerts first: the reason to walk away from a window is knowing when it needs you.
             if let t = watcher.target {
                 Section { AlertWatchButton(ref: t) }
+            }
+            if zoomItem {
+                Section {
+                    Button { watcher.toggleWholeWindow() } label: {
+                        Label(watcher.wholeWindow ? "Zoom Back In" : "Show the Whole Window",
+                              systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                    }
+                    .accessibilityIdentifier("watch-whole")
+                }
             }
             if watcher.canFitToPhone {
                 Section {
@@ -512,47 +568,25 @@ struct WatchCellUnlessBar: ViewModifier {
     }
 }
 
-/// A bell that toggles the alert watch for the current window (Nov 6 2026). One tap turns it on
-/// (gold bell), another turns it off. Off by default. The icon sits in the header's cluster row
-/// so it's always in reach while a window shows.
-struct WatchAlertToggle: View {
-    @EnvironmentObject var model: AppModel
-    @ObservedObject var watcher: Watcher
-
-    private var isOn: Bool {
-        guard let t = watcher.target else { return false }
-        return model.alertWatch(for: t) != nil
-    }
-
-    private var watch: AlertWatch? {
-        guard let t = watcher.target else { return nil }
-        return model.alertWatch(for: t)
-    }
-
+/// The gold bell beside the window's name while it's on watch for changes: a word, not a control
+/// (the Window menu's first item turns it on and off).
+struct WatchAlertBadge: View {
     var body: some View {
-        Button {
-            guard let t = watcher.target else { return }
-            model.toggleAlertWatch(t)
-        } label: {
-            Image(systemName: isOn ? "bell.fill" : "bell")
-                .font(.subheadline.weight(.semibold))
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(WatchCellStyle(width: 42, height: WatchLook.header, tint: isOn ? Light.gold : Ink.ink))
-        .watchGlass(Capsule())
-        .fixedSize()
-        .accessibilityLabel(isOn ? "Alerts on" : "Alerts off")
-        .accessibilityHint(isOn
-            ? (watch?.calm == true ? "Only when it stops changing for a while. Tap to stop." : "You'll hear when \(watcher.name) changes. Tap to stop.")
-            : "Tap to get a notification when \(watcher.name) changes.")
-        .accessibilityIdentifier(isOn ? "watch-alert-on" : "watch-alert-off")
-        .animation(Motion.snap, value: isOn)
+        Image(systemName: "bell.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Light.gold)
+            .transition(.scale(scale: 0.6).combined(with: .opacity))
+            .accessibilityLabel("Alerts on")
+            .accessibilityHint("You'll get a notification when this window changes. Turn it off in the Window menu.")
+            .accessibilityIdentifier("watch-alert-on")
     }
 }
 
 /// "● CLAUDE" (the dot breathing cyan says live), "PAUSED · CLAUDE", "MAC NOT CONNECTED".
 struct WatchKicker: View {
     @ObservedObject var watcher: Watcher
+    /// The app's name without "Paused ·" or "Opening" (a header with no room for them).
+    var nameOnly = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -565,7 +599,7 @@ struct WatchKicker: View {
                 .accessibilityHidden(true)
             // Whole words or fewer of them, never cut: "PAUSED · CLAUDE", then "CLAUDE".
             ViewThatFits(in: .horizontal) {
-                label(words)
+                label(nameOnly && watcher.phase != .offline ? watcher.name : words)
                 label(watcher.name)
                 label(watcher.name, fits: false).minimumScaleFactor(0.6)
             }
@@ -713,6 +747,8 @@ struct WatchWindow: View {
                              viewKey: interactive ? watcher.viewKey : nil,
                              pointer: interactive && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
                              canDrag: interactive && watcher.canMouse, keyboardUp: input.page == .keyboard || input.keysUp,
+                             answersUp: watcher.answers != nil,
+                             onLog: interactive ? { [weak watcher] in watcher?.log?.add($0) } : nil,
                              onTouch: { watcher.touch() },
                              onTap: { watcher.click($0, count: $1) }, onRightClick: { watcher.rightClick($0) },
                              onHold: interactive ? onHold : nil,
@@ -1162,27 +1198,33 @@ struct WatchStrip: View {
 /// that allow the user to navigate very quickly or confirm things very quickly") — and Pan | Scroll,
 /// all on one row under the thumb (Oct 16 2026). The keys are cells of one cluster. While the
 /// window asks a question, its answers take the keys' place ("the buttons should replace the
-/// default up, down, return, esc buttons"), with Esc and Keys kept small beside the switch.
+/// default up, down, return, esc buttons").
+///
+/// The answers (Nov 7 2026): one component everywhere, never taller than two rows and never cut
+/// mid-word. Each is a chip — its number and its words to a word's end, about 24 letters, the
+/// rest a long press away (and all of it to VoiceOver). A phone's room is one row that scrolls
+/// sideways, Esc first, the far end fading while there's more; a wide room (the Duo's pages, the
+/// laptop's deck, 560 pt or more) wraps them onto two rows, then scrolls. On a phone the row is as
+/// tall as the key row it replaces, so a question coming or going never moves the window.
 struct WatchActions: View {
     @ObservedObject var watcher: Watcher
     /// Which input page is up: with the keyboard, its own bar carries Esc, the arrows and Return,
     /// so this row steps aside and the window keeps the room (the polish pass, Oct 19 2026).
     @ObservedObject private var input: MacInput
-    /// The Duo's open inner screen (Oct 25 2026): wide, so the answers go across in one row
-    /// when they fit, else down as on the phone.
+    /// Kept for its callers: the room's own width decides how the answers lay out now.
     var wide = false
-    /// A folded Duo's Mac half (the second pass): the answers alone, as a row of glass floating
-    /// over the picture's foot — Esc beside them, nothing else (the keys ride the keyboard page's
-    /// bar; Pan | Scroll is in the overlay header). Nothing to answer: nothing shows.
+    /// The Duo (a folded half, the inner screen, the cover): the answers alone, on a row of their
+    /// own — Esc first, nothing else (the keys are elsewhere). Nothing to answer: nothing shows.
     var floating = false
     /// The keys alone (Esc · ↑ · ↓ · Return · ··· and Pan | Scroll), whatever the window asks —
-    /// its answers float over the picture instead (the Duo's open inner screen).
+    /// its answers are a row of their own (the Duo).
     var keysOnly = false
-    /// Floating, in one row that scrolls sideways (the Duo's cover: the window is short, and a
-    /// stack of answers would bury it).
+    /// Kept for its callers: every phone-width room is one row now, and a wide one two.
     var oneLine = false
     /// Pan | Scroll lives elsewhere (the Duo cover's vertical bar): the keys alone, centred.
     var dragElsewhere = false
+    /// The row's width, measured: 560 pt or more is a wide room.
+    @State private var room: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(watcher: Watcher, wide: Bool = false, floating: Bool = false, keysOnly: Bool = false, oneLine: Bool = false, dragElsewhere: Bool = false) {
@@ -1198,10 +1240,14 @@ struct WatchActions: View {
     /// The keyboard has risen (not just been asked for): the key row gives way with it.
     private var keyboardUp: Bool { input.keysUp }
 
+    /// A room this wide takes the answers on two rows.
+    static let wideRoom: CGFloat = 560
+
     var body: some View {
         Group {
             if let p = watcher.answers, !keysOnly {
-                if floating { floatingRow(p) } else { answers(p) }
+                answers(p)
+                    .transition(.opacity)
             } else if !keyboardUp, !floating {
                 keys.transition(.opacity)
             }
@@ -1212,148 +1258,98 @@ struct WatchActions: View {
     }
 
     /// The question's answers: the one the arrows are on — what Return would pick — stands out
-    /// in the window's light; a tap on any of them answers. With the keyboard up only the
-    /// answers show (Esc and the keys are on its bar).
-    @ViewBuilder private func answers(_ p: WatchPrompt) -> some View {
-        if wide {
-            // The answers in one row across the deck (the phone's column when they're too long
-            // for it), Esc · Keys and Pan | Scroll on the row under them.
-            VStack(spacing: 8) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
-                            answer(p, i, c).fixedSize()
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    VStack(spacing: 8) {
-                        ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
-                            answer(p, i, c)
-                        }
-                    }
+    /// in the window's light; a tap on any of them answers. Esc leads (with the keyboard up it's
+    /// on the keyboard's bar); on a phone "Keys" ends the row (the arrows and Return instead of
+    /// these) and Pan | Scroll stays where the key row had it.
+    private func answers(_ p: WatchPrompt) -> some View {
+        HStack(spacing: 8) {
+            WatchChipScroller(rows: room >= Self.wideRoom ? 2 : 1) {
+                if !keyboardUp {
+                    key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
+                        .watchGlass(Capsule())
+                        .fixedSize()
                 }
-                if !keyboardUp { answerKeys }
+                ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
+                    answer(p, i, c)
+                }
+                if !floating {
+                    Button { watcher.showKeys() } label: {
+                        Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(WatchCellStyle(inset: 16))
+                    .watchGlass(Capsule())
+                    .fixedSize()
+                    .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
+                    .accessibilityIdentifier("watch-keys")
+                }
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
-        } else {
-            answersColumn(p)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
-        }
-    }
-
-    /// Over the picture's foot: Esc, then the answers, each on its own glass, in rows that wrap
-    /// (the fourth pass — as many to a row as fit, so three long answers take two rows of the
-    /// picture, not three; one longer than the row wraps its words).
-    @ViewBuilder private func floatingRow(_ p: WatchPrompt) -> some View {
-        Group {
-            if oneLine {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) { floatingCells(p) }
-                        .padding(.vertical, 2)
-                }
-                .scrollIndicators(.hidden)
-                .scrollClipDisabled()
-                // Cut at the row's own sides (the glass's shadows still spill above and below),
-                // the far end fading so the row reads as one that scrolls — never running on
-                // under the cover's side bar.
-                .mask {
-                    HStack(spacing: 0) {
-                        Color.black
-                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 28)
-                    }
-                    .padding(.vertical, -24)
-                }
-            } else {
-                FoldFlow(spacing: 8, rowSpacing: 8) { floatingCells(p) }
-            }
-        }
-        .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
-    }
-
-    @ViewBuilder private func floatingCells(_ p: WatchPrompt) -> some View {
-        key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
-            .watchGlass(Capsule())
-            .fixedSize()
-        ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
-            answer(p, i, c).fixedSize(horizontal: true, vertical: false)
-        }
-    }
-
-    /// Esc · Keys, and Pan | Scroll, under (or beside) the answers.
-    private var answerKeys: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 0) {
-                key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
-                WatchCellDivider()
-                Button { watcher.showKeys() } label: {
-                    Label("Keys", systemImage: "keyboard").font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(WatchCellStyle(inset: 16))
-                .accessibilityHint("Shows Esc, the arrows and Return instead of these answers.")
-                .accessibilityIdentifier("watch-keys")
-            }
-            .watchGlass(Capsule())
-            .fixedSize()
-            Spacer(minLength: 0)
-            ViewThatFits(in: .horizontal) {
+            .accessibilityIdentifier("watch-answers")
+            if !floating, !dragElsewhere, !keyboardUp {
                 WatchDragSwitch(watcher: watcher, style: .words).fixedSize()
-                WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize()
             }
         }
-    }
-
-    private func answersColumn(_ p: WatchPrompt) -> some View {
-        VStack(spacing: 8) {
-            ForEach(Array(p.choices.enumerated()), id: \.offset) { i, c in
-                answer(p, i, c)
-            }
-            if !keyboardUp { answerKeys }
-        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { room = $0 }
     }
 
     private func answer(_ p: WatchPrompt, _ i: Int, _ c: WatchPrompt.Choice) -> some View {
-                let lit = p.highlighted == i
-                return Button { watcher.choose(i) } label: {
-                    HStack(spacing: 10) {
-                        if let n = c.number {
-                            Text("\(n)")
-                                .font(.mono(.caption, weight: .semibold))
-                                .foregroundStyle(lit ? Ink.onTint.opacity(0.8) : Ink.secondary)
-                                .frame(width: 22, height: 22)
-                                .background(Circle().fill(lit ? Ink.onTint.opacity(0.14) : Ink.ink.opacity(0.08)))
-                        } else if let k = c.key {
-                            Text(k)
-                                .font(.mono(.caption, weight: .semibold))
-                                .foregroundStyle(lit ? Ink.onTint.opacity(0.8) : Ink.secondary)
-                                .frame(width: 22, height: 22)
-                                .background(Circle().fill(lit ? Ink.onTint.opacity(0.14) : Ink.ink.opacity(0.08)))
-                        }
-                        Text(c.label)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(lit ? Ink.onTint : Ink.ink)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        if lit {
-                            Image(systemName: "return")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Ink.onTint.opacity(0.7))
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, minHeight: WatchLook.control, alignment: .leading)
-                    .contentShape(WatchAnswerStyle.shape)
+        let lit = p.highlighted == i
+        let short = Self.chipWords(c.label)
+        return Button { watcher.choose(i) } label: {
+            HStack(spacing: 8) {
+                if let mark = c.number.map(String.init) ?? c.key {
+                    Text(mark)
+                        .font(.mono(.caption, weight: .semibold))
+                        .foregroundStyle(lit ? Ink.onTint.opacity(0.8) : Ink.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(lit ? Ink.onTint.opacity(0.14) : Ink.ink.opacity(0.08)))
                 }
-                .buttonStyle(WatchAnswerStyle(lit: lit))
-                .accessibilityLabel(c.label)
-                .accessibilityHint(lit ? "What Return picks now. Answers \(watcher.name) on your Mac." : "Answers \(watcher.name) on your Mac.")
-                .accessibilityIdentifier("watch-answer-\(i)")
+                Text(short)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(lit ? Ink.onTint : Ink.ink)
+                    .lineLimit(1)
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 14)
+            .frame(minHeight: WatchLook.control)
+            .contentShape(WatchAnswerStyle.shape)
+        }
+        .buttonStyle(WatchAnswerStyle(lit: lit))
+        .fixedSize()
+        // The whole answer, a long press away (a chip shows its first words).
+        .contextMenu {
+            Button { watcher.choose(i) } label: { Label("Answer", systemImage: "return") }
+        } preview: {
+            Text(c.label)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Ink.ink)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 320, alignment: .leading)
+                .padding(16)
+        }
+        .accessibilityLabel(c.label)
+        .accessibilityHint(lit ? "What Return picks now. Answers \(watcher.name) on your Mac." : "Answers \(watcher.name) on your Mac.")
+        .accessibilityIdentifier("watch-answer-\(i)")
+    }
+
+    /// An answer's words for its chip: whole words up to about `limit` letters, then "…" — never
+    /// a word cut in two, never a dangling comma ("Yes, and don't ask again this session" →
+    /// "Yes, and don't ask again…").
+    static func chipWords(_ s: String, limit: Int = 24) -> String {
+        let text = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count > limit + 1 else { return text }
+        var out = ""
+        for word in text.split(separator: " ") {
+            let next = out.isEmpty ? String(word) : out + " " + word
+            if next.count > limit { break }
+            out = next
+        }
+        // One word longer than the chip: its first letters.
+        if out.isEmpty { out = String(text.prefix(limit)) }
+        while let last = out.last, ",;:.-–—".contains(last) { out.removeLast() }
+        return out + "…"
     }
 
     /// The row at the widest it fits: Pan | Scroll as words, else as glyphs (Oct 18 2026 — with
@@ -1474,6 +1470,120 @@ private struct WatchAnswerStyle: ButtonStyle {
     }
 }
 
+/// Chips in a row that scrolls sideways — on `rows` rows when there's room to wrap first — with
+/// the side that hides more fading out, so the row reads as one that scrolls. Cut at its own
+/// sides only: the glass's shadows still spill above and below.
+struct WatchChipScroller<Content: View>: View {
+    var rows = 1
+    @ViewBuilder var content: Content
+    @State private var width: CGFloat = 0
+    @State private var more = WatchScrollMore()
+    @State private var contentWidth: CGFloat = 0
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            WatchChipRows(rows: rows, room: width) { content }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                    contentWidth = w
+                    if #unavailable(iOS 18.0) { more = WatchScrollMore(before: false, after: w > width + 1) }
+                }
+        }
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .modifier(ScrollEdges(more: $more))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+            width = w
+            if #unavailable(iOS 18.0) { more = WatchScrollMore(before: false, after: contentWidth > w + 1) }
+        }
+        .mask {
+            HStack(spacing: 0) {
+                LinearGradient(colors: [more.before ? .clear : .black, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 20)
+                Color.black
+                LinearGradient(colors: [.black, more.after ? .clear : .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 36)
+            }
+            .padding(.vertical, -24)
+        }
+    }
+}
+
+/// Which sides of a sideways scroll hide more (iOS 18+: from the scroll's own geometry; iOS 17
+/// sets it from the widths alone).
+struct WatchScrollMore: Equatable { var before = false, after = false }
+
+private struct ScrollEdges: ViewModifier {
+    @Binding var more: WatchScrollMore
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: WatchScrollMore.self) { g in
+                let x = g.contentOffset.x + g.contentInsets.leading
+                return .init(before: x > 1, after: x + g.containerSize.width < g.contentSize.width - 1)
+            } action: { _, m in
+                withAnimation(.easeOut(duration: 0.18)) { more = m }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// Lays chips left to right, wrapping onto at most `rows` rows of `room`; when they need more than
+/// that, the rows grow wider than the room (the scroll view around them scrolls) — never a third.
+struct WatchChipRows: Layout {
+    var rows = 1
+    var room: CGFloat
+    var spacing: CGFloat = 8
+    var rowSpacing: CGFloat = 8
+
+    private func lines(_ widths: [CGFloat], in width: CGFloat) -> [[Int]] {
+        var out: [[Int]] = [[]]
+        var x: CGFloat = 0
+        for (i, w) in widths.enumerated() {
+            if !out[out.count - 1].isEmpty, x + spacing + w > width {
+                out.append([i]); x = w
+            } else {
+                x += (out[out.count - 1].isEmpty ? 0 : spacing) + w
+                out[out.count - 1].append(i)
+            }
+        }
+        return out
+    }
+
+    private func arrange(_ sizes: [CGSize]) -> [[Int]] {
+        let widths = sizes.map(\.width)
+        guard rows > 1, room > 0, !widths.isEmpty else { return [Array(widths.indices)] }
+        var width = max(room, widths.max() ?? 0)
+        var l = lines(widths, in: width)
+        while l.count > rows { width += 12; l = lines(widths, in: width) }
+        return l
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let l = arrange(sizes)
+        let w = l.map { line in line.reduce(0) { $0 + sizes[$1].width } + spacing * CGFloat(max(0, line.count - 1)) }.max() ?? 0
+        let h = l.map { line in line.map { sizes[$0].height }.max() ?? 0 }.reduce(0, +) + rowSpacing * CGFloat(max(0, l.count - 1))
+        return CGSize(width: w, height: h)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        var y = bounds.minY
+        for line in arrange(sizes) {
+            let h = line.map { sizes[$0].height }.max() ?? 0
+            var x = bounds.minX
+            for i in line {
+                subviews[i].place(at: CGPoint(x: x, y: y + (h - sizes[i].height) / 2), proposal: ProposedViewSize(sizes[i]))
+                x += sizes[i].width + spacing
+            }
+            y += h + rowSpacing
+        }
+    }
+}
+
 private extension View {
     @ViewBuilder func watchProminentButton() -> some View {
         if #available(iOS 26.0, *) {
@@ -1530,6 +1640,10 @@ struct WindowViewer: UIViewRepresentable {
     var canDrag = false
     /// The keyboard page is up: the view's height changing keeps the zoom.
     var keyboardUp = false
+    /// The window's question has answers showing: their row coming or going keeps the zoom too.
+    var answersUp = false
+    /// A line for the diagnostics log (the window in hand only).
+    var onLog: ((String) -> Void)? = nil
     var onTouch: () -> Void
     /// A tap, with its count (2 = a double-click's second click, 3 a triple's).
     var onTap: (CGPoint, Int) -> Void
@@ -1566,6 +1680,8 @@ struct WindowViewer: UIViewRepresentable {
         v.viewKey = viewKey
         v.canDrag = canDrag
         v.keyboardUp = keyboardUp
+        v.answersUp = answersUp
+        v.onLog = onLog
         v.fill = fill
         v.footInset = footInset
         v.kept = kept
@@ -1629,6 +1745,24 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     }
     /// The view's height before the keyboard came, while it's up or on its way down.
     private var heightBeforeKeyboard: CGFloat?
+    /// A question's answers came or went (Nov 7 2026): their row is there only while it asks, so
+    /// for a moment after, a change of the view's height alone keeps the zoom and the spot as
+    /// the keyboard's does — the picture never re-fits to another zoom in one jump.
+    var answersUp = false {
+        didSet {
+            // Only for a view already showing the window: one just made takes its own start.
+            guard answersUp != oldValue, imageSize != .zero, lastBounds != .zero else { return }
+            holdZoomUntil = CACurrentMediaTime() + 0.8
+            let zoom = zoomScale, height = lastBounds.height, came = answersUp
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
+                guard let self, abs(self.bounds.height - height) >= 1, self.imageSize != .zero else { return }
+                self.onLog?(String(format: "viewer: the answers %@ — zoom %.3f before, %.3f after (view %d → %d pt)",
+                                   came ? "came" : "went", zoom, self.zoomScale, Int(height), Int(self.bounds.height)))
+            }
+        }
+    }
+    private var holdZoomUntil: CFTimeInterval = 0
+    var onLog: ((String) -> Void)?
     var onTouch: () -> Void = {}
     var onTap: (CGPoint, Int) -> Void = { _, _ in }
     var onRightClick: (CGPoint) -> Bool = { _ in false }
@@ -1920,8 +2054,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         guard bounds.size != lastBounds, imageSize != .zero, bounds.width > 0 else { return }
         let old = lastBounds
         lastBounds = bounds.size
-        if old != .zero, abs(old.width - bounds.width) < 1, keyboardUp || heightBeforeKeyboard != nil {
-            if heightBeforeKeyboard == nil { heightBeforeKeyboard = old.height }
+        let forAnswers = CACurrentMediaTime() < holdZoomUntil
+        if old != .zero, abs(old.width - bounds.width) < 1, keyboardUp || heightBeforeKeyboard != nil || forAnswers {
+            if keyboardUp, heightBeforeKeyboard == nil { heightBeforeKeyboard = old.height }
             keepZoom(oldHeight: old.height)
             return
         }
@@ -2010,14 +2145,19 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let saved = savedView
         adjusted = saved != nil && !(saved!.bottom || toBottom)
         let s = saved.map { min(max($0.zoom * fitWidth, minimumZoomScale), maximumZoomScale) } ?? startScale
+        // Filling the view past the window's width (one the Mac can't reshape to this view): it
+        // starts at its top-left corner, so its title bar — close, minimize, zoom — is in view
+        // (Nov 7 2026: centred, the red light was off the screen's edge, and the book lost the
+        // whole title bar). He pans from there.
+        let fromCorner = saved == nil && fill && s > fitWidth * 1.01
         let apply = {
             self.setZoomScale(s, animated: false)
             self.centerIfSmall()
             let w = self.imageSize.width * s, h = self.imageSize.height * s
             let cx = (saved?.x ?? self.focus.map { $0.midX } ?? 0.5) * w
-            let x = min(max(cx - self.bounds.width / 2, 0), max(0, w - self.bounds.width))
+            let x = fromCorner ? 0 : min(max(cx - self.bounds.width / 2, 0), max(0, w - self.bounds.width))
             let bottom = max(0, h - self.visibleHeight)
-            let y = saved.flatMap { $0.bottom || toBottom ? nil : min(max($0.y * h - self.visibleHeight / 2, 0), bottom) } ?? bottom
+            let y = fromCorner && !toBottom ? 0 : saved.flatMap { $0.bottom || toBottom ? nil : min(max($0.y * h - self.visibleHeight / 2, 0), bottom) } ?? bottom
             self.contentOffset = CGPoint(x: x - self.contentInset.left, y: y - self.contentInset.top)
         }
         if animated { UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply) }
