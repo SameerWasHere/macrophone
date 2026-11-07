@@ -1772,7 +1772,9 @@ frames `docs/screens/overnight-nov7/round-4/<stream>/`. Wins over round 2 where 
   to reach the phone; History's Undo tapped by a real finger; the not-open card state (no shot).
   **[Fixed Nov 7 2026:** the cover's Control Center and Your Macs — height-detent sheets, whose
   system glass a cleared background doesn't remove — skip the card beside the column
-  (`InnerScreenSheet(floats:)`) and are the system's own sheet, the full width.**]**
+  (`InnerScreenSheet(floats:)`) and are the system's own sheet, the full width; Control Center's
+  content takes the whole width too (it never rises into the column), Your Macs' stays beside
+  the column (its large detent reaches the column's buttons).**]**
 
 ## Overnight polish, round 5 (Nov 7 2026)
 

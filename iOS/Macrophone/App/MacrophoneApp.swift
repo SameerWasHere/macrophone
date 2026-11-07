@@ -232,7 +232,15 @@ struct InnerScreenSheet: ViewModifier {
             // the phone re-sizes an open sheet to the new shape.
             case .screen: content.presentationSizing(InnerScreenFill(room: InnerScreenFill.room()))
             }
-        } else if !floats, let edge = VerticalBarProbe.edge {
+        } else if floats, size == .fitted, let edge = VerticalBarProbe.edge {
+            // Control Center sits at a fixed height below the clock and Wi-Fi, so nothing of the
+            // bar's column is ever over it: its content takes the whole width (Nov 7 2026, Sameer:
+            // "why do we have to keep the right side blank?"). Your Macs can be dragged up to the
+            // full height, into the column's buttons, so it keeps the column clear.
+            content.ignoresSafeArea(.container, edges: edge == .trailing ? .trailing : .leading)
+        } else if floats {
+            content
+        } else if let edge = VerticalBarProbe.edge {
             // The Duo's cover (Nov 7 2026): a sheet ran the full width under the vertical bar,
             // the clock and Wi-Fi drawn over its white. The system already lays the content
             // beside the bar's column (and puts the sheet's Done in it, as the main screen's
