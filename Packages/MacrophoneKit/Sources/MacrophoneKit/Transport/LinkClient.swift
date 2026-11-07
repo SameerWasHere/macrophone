@@ -863,6 +863,8 @@ public final class LinkClient: @unchecked Sendable {
             deliverPermissions(p)
         case let .macWallpaper(w):
             deliverWallpaper(w, macID: macID)
+        case let .macVolume(v):
+            deliverVolume(v, macID: macID)
         case let .macCursor(c):
             deliverCursor(c)
         case let .undoDone(r):
