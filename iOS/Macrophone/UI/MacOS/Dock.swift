@@ -37,6 +37,8 @@ enum DockLook {
 final class DockSpot {
     static let shared = DockSpot()
     var pick: CGRect?
+    /// When the pick was last tapped to watch: only then does the window fly out of the icon.
+    var watchedAt: Date?
 }
 
 struct SendToDock: View {
@@ -265,7 +267,7 @@ private struct DockIcon: View {
             if swallowTap { swallowTap = false; return }
             if let n = needs, let w = place.windows.first(where: n.concerns), !current.matches(w) { onPick(w.ref) }
             else if !place.holds(current) { onPick(place.target) }
-            else { onWatch() }
+            else { DockSpot.shared.watchedAt = .now; onWatch() }
         } label: {
             VStack(spacing: 4) {
                 ZStack {
@@ -297,19 +299,8 @@ private struct DockIcon: View {
                             .transition(.scale(scale: 0.5).combined(with: .opacity))
                     }
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    if watchable {
-                        Image(systemName: "eye.fill")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 19, height: 19)
-                            .background(Circle().fill(Light.cyan))
-                            .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
-                            .offset(x: 5, y: 5)
-                            .transition(.scale(scale: 0.5).combined(with: .opacity))
-                            .accessibilityHidden(true)
-                    }
-                }
+                // (No eye on the pick, Nov 7 2026: the desktop's window card is the one way to
+                // watch you can see; a second tap here still watches, as a shortcut.)
                 // The running dot: an open app's (Clipboard and Where I'm typing aren't apps).
                 Circle()
                     .fill(Ink.ink.opacity(place.kind == .app || place.kind == .opening ? (selected ? 0.9 : 0.55) : 0))

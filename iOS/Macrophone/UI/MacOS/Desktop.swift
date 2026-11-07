@@ -7,9 +7,10 @@ import SwiftUI
 // which stay where they always were: the mic is still the reason the app exists.
 //
 //   [💻 Sameer's MacBook Pro  ⌔         ▭  ⊜  ⏱  ⚙]   menu bar
-//   ┌ ● ● ● ▣ Terminal  claude      [👁 Watch] ┐
-//   │       (the window's kept picture)       │      the pick's window
+//   ┌─────────────────────────────────────────┐
+//   │       (the window's kept picture)    👁 │      the pick's window
 //   └─────────────────────────────────────────┘
+//            ▣ Terminal  claude                       its caption
 //   [✈ Send after pasting ●]  [✦ Medium ⌄] [⋯]       the Dock's options
 //          ┌ Terminal — claude ┐
 //   [■ ■ ■ ■ ■ │ ⎘ ⌶ │ +]                           the Dock

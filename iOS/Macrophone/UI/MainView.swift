@@ -352,14 +352,14 @@ struct MainView: View {
                                         .padding(.top, desktopTop)
                                 } else if showsDesktopWindow {
                                     // Nothing in the way: the pick's window, one tap from the
-                                    // desktop (Nov 7 2026) — in the room that's there, never
-                                    // moving the Dock under it.
+                                    // desktop (Nov 7 2026) — centred in the room that's there,
+                                    // air above and below, never moving the Dock under it.
                                     GeometryReader { g in
                                         let room = g.size.height - desktopTop
                                         if room >= DesktopWindowLook.leastRoom {
                                             DesktopWindowCard(target: model.selection.target,
                                                               room: CGSize(width: g.size.width - 2 * Space.margin,
-                                                                           height: room - (compact ? 14 : 28)),
+                                                                           height: room - 2 * (compact ? DesktopWindowLook.air / 2 : DesktopWindowLook.air)),
                                                               hidden: !phoneSettings,
                                                               onWatch: watchFromCard)
                                                 .frame(width: g.size.width, height: room)
@@ -392,18 +392,29 @@ struct MainView: View {
                     // Watching: the window takes the area (Done brings the settings back). Built
                     // once and kept (Nov 7 2026): building it on every open held the main thread
                     // for the best part of half a second before anything moved; now opening and
-                    // Done only change its opacity and its zoom out of the card or the Dock icon.
+                    // Done only change its opacity, while its picture flies (`WindowZoom`).
                     // At rest it holds the pick's kept picture, ready; under the words it has no
                     // viewer (`panelDormant`: the strip has the video then).
                     if keepsPanel {
-                        WatchPanel(watcher: watcher, compact: compact, cover: isCover,
-                                   bare: isCover && input.keysUp || !panelShown, dormant: panelDormant && !panelShown && windowHere)
-                            .environment(\.watchWindowHidden, !panelShown)
-                            .environment(\.watchRestPicture, panelShown || watcher.isOpen ? nil
-                                         : WindowSnapshots.cached(WindowSnapshots.key(mac: model.pairedMac?.id, target: model.selection.target)))
-                            .modifier(panelShown ? DockZoom.identity : panelHidden)
-                            .animation(panelAnimation, value: panelShown)
-                            .modifier(OutOfReach(hidden: !panelShown))
+                        WithWindowZoom { zoom in
+                            // (Done's flight keeps the header while the view fades: laid out
+                            // without it, the picture under the flying one jumped.)
+                            WatchPanel(watcher: watcher, compact: compact, cover: isCover,
+                                       bare: isCover && input.keysUp || !panelShown && !zoom.leaving,
+                                       dormant: panelDormant && !panelShown && windowHere)
+                                .environment(\.watchWindowHidden, !panelShown)
+                                .environment(\.watchRestPicture, panelShown || watcher.isOpen ? nil
+                                             : WindowSnapshots.cached(WindowSnapshots.key(mac: model.pairedMac?.id, target: model.selection.target)))
+                                // Only the picture moves (`WindowZoom`): the view itself is laid
+                                // out at once, at its own size, and only fades.
+                                .scaleEffect(zoom.panelParked ? DockZoom.parked : 1)
+                                .animation(nil, value: panelShown)
+                                .modifier(DockZoom(fade: panelShown && !zoom.holdsPanel ? 1 : DockZoom.asleep))
+                                .animation(panelFade, value: panelShown)
+                                .modifier(OutOfReach(hidden: !panelShown))
+                        }
+                        .onChange(of: panelShown) { _, on in flyWindow(shown: on) }
+                        WindowZoomFlight(origin: watchArea.origin)
                     }
                     if showLiveWords {
                         VStack(spacing: 0) {
@@ -1554,32 +1565,53 @@ extension MainView {
     /// paired, a place with a window (the Clipboard has none).
     var showsDesktopWindow: Bool { model.isPaired && !posture.pose.isInner && model.selection.target != .clipboard }
 
-    /// The card's tap: what the Dock's second tap does, the window growing out of the card. Its
-    /// place is rendered as the window's starting point first, so the open on the next turn of
-    /// the run loop animates from the card rather than from wherever the window last went.
+    /// The card's tap: what the Dock's second tap does. The card's picture lifts off at once, and
+    /// flies to the window as it opens on the next turn of the run loop (`WindowZoom`).
     func watchFromCard() {
         let t = model.selection.target
         guard t != .clipboard, model.looksConnected, !model.isNotOpen(t) else { return }
         windowFromCard = true
+        if flightAllowed {
+            WindowZoom.shared.liftFromCard(image: WindowSnapshots.cached(WindowSnapshots.key(mac: model.pairedMac?.id, target: t)),
+                                           card: DesktopWindowSpot.shared.frame)
+        }
         // Back from the background the link may only look up: it opens on the connect.
         DispatchQueue.main.async { model.watchWhenConnected(t) }
     }
 
-    /// The window grows out of where it was opened from and goes back into it (Nov 4 2026,
-    /// Sameer picked "the Dock icon opens into the window"; Nov 7 the desktop's card too), on the
-    /// settle spring that already carries it in and out — as state on a panel that's always
-    /// there, not an insertion. Stepping aside for the words, on the cover, or with Reduce
-    /// Motion, it only fades.
-    var panelHidden: DockZoom {
-        let fade = DockZoom(scale: 1, offset: .zero, fade: DockZoom.asleep)
-        guard !reduceMotion, windowViaDock, !(barUsed || posture.pose.isInner), watchArea.width > 0, watchArea.height > 0 else { return fade }
-        let card = windowFromCard ? DesktopWindowSpot.shared.frame : nil
-        guard let spot = card ?? DockSpot.shared.pick,
-              watchArea.insetBy(dx: -40, dy: -40).contains(CGPoint(x: spot.midX, y: spot.midY)) else { return fade }
-        // The card is a window: the panel shrinks to sit inside it. The icon: to its width.
-        let scale = card != nil ? min(spot.width / watchArea.width, spot.height / watchArea.height) : spot.width / watchArea.width
-        return DockZoom(scale: max(0.06, scale),
-                        offset: CGSize(width: spot.midX - watchArea.midX, height: spot.midY - watchArea.midY), fade: DockZoom.asleep)
+    /// Only the window's picture moves between the desktop and the window view (Nov 7 2026, round
+    /// 4 — it used to be the whole view scaled down into the card or the Dock icon, chrome and
+    /// all). Stepping aside for the words, on the cover (its own overlapped cross-fade) or the
+    /// inner screen, or with Reduce Motion, the view only fades.
+    var flightAllowed: Bool {
+        !reduceMotion && windowViaDock && !(barUsed || posture.pose.isInner) && watchArea.width > 0 && watchArea.height > 0
+    }
+
+    func flyWindow(shown: Bool) {
+        let zoom = WindowZoom.shared
+        zoom.panelChanged(shown: shown)
+        guard flightAllowed else { zoom.cancel(); return }
+        if shown {
+            let key = WindowSnapshots.key(mac: model.pairedMac?.id, target: watcher.target ?? model.selection.target)
+            zoom.opened(image: zoom.image ?? WindowSnapshots.cached(key), area: watchArea, compact: compact)
+        } else {
+            zoom.closing(image: windowPictureNow, area: watchArea, compact: compact, fromCard: windowFromCard)
+        }
+    }
+
+    /// What the window shows this moment, as a picture: Done flies it home. (The kept one may be
+    /// up to half a minute old until the save that Done starts has finished.)
+    private var windowPictureNow: UIImage? {
+        if watcher.videoSize != nil, let frame = watcher.video.displayedFrame(), let ui = WindowSnapshots.image(from: frame) { return ui }
+        return watcher.image ?? watcher.lastPicture
+            ?? WindowSnapshots.cached(WindowSnapshots.key(mac: model.pairedMac?.id, target: watcher.target ?? model.selection.target))
+    }
+
+    /// The window view's own fade: in on the settle spring (after the flight's most of the way),
+    /// out quickly so the flying picture is all that's left.
+    var panelFade: Animation {
+        if !panelShown, !isCover, !reduceMotion { return Motion.leave }
+        return panelAnimation
     }
 
     /// The cover (Nov 7 2026): the desktop and the window cross-fade with an overlap — the
@@ -1604,21 +1636,19 @@ extension MainView {
     }
 }
 
-/// The window at the card's or the icon's size and place, or its own (`identity`).
+/// The window view's fade, kept drawn while hidden.
 struct DockZoom: ViewModifier {
-    var scale: CGFloat
-    var offset: CGSize
     var fade: Double
 
-    static let identity = DockZoom(scale: 1, offset: .zero, fade: 1)
     /// Hidden, but still drawn: at 0 the renderer drops its layers, and the first frame of every
     /// open drew the panel's glass and picture afresh (on the simulator an open's first frame came
-    /// 189–214 ms after it, then 72–102; kept drawn, 129, then 49–56). Shrunk into the Dock icon,
-    /// the cost is an icon's worth of pixels.
+    /// 189–214 ms after it, then 72–102; kept drawn, 129, then 49–56).
     static let asleep: Double = 0.001
+    /// …and once faded out, drawn tiny (`WindowZoom.panelParked`): a dot's worth of pixels.
+    static let parked: CGFloat = 0.02
 
     func body(content: Content) -> some View {
-        content.scaleEffect(scale).offset(offset).opacity(fade)
+        content.opacity(fade)
     }
 }
 
