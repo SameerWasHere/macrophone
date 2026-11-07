@@ -3,9 +3,9 @@ import XCTest
 /// The Duo's inner screen never shows a control in the wrong place (Nov 7 2026), on a real Duo
 /// simulator held in a real pose (`duo-sim.sh pose <udid> tabletop|folded` before the run, and
 /// `TEST_RUNNER_MACROPHONE_DUO_REAL=laptop|book` to say which): launched folded it goes straight
-/// to the window in hand — the desktop's places and Send after pasting never show while the
-/// window comes up — and on the laptop the mic, coming back from the keyboard, first appears
-/// where it stays. Needs a paired `mpctl serve`.
+/// to the window in hand — the glance and Send after pasting never show while the window comes
+/// up — and on the laptop the mic, coming back from the keyboard, is only ever where it stays.
+/// Needs a paired `mpctl serve`.
 final class DuoSettleUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
@@ -25,40 +25,46 @@ final class DuoSettleUITests: XCTestCase {
         guard pose == "laptop" || pose == "book" else { throw XCTSkip("set TEST_RUNNER_MACROPHONE_DUO_REAL=laptop|book on a folded Duo") }
         let app = launch()
         let window = app.descendants(matching: .any)["duo-window"].firstMatch
-        let places = app.descendants(matching: .any)["places"].firstMatch
+        // (Not `places`: the desktop's Dock is a scroll view, which stays in the accessibility tree
+        // while its layer is kept built and hidden under the window in hand.)
+        let glance = app.buttons["duo-show"]
         let sendToggle = app.descendants(matching: .any)["send-toggle"].firstMatch
         var sawWindow = false
         // From the launch until well after the link is up.
         let end = Date().addingTimeInterval(6)
         while Date() < end {
-            XCTAssertFalse(places.exists, "the desktop's places never show on a folded launch")
-            XCTAssertFalse(sendToggle.exists, "Send after pasting never shows on a folded launch")
+            XCTAssertFalse(glance.exists && glance.isHittable, "a folded launch never shows the glance (the window at rest)")
+            XCTAssertFalse(sendToggle.exists && sendToggle.isHittable, "Send after pasting never shows on a folded launch")
             if window.exists { sawWindow = true }
         }
         XCTAssertTrue(sawWindow, "the window in hand appears")
         XCTAssertTrue(app.buttons["watch-done"].exists, "the window is in hand (Done is there)")
     }
 
-    /// The laptop: keyboard, then mic — the mic's first frame on screen is its frame a second on.
+    /// The laptop: the mic mode, the keyboard over it, hide — the mic is only ever where it stays.
     func testTheMicFirstAppearsWhereItStays() throws {
         guard pose == "laptop" else { throw XCTSkip("set TEST_RUNNER_MACROPHONE_DUO_REAL=laptop on a Duo held as a laptop") }
         let app = launch()
         let keyboard = app.descendants(matching: .any)["input-mode-keyboard"].firstMatch
         guard keyboard.waitForExistence(timeout: 20) else { throw XCTSkip("no Mac naming the keyboard is connected") }
-        keyboard.tap()
-        XCTAssertTrue(app.buttons["keyboard-hide"].waitForExistence(timeout: 5), "the keyboard is up")
         let mic = app.buttons["mic-button"].firstMatch
         app.descendants(matching: .any)["input-mode-mic"].firstMatch.tap()
-        var first: CGRect?
-        let end = Date().addingTimeInterval(4)
-        while Date() < end, first == nil {
-            if mic.exists, mic.isHittable { first = mic.frame }
-        }
-        guard let first else { return XCTFail("the mic appears") }
+        XCTAssertTrue(mic.waitForExistence(timeout: 5), "the mic mode shows the mic")
+        keyboard.tap()
+        let hide = app.buttons["keyboard-hide"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "the keyboard is up")
         Thread.sleep(forTimeInterval: 1)
-        let later = mic.frame
-        XCTAssertEqual(first.midX, later.midX, accuracy: 1, "the mic first appears where it stays (across)")
-        XCTAssertEqual(first.midY, later.midY, accuracy: 1, "the mic first appears where it stays (down)")
-        XCTAssertEqual(first.width, later.width, accuracy: 1, "…at the size it stays")
+        hide.tap()
+        // Hidden, it's never placed anywhere but a settled slot: every frame from here on is the last.
+        var frames: [CGRect] = []
+        let end = Date().addingTimeInterval(1.5)
+        while Date() < end { if mic.exists, mic.isHittable { frames.append(mic.frame) } }
+        guard let last = frames.last else { return XCTFail("the mic appears") }
+        for f in frames {
+            XCTAssertEqual(f.midX, last.midX, accuracy: 1, "the mic is only ever where it stays (across)")
+            XCTAssertEqual(f.midY, last.midY, accuracy: 1, "the mic is only ever where it stays (down)")
+            XCTAssertEqual(f.width, last.width, accuracy: 1, "…at the size it stays")
+        }
+        XCTAssertTrue(mic.isHittable, "the mic is back")
     }
 }

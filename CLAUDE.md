@@ -1204,8 +1204,11 @@ Nothing on the inner screen shows in the wrong place. Frames: `docs/screens/over
   1.0 / 0.5 — bottom-right sat on a chat's Send button); a saved place stays; a drag moves it from where it rests
   (`home`), even from the clamped edge.
 - Tests: `DuoSettleUITests` (a real Duo sim in a real pose, `TEST_RUNNER_MACROPHONE_DUO_REAL=laptop|book`, a paired
-  `mpctl serve`): a folded launch never shows `places` / `send-toggle` while `duo-window` comes; on the laptop the
-  mic's first frame after keyboard → mic is its frame a second later.
+  `mpctl serve`): a folded launch never shows the glance (`duo-show`) or `send-toggle` while `duo-window` comes; on
+  the laptop, mic mode → keyboard → hide, every frame the mic reports is its last. **Found, not fixed:** XCUITest
+  still lists the hidden desktop's Dock (`places`, a scroll view in the `KeptHidden` rest layer) under the window in
+  hand, and `mic-button` while the keyboard is up (the one mic at opacity 0, `accessibilityHidden(!visible)`) — check
+  with VoiceOver whether they're reachable (the window-targets-voiceover stream's area); the test checks `duo-show`.
 
 ## The ten polish ideas (Nov 5 2026)
 

@@ -159,9 +159,10 @@ final class Posture: ObservableObject {
     private func updateProvisional(_ p: FoldPose, reading r: FoldReading) {
         var guess = false
         if #available(iOS 27.1, *) {
-            guess = p.isInner && r.hinge == nil && !hingeHeard && !hingeWaitOver && r.size != .zero
+            guess = p.isInner && r.hinge == nil && !hingeHeard && !hingeWaitOver
         }
-        if guess, hingeWaitTask == nil {
+        // (The wait runs from the first measure: before it the scene has no size to wait on.)
+        if guess, r.size != .zero, hingeWaitTask == nil {
             hingeWaitTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(Self.hingeWait * 1e9))
                 guard let self else { return }

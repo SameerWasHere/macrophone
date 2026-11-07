@@ -214,8 +214,8 @@ struct MainView: View {
             layoutBody
                 // Not drawn from a pose guessed before the hinge spoke (`Posture.provisional`).
                 .opacity(inFullScreen || posture.provisional ? 0 : 1)
-                .allowsHitTesting(!inFullScreen)
-                .accessibilityHidden(inFullScreen)
+                .allowsHitTesting(!inFullScreen && !posture.provisional)
+                .accessibilityHidden(inFullScreen || posture.provisional)
                 .environment(\.innerAsleep, innerAsleep)
                 .environment(\.threadPaused, inFullScreen)
             if inFullScreen {
