@@ -61,8 +61,6 @@ enum DuoLook {
     /// the laptop's screen has none — `DuoMacHalf.edge`).
     static let halfBezel: CGFloat = 2
     static let halfCorner: CGFloat = 0
-    /// How long the overlay header stays after a touch.
-    static let headerHold: TimeInterval = 3.5
     /// Open flat and upright (Nov 1 2026, Sameer: "fully open in portrait mode it should have a
     /// different view with an even bigger window. The half view rule should only be of the laptop
     /// mode"): the deck under the window is this tall with a window in hand — the header, the
@@ -643,11 +641,13 @@ struct InnerMic: View {
 /// Full screen (Nov 3 2026, Sameer: "the window take up the entirety, edge to edge, of the full
 /// screen"): the inner screen on its side is the Mac's screen and nothing else — no deck, no bar,
 /// no status bar. The window has the screen's shape (`Watcher.setFullScreen`); the whole screen
-/// fills it. Taps, drags, pinches and scrolls go to the Mac as in the window view. One glass
-/// button in the corner brings the deck back; it fades a few seconds after a touch and a touch
-/// brings it back (always there for VoiceOver). A press and hold anywhere brings a see-through
+/// fills it. Taps, drags, pinches and scrolls go to the Mac as in the window view. Beside the
+/// floating mic: the way out on its left and a trackpad toggle on its right, always shown (Nov 7
+/// 2026, Sameer: "the zoom out toggle next to the mic was there permanently … so that users don't
+/// struggle to figure out how to close the screen"). A press and hold anywhere brings a see-through
 /// trackpad up under the finger (Nov 3 2026, Sameer: "a see through track pad should appear there
-/// quickly and stay for a few seconds … dissolve away after like 5 sec of no interaction").
+/// quickly and stay for a few seconds … dissolve away after like 5 sec of no interaction"); the
+/// toggle brings the same pad up over the mic.
 struct DuoFullScreen: View {
     let main: MainView
     @ObservedObject private var watcher: Watcher
@@ -657,10 +657,9 @@ struct DuoFullScreen: View {
     @State private var padTask: Task<Void, Never>?
     /// When the pad was last used — a box, so a finger moving on it doesn't redraw the view.
     @State private var padClock = PadClock()
-    @State private var exitShown = true
-    @State private var hideTask: Task<Void, Never>?
-    @State private var revealedAt = Date.distantPast
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    #if DEBUG
+    @State private var padFromButton = false
+    #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(main: MainView) {
@@ -673,8 +672,6 @@ struct DuoFullScreen: View {
     static let padSize = CGSize(width: 340, height: 220)
     /// How long the pad stays with nothing on it (Sameer: "5 sec … is too long. Make it 3 sec").
     static let padHold: TimeInterval = 3
-
-    private var exitUp: Bool { exitShown || voiceOver || watcher.phase != .live }
 
     var body: some View {
         GeometryReader { geo in
@@ -689,26 +686,24 @@ struct DuoFullScreen: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
-                .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })
                 .overlay {
                     if let at = padAt { pad(at: at, in: geo.size) }
                 }
-                // The mic, small, wherever he left it (never faded: it's the app's point) — and the
-                // way out beside it (Nov 4 2026). In the screen's top-left corner the button sat
-                // over the Mac window's own close, minimise and zoom buttons, which every Mac window
-                // has right there (and a touch there brought it up under the finger as the tap went
-                // through to them). Beside the mic it's where he put the mic — somewhere he doesn't
-                // need on the Mac — and under his thumb, on the side towards the screen's middle.
+                // The mic, small, wherever he left it (never faded: it's the app's point) — the way
+                // out on its left and the trackpad on its right, never faded either (Nov 7 2026). In
+                // the screen's top-left corner the way out sat over the Mac window's own close,
+                // minimise and zoom buttons (Nov 4 2026); beside the mic it's where he put the mic —
+                // somewhere he doesn't need on the Mac — and under his thumb.
                 .overlay {
-                    FloatingMic(main: main, room: geo.size, exitShown: exitUp) { exitButton }
-                        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: exitUp)
+                    FloatingMic(main: main, room: geo.size) { exitButton } trackpad: { disc in
+                        if input.pages.contains(.trackpad) { trackpadButton(disc: disc, room: geo.size) }
+                    }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea()
         .background(Color.black.ignoresSafeArea())
         .onAppear {
-            reveal()
             #if DEBUG
             // MACROPHONE_FULLSCREEN_PAD=x,y: the hold's pad at that point, 2 s in (for a screenshot).
             if let v = DebugHooks.env["MACROPHONE_FULLSCREEN_PAD"]?.split(separator: ",").compactMap({ Double($0) }), v.count == 2 {
@@ -718,9 +713,16 @@ struct DuoFullScreen: View {
                     padClock.holding = false
                 }
             }
+            // MACROPHONE_FULLSCREEN_TRACKPAD=1: the trackpad button's pad, 2 s in (for a screenshot).
+            if DebugHooks.env["MACROPHONE_FULLSCREEN_TRACKPAD"] == "1" {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    padFromButton = true
+                }
+            }
             #endif
         }
-        .onDisappear { hideTask?.cancel(); hideTask = nil; padTask?.cancel(); padTask = nil }
+        .onDisappear { padTask?.cancel(); padTask = nil }
         // The page left the trackpad (the mic opened): the pad goes with it.
         .onChange(of: input.page) { _, p in if p != .trackpad, padAt != nil { dismissPad() } }
         .accessibilityElement(children: .contain)
@@ -731,11 +733,14 @@ struct DuoFullScreen: View {
 
     /// A hold on the picture: the pad comes up centred under the finger (kept on screen) and the
     /// pointer shows — instead of a right-click (two fingers still right-click).
-    private func summonPad(at p: CGPoint) -> Bool {
+    private func summonPad(at p: CGPoint) -> Bool { summonPad(at: p, held: true) }
+
+    /// `held`: the finger that called it is still down (a hold) — the button's tap isn't.
+    private func summonPad(at p: CGPoint, held: Bool) -> Bool {
         guard input.pages.contains(.trackpad), !main.showLiveWords else { return false }
         Haptics.grab()
         padClock.last = Date()
-        padClock.holding = true
+        padClock.holding = held
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.2, dampingFraction: 0.85)) { padAt = p }
         input.show(.trackpad, quiet: true)
         armPad()
@@ -785,6 +790,48 @@ struct DuoFullScreen: View {
             .accessibilityIdentifier("fullscreen-trackpad")
     }
 
+    private typealias Mic = FloatingMic<EmptyView, EmptyView>
+
+    /// The trackpad toggle on the mic's right (Nov 7 2026, Sameer: "a trackpad button to the right
+    /// of the mic button to temp transform the mic into a track pad"): the hold's pad, over the mic
+    /// (under it when there's no room above), lit while it's up; a tap again puts it away, and it
+    /// dissolves after the same 3 s unused.
+    private func trackpadButton(disc: CGPoint, room: CGSize) -> some View {
+        let on = padAt != nil
+        return Button {
+            if on { dismissPad() } else { _ = summonPad(at: Self.padSpot(disc: disc, room: room), held: false) }
+        } label: {
+            Image(systemName: "rectangle.and.hand.point.up.left")
+                .font(.subheadline.weight(.semibold))
+        }
+        .buttonStyle(WatchCellStyle(width: Mic.exitSize, height: Mic.exitSize, tint: on ? Ink.onTint : Ink.ink))
+        // Lit while the pad is up: white on the accent, over the glass (as Paste & Send).
+        .background(Circle().fill(Light.cyan).opacity(on ? 1 : 0))
+        .watchGlass(Circle())
+        .animation(.easeOut(duration: 0.2), value: on)
+        .disabled(main.showLiveWords)
+        .accessibilityLabel("Trackpad")
+        .accessibilityValue(on ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityIdentifier("watch-fullscreen-trackpad")
+        #if DEBUG
+        .onChange(of: padFromButton) { _, go in
+            guard go else { return }
+            padFromButton = false
+            if padAt == nil { _ = summonPad(at: Self.padSpot(disc: disc, room: room), held: false) }
+        }
+        #endif
+    }
+
+    /// The button's pad: centred over the mic, clear of its lip and the Undo chip above it (under
+    /// the disc when the screen has no room above); `pad(at:in:)` keeps it on screen.
+    static func padSpot(disc: CGPoint, room: CGSize) -> CGPoint {
+        let h = padSize.height, inset = DuoLook.edgeInset
+        let above = disc.y - Mic.size / 2 - 32 - 30 - h / 2
+        if above - h / 2 >= inset { return CGPoint(x: disc.x, y: above) }
+        return CGPoint(x: disc.x, y: disc.y + Mic.size * 0.65 + 10 + h / 2)
+    }
+
     private var exitButton: some View {
         Button {
             watcher.setFullScreen(false)
@@ -792,23 +839,10 @@ struct DuoFullScreen: View {
             Image(systemName: "arrow.down.forward.and.arrow.up.backward")
                 .font(.subheadline.weight(.semibold))
         }
-        .buttonStyle(WatchCellStyle(width: FloatingMic<EmptyView>.exitSize, height: FloatingMic<EmptyView>.exitSize))
+        .buttonStyle(WatchCellStyle(width: Mic.exitSize, height: Mic.exitSize))
         .watchGlass(Circle())
         .accessibilityLabel("Exit Full Screen")
         .accessibilityIdentifier("watch-fullscreen-exit")
-    }
-
-    private func reveal() {
-        let now = Date()
-        guard !exitShown || now.timeIntervalSince(revealedAt) > 0.5 else { return }
-        revealedAt = now
-        hideTask?.cancel()
-        if !exitShown { exitShown = true }
-        hideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(DuoLook.headerHold * 1e9))
-            guard !Task.isCancelled else { return }
-            exitShown = false
-        }
     }
 }
 
@@ -816,13 +850,15 @@ struct DuoFullScreen: View {
 /// could drag and move anywhere"): the same mic button, small, with a grab tab on its top edge.
 /// The disc keeps its tap and hold (a dictation); only the lip moves it, so a hold is never taken
 /// for a drag. It stays where it's left (a fraction of the screen, `duo.fullscreen.mic`), kept clear
-/// of the screen's rounded corners.
-struct FloatingMic<Exit: View>: View {
+/// of the screen's rounded corners. The way out on the disc's left and the trackpad on its right go
+/// with it, level with the disc; the three are kept on screen together.
+struct FloatingMic<Exit: View, Trackpad: View>: View {
     let main: MainView
     var room: CGSize
-    /// The way out of full screen beside the disc (it fades with the screen's other controls).
-    var exitShown = false
+    /// The way out of full screen, left of the disc (always shown, but while the lip is dragged).
     @ViewBuilder var exit: () -> Exit
+    /// The trackpad toggle, right of the disc; given the disc's centre (where its pad goes).
+    @ViewBuilder var trackpad: (CGPoint) -> Trackpad
     // First at the right edge, halfway down (Nov 7 2026): bottom-right sat on a chat's Send button.
     @AppStorage("duo.fullscreen.mic.x") private var fx = 1.0
     @AppStorage("duo.fullscreen.mic.y") private var fy = 0.5
@@ -835,14 +871,16 @@ struct FloatingMic<Exit: View>: View {
     static var lip: CGSize { CGSize(width: 34, height: 16) }
     /// The exit button beside the disc.
     static var exitSize: CGFloat { 40 }
+    /// From the disc's centre to a button's.
+    static var gap: CGFloat { size * 0.65 + 6 + exitSize / 2 }
 
     var body: some View {
         let centre = place(CGPoint(x: home.x + drag.width, y: home.y + drag.height))
-        // The exit on the side towards the screen's middle (there's always room there), level
-        // with the disc (the lip's frame is above it: 32 pt, less the 7 they overlap).
-        let towardsLeft = centre.x > room.width / 2
+        // The buttons level with the disc (the lip's frame is above it: 32 pt, less the 7 they
+        // overlap): the way out on the left, the trackpad on the right — always that way round, so
+        // they're where he last saw them; `place` keeps all three on screen.
         let disc = CGPoint(x: centre.x, y: centre.y + (32 - 7) / 2)
-        let gap = Self.size * 0.65 + 6 + Self.exitSize / 2
+        let gap = Self.gap
         ZStack {
             // The lip just above the disc's ring, a few points clear of it (the lip's frame carries
             // 8 pt of touch room under it; the button's runs a little past the ring).
@@ -859,9 +897,12 @@ struct FloatingMic<Exit: View>: View {
                 UndoChip()
                     .position(x: centre.x, y: max(centre.y - 37 - 8 - 14, 22))
             }
-            if exitShown, !dragging {
+            if !dragging {
                 exit()
-                    .position(x: disc.x + (towardsLeft ? -gap : gap), y: disc.y)
+                    .position(x: disc.x - gap, y: disc.y)
+                    .transition(.opacity)
+                trackpad(disc)
+                    .position(x: disc.x + gap, y: disc.y)
                     .transition(.opacity)
             }
         }
@@ -896,10 +937,11 @@ struct FloatingMic<Exit: View>: View {
     /// Where it rests (kept on screen: a drag moves it from there at once, even from the edge).
     private var home: CGPoint { place(CGPoint(x: fx * room.width, y: fy * room.height)) }
 
-    /// The centre kept so the whole of it is on screen and out of the rounded corners.
+    /// The centre kept so the whole of it — the buttons either side too — is on screen and out of
+    /// the rounded corners.
     private func place(_ p: CGPoint) -> CGPoint {
         let inset = DuoLook.edgeInset
-        let halfW = Self.size * 0.8, top = Self.size / 2 + Self.lip.height + 8, bottom = Self.size * 0.8
+        let halfW = max(Self.size * 0.8, Self.gap + Self.exitSize / 2), top = Self.size / 2 + Self.lip.height + 8, bottom = Self.size * 0.8
         return CGPoint(x: min(max(p.x, inset + halfW), room.width - inset - halfW),
                        y: min(max(p.y, inset + top), room.height - inset - bottom))
     }

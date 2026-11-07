@@ -559,11 +559,28 @@ just fill the screen". On the inner screen on its side (flat landscape, the book
 `Watcher.setFullScreen(true)`: `MainView.poseBody` draws `DuoFullScreen` instead of the pose's
 layout — `WatchWindow(fill: true)` edge to edge, no bar, no status bar, no home indicator — and
 one exit button in the top-left corner that fades after 3.5 s and comes back on a touch
-(`watch-fullscreen-exit`). Entering or leaving re-arms auto-fit (`poseSettled`), so a window takes
+(`watch-fullscreen-exit`) **[superseded: beside the mic, Nov 4; never fades, Nov 7 — below]**. Entering or leaving re-arms auto-fit (`poseSettled`), so a window takes
 the screen's shape (`WATCH SHAPE 1.42` on the sim) and goes back to the page's after; the whole
 screen fills rather than showing whole. The pages go to the mic (no pointer without the deck).
 Ends on Done / the glance / close, and on a pose that doesn't allow it. **The mic floats** (`FloatingMic`, Sameer: "make it small and give me a little lip on it so I could drag and move anywhere"): the same `MicButton` at 52 pt with a glass grab tab on its top edge — the disc keeps tap and hold, only the lip drags it; it stays where it's left (`duo.fullscreen.mic.x/y`, fractions, bottom-right first), clamped clear of the rounded corners; never fades. **In full screen a dictation goes to Where I'm typing** (Sameer: "it should default to pasting wherever the cursor is"): `AppModel.startRecording` gives it a `.frontApp` override unless something else asked for a place (a Shortcut); the Send to pick is untouched, and Show the app after sending stays put. It pastes, never sends. **And Where I'm typing never refuses** (Mac 1.1.3, `Paster`'s `.front`): a focused element that doesn't read as a text field still gets ⌘V — Claude's search names the highlighted row of its list as focused while the caret is in the box; `Paster.nearestInput(around:)` finds that box (up to its dialog) only to read the words back. Password fields are still refused. **A hold brings a trackpad** (Sameer: "press and hold … a see through track pad should appear there quickly … dissolve away after like 5 sec of no interaction"): in full screen a hold on the picture (`WatchWindow(onHold:)` → `ViewerScrollView.onHold`, ahead of the right-click — two fingers still right-click) puts a 340 × 220 frosted `TrackpadSurface` centred under the finger (kept on screen) and the trackpad page up (the pointer shows); the finger that held drives the pointer at once, no lift (`onHoldMoved` / `onHoldEnded`, the hold's own moves in the window's space); any use of it (`TrackpadSurface(onUse:)`) or a finger still down keeps it, 3 s with none dissolves it and the pointer goes (`DuoFullScreen.summonPad` / `dismissPad`; `MACROPHONE_FULLSCREEN_PAD=x,y` for a shot; `FullScreenUITests` — a Duo sim opened flat, paired with `mpctl serve`). Hook:
 `MACROPHONE_WATCH_ACTIONS=…,fullscreen,windowed,record,stoprecord` (with `MACROPHONE_SIM_RECORD=<words>`; `mpctl serve` prints `RECEIVED → Where I'm typing`).
+
+**The mic's two buttons, always there (Nov 7 2026).** Sameer: "the zoom out toggle next to the mic
+was there permanently and not conditionally so that users don't struggle to figure out how to close
+the screen", and "a trackpad button to the right of the mic button to temp transform the mic into a
+track pad. Press and hold trackpad should still work". `FloatingMic(exit:trackpad:)` is a trio:
+**exit on the disc's left** (`watch-fullscreen-exit`, unchanged label) and **Trackpad on its right**
+(`watch-fullscreen-trackpad`, `rectangle.and.hand.point.up.left`, a toggle: label "Trackpad", value
+On / Off — XCUITest lists it as a switch), both 40 pt glass, level with the disc, always the same way
+round; they hide only while the lip is dragged. No fade at all (the reveal timer and
+`DuoLook.headerHold` are gone). `place` clamps the whole trio on screen (half-width
+`gap + 20` = 79 pt from the disc's centre), so at an edge the mic sits in by that much. The
+trackpad button calls `summonPad(at:held: false)` with `DuoFullScreen.padSpot`: the same 340 × 220
+pad centred over the mic, clear of the lip and the Undo chip (under the disc when there's no room
+above), kept on screen; lit (white on the accent) while it's up; a tap again or 3 s unused puts it
+away. Hidden when the Mac has no trackpad page; disabled while the words show. The hold is
+untouched. Hook `MACROPHONE_FULLSCREEN_TRACKPAD=1` (the button's pad 2 s in).
+`FullScreenUITests.testTheTrackpadButtonAndThePermanentExit`. Frames: `docs/screens/duo/nov7-fullscreen/`.
 
 ## Opening without a stutter (Nov 3 2026)
 
@@ -801,7 +818,9 @@ the menus' `UIKitMenuButton`), ~60–120 ms on its own.
   iPhone keep their own (`micButton`, matched as before).
 - **Full screen's way out is beside the mic** (`FloatingMic(exitShown:exit:)`): a 40 pt glass circle
   level with the disc, on the side towards the screen's middle, fading with the screen's controls
-  (3.5 s; always for VoiceOver), hidden while the mic is dragged. In the top-left corner it covered
+  (3.5 s; always for VoiceOver), hidden while the mic is dragged **[superseded Nov 7 2026: always
+  shown, always on the mic's left, with the trackpad toggle on its right — see "Full Screen on the
+  Duo on its side"]**. In the top-left corner it covered
   the Mac window's close, minimise and zoom buttons — every Mac window has them there, and a touch
   there raised it under the finger as the tap went through to them. Beside the mic it's wherever he
   put the mic: somewhere he doesn't need on the Mac, under his thumb.
