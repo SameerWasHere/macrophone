@@ -80,18 +80,22 @@ final class UndoChipUITests: XCTestCase {
     func testHistoryShowsUndoOnTheNewestRowOnlyWhileItCan() throws {
         // History opens 2 s after the stop; the landing comes while it's up.
         let app = launch(actions: "pick@Claude,record,stoprecord,sheet@history", life: "12")
-        let row = app.cells.firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.cells.firstMatch.waitForExistence(timeout: 30))
         let undo = app.buttons["history-undo-button"].firstMatch
         XCTAssertTrue(undo.waitForExistence(timeout: 40), "the newest paste shows Undo")
         XCTAssertTrue(undo.label.hasPrefix("Undo paste into"), undo.label)
-        XCTAssertTrue(undo.frame.midY < row.frame.maxY && undo.frame.midY > row.frame.minY, "Undo sits on the newest row: \(undo.frame) vs \(row.frame)")
+        // (`cells.firstMatch` is not the newest row on this sheet; the row is the one holding Undo.)
+        let row = app.cells.containing(.button, identifier: "history-undo-button").firstMatch
+        XCTAssertTrue(row.exists, "Undo sits on a row")
+        XCTAssertTrue(row.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "To Claude")).firstMatch.exists, "and it's the newest paste's")
+        let rowFrame = row.frame
+        XCTAssertTrue(undo.frame.midY < rowFrame.maxY && undo.frame.midY > rowFrame.minY, "Undo sits on the newest row: \(undo.frame) vs \(rowFrame)")
         // Gone once the window has passed.
         let gone = NSPredicate(format: "exists == false")
         let wait = XCTNSPredicateExpectation(predicate: gone, object: undo)
         XCTAssertEqual(XCTWaiter().wait(for: [wait], timeout: 16), .completed, "no Undo once the Mac can't")
-        // The swipe and the menu never offered it either, then.
-        row.swipeRight()
+        // The swipe never offers it either, then.
+        app.cells.containing(NSPredicate(format: "label BEGINSWITH %@", "To Claude")).firstMatch.swipeRight()
         XCTAssertFalse(app.buttons["history-undo"].firstMatch.waitForExistence(timeout: 2), "no Undo Paste in the swipe once the Mac can't")
     }
 }
