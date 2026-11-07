@@ -7,9 +7,9 @@ import XCTest
 /// the deck below is the header, then one mode at a time taking the whole of the rest — the
 /// trackpad (a drag there moves the pointer, read back off the trackpad's value), the mic, the
 /// keyboard (typing goes to the Mac: `mpctl serve` prints "WATCH TYPE N characters") — picked
-/// by the cluster in the corner; Done leaves the glance — the window still live — with the
-/// cover's view in the deck, and Show it here takes it back. The book: the Mac on the left
-/// page, the column of keys, trackpad and mic down the right. Flat: the glance in one half and
+/// by the mode bar; Done leaves the glance — the window still live — with the cover's view in the
+/// deck, and Show it here takes it back. The book: the Mac on the left page, the same deck — one
+/// mode at a time, the same mode bar — on the right. Flat: the glance in one half and
 /// the cover's view in the other. The simulator can't be folded from a script, so the pose is
 /// forced (`MACROPHONE_POSTURE=…`) in the inner screen's frame (`MACROPHONE_FRAME=…`, drawn to
 /// scale on the cover with its bars stood in for). Needs a paired `mpctl serve`.
@@ -18,7 +18,9 @@ final class DuoUITests: XCTestCase {
 
     private func launch(_ pose: String, frame: String, extra: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
-        var env = ["MACROPHONE_SCREEN": "main", "MACROPHONE_FRAME": frame, "MACROPHONE_POSTURE": pose, "MACROPHONE_SEND_TO": "Terminal"]
+        // The mode bar's segments as elements of their own, so a test taps one by its id.
+        var env = ["MACROPHONE_SCREEN": "main", "MACROPHONE_FRAME": frame, "MACROPHONE_POSTURE": pose, "MACROPHONE_SEND_TO": "Terminal",
+                   "MACROPHONE_MODE_SEGMENTS": "1"]
         env.merge(extra) { $1 }
         app.launchEnvironment = env
         app.launch()
@@ -46,20 +48,48 @@ final class DuoUITests: XCTestCase {
         try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
     }
 
-    /// A mode by the deck's mode bar (Trackpad · Mic · Keyboard): its segment by name, else a tap
-    /// at that fraction of the bar (the frame is drawn at 0.4× on the cover).
-    private func pick(_ switcher: XCUIElement, _ page: String, at fraction: CGFloat) {
-        let cell = switcher.buttons[page]
+    /// A mode by the deck's mode bar (Trackpad · Mic · Keyboard): its segment, by its id
+    /// (`input-mode-<page>`, exposed with `MACROPHONE_MODE_SEGMENTS`).
+    private func pick(_ app: XCUIApplication, _ page: String) {
+        let switcher = app.descendants(matching: .any)["input-pages"]
+        let cell = app.descendants(matching: .any)["input-mode-\(page.lowercased())"].firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: 3), "the \(page) segment is on the mode bar")
         let want = NSPredicate(format: "value == %@", page)
-        // A cell that small can be missed by a point or two: a few tries, a nudge up and down.
-        for nudge in [0, -4, 4, 2, -2] as [CGFloat] {
-            if cell.exists {
-                cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: 0, dy: nudge)).tap()
-            } else {
-                switcher.coordinate(withNormalizedOffset: CGVector(dx: fraction, dy: 0.5)).withOffset(CGVector(dx: 0, dy: nudge)).tap()
-            }
+        // A cell drawn at 0.4× on the cover can be missed by a point or two: a nudge up and down.
+        for nudge in [0, -3, 3] as [CGFloat] {
+            cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: 0, dy: nudge)).tap()
             if XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: want, object: switcher)], timeout: 1.5) == .completed { return }
         }
+    }
+
+    /// The side page's column is gone (Nov 7 2026, round 3): one deck, one mode bar, every pose.
+    private func assertNoColumn(_ app: XCUIApplication, _ what: String) {
+        for id in ["deck-keyboard-button", "deck-mac-keys", "deck-send-to", "bar-keyboard"] {
+            XCTAssertFalse(app.descendants(matching: .any)[id].exists, "\(what): no \(id)")
+        }
+    }
+
+    /// A question's answers row, if it's on screen, leads with Escape.
+    private func assertEscFirst(_ app: XCUIApplication, _ what: String) {
+        let row = app.descendants(matching: .any)["watch-answers"].firstMatch
+        guard row.exists, row.frame.height > 1 else { return }
+        XCTAssertEqual(row.buttons.firstMatch.label, "Escape", "\(what): the answers lead with Esc")
+    }
+
+    /// The side page in hand: the trackpad most of the page, the mode bar under it, no column.
+    private func assertSideDeck(_ app: XCUIApplication, _ inner: CGRect, split: CGFloat, _ what: String) {
+        let trackpad = app.descendants(matching: .any)["input-trackpad"]
+        let switcher = app.descendants(matching: .any)["input-pages"]
+        XCTAssertTrue(switcher.waitForExistence(timeout: 4), "\(what): the mode bar is on the deck")
+        if switcher.value as? String != "Trackpad" { pick(app, "Trackpad") }
+        // The right page: from the fold to the vertical bar (~84 pt) at the screen's edge.
+        let page = inner.maxX - 84 * inner.width / 951 - split
+        XCTAssertGreaterThan(trackpad.frame.minX, split - 2, "\(what): the trackpad is on the right page")
+        XCTAssertGreaterThan(trackpad.frame.width, page * 0.8, "\(what): and its width: \(trackpad.frame.width) of \(page)")
+        XCTAssertGreaterThan(trackpad.frame.height, inner.height * 0.6, "\(what): and most of its height: \(trackpad.frame.height) of \(inner.height)")
+        XCTAssertGreaterThan(switcher.frame.minY, trackpad.frame.maxY - 2, "\(what): the modes under it")
+        XCTAssertGreaterThan(switcher.frame.minX, split - 2, "\(what): on the right page")
+        assertNoColumn(app, what)
     }
 
     private func dismissTips(_ app: XCUIApplication) {
@@ -82,7 +112,7 @@ final class DuoUITests: XCTestCase {
         let switcher = app.descendants(matching: .any)["input-pages"]
         XCTAssertTrue(switcher.waitForExistence(timeout: 3), "the modes are a row of their own on the deck")
         // The deck remembers its mode across launches (the trackpad the first time): start there.
-        if switcher.value as? String != "Trackpad" { pick(switcher, "Trackpad", at: 0.17) }
+        if switcher.value as? String != "Trackpad" { pick(app, "Trackpad") }
         XCTAssertEqual(switcher.value as? String, "Trackpad")
         // Nothing over the picture: the header, the answers, the modes and the trackpad are all
         // under the fold.
@@ -96,7 +126,8 @@ final class DuoUITests: XCTestCase {
         // The trackpad is the deck: its whole width, most of the half under the header.
         let deck = inner.height / 2
         XCTAssertGreaterThan(trackpad.frame.width, inner.width * 0.8, "the trackpad is the deck's width: \(trackpad.frame.width) of \(inner.width)")
-        XCTAssertGreaterThan(trackpad.frame.height, deck * 0.6, "and most of its height: \(trackpad.frame.height) of \(deck)")
+        // (The question's answers are up — the demo Mac's — and take a row of the deck: half, not more.)
+        XCTAssertGreaterThan(trackpad.frame.height, deck * 0.5, "and most of its height: \(trackpad.frame.height) of \(deck)")
         shot("laptop-trackpad")
 
         // A drag on the trackpad moves the pointer.
@@ -110,27 +141,41 @@ final class DuoUITests: XCTestCase {
         trackpad.pinch(withScale: 2.5, velocity: 2)
         XCTAssertTrue(app.staticTexts["Zoom in"].waitForExistence(timeout: 3), "a pinch on the trackpad zooms the Mac's window")
 
+        assertNoColumn(app, "the laptop")
+        let window = app.descendants(matching: .any)["duo-window"].firstMatch
+        let windowFrame = window.frame
+        assertEscFirst(app, "on the trackpad")
+
         // The mic mode: the mic takes the deck, the trackpad goes; the picture above is untouched.
-        pick(switcher, "Mic", at: 0.5)
+        pick(app, "Mic")
         let mic = app.buttons["Start dictation"]
         XCTAssertTrue(mic.waitForExistence(timeout: 4), "the mic mode has the mic")
-        // The pages slide: the trackpad's page is a width to the side, off the screen.
-        XCTAssertFalse(trackpad.exists && trackpad.frame.intersects(inner.insetBy(dx: 4, dy: 4)), "one mode at a time")
+        // The pages change in place (Nov 7 2026): the trackpad's stays built, faded out, so the
+        // mode bar says which one is up.
+        XCTAssertEqual(switcher.value as? String, "Mic", "one mode at a time")
         XCTAssertGreaterThan(mic.frame.minY, inner.midY, "the mic is on the deck")
         XCTAssertLessThan(mic.frame.maxY, inner.maxY + 2, "and whole in it")
+        assertEscFirst(app, "on the mic")
+        XCTAssertEqual(window.frame, windowFrame, "a mode change never moves the window")
         shot("laptop-mic")
 
         // The keyboard mode: the iOS keyboard rises over the deck; hide comes back to the trackpad.
-        pick(switcher, "Keyboard", at: 0.83)
+        pick(app, "Keyboard")
         let cont = app.buttons["Continue"]
-        if cont.waitForExistence(timeout: 2) { cont.tap(); pick(switcher, "Keyboard", at: 0.83) }
+        if cont.waitForExistence(timeout: 2) { cont.tap(); pick(app, "Keyboard") }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 6), "the iOS keyboard comes up")
+        let answers = app.descendants(matching: .any)["watch-answers"].firstMatch
+        XCTAssertFalse(answers.exists && answers.isHittable, "the answers row steps away while the keyboard is up")
         app.typeText("duo")
         shot("laptop-keyboard")
         let hide = app.buttons["Hide the keyboard"]
         XCTAssertTrue(hide.waitForExistence(timeout: 3))
         hide.tap()
         XCTAssertTrue(trackpad.waitForExistence(timeout: 5), "hide comes back to the trackpad")
+        XCTAssertTrue(answers.waitForExistence(timeout: 4), "and the answers come back, whole")
+        assertEscFirst(app, "back on the trackpad")
+        sleep(1)
+        XCTAssertEqual(window.frame, windowFrame, "the window is where it was")
 
         // Done leaves the glance — the window still live, the cover's view in the deck — and
         // Show it here takes it back.
@@ -151,20 +196,22 @@ final class DuoUITests: XCTestCase {
         let inner = innerFrame(app, "951x669")
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
         guard trackpad.waitForExistence(timeout: 20) else { throw XCTSkip("no Mac naming the trackpad is connected") }
-        // A touch on the left page brings its header up.
-        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: inner.minX + inner.width * 0.25, dy: inner.midY)).tap()
-        XCTAssertTrue(app.buttons["watch-done"].waitForExistence(timeout: 3), "a touch on the Mac's page brings the header up")
         dismissTips(app)
-        // The deck is the right page: the keys, the trackpad (the most of it) and the mic.
+        // The deck is the right page, the laptop's: one mode at a time filling it, the same mode
+        // bar at its foot.
         let split = inner.minX + inner.width / 2
-        XCTAssertGreaterThan(trackpad.frame.minX, split - 2, "the trackpad is on the right page")
-        XCTAssertGreaterThan(trackpad.frame.height, inner.height * 0.35, "and takes the most of it: \(trackpad.frame.height) of \(inner.height)")
-        XCTAssertGreaterThan(app.buttons["deck-keyboard-button"].frame.minX, split - 2, "the keyboard is on the right page")
-        XCTAssertGreaterThan(app.buttons["Start dictation"].frame.minX, split - 2, "and the mic")
+        assertSideDeck(app, inner, split: split, "the book")
         let answer = app.buttons["watch-answer-0"]
         XCTAssertTrue(answer.waitForExistence(timeout: 8))
-        XCTAssertLessThan(answer.frame.maxX, split, "the answers float over the Mac's page")
+        XCTAssertLessThan(answer.frame.maxX, split, "the answers are a row under the Mac's page")
         shot("book")
+        pick(app, "Mic")
+        let mic = app.buttons["Start dictation"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 4), "the mic mode has the mic")
+        XCTAssertGreaterThan(mic.frame.minX, split - 2, "on the right page")
+        XCTAssertFalse(trackpad.exists && trackpad.isHittable, "one mode at a time")
+        shot("book-mic")
+        pick(app, "Trackpad")
     }
 
     /// Flat and upright the fold runs across: the picked app's window live above it (the
@@ -190,7 +237,7 @@ final class DuoUITests: XCTestCase {
     }
 
     /// Flat on its side the fold runs down the middle: the window live on the left page, the
-    /// cover's view on the right — and in hand, the deck's column down the right page.
+    /// cover's view on the right — and in hand, the laptop's deck on the right page.
     func testOpenLandscapeIsTheGlanceBesideTheCoversView() throws {
         let app = launch("landscape", frame: "951x669")
         let inner = innerFrame(app, "951x669")
@@ -208,8 +255,7 @@ final class DuoUITests: XCTestCase {
         show.tap()
         let trackpad = app.descendants(matching: .any)["input-trackpad"]
         XCTAssertTrue(trackpad.waitForExistence(timeout: 8), "in hand: the deck's trackpad is on the right page")
-        XCTAssertGreaterThan(trackpad.frame.minX, split - 2)
-        XCTAssertGreaterThan(app.buttons["deck-keyboard-button"].frame.minX, split - 2, "with the keyboard")
+        assertSideDeck(app, inner, split: split, "flat on its side")
         shot("landscape")
     }
 }

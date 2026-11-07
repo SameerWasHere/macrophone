@@ -1,16 +1,23 @@
 import SwiftUI
 
-/// The laptop deck's modes — Trackpad · Mic · Keyboard — as a segmented control of their own at
-/// the deck's foot, under the thumb (Nov 7 2026). They had been three bare glyphs in a glass
-/// cluster laid over the trackpad's corner: unnamed, a finger's width each, and over the plate
-/// they switch away from. Each segment is a glyph and a word, 44 pt tall; the lit one is a plate
-/// of the accent that slides to the next. One adjustable element for VoiceOver, as the cluster was.
+/// The inner screen's deck modes — Trackpad · Mic · Keyboard — as a segmented control of their
+/// own at the deck's foot, under the thumb (Nov 7 2026), on the laptop and the side page alike.
+/// They had been three bare glyphs in a glass cluster laid over the trackpad's corner: unnamed, a
+/// finger's width each, and over the plate they switch away from. Each segment is a glyph and a
+/// word, as wide as they are (the control sits in the middle of its row, as iPadOS centres one in
+/// a toolbar); where the words don't fit (the side page, ~300 pt) the glyphs alone. 44 pt tall;
+/// the lit one is a plate of the accent that slides to the next. One adjustable element for
+/// VoiceOver, as the cluster was.
 struct DuoModeBar: View {
     @ObservedObject var input: MacInput
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var plate
 
     static let height: CGFloat = 44
+
+    /// UI tests tap a segment by its id (`input-mode-<page>`): with this set the segments are
+    /// elements of their own. VoiceOver always hears the one adjustable control.
+    private static let segmentsExposed = ProcessInfo.processInfo.environment["MACROPHONE_MODE_SEGMENTS"] == "1"
 
     /// The order on the deck: the trackpad first (where the hands are), then the mic, then the
     /// keyboard — the pages the Mac offers.
@@ -22,15 +29,12 @@ struct DuoModeBar: View {
     private var lit: MacInput.Page { input.page }
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(modes) { mode in
-                segment(mode)
-            }
+        ViewThatFits(in: .horizontal) {
+            bar(words: true)
+            bar(words: false)
         }
-        .padding(3)
         .frame(height: Self.height)
-        .watchGlass(Capsule())
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: Self.segmentsExposed ? .contain : .ignore)
         .accessibilityLabel("Input")
         .accessibilityValue(lit.title)
         .accessibilityHint("Swipe up or down for \(modes.map { $0.title.lowercased() }.joined(separator: ", ")).")
@@ -43,21 +47,35 @@ struct DuoModeBar: View {
         .accessibilityIdentifier("input-pages")
     }
 
-    private func segment(_ mode: MacInput.Page) -> some View {
+    private func bar(words: Bool) -> some View {
+        HStack(spacing: 2) {
+            ForEach(modes) { mode in
+                segment(mode, words: words)
+            }
+        }
+        .padding(3)
+        .frame(height: Self.height)
+        .fixedSize(horizontal: true, vertical: false)
+        .watchGlass(Capsule())
+    }
+
+    private func segment(_ mode: MacInput.Page, words: Bool) -> some View {
         let on = mode == lit
         return Button { pick(mode) } label: {
             HStack(spacing: 6) {
                 Image(systemName: mode.symbol)
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 22)
-                Text(mode.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .fixedSize()
+                if words {
+                    Text(mode.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .foregroundStyle(on ? Ink.onTint : Ink.ink)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, words ? 14 : 16)
+            .frame(minWidth: 56, maxHeight: .infinity)
             .background {
                 if on {
                     Capsule().fill(Light.cyan)
@@ -67,6 +85,8 @@ struct DuoModeBar: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(mode.title)
+        .accessibilityAddTraits(on ? .isSelected : [])
         .accessibilityIdentifier("input-mode-\(mode.rawValue)")
     }
 

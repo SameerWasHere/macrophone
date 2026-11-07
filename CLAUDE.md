@@ -390,7 +390,7 @@ This section wins over the four passes above where they differ.
   AttributeGraph spun in a cycle (`sample` on the simulator's process showed it). The resign is now
   on the next run-loop turn, like taking the keyboard always was. Never resign or become first
   responder synchronously from `updateUIView`.
-- **The mini MacBook** (`UI/DuoLaptopDeck.swift`) **[superseded Nov 1 2026 on the laptop: its deck is one mode at a time, each the whole half; this column stays on the book's page and the open screen's right page]**: while a window shows on the inner screen the
+- **The mini MacBook** (`UI/DuoLaptopDeck.swift`, deleted) **[superseded Nov 1 2026 on the laptop: its deck is one mode at a time, each the whole half; superseded Nov 7 2026 (round 3) on the side page too — one deck on every inner pose, below]**: while a window shows on the inner screen the
   deck is a laptop's lower half, all at once — Send to as a menu (every open app with its icon; a
   pick shows its window), the Thread and the mic on the "palm rest", the trackpad in the middle,
   keycaps on the right **[superseded Nov 7 2026 on the column: a Keyboard button and a Mac Keys toggle; keycaps only with it on]** (esc ⇥ ⌫ ⌨︎ · ⌘ ⌥ ⌃ ⇧ lit when waiting · return · fn and the inverted-T
@@ -1106,7 +1106,8 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   space · arrows, ⇧ both ends (double tap = caps lock), on the system keyboard's background. The
   book's / side column: a Keyboard button (`deck-keyboard-button`) + a Mac Keys toggle
   (`deck-mac-keys`) instead of four rows of keycaps (three rows with it on); the column hides
-  whole while the keyboard is up (`micSlot(visible:)`). Hook `MACROPHONE_MAC_KEYS=1|0` (DEBUG, not
+  whole while the keyboard is up (`micSlot(visible:)`) **[superseded round 3: the column is gone —
+  one deck on every inner pose]**. Hook `MACROPHONE_MAC_KEYS=1|0` (DEBUG, not
   saved); `type@` now types through the real field. `KeyboardChoiceUITests`.
 - **The Duo's inner screen, the same on every path.** *The band:* hiding the status bar at runtime
   on iOS 27.1 (upright with a window in hand) left SwiftUI's content 82 pt down under an empty band
@@ -1395,6 +1396,53 @@ pill hung over the mic's ring and bloom. Now, one path in AppModel (`undo(id:)`,
   caught the Clipboard pick (no undoable paste), so that placement is by code only; `mpctl serve`'s stdout is
   block-buffered to a file, so its `LANDED` line lands late — time a shot from the phone's
   diagnostics log instead.
+
+## One deck on every inner pose (Nov 7 2026, round 3)
+
+Sameer's brief that night: "The app often doesn't have perspective on what should be easy to access
+vs buried in a menu", and folding the Duo 90° changed the whole control model — the laptop's deck
+was one mode at a time, the side page a column of everything at once (a Keyboard button, a lone ⌘
+pill for Mac Keys, keycaps, the trackpad, a Send to menu, the mic) with a second Keyboard button in
+the vertical bar. Now one vocabulary wherever the screen is. Frames:
+`docs/screens/overnight-nov7/round-3/duo-one-deck/`.
+- **`DuoDeck.modes`** (UI/DuoView.swift) is the deck in hand on every inner pose (`vertical` = the
+  side page): one mode at a time filling the room — the trackpad edge to edge, the mic with the
+  Thread across it (`carousel(fill:compact:rowHidden: true)`), or the iOS keyboard — and
+  `DuoModeBar` at its foot (same segments, order, symbols, `input-pages`). The laptop adds its
+  answers row on top and `WatchHeaderBar` under the modes; the side page has neither (its name is a
+  row over the picture, its answers a row under it, its controls in the vertical bar), and lines up
+  with the left page (`DuoLook.edgeInset` top and bottom). `DuoLaptopDeck.swift` is deleted with
+  `DeckKeys`, `Keycap`/`KeycapStyle`, `RepeatKeycap`, `DeckFnKey`, `DeckSendTo`, `DeckLook` and
+  `keepTrackpad` (the deck remembers its mode per pose as before: `duo.deck.book` on its side, the
+  trackpad the first time). Mac Keys lives in the keyboard bar's toggle only.
+- **Open an App** with a window in hand: a 44 pt glass **+** at the end of the mode row
+  (`deck-open-app`), the modes centred between it and its twin's width — the window's name menu
+  lists only open apps, and Send to's menu is gone from the deck.
+- **The vertical bar drops Keyboard on the inner screen** (`coverToolbar`: `!posture.pose.isInner`);
+  the cover keeps it, and within a pose the set still never comes or goes.
+- **The laptop's answers row** hides whole the moment the keyboard is asked for or up
+  (`input.page == .keyboard || input.keysUp`), out in `Motion.leave`, back (Esc first) only when
+  both are false — so whenever it shows `keysUp` is false and its chips never change; the deck's
+  height never changes, so the window never moves.
+- **Keyboard picked, keyboard not up yet:** the Thread fades with the mic page in `Motion.leave`
+  (in `carousel`, `rowHidden` only) and a quiet keyboard glyph and "Keyboard" (Ink.tertiary) sit in
+  the room until the keys rise. With the keyboard up on the side page the carousel draws nothing and
+  only the mode row shows over the keyboard (once `sideBody` gives the deck a room ending at the
+  keyboard's top — the duo-inner-typing stream; in this branch the page is still 0 wide while typing).
+- **The mic's slot on a deck is laid at its settled place** (an overlay on the carousel at
+  `threadTop + slot + 8`, the mic page keeping an empty frame there): it had ridden the Thread's slot
+  opening on the spring, so the one mic showed at the room's top and slid down every time the mic
+  mode came.
+- **`DuoModeBar`** is as wide as its content and centred (segments = glyph + word + 14 pt a side,
+  min 56), glyphs only where the words don't fit (`ViewThatFits` — the side page, ~300 pt). Still one
+  adjustable "Input" for VoiceOver; `MACROPHONE_MODE_SEGMENTS=1` (set by `DuoUITests`) exposes the
+  segments as `input-mode-<page>` buttons so tests tap them by id, never by position.
+- **Seen, not fixed:** on the simulator the app's first frame after a page change lands ~3 frames
+  after the keyboard starts rising, so on the laptop the answers' fade overlaps the bar's first rise;
+  the laptop still grows the window over the keyboard (the duo-inner-typing stream's).
+  `DuoUITests`: the book, flat-landscape and laptop tests pass with the new deck (≥ 80% of the
+  page, the mode bar under it, no column ids; the laptop's answers gone while the keyboard is up and
+  back Esc first, `duo-window` unmoved); flat portrait's older failure (Send to 276 < 306) stands.
 
 ## The ten polish ideas (Nov 5 2026)
 

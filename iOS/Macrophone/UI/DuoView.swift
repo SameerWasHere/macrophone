@@ -26,9 +26,10 @@ import UIKit
 //                        Flat and upright it is the same layout (the fold is in the same place), so
 //                        folding it moves nothing
 //   book                 on its side, the hinge up and down — the Mac on the left page, the deck
-//   (and flat, on its    down the right (the keys, the trackpad, Send to and the mic: the right
-//   side)                thumb's); nothing in hand: the glance left, the cover's view right — what
-//                        the phone opens to. Folded or flat, one layout
+//   (and flat, on its    on the right: the laptop's modes, one at a time filling the page, the
+//   side)                same mode bar at its foot (the right thumb's); nothing in hand: the
+//                        glance left, the cover's view right — what the phone opens to. Folded
+//                        or flat, one layout
 //
 // Done on the inner screen is the glance, not a closed window (`Watcher.glance`): the picked
 // app's window stays live and big, its controls put away, Show it here to take it in hand again —
@@ -222,7 +223,7 @@ extension MainView {
 
     /// The carousel — the page row, the Thread, the mic · keyboard · trackpad pages — as the phone
     /// builds it. `fill`: the room the pages take whole (the trackpad fills it, the mic sits in
-    /// the middle of it); `rowHidden`: the laptop's deck, where the modes are a row of their own
+    /// the middle of it); `rowHidden`: an inner deck (the laptop's, the side page's), where the modes are a row of their own
     /// (`DuoModeBar`), the Thread spans the half, the mic is a size up where there's room and the
     /// status line a size up — the Thread and the mic one group in the middle of the mode's room.
     func carousel(fill: CGFloat?, compact: Bool, rowHidden: Bool = false) -> some View {
@@ -239,8 +240,14 @@ extension MainView {
         return InputCarousel(input: input, watcher: watcher, compact: compact, threadHeight: slot + threadTop, fill: fill, rowHidden: rowHidden) {
             VStack(spacing: 0) {
                 Color.clear.frame(height: deck ? 8 : compact ? 4 : 30)
-                // The one mic sits here while the mic mode is up (`innerMic`).
-                micSlot(size: micSize, inHand: true, visible: input.page == .mic && !input.keysUp)
+                // The one mic sits here while the mic mode is up (`innerMic`) — on a deck its slot
+                // is laid over the carousel at this place (below), so it never rides the Thread's
+                // slot opening as the mic mode comes (the mic showed at the room's top and slid down).
+                if rowHidden {
+                    Color.clear.frame(width: micSize * 1.3, height: micSize * 1.25)
+                } else {
+                    micSlot(size: micSize, inHand: true, visible: input.page == .mic && !input.keysUp)
+                }
                 if oneLine {
                     FixedSlot(alignment: .top) {
                         Text("A").font(rowHidden ? .body : .subheadline).frame(maxWidth: .infinity)
@@ -264,9 +271,21 @@ extension MainView {
                     timer.frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 .frame(height: slot)
+                // A deck's mode changed: the Thread goes with the mic page, at once, so the lit
+                // mode and the room agree (its slot folds on the carousel's own spring after).
+                .opacity(rowHidden && input.page != .mic ? 0 : 1)
+                .animation(rowHidden ? (input.page == .mic ? Motion.pick(Motion.settle, reduce: reduceMotion) : Motion.leave) : nil, value: input.page)
             }
             .frame(height: slot + threadTop)
             .padding(.horizontal, -4)
+        }
+        .overlay(alignment: .top) {
+            // Where the mic page puts the mic once the Thread's slot is open: the deck's mode room
+            // has a set height, so this place is set too.
+            if rowHidden {
+                micSlot(size: micSize, inHand: true, visible: input.page == .mic && !input.keysUp)
+                    .padding(.top, threadTop + slot + 8)
+            }
         }
         .onChange(of: showLiveWords) { _, live in input.micOpen(live) }
     }
@@ -852,16 +871,20 @@ struct DuoLiveWords: View {
     }
 }
 
-/// The deck of a folded screen (and of the open screen upright): with a window in hand, the
-/// laptop's modes — the trackpad the whole half, the keyboard rising over it with the Mac's keys
-/// on its bar, or the mic with the Thread across the half — or, down the book's page, the keys,
-/// the trackpad and the mic all at once. Nothing in hand: the cover's own view, whole (Nov 1
-/// 2026: the half that was the cover goes on being the cover). `vertical`: the book's page.
+/// The inner screen's deck, on every pose (Nov 7 2026, round 3 — one control vocabulary): with a
+/// window in hand, one mode at a time filling the deck — the trackpad edge to edge, the mic with
+/// the Thread across it, or the iOS keyboard — picked by `DuoModeBar` at its foot. The laptop (and
+/// flat upright) adds the window's header under the modes and a question's answers over them; the
+/// side page (the book, flat on its side) has neither — its name is a row over the picture, its
+/// answers a row under it and its controls in the vertical bar. Nothing in hand: the cover's own
+/// view, whole (Nov 1 2026: the half that was the cover goes on being the cover). `vertical`: the
+/// side page.
 struct DuoDeck: View {
     let main: MainView
     var vertical: Bool
     @ObservedObject private var watcher: Watcher
     @ObservedObject private var input: MacInput
+    @EnvironmentObject private var model: AppModel
 
     init(main: MainView, vertical: Bool) {
         self.main = main
@@ -871,69 +894,121 @@ struct DuoDeck: View {
     }
 
     var body: some View {
-        // In hand: the book's page has the trackpad, the keys and the mic all at once; the laptop's
-        // its modes. At rest: the cover's view, as it is on the cover — Send to, the switches, the
-        // Thread, the mic (its buttons in the vertical bar where the screen has one, else its own
-        // top bar). Both stay built (`keptPair`).
-        main.keptPair(inHand: watcher.isShowing,
-                      rest: main.phoneBody,
-                      hand: Group { if vertical { DuoLaptopDeck(main: main, vertical: true) } else { laptopModes } })
+        // Both stay built (`keptPair`): Show it here and Done only fade between them.
+        main.keptPair(inHand: watcher.isShowing, rest: main.phoneBody, hand: modes)
         .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.isShowing)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(watcher.isShowing ? "The deck: trackpad, keyboard and mic" : "Send to and the mic")
     }
 
-    /// The laptop's deck while a window shows (Nov 1 2026, Sameer: "the trackpad is really small …
-    /// I should still be able to select mic mode, keyboard mode to trackpad mode and have each of
-    /// those modes take up the full half"): one mode at a time, the whole of the deck's room — the
-    /// trackpad edge to edge, the mic with the Thread across the half, or the iOS keyboard — then,
-    /// at the deck's foot under the thumb, the modes as a labelled control of their own
-    /// (`DuoModeBar`, Nov 7 2026: they had been a cluster of bare glyphs over the trackpad's
-    /// corner) and the window's header. The question's answers take a row at the top while one is
-    /// up, the mode's room giving it up (the deck's height never changes, so the window never
-    /// moves). While you talk, the words sit over the Thread and the mic under them, lit to stop;
-    /// the modes stay in their place, dimmed.
-    private var laptopModes: some View {
+    /// The keyboard page is asked for or still up: what it covers gives way at once.
+    private var keyboardAsked: Bool { input.page == .keyboard || input.keysUp }
+
+    /// The laptop's answers row: a question up, and never while the keyboard is asked for or up —
+    /// whenever it shows the keyboard is down, so its chips (Esc first) never change under the
+    /// finger, and the keyboard's bar never slides up through them (Nov 7 2026).
+    private var answersShown: Bool {
+        !vertical && watcher.phase.holdsLayout && !main.showLiveWords && watcher.answers != nil && !keyboardAsked
+    }
+
+    /// The deck in hand (Nov 1 2026, Sameer: "the trackpad is really small … I should still be
+    /// able to select mic mode, keyboard mode to trackpad mode and have each of those modes take
+    /// up the full half"; Nov 7 2026: the same on the side page, where a column of everything at
+    /// once had made a 90° fold change the whole control model). The deck's height never changes
+    /// with its mode or a question, so the window never moves. While you talk, the words sit over
+    /// the Thread and the mic under them, lit to stop; the modes stay in their place, dimmed.
+    private var modes: some View {
         VStack(spacing: 6) {
             // (Held, dimmed, while the link comes back: the deck under them never moves for a blip.)
-            if watcher.phase.holdsLayout, !main.showLiveWords, watcher.answers != nil {
+            if answersShown {
                 WatchActions(watcher: watcher, floating: true, oneLine: true)
                     .padding(.horizontal, 12)
                     .watchLive(watcher.phase)
-                    .transition(.opacity)
+                    .transition(.asymmetric(insertion: .opacity.animation(Motion.pick(Motion.settle, reduce: main.reduceMotion)),
+                                            removal: .opacity.animation(Motion.leave)))
             }
-            GeometryReader { g in
-                let mic = DuoLook.deckMicFit(g.size.height).mic
-                main.carousel(fill: g.size.height, compact: true, rowHidden: true)
-                    .frame(width: g.size.width, height: g.size.height, alignment: .top)
-                    .overlay(alignment: .top) {
-                        if main.showLiveWords {
-                            DuoLiveWords(main: main, room: g.size, below: true)
-                                .frame(height: max(72, g.size.height - DuoLook.micGroup(mic) - 4))
-                                .allowsHitTesting(false)
-                                .transition(.opacity)
-                        }
+            GeometryReader { g in room(g.size) }
+            modeRow
+                .padding(.horizontal, 12)
+            if !vertical {
+                // The window's controls at the deck's foot (Nov 1 2026, Sameer: "move all of the Mac
+                // controls and … window selection tools to the bottom so that they don't
+                // interfere"): the keyboard rises over them, and nothing sits between the window and
+                // the deck.
+                WatchHeaderBar(watcher: watcher, dragSwitch: true) { t, _ in
+                    watcher.say(t.title, symbol: "arrow.left.and.right")
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+            }
+        }
+        // The side page lines up with the window's page beside it (in from the screen's corners).
+        .padding(.top, vertical ? DuoLook.edgeInset : 6)
+        .padding(.bottom, vertical ? DuoLook.edgeInset : 0)
+        .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.answers?.id)
+        .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: main.showLiveWords)
+        .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: answersShown)
+    }
+
+    /// The mode's room. The carousel stays in it whatever the mode (it holds the keyboard's field);
+    /// with the keyboard up on the side page nothing of it shows, and only the modes stay, over the
+    /// keyboard — Trackpad or Mic one tap away.
+    private func room(_ size: CGSize) -> some View {
+        let mic = DuoLook.deckMicFit(size.height).mic
+        return main.carousel(fill: size.height, compact: true, rowHidden: true)
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .overlay {
+                // Keyboard lit, the keyboard not up yet: the room is already the keyboard's.
+                if input.page == .keyboard, !input.keysUp {
+                    VStack(spacing: 8) {
+                        Image(systemName: MacInput.Page.keyboard.symbol).font(.system(size: 28, weight: .regular))
+                        Text(MacInput.Page.keyboard.title).font(.subheadline.weight(.semibold))
                     }
+                    .foregroundStyle(Ink.tertiary)
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+                    .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.2).delay(0.08)),
+                                            removal: .opacity.animation(Motion.leave)))
+                }
             }
+            .overlay(alignment: .top) {
+                if main.showLiveWords {
+                    DuoLiveWords(main: main, room: size, below: true)
+                        .frame(height: max(72, size.height - DuoLook.micGroup(mic) - 4))
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+    }
+
+    /// The modes in the middle of their row, Open an App at its end (the way to an app that isn't
+    /// open, with a window in hand: the window's name menu lists only the open ones).
+    private var modeRow: some View {
+        HStack(spacing: 8) {
+            // Its twin's width on the other side, so the modes sit in the row's middle.
+            Color.clear.frame(width: 44, height: 1)
+            Spacer(minLength: 0)
             if input.pages.count > 1 {
                 DuoModeBar(input: input)
-                    .padding(.horizontal, 12)
                     .opacity(main.showLiveWords ? 0.4 : 1)
                     .allowsHitTesting(!main.showLiveWords)
             }
-            // The window's controls at the deck's foot (Nov 1 2026, Sameer: "move all of the Mac
-            // controls and … window selection tools to the bottom so that they don't interfere"):
-            // the keyboard rises over them, and nothing sits between the window and the deck.
-            WatchHeaderBar(watcher: watcher, dragSwitch: true) { t, _ in
-                watcher.say(t.title, symbol: "arrow.left.and.right")
+            Spacer(minLength: 0)
+            Button { model.sheet = .openApp } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 6)
+            .buttonStyle(WatchCellStyle(width: 44, height: 44))
+            .watchGlass(Circle())
+            .disabled(!model.isConnected || main.showLiveWords)
+            .accessibilityLabel("Open an App")
+            .accessibilityHint("Opens an app on your Mac.")
+            .accessibilityIdentifier("deck-open-app")
         }
-        .padding(.top, 6)
-        .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: watcher.answers?.id)
-        .animation(Motion.pick(Motion.settle, reduce: main.reduceMotion), value: main.showLiveWords)
+        .frame(height: DuoModeBar.height)
     }
 }
 
