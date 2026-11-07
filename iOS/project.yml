@@ -28,6 +28,11 @@ targets:
     dependencies:
       - package: MacrophoneKit
       - target: MacrophoneControls
+      # MacrophoneAlerts (below) is embedded once its App ID has the iCloud container: Apple's API
+      # can't link a container to an App ID (developer.apple.com › Identifiers ›
+      # com.sameer.macrophone.alerts › iCloud › Configure › iCloud.com.sameer.macrophone). Until then
+      # an alert that comes through iCloud shows its headline and the window, without the picture.
+      # - target: MacrophoneAlerts
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone
@@ -44,11 +49,14 @@ targets:
         # Alerts that reach a closed app go through iCloud: a build signed with a profile that has
         # the container passes CODE_SIGN_ENTITLEMENTS=Macrophone/Macrophone-iCloud.entitlements and
         # YES here (aps-environment: development for a development profile, production otherwise).
-        MACROPHONE_CLOUD_ALERTS: "NO"
+        # Every build is signed for iCloud since Nov 6 2026 (the App ID has iCloud and push; the
+        # alerts, with their pictures, reach a closed app through it): TestFlight included.
+        # aps-environment stays development here; an App Store export makes it production.
+        MACROPHONE_CLOUD_ALERTS: "YES"
         MACROPHONE_APS_ENVIRONMENT: development
         MACROPHONE_CLOUD_ENVIRONMENT: Production
         # The app target only (the Control Center extension keeps its own signing):
-        MACROPHONE_ENTITLEMENTS_FILE: Macrophone/Macrophone.entitlements
+        MACROPHONE_ENTITLEMENTS_FILE: Macrophone/Macrophone-iCloud.entitlements
         CODE_SIGN_ENTITLEMENTS: $(MACROPHONE_ENTITLEMENTS_FILE)
         MACROPHONE_SIGN_STYLE: Automatic
         CODE_SIGN_STYLE: $(MACROPHONE_SIGN_STYLE)
@@ -117,6 +125,32 @@ targets:
         MacrophoneSharedKeychainGroup: $(AppIdentifierPrefix)com.sameer.macrophone.shared
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  MacrophoneAlerts:
+    # The notification extension (Nov 6 2026): fills in an alert that came through iCloud — the
+    # line and the picture of the window — and deletes its record.
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MacrophoneAlerts
+    dependencies:
+      - package: MacrophoneKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.alerts
+        PRODUCT_NAME: MacrophoneAlerts
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        MACROPHONE_CLOUD_ENVIRONMENT: Production
+        CODE_SIGN_ENTITLEMENTS: MacrophoneAlerts/MacrophoneAlerts.entitlements
+    info:
+      path: MacrophoneAlerts/Info.plist
+      properties:
+        CFBundleDisplayName: Macrophone Alerts
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
   MacrophoneUITests:
     type: bundle.ui-testing
     platform: iOS

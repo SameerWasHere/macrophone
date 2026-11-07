@@ -36,6 +36,9 @@ import SwiftUI
 ///   MACROPHONE_MENUBAR_DEMO=cycle   the menu bar icon's answers every 3 s (or one of landed | failed | arriving |
 ///                                   watching | silent) through the calls the delivery makes (StatusIconMotion);
 ///                                   ",reduced" as Reduce Motion would ("reduced" alone: real deliveries only)
+///   MACROPHONE_ALERTS_PRINT=1       print each alert (its kind, headline, line, picture size) to stdout; the
+///                                   distributed notification "com.sameer.macrophone.debug.alertWatch" (object: a
+///                                   bundle id) puts that app's front window on watch
 ///   MACROPHONE_WATCH_TIMING=1      print each watched picture's or video frame's stages in milliseconds (WatchService)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
 ///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
@@ -52,6 +55,8 @@ enum DebugHooks {
     /// Returns true when it took over the launch (no default first-run flow).
     static func run(_ app: AppDelegate) -> Bool {
         let model = app.model
+        // Printed lines reach a file or a pipe as they're printed.
+        if ProcessInfo.processInfo.environment["MACROPHONE_ALERTS_PRINT"] == "1" { setvbuf(stdout, nil, _IOLBF, 0) }
         listenForSimulatedDictations(model)
         // Make an app's front window a chat waiting for its answer, as a dictation sent there does —
         // without typing anything (ReplyWatcher's live test). The notification's object: a bundle id.
@@ -62,6 +67,14 @@ enum DebugHooks {
                   let w = WindowServer.appWindows().filter({ $0.pid == pid }).min(by: { $0.z < $1.z }) else { return }
             MainActor.assumeIsolated { model.replies.engaged(windowID: w.id, bundleID: bid) }
             model.log.add("debug: engaged \(bid)#\(w.id)")
+        })
+        // Put an app's front window on watch for changes, as the phone or the menu does (the
+        // notification's object: a bundle id); each alert is printed (MACROPHONE_ALERTS_PRINT).
+        bag.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.alertWatch"),
+                                                                       object: nil, queue: .main) { n in
+            // "com.apple.Terminal" (its front window) or "com.apple.Terminal#78151" (that window).
+            guard let parts = (n.object as? String)?.split(separator: "#").map(String.init), let bid = parts.first else { return }
+            MainActor.assumeIsolated { model.windowAlerts.set(.app(bundleID: bid, windowKey: parts.dropFirst().first, name: bid), on: true) }
         })
         // Open the menu bar menu, as a click on the icon does (screenshots; keyboard drives it).
         bag.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.openMenu"),

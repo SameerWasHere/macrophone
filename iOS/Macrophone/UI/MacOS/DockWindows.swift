@@ -31,6 +31,7 @@ enum DockWindowsLook {
 
 /// What the popover shows over one Dock icon.
 struct DockWindowsPopover: View {
+    @EnvironmentObject var model: AppModel
     var place: PlaceOption
     var current: TargetRef
     var macID: UUID?
@@ -76,6 +77,25 @@ struct DockWindowsPopover: View {
                 }
                 .buttonStyle(DockMenuRow())
                 .accessibilityIdentifier("dock-show-window")
+            }
+            // Alerts for the window Show Window would show (Nov 6 2026).
+            if model.canAlert, place.kind == .app {
+                Divider().padding(.horizontal, DockWindowsLook.inset)
+                let on = model.alertWatch(for: watchTarget)
+                Button { model.setAlertWatch(on?.ref ?? watchTarget, on: on == nil) } label: {
+                    HStack {
+                        Text(on == nil ? "Alert Me When It Changes" : "Stop Alerts")
+                        Spacer()
+                        Image(systemName: on == nil ? "bell.badge" : "bell.slash")
+                    }
+                    .font(.body)
+                    .foregroundStyle(Ink.ink)
+                    .padding(.horizontal, DockWindowsLook.inset)
+                    .frame(minHeight: 46)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(DockMenuRow())
+                .accessibilityIdentifier(on == nil ? "dock-alert-on" : "dock-alert-off")
             }
         }
         .frame(width: width)

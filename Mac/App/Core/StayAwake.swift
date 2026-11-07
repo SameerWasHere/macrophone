@@ -60,6 +60,19 @@ final class StayAwake {
         }
     }
 
+    private var alerts: IOPMAssertionID = 0
+
+    /// Windows on watch for changes (Watch/WindowAlerts.swift): the Mac doesn't idle-sleep while
+    /// one is — the display may (the windows are pictured with it dark) — so a build finishing
+    /// overnight still reaches the phone. Released when the last watch ends (each has an end).
+    func update(alertWatches: Int) {
+        if alertWatches > 0 {
+            if alerts == 0 { alerts = hold(kIOPMAssertPreventUserIdleSystemSleep, "Macrophone: watching windows for changes") }
+        } else {
+            drop(&alerts)
+        }
+    }
+
     private func hold(_ type: String, _ reason: String) -> IOPMAssertionID {
         var id: IOPMAssertionID = 0
         let ok = IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason as CFString, &id)

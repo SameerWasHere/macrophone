@@ -241,6 +241,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             mi.representedObject = peerID.uuidString
             menu.addItem(mi)
         }
+        // Windows on watch for changes (Watch/WindowAlerts.swift): each a row that ends it.
+        for w in model.alertWatches {
+            let mi = action("Stop Alerts for \(w.title)", #selector(stopAlerts(_:)), symbol: "bell.slash",
+                            detail: w.calm ? "\(w.appName) · only when it stops changing" : "\(w.appName) · your iPhone hears when it changes")
+            mi.representedObject = w.id
+            menu.addItem(mi)
+        }
         menu.addItem(.separator())
 
         // 2. The way in, and the one setup step still open (if any). With nothing paired yet,
@@ -259,6 +266,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             open.keyEquivalentModifierMask = m
         }
         menu.addItem(open)
+        // Put the window you were just in on watch: the iPhone hears when it changes.
+        if !model.peers.isEmpty, let front = NSWorkspace.shared.frontmostApplication, let bid = front.bundleIdentifier,
+           bid != Bundle.main.bundleIdentifier, !model.alertWatches.contains(where: { $0.bundleID == bid }) {
+            let name = front.localizedName ?? "This App"
+            let mi = action("Alert Me When \(name) Changes", #selector(watchFront(_:)), symbol: "bell.badge",
+                            detail: "Your iPhone gets a picture when its window finishes or needs you")
+            mi.representedObject = bid
+            menu.addItem(mi)
+        }
         if failed {
             menu.addItem(action("Open Local Network Settings…", #selector(openLocalNetwork), symbol: "network"))
         } else if !model.peers.isEmpty, AgentSetup.claude == .notConnected {
@@ -355,6 +371,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func stopWatching(_ sender: NSMenuItem) {
         guard let s = sender.representedObject as? String, let id = UUID(uuidString: s) else { return }
         model.stopWatching(id)
+    }
+
+    @objc private func stopAlerts(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let w = model.alertWatches.first(where: { $0.id == id }) else { return }
+        model.windowAlerts.set(w.ref, on: false)
+    }
+
+    @objc private func watchFront(_ sender: NSMenuItem) {
+        guard let bid = sender.representedObject as? String else { return }
+        let name = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first?.localizedName ?? bid
+        model.windowAlerts.set(.app(bundleID: bid, windowKey: nil, name: name), on: true)
     }
 
     @objc private func copyRecent(_ sender: NSMenuItem) {

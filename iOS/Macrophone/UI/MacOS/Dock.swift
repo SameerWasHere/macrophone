@@ -224,6 +224,7 @@ struct SendToDock: View {
 /// One icon on the Dock: the app's own icon (or a place's), the running dot under it, the
 /// "answered you" mark, and — the pick — lifted with its name over it.
 private struct DockIcon: View {
+    @EnvironmentObject var model: AppModel
     var place: PlaceOption
     var selected: Bool
     var current: TargetRef
@@ -287,6 +288,14 @@ private struct DockIcon: View {
                             .transition(.scale.combined(with: .opacity))
                     }
                 }
+                .overlay(alignment: .topLeading) {
+                    // On watch for changes: a bell at the icon's other corner.
+                    if let w = model.alertWatch(for: place) {
+                        AlertWatchBadge(calm: w.calm)
+                            .offset(x: -5, y: -4)
+                            .transition(.scale(scale: 0.5).combined(with: .opacity))
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if watchable {
                         Image(systemName: "eye.fill")
@@ -312,6 +321,7 @@ private struct DockIcon: View {
         .buttonStyle(DockPress())
         .animation(Motion.pick(Motion.snap, reduce: reduceMotion), value: selected)
         .animation(Motion.snap, value: needs != nil)
+        .animation(Motion.snap, value: model.alertWatch(for: place) != nil)
         // A long press: the app's windows as pictures over the icon (App Exposé), in a glass
         // popover rather than a context menu — a context menu's preview takes no taps and
         // doesn't scroll, and each card here is a window to pick. The scrub's drag moves the

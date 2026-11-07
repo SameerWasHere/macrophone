@@ -69,7 +69,7 @@ final class AgentHub {
             let isNew = sessions[key] == nil
             sessions[key] = entry
             if isNew { app.log.add("agents: \(e.agentName) session started (\(sessions.count) now)") }
-            if state == .waiting, was != .waiting || detail != nil { alert(entry.session) }
+            if state == .waiting, was != .waiting || detail != nil { alert(entry.session, windowID: entry.windowID) }
         }
         sweep()
     }
@@ -116,21 +116,14 @@ final class AgentHub {
 
     // MARK: Telling the phone
 
-    private func alert(_ s: AgentSession) {
+    /// The same alert as every other (AlertCenter): "Claude Code is asking you something", the
+    /// question under it, and a picture of its window.
+    private func alert(_ s: AgentSession, windowID: CGWindowID?) {
         guard let ref = s.ref else { return }
-        let phones = app.server.phones(with: Attention.feature)
-        let a = Attention(ref: ref, appName: s.agent, title: s.project ?? s.appName,
-                          question: s.detail, promptID: Self.promptID(s))
-        Task {
-            if phones.isEmpty {
-                guard CloudAlerts.available, UserDefaults.standard.bool(forKey: "attention.cloud") else { return }
-                let ok = await CloudAlerts.post(a)
-                app.log.add(ok ? "agents: \(s.agent) is asking — sent through iCloud" : "agents: \(s.agent) is asking — iCloud didn't take it")
-            } else {
-                for p in phones { await app.server.send(.attention(a), to: p) }
-                app.log.add("agents: \(s.agent) is asking — told the phone")
-            }
-        }
+        let a = MacAlert(ref: ref, appName: s.agent, title: s.project ?? s.appName, kind: .asking,
+                         headline: AlertWords.headline(.asking, app: s.agent, newLines: []),
+                         detail: s.detail, promptID: Self.promptID(s))
+        Task { await app.alerts.send(a, windowID: windowID) }
     }
 
     /// Short and stable for one question of one session.

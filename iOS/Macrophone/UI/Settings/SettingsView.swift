@@ -265,10 +265,38 @@ struct SettingsView: View {
                 Label { Text("Tell me when an agent asks something") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
             }
             .onChange(of: settings.agentAlerts) { _, on in
-                Task { if on { await AgentAlerts.shared.askIfNeeded() } else { await AgentAlerts.shared.unsubscribeInCloud() } }
+                Task {
+                    if on { await AgentAlerts.shared.askIfNeeded() }
+                    else if model.alertWatches.isEmpty { await AgentAlerts.shared.unsubscribeInCloud() }
+                }
             }
+            // Windows on watch (Nov 6 2026): each one a row; a swipe ends it.
+            ForEach(model.alertWatches) { w in
+                HStack(spacing: 12) {
+                    SettingsIcon(symbol: "bell.fill", color: w.calm ? Color(uiColor: .systemGray) : Light.gold)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(w.title).lineLimit(1)
+                        let who = w.appName == w.title ? "" : "\(w.appName) · "
+                        Text(w.calm ? "\(who)only when it stops changing" : "\(who)on watch")
+                            .font(.footnote)
+                            .foregroundStyle(Ink.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Stop") { model.setAlertWatch(w.ref, on: false) }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Light.rose)
+                        .accessibilityLabel("Stop alerts for \(w.title)")
+                }
+                .accessibilityElement(children: .combine)
+                .swipeActions { Button("Stop", role: .destructive) { model.setAlertWatch(w.ref, on: false) } }
+            }
+        } header: {
+            if !model.alertWatches.isEmpty { Text("Alerts") }
         } footer: {
-            Text("When an agent on your Mac stops to ask something while Macrophone is open here, you get a notification; tap it to answer.")
+            Text(model.canAlert || !model.alertWatches.isEmpty
+                 ? "Any window can be on watch: open it and pick Alert Me When It Changes from the Window menu, or hold its icon. You get a notification with a picture when it finishes, has something new or needs you, even when Macrophone is closed. Agents asking something come the same way."
+                 : "When an agent on your Mac stops to ask something, you get a notification with a picture of its window; tap it to answer.")
         }
     }
 

@@ -440,6 +440,7 @@ struct PlacesRow: View {
 /// One place: its icon with its name under it, as a native button. The pick is the prominent
 /// (tinted) one, so which is selected is the button itself.
 private struct PlaceButton: View {
+    @EnvironmentObject var model: AppModel
     var place: PlaceOption
     var selected: Bool
     var current: TargetRef
@@ -502,6 +503,16 @@ private struct PlaceButton: View {
                             }
                         }
                         .animation(Motion.snap, value: watchable)
+                        .overlay(alignment: .topLeading) {
+                            // On watch for changes: a bell at the icon's other corner.
+                            if let w = model.alertWatch(for: place) {
+                                AlertWatchBadge(calm: w.calm)
+                                    .scaleEffect(compact ? 0.85 : 1)
+                                    .offset(x: -5, y: -5)
+                                    .transition(.scale(scale: 0.5).combined(with: .opacity))
+                            }
+                        }
+                        .animation(Motion.snap, value: model.alertWatch(for: place) != nil)
                     // On its way (just opened from Open an App): a turn over its icon.
                     if place.kind == .opening { ProgressView().controlSize(.small).tint(Ink.ink) }
                 }
@@ -529,6 +540,9 @@ private struct PlaceButton: View {
         // The held icon lifts as its own rounded button, whole.
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16, style: .continuous))
         .contextMenu {
+            if place.kind == .app {
+                Section { AlertWatchButton(ref: alertRef) }
+            }
             if place.windows.count > 1 {
                 Section("\(place.name) windows") {
                     ForEach(place.windows) { w in
@@ -548,12 +562,20 @@ private struct PlaceButton: View {
         .accessibilityAction(named: "Watch") { if watchable { onWatch() } }
     }
 
+    /// The window a long press puts on watch: the pick's, the app's only one, else its front one.
+    private var alertRef: TargetRef {
+        if let w = place.windows.first(where: { current.matches($0) }) { return w.ref }
+        if place.windows.count == 1, let w = place.windows.first { return w.ref }
+        return place.target
+    }
+
     private var label: String {
         var s = place.name
         if place.windows.count > 1 { s += ", \(place.windows.count) windows" }
         if place.kind == .closed { s += ", not open on your Mac" }
         if place.kind == .opening { s += ", opening on your Mac" }
         if let needs { s += needs.asking ? ", asking you something" : ", answered you" }
+        if model.alertWatch(for: place) != nil { s += ", alerts on" }
         return s
     }
 }

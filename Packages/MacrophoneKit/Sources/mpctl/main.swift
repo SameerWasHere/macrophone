@@ -80,6 +80,8 @@ func stdout(_ s: String) { print(s); fflush(Foundation.stdout) }
 
 @MainActor
 final class ServeDelegate: LinkServerDelegate {
+    /// Windows on watch (Alerts.swift).
+    var alertWatchList: [AlertWatch] = []
     func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) {
         (ClipboardItem(text: "git push origin main"), "Copied from your Mac")
     }
@@ -117,7 +119,7 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, peerConnected peer: PairedPeer, appVersion: String, os: String) {
         // Alerts: a phone that understands them hears, after a while, that the codex window (one it
         // isn't watching) is asking — read off that window's picture like the Mac app does.
-        if server.phones(with: Attention.feature).contains(peer.id), flag("--no-attention") == nil {
+        if (server.phones(with: Attention.feature) + server.phones(with: MacAlerts.feature)).contains(peer.id), flag("--no-attention") == nil {
             let codex = LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "codex — ~/api", windowKey: "42")
             let demo = self.demo(for: codex.ref)
             demo.finish()
@@ -125,7 +127,15 @@ final class ServeDelegate: LinkServerDelegate {
                 try? await Task.sleep(nanoseconds: UInt64((Double(flag("--attention-after") ?? "8") ?? 8) * 1e9))
                 guard let image = demo.image(), let p = await PromptVision.read(image) else { stdout("ATTENTION none read"); return }
                 let a = Attention(ref: codex.ref, appName: "Terminal", title: codex.title, question: p.question, promptID: p.id)
-                await server.send(.attention(a), to: peer.id)
+                if server.phones(with: MacAlerts.feature).contains(peer.id) {
+                    // Every alert one way, with a picture (the Mac's AlertCenter).
+                    let m = MacAlert(ref: codex.ref, appName: "Terminal", title: codex.title, kind: .asking,
+                                     headline: AlertWords.headline(.asking, app: "Terminal", newLines: []),
+                                     detail: p.question, promptID: p.id, jpeg: MacAlerts.jpeg(image))
+                    await server.send(.macAlert(m), to: peer.id)
+                } else {
+                    await server.send(.attention(a), to: peer.id)
+                }
                 stdout("ATTENTION sent: \(codex.title) — \(p.question ?? "-")")
             }
         }
@@ -694,6 +704,7 @@ func run() async -> Int32 {
         server.macFeatures.append(MacCursor.feature)
         // Undo the last paste (Undo.swift): answers as the Mac does, presses nothing.
         if !has("--no-undo") { server.macFeatures.append(UndoPaste.feature) }
+        if !has("--no-alerts") { server.macFeatures.append(MacAlerts.feature) }
         if !has("--jpeg") { server.macFeatures += MacReachDemo.features }
         if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }
         // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).

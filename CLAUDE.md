@@ -952,6 +952,80 @@ header, the answers floating over the picture's foot, the tip card over the wind
 - Still over the picture, on purpose: the words you're saying while the mic is open, the
   Accessibility banner (×), a moment's note ("Terminal — codex ~/api"), full screen's floating mic.
 
+## Alerts from the Mac: any window on watch, every alert with a picture (Nov 6 2026)
+
+Sameer: "have the app watch any window and alert me with a notification and an image of the window
+for any significant state change", then "have agent alerts work through this new way now. So it's
+all consistent and uniform". Keep-alerting with guards was his pick (not one-shot). Wins over the
+older alert sections where they differ.
+- **The rule** (MacrophoneKit `Core/MacAlerts.swift`, pure, `MacAlertsTests`): `WindowChangeDetector`
+  per window, a look every 3 s (6 s after ten quiet minutes): busy while the picture changes by more
+  than a caret (`activity` 0.0003) or the window says it's working (`StillWorking`); it **settles**
+  after a tenth of the busy time, 8–30 s; a short settle counts only if the picture ended
+  meaningfully different (a spinner isn't news), a run of 20 s or more always does (a rerun ending as
+  before). A dialog / sheet over it (`AlertCenter.dialogs` — companions at the normal level) alerts
+  at once. More than three alerts in ten minutes → **calm**: only a two-minute stillness counts,
+  until half an hour without one. Looking at it on the phone = `seen()`. A watch ends when its
+  window closes (a "window closed" alert with the last picture), after 12 quiet hours, or when
+  turned off; 8 at most.
+- **The words** (`AlertReading`, `AlertWords`): the window's text by accurate recognition (4 s,
+  then fast — fast reads "1 error" as "l error"), pieces on one row joined; what's new compared
+  loosely (letter for letter ignoring signs, a prefix, or a tenth's edit distance — the same line
+  reads differently picture to picture); of the window's last eight lines, the new ones, else all
+  (`isPrompt` drops the shell prompt). The headline from the on-device model (`Writer`, greedy, no
+  example numbers) only when **grounded**: every number and every longer word is the window's own or
+  a status word (`statusWords`) — it once wrote "Build failed: 3 errors" for 1 error and "Build
+  completed" for an upload; else the window's own status line ("Upload complete"), else plain
+  words. The line under it is always the window's own (`AlertWords.detail`: a summary failure line,
+  a failure, a success, else the last). Real-window proof (a Debug copy, a Terminal window, display
+  asleep): "Build failed · Build failed with 1 error in 23.4s", "Upload complete · Upload complete:
+  report.pdf (2.1 MB)", "Terminal is asking you something · Do you want to continue?", "Terminal
+  window closed".
+- **One sender** (`Mac/App/Watch/WindowAlerts.swift`: `AlertCenter` + `WindowAlertWatcher`): every
+  alert — a window on watch, `AgentHub`'s agent asking, `AttentionWatcher`'s question — is a
+  `MacAlert` with a JPEG of the window (≤ 1,100 px, ≤ 150 KB, `MacAlerts.jpeg`; the dialog included
+  when one is up): `.macAlert` to a phone naming `macAlerts`, `.attention` to an older phone (a
+  question only), else iCloud. A question isn't told twice (`recentlyAsked`, 20 s). The lookout skips
+  windows on watch. Pictures are captured with the display asleep (the usual case — he's away);
+  `frontWindow` reads the window server straight, drawn or not. `StayAwake.update(alertWatches:)`:
+  no idle system sleep while anything's on watch (the display may sleep).
+- **Wire** (`Transport/AlertLink.swift`): phone → Mac `.alertWatch(AlertWatchRequest)`; Mac → phone
+  `.alertWatches([AlertWatch])` after the welcome and on each change, `.macAlert(MacAlert)` (`kind` a
+  string, so a newer kind never breaks a phone).
+- **iCloud** (`CloudAlerts`, `CloudAlertRecord`): the Production schema takes no new types or fields
+  without a CloudKit Console deploy, so alerts ride the old "Ask" type: `line` headline, `window`
+  title, `ref`, and `promptID` = a JSON payload (kind, line, picture as base64). Record
+  `alert-<window>`, overwritten; the Mac deletes any older than a day (`alerts.cloud.written`). The
+  push shows `line` / `window` / "Tap to see it."; the subscription asks for mutable content.
+- **The picture through iCloud needs the notification extension** (`iOS/MacrophoneAlerts`,
+  `NotificationService`: fetches the record, `AlertNotification.fill`, removes the window's older
+  alert, deletes the record). Written, built, **not embedded yet**: its App ID
+  (`com.sameer.macrophone.alerts`, registered Nov 6 with iCloud through the API) has no container —
+  Apple's API can't link one and there's no Xcode account on this Mac. Sameer: developer.apple.com ›
+  Identifiers › com.sameer.macrophone.alerts › iCloud › Configure › tick iCloud.com.sameer.macrophone.
+  Then uncomment `- target: MacrophoneAlerts` in `iOS/project.yml`; the phone then names
+  `macAlerts-cloudPicture` and the Mac starts putting the picture in the record (until then it
+  doesn't — no point storing it). A dev profile "Macrophone Alerts Development" was made through the
+  API (without the container) — regenerate it after the tick.
+- **Every iPhone build is iCloud-signed now** (`MACROPHONE_CLOUD_ALERTS` YES,
+  `Macrophone-iCloud.entitlements`): TestFlight builds get alerts with the app closed.
+- **Phone** (`Model/WindowAlerts.swift`): `alertWatches`, `setAlertWatch` / `toggleAlertWatch`,
+  `AlertWatchButton` (the Window menu's first section; a place's long press on the cover / inner
+  tiles), the Dock popover's "Alert Me When It Changes" row (`dock-alert-on/off`), `AlertWatchBadge`
+  (a gold bell at the icon's top-left; grey when calm), Settings › Alerts lists each with Stop.
+  `AgentAlerts.post(MacAlert)` → `AlertNotification` (one per window, `threadIdentifier` "alerts").
+  A question goes by the agents switch; a window he put on watch always alerts. Nothing while he's
+  looking at that window. Mac menu: "Alert Me When ‹front app› Changes" and a Stop row per watch.
+- **Hooks:** phone `MACROPHONE_WATCH_ACTIONS=…,alert,alertoff`, `MACROPHONE_FAKE_ALERT=<s>`;
+  `AlertNotificationUITests` (`TEST_RUNNER_MACROPHONE_ALERT_TEST=1`, `…_ALERT_SHOTS=<dir>`); Mac
+  `MACROPHONE_ALERTS_PRINT=1` (each alert and look to stdout, the JPEG in $TMPDIR) and the distributed
+  notification `com.sameer.macrophone.debug.alertWatch` (object `bundle` or `bundle#windowID`);
+  `mpctl serve` keeps watches and says one finished after `--alert-after` (6 s), `--no-alerts`.
+- **Seen on the simulator:** the iOS 27 simulator draws no attachment thumbnail at all
+  (QuickLook: "No extension found for com.apple.private.quicklook.notification") — the attachment is
+  copied in fine. **Needs his phone:** the picture in the notification; an alert through iCloud with
+  the app closed (Production "Ask" type and the Mac's save); the model's headlines on real apps.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

@@ -140,6 +140,8 @@ final class AppModel: ObservableObject {
 
     /// The chats you're in that answered you: their apps wear a mark in Send to.
     @Published private(set) var needsYou: [NeedsYou] = []
+    /// The Mac's windows on watch for changes (Model/WindowAlerts.swift).
+    @Published var alertWatches: [AlertWatch] = []
     /// The Mac sent its list since the link last connected (so "Not open on your Mac" is current).
     @Published private(set) var targetsCurrent = false
     /// The active Mac: the one the mic sends to, the window view shows and the pill names.
@@ -160,7 +162,7 @@ final class AppModel: ObservableObject {
 
     private var bag = Set<AnyCancellable>()
     private var flushing = false
-    private var sceneActive = false
+    private(set) var sceneActive = false
     /// The Duo (Oct 25 2026): the window view was opened by the pose (the inner screen), not by
     /// him — closing the phone closes it again, so the cover screen is where he left it.
     var openedByPose = false
@@ -273,6 +275,12 @@ final class AppModel: ObservableObject {
         c.features += [Displays.feature, WakeInfo.feature, MacControl.feature]
         // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
         c.features.append(MacWallpaper.feature)
+        // Windows on watch, and every alert with a picture of its window (Nov 6 2026).
+        c.features.append(MacAlerts.feature)
+        // With the notification extension in the app, a picture that comes through iCloud shows too.
+        if Bundle.main.builtInPlugInsURL.map({ FileManager.default.fileExists(atPath: $0.appendingPathComponent("MacrophoneAlerts.appex").path) }) == true {
+            c.features.append(MacAlerts.cloudPictureFeature)
+        }
         // Undo the last paste, from the landed pill (Nov 3 2026, Core/UndoPaste.swift).
         c.features.append(UndoPaste.feature)
         // The Mac's pointer shape, drawn as the trackpad's pointer (Nov 1 2026, UI/TrackpadView.swift).
@@ -364,6 +372,7 @@ final class AppModel: ObservableObject {
         liveTargets = mac.map { Self.loadTargets(for: $0.id) } ?? []
         targetsCurrent = false
         needsYou = []
+        alertWatches = []
         everyWindow = []
         macApps = []
         macAppsLoaded = false

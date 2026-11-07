@@ -437,6 +437,10 @@ struct WatchWindowMenu: View {
 
     var body: some View {
         Menu {
+            // Alerts first: the reason to walk away from a window is knowing when it needs you.
+            if let t = watcher.target {
+                Section { AlertWatchButton(ref: t) }
+            }
             if watcher.canFitToPhone {
                 Section {
                     Button { watcher.fitToPhone() } label: {

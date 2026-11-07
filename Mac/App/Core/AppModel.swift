@@ -35,6 +35,12 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var attention: AttentionWatcher!
     private(set) var agents: AgentHub!
     private(set) var replies: ReplyWatcher!
+    /// Every alert to the phone goes through here (Watch/WindowAlerts.swift).
+    private(set) var alerts: AlertCenter!
+    /// Windows on watch for changes.
+    private(set) var windowAlerts: WindowAlertWatcher!
+    /// The windows on watch, for the menu.
+    @Published private(set) var alertWatches: [AlertWatch] = []
     private(set) var attachments: AttachmentInbox!
     private(set) var stayAwake: StayAwake!
     /// Every window on screen, as last told to the phones (AllWindows).
@@ -111,6 +117,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         attention = AttentionWatcher(app: self)
         agents = AgentHub(app: self)
         replies = ReplyWatcher(app: self)
+        alerts = AlertCenter(app: self)
+        windowAlerts = WindowAlertWatcher(app: self)
         attachments = AttachmentInbox(app: self)
         stayAwake = StayAwake(log: log)
         watch.onChange = { [weak self] in
@@ -134,6 +142,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         // The pointer's shape on the phone's trackpad pointer (Nov 1 2026, Watch/WatchService.swift).
         server.macFeatures.append(MacCursor.feature)
         server.macFeatures.append(UndoPaste.feature)
+        // Windows on watch, and every alert with a picture (Nov 6 2026, Watch/WindowAlerts.swift).
+        server.macFeatures.append(MacAlerts.feature)
         // The displays, Mac Controls, Wake the Mac (Oct 19 2026, Core/MacReach.swift).
         server.macFeatures += [Displays.feature, MacControl.feature, WakeInfo.feature]
         // Swipes and the pointer skip the main actor: the receive loop hands each step to the
@@ -797,5 +807,25 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 extension AppModel: LinkServerUndoDelegate {
     func linkServer(_ server: LinkServer, undoPaste id: UUID, from peerID: UUID) async -> UndoResult {
         await delivery.undo(id)
+    }
+}
+
+// MARK: Windows on watch (Watch/WindowAlerts.swift)
+
+extension AppModel: LinkServerAlertsDelegate {
+    func alertWatches(_ server: LinkServer) -> [AlertWatch] { windowAlerts.list }
+
+    func linkServer(_ server: LinkServer, alertWatch request: AlertWatchRequest, from peerID: UUID) {
+        windowAlerts.set(request.ref, on: request.on)
+    }
+
+    func alertWatchesChanged(_ list: [AlertWatch]) {
+        alertWatches = list
+        stayAwake.update(alertWatches: list.count)
+    }
+
+    /// The menu's "Alert Me When … Changes": the app in front's front window.
+    func toggleAlertWatch(_ ref: TargetRef) {
+        windowAlerts.toggle(ref)
     }
 }

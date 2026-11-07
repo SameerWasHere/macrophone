@@ -21,12 +21,13 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().delegate = self
     }
 
-    func askIfNeeded() async {
+    /// `force`: a window was just put on watch (alerts are wanted whatever the agents switch says).
+    func askIfNeeded(force: Bool = false) async {
         let center = UNUserNotificationCenter.current()
         if await center.notificationSettings().authorizationStatus == .notDetermined {
             _ = try? await center.requestAuthorization(options: [.alert, .sound])
         }
-        await subscribeInCloud()
+        await subscribeInCloud(force: force)
     }
 
     // MARK: Through iCloud, for when the app is closed
@@ -39,8 +40,8 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate {
     static var cloudReady: Bool { UserDefaults.standard.bool(forKey: "alerts.cloud") }
 
     /// Subscribes once (saving it again is harmless). Needs notifications allowed and iCloud.
-    func subscribeInCloud() async {
-        guard Self.cloudAvailable, model?.settings.agentAlerts == true,
+    func subscribeInCloud(force: Bool = false) async {
+        guard Self.cloudAvailable, force || model?.settings.agentAlerts == true || model?.alertWatches.isEmpty == false,
               await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .authorized else { return }
         UIApplication.shared.registerForRemoteNotifications()
         let sub = CKQuerySubscription(recordType: "Ask", predicate: NSPredicate(value: true), subscriptionID: Self.subscriptionID,
@@ -50,9 +51,13 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate {
         info.titleLocalizationArgs = ["line"]
         info.subtitleLocalizationKey = "%1$@"
         info.subtitleLocalizationArgs = ["window"]
-        info.alertBody = "Tap to see it and answer."
+        info.alertBody = "Tap to see it."
         info.soundName = "default"
         info.desiredKeys = ["ref"]
+        // The notification extension (MacrophoneAlerts) fills in the line under it and the picture
+        // of the window, and deletes the record (Nov 6 2026).
+        info.shouldSendMutableContent = true
+        info.category = "macAlert"
         sub.notificationInfo = info
         // A new container (or a busy iCloud) asks for patience: wait as long as it says, a few times.
         for attempt in 1...4 {
@@ -110,6 +115,17 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate {
         // One per window: a newer question replaces the older one.
         let request = UNNotificationRequest(identifier: "attention-\(a.title)", content: c, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+
+    /// Every alert from the Mac, one look (AlertNotification): the headline, the window's title,
+    /// the line, and the picture of the window. One per window: a newer one replaces it.
+    func post(_ a: MacAlert) {
+        let c = UNMutableNotificationContent()
+        AlertNotification.fill(c, with: a)
+        c.sound = .default
+        let request = UNNotificationRequest(identifier: a.notificationID, content: c, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+        Task { await AlertNotification.removeOlder(window: MacAlert.windowKey(a.ref), except: a.notificationID) }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {

@@ -867,12 +867,16 @@ public final class LinkClient: @unchecked Sendable {
             deliverCursor(c)
         case let .undoDone(r):
             deliverUndo(r)
+        case let .alertWatches(list):
+            deliverAlertWatches(list)
+        case let .macAlert(a):
+            deliverMacAlert(a)
         case .pong:
             pongArrived()
         case .showPermissions:
             break
         case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
-             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste:
+             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertWatch:
             break
         }
     }

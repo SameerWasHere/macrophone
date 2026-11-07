@@ -237,6 +237,14 @@ public enum Message: Codable, Sendable {
     case undoPaste(id: UUID)
     /// Mac → phone: what that undo did.
     case undoDone(UndoResult)
+    /// Phone → Mac (only to a Mac naming MacAlerts.feature): put a window on watch, or take it off.
+    case alertWatch(AlertWatchRequest)
+    /// Mac → phone (only to a phone naming MacAlerts.feature): the windows on watch — after the
+    /// welcome and on each change.
+    case alertWatches([AlertWatch])
+    /// Mac → phone (only to a phone naming MacAlerts.feature): something happened in a window on
+    /// watch, or an agent is asking — with a picture of the window.
+    case macAlert(MacAlert)
     // Either way
     case ping
     case pong

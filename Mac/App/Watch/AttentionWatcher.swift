@@ -47,7 +47,7 @@ final class AttentionWatcher {
             cloudWanted = true
             app.log.add("attention: a phone gets alerts through iCloud")
         }
-        let wanted = !app.server.phones(with: Attention.feature).isEmpty || (cloudWanted && CloudAlerts.available)
+        let wanted = !app.server.phones(with: Attention.feature).isEmpty || !app.server.phones(with: MacAlerts.feature).isEmpty || (cloudWanted && CloudAlerts.available)
         if wanted, task == nil {
             task = Task { [weak self] in
                 while !Task.isCancelled {
@@ -65,7 +65,7 @@ final class AttentionWatcher {
     }
 
     private func look() async {
-        let phones = app.server.phones(with: Attention.feature)
+        let phones = app.server.phones(with: Attention.feature) + app.server.phones(with: MacAlerts.feature)
         guard !phones.isEmpty || (cloudWanted && CloudAlerts.available) else { return }
         let candidates = windows()
         guard !candidates.isEmpty else { return }
@@ -78,7 +78,8 @@ final class AttentionWatcher {
         for (t, wid, pid) in candidates {
             let key = t.id
             // A window someone is looking at answers on its own screen.
-            guard !watched.contains(wid), !claimed.contains(wid) else { continue }
+            // A window on watch has its own alerts (WindowAlertWatcher reads its questions too).
+            guard !watched.contains(wid), !claimed.contains(wid), !app.windowAlerts.isWatching(wid) else { continue }
             var found: WatchPrompt?
             var image: CGImage?
             // The picture, when it changed since the last look (a caret or a spinner doesn't count):
@@ -106,15 +107,10 @@ final class AttentionWatcher {
             }
             guard asked[key] != p.id else { continue }
             asked[key] = p.id
-            let a = Attention(ref: t.ref, appName: t.appName, title: t.title, question: p.question, promptID: p.id)
-            if phones.isEmpty {
-                // No phone connected (the app is closed): through iCloud.
-                let ok = await CloudAlerts.post(a)
-                app.log.add(ok ? "attention: \(t.appName) is asking — sent through iCloud" : "attention: \(t.appName) is asking — iCloud didn't take it")
-            } else {
-                for peer in phones { await app.server.send(.attention(a), to: peer) }
-                app.log.add("attention: \(t.appName) is asking — told the phone")
-            }
+            let a = MacAlert(ref: t.ref, appName: t.appName, title: t.title, kind: .asking,
+                             headline: AlertWords.headline(.asking, app: t.appName, newLines: []),
+                             detail: p.question, promptID: p.id)
+            await app.alerts.send(a, windowID: wid)
         }
         // Still windows earn longer rests; a change brings the looks back to every five seconds.
         pace = changed || !pictures ? Self.interval : min(Self.restInterval, pace * 1.5)

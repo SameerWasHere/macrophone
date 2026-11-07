@@ -594,6 +594,9 @@ public final class LinkServer: @unchecked Sendable {
                 if phoneFeatures?.contains(NeedsYou.feature) == true {
                     try await session.send(.needsYou(await needsOnMain()))
                 }
+                if phoneFeatures?.contains(MacAlerts.feature) == true, macFeatures.contains(MacAlerts.feature) {
+                    try await session.send(.alertWatches(await alertWatchesOnMain()))
+                }
                 if phoneFeatures?.contains(MacPermissions.feature) == true, let p = await permissionsOnMain() {
                     try await session.send(.macPermissions(p))
                 }
@@ -727,9 +730,11 @@ public final class LinkServer: @unchecked Sendable {
                 notifyPermissions { $0.linkServerShowPermissions(self, from: phoneID) }
             case let .undoPaste(id):
                 handleUndo(id, from: phoneID, on: session)
+            case let .alertWatch(request):
+                handleAlertWatch(request, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macCursor, .undoDone:
+            case .macPermissions, .macWallpaper, .macCursor, .undoDone, .alertWatches, .macAlert:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

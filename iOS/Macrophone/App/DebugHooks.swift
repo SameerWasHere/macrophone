@@ -287,6 +287,20 @@ enum DebugHooks {
 
     @MainActor static func apply(_ model: AppModel) {
         scrollFrontSheet()
+        // An alert from the Mac, posted here after N seconds (the notification's look, with a picture).
+        if let after = env["MACROPHONE_FAKE_ALERT"].flatMap(Double.init) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(after * 1e9))
+                let picture = UIGraphicsImageRenderer(size: CGSize(width: 900, height: 600)).jpegData(withCompressionQuality: 0.7) { c in
+                    UIColor(white: 0.12, alpha: 1).setFill(); c.fill(CGRect(x: 0, y: 0, width: 900, height: 600))
+                    UIColor.systemGreen.setFill(); c.fill(CGRect(x: 40, y: 60, width: 520, height: 22))
+                    UIColor.white.setFill(); for i in 0..<12 { c.fill(CGRect(x: 40, y: 110 + i * 36, width: 300 + (i * 37) % 420, height: 14)) }
+                }
+                AgentAlerts.shared.post(MacAlert(ref: .app(bundleID: "com.apple.Terminal", windowKey: "42", name: "Terminal"), appName: "Terminal",
+                                                 title: "npm run build — ~/web", kind: .finished, headline: "Build finished",
+                                                 detail: "Compiled 214 files in 41 s, no errors", jpeg: picture))
+            }
+        }
         if let mac = env["MACROPHONE_FAKE_PAIRED"] {
             model.debugFakePairing(mac: mac)
             if env["MACROPHONE_FAKE_TARGETS"] == nil { model.debugFakeTargets(sampleApps()) }
@@ -473,6 +487,9 @@ enum DebugHooks {
                     } else if a == "done" {
                         // Done: the window view closes (on the Duo's inner screen, the glance shows).
                         model.watcher.done()
+                    } else if a == "alert" || a == "alertoff" {
+                        // The Window menu's Alert Me When It Changes / Stop Alerts.
+                        if let t = model.watcher.target { model.setAlertWatch(t, on: a == "alert") }
                     } else if a == "fullscreen" || a == "windowed" {
                         // The Duo on its side: Full Screen, and back.
                         model.watcher.setFullScreen(a == "fullscreen")
