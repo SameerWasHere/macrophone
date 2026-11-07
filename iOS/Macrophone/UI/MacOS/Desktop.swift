@@ -2,15 +2,14 @@ import MacrophoneKit
 import SwiftUI
 
 // The phone at rest is a little Mac desktop (Nov 1 2026, Sameer: "imagine if apple build a Mac
-// controller for the iPhone"): the menu bar across the top, the last dictation as a widget on the
-// wallpaper, and the Dock — Send to — just over the Thread and the mic, which stay where they
-// always were: the mic is still the reason the app exists.
+// controller for the iPhone"): the menu bar across the top, the pick's window on the wallpaper
+// (Nov 7 2026, `DesktopWindowCard`), and the Dock — Send to — just over the Thread and the mic,
+// which stay where they always were: the mic is still the reason the app exists.
 //
 //   [💻 Sameer's MacBook Pro  ⌔         ▭  ⊜  ⏱  ⚙]   menu bar
-//   ┌ Terminal · 2 min ago            ✓ ┐
-//   │ Fix the login bug where the …     │            widget
-//   └ Copy  Send Again          History ┘
-//                 (wallpaper)
+//   ┌ ● ● ● ▣ Terminal  claude      [👁 Watch] ┐
+//   │       (the window's kept picture)       │      the pick's window
+//   └─────────────────────────────────────────┘
 //   [✈ Send after pasting ●]  [✦ Medium ⌄] [⋯]       the Dock's options
 //          ┌ Terminal — claude ┐
 //   [■ ■ ■ ■ ■ │ ⎘ ⌶ │ +]                           the Dock
@@ -55,37 +54,6 @@ struct PhoneMenuBar: View {
                 .accessibilityShowsLargeContentViewer { Label("Settings", systemImage: "gearshape") }
         }
         .padding(.horizontal, 6)
-    }
-}
-
-/// The desktop at rest: the menu bar, the widget, then the Dock and its options in thumb reach.
-struct PhoneDesktop: View {
-    @EnvironmentObject var model: AppModel
-    @ObservedObject var settings: Settings
-    @ObservedObject var watcher: Watcher
-    var compact = false
-    var glow: Color = .clear
-    /// The vertical bar holds the menu bar's items (the Duo's cover).
-    var menuBarHidden = false
-    @AppStorage("onboarding.macNudgeDismissed") private var macNudgeDismissed = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if !menuBarHidden { PhoneMenuBar(watcher: watcher) }
-            LastDictationWidget(lines: compact ? 2 : 3)
-                .padding(.horizontal, Space.margin)
-                .padding(.top, compact ? 8 : 14)
-            Spacer(minLength: compact ? 10 : 20)
-            if model.isPaired {
-                DockOptions(settings: settings)
-                    .padding(.horizontal, Space.margin)
-                SendToDock(current: model.selection.target)
-                    .padding(.bottom, compact ? 2 : 6)
-            } else {
-                QuickControls(settings: settings, compact: compact, glow: glow)
-                    .padding(.bottom, compact ? 10 : 18)
-            }
-        }
     }
 }
 

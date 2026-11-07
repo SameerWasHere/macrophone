@@ -13,10 +13,28 @@ struct TrafficLights: View {
     var onZoom: (() -> Void)?
     /// Zoomed: the green light's glyph turns to "back to how it was".
     var zoomed = false
+    /// Drawn lit but not buttons: a picture of a window (the desktop's card), which is itself the
+    /// button — the lights in colour, as on the window in front, taking no touch of their own.
+    var decorative = false
     /// The glyphs inside the lights, which a Mac shows on hover; a touch shows them while held.
     @State private var showGlyphs = false
 
     var body: some View {
+        if decorative {
+            HStack(spacing: MacOSLook.lightGap) {
+                ForEach([MacOSLook.close, MacOSLook.minimize, MacOSLook.zoom], id: \.self) { c in
+                    Circle().fill(c)
+                        .overlay(Circle().strokeBorder(MacOSLook.rim(c), lineWidth: 0.5))
+                        .frame(width: MacOSLook.lightSize, height: MacOSLook.lightSize)
+                }
+            }
+            .accessibilityHidden(true)
+        } else {
+            lights
+        }
+    }
+
+    private var lights: some View {
         HStack(spacing: 0) {
             light(MacOSLook.close, glyph: "xmark", name: "Close Window", action: onClose, id: "window-close")
             light(MacOSLook.minimize, glyph: "minus", name: "Minimize", action: onMinimize, id: "window-minimize")
@@ -71,6 +89,14 @@ struct MacWindowFrame<Title: View, Trailing: View, Content: View>: View {
     var zoomed = false
     /// Drawn as the window in front (lit lights, a deeper shadow) or behind (grey lights).
     var active = true
+    /// A picture of a window (the desktop's card): lit lights that take no touch, the title after
+    /// them rather than in the middle of the bar (a window with an item at its trailing end, as a
+    /// Mac's unified toolbar sets it).
+    var decorative = false
+    /// The bar's own lights (a decorative frame round a picture of a window that has its own title
+    /// bar and lights leaves them out: two sets, one under the other, read as two windows).
+    var lights = true
+    var barHeight: CGFloat = 34
     @ViewBuilder var title: () -> Title
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
@@ -79,21 +105,34 @@ struct MacWindowFrame<Title: View, Trailing: View, Content: View>: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: MacOSLook.window, style: .continuous)
         VStack(spacing: 0) {
-            ZStack {
-                // The title in the middle of the whole bar, as a Mac centres it.
-                title()
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 96)
-                HStack(spacing: 0) {
-                    TrafficLights(onClose: active ? onClose : nil, onMinimize: active ? onMinimize : nil,
-                                  onZoom: active ? onZoom : nil, zoomed: zoomed)
-                        .padding(.leading, 4)
-                    Spacer(minLength: 0)
-                    trailing()
-                        .padding(.trailing, 8)
+            Group {
+                if decorative {
+                    HStack(spacing: 10) {
+                        if lights { TrafficLights(decorative: true) }
+                        title()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        trailing()
+                    }
+                    .padding(.leading, 12)
+                    .padding(.trailing, 5)
+                } else {
+                    ZStack {
+                        // The title in the middle of the whole bar, as a Mac centres it.
+                        title()
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 96)
+                        HStack(spacing: 0) {
+                            TrafficLights(onClose: active ? onClose : nil, onMinimize: active ? onMinimize : nil,
+                                          onZoom: active ? onZoom : nil, zoomed: zoomed)
+                                .padding(.leading, 4)
+                            Spacer(minLength: 0)
+                            trailing()
+                                .padding(.trailing, 8)
+                        }
+                    }
                 }
             }
-            .frame(height: 34)
+            .frame(height: barHeight)
             .background(.bar)
             .overlay(alignment: .bottom) { Rectangle().fill(Ink.line).frame(height: 0.5) }
             content()

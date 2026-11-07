@@ -1172,6 +1172,50 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   `HardwareKeyboardUITests.testAHardwareKeyboardTypesAndChordsOnTheMac`,
   `InputCarouselUITests.testClosingTheWindowBringsTheMainScreenBack`, `testMicButtonNeverMoves`.
 
+## Watch from the desktop (Nov 7 2026, overnight round 2)
+
+The room between the menu bar and the Dock was empty (the widget went Nov 1) and the only way to
+watch was the picked Dock icon's second tap. Frames: `docs/screens/overnight-nov7/round-2/watch-from-desktop/`.
+- **The pick's window on the desktop** (`UI/MacOS/DesktopWindow.swift`, `DesktopWindowCard`): the
+  regular iPhone and the Duo's cover (never inside — the glance is the window there), in
+  `phoneBody`'s room under the menu bar as an overlay (it never moves the Dock, its options, the
+  Thread or the mic; below 140 pt of room it isn't drawn; `DesktopEmptyState` wins while there's
+  trouble; no card for the Clipboard). A small Mac window: the kept picture
+  (`WindowSnapshots.cached`) aspect-fit under a title bar (`MacWindowFrame(decorative:lights:)` —
+  the bar's own lights only when there's no picture, since the picture has the Mac window's own),
+  the app's icon and name, the window's title, the gold bell, the ember dot + "Answered you" /
+  "Asking you", and **eye Watch** at the trailing end. The whole card is one button
+  (`desktop-window`, "Show ‹App›'s window"), doing what the Dock's second tap does. No picture
+  yet: "Show the ‹App› window here"; not open: "‹App› isn't open" + Open (`openOnMac`); not
+  connected: dimmed. `WindowSnapshots` now posts `didKeep` and puts the new picture in memory
+  itself (a read during the write had kept the old one).
+- **The window panel is built once and kept** (`MainView.keepsPanel`: paired, not inside): Open
+  and Done change `DockZoom` (now a state on the panel, not an insertion transition) — out of the
+  card when the card opened it (`watchFromCard`: the card's frame is rendered as the start first,
+  the open goes on the next run-loop turn; `DesktopWindowSpot`), else out of the Dock icon, and
+  back into wherever it came from. Hidden it's drawn at opacity 0.001 (`DockZoom.asleep`: at 0
+  the renderer dropped its layers and each open drew the glass afresh), its viewer holds the
+  pick's kept picture (`\.watchRestPicture`) but takes no touch and reports nothing
+  (`\.watchWindowHidden`), its header is left out (`bare`), and under the words it has no viewer
+  (`panelDormant`). `OutOfReach` hides a kept layer from VoiceOver — **XCUITest on the iOS 27
+  simulator still finds `accessibilityHidden` elements**, which is why the header goes while
+  hidden (and why `testClosingTheWindowBringsTheMainScreenBack` passes again).
+- **Pan | Scroll is decided at open** (`Watcher.decideDragAhead`): a window about to take the
+  view's shape opens in Scroll (it did 0.5 s in), else the kept picture and the last measured
+  view say whether all of it shows (`ViewerScrollView.opensWhole`, the viewer's own
+  `startScale` rule shared as a static). Logged "watching: starts in Scroll (…)".
+- **The cover:** desktop and window cross-fade with an overlap (`panelAnimation`,
+  `settingsAnimation`): the window in 0.18 s over the desktop fading in 0.3; back the same way
+  (after the words, `Motion.afterLeave` as before). Reduce Motion: a plain fade.
+- **Numbers** (`MACROPHONE_HITCH=1 MACROPHONE_WATCH=rest MACROPHONE_WATCH_ACTIONS=open,close,…`,
+  iPhone 17 Pro sim, Debug): open's first frame 263 / 138 ms before → 244 / 58–66 after (first /
+  later); Done 53–187 → 24–45. The first open after launch still builds the header and the
+  viewer's first video frame; with the header kept it was 129 — a warm-up there is the next step.
+- **Left:** the cover's cross-fade with a live window and the Done-into-the-card motion are
+  shown by the code and the UI test, not by a recording (the Duo sim couldn't pair with the
+  stand-in Mac a second time; the recording opened from the Dock); a card for a pick that isn't
+  open wasn't shot. `DesktopWindowUITests` (a paired `mpctl serve`, Claude open).
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.
