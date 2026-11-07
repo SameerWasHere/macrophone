@@ -730,10 +730,9 @@ struct DormantAfterFade: ViewModifier {
     }
 }
 
-/// The Mac's half of a folded screen — a MacBook's screen: the picture edge to edge, filling the
-/// half; a slim header laid over its top like a menu bar that fades after a few seconds and
-/// comes back on a touch (never fades for VoiceOver); the question's answers floating over its
-/// foot; the words you're saying over the picture while the mic is open. Or the glance.
+/// The Mac's half of a folded screen — a MacBook's screen: the picture filling the half, nothing
+/// laid over it (on the book's page the name is a row above it and the answers a row under it);
+/// the words you're saying over the picture while the mic is open. Or the glance.
 struct DuoMacHalf: View {
     let main: MainView
     /// The book's page: narrow and tall, so the header takes two rows.
@@ -743,9 +742,6 @@ struct DuoMacHalf: View {
     /// The laptop's screen (Nov 1 2026): no bezel, no corner — the picture is the half.
     var edge = false
     @ObservedObject private var watcher: Watcher
-    @State private var headerShown = true
-    @State private var hideTask: Task<Void, Never>?
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(main: MainView, vertical: Bool, room: CGSize, edge: Bool = false) {
@@ -761,9 +757,6 @@ struct DuoMacHalf: View {
     private var bezel: CGFloat { edge ? 0 : DuoLook.halfBezel }
     private var corner: CGFloat { edge ? DuoLook.edgeCorner : DuoLook.halfCorner }
 
-    /// What floats over the picture's foot (the answers): the picture's newest lines stay above it.
-    @State private var floatingHeight: CGFloat = 0
-
     var body: some View {
         // The window in hand and the glance, both built, one hidden (Nov 4 2026, as `DuoMacArea`):
         // Show it here and Done only fade between them; only the one on screen has a viewer.
@@ -774,11 +767,6 @@ struct DuoMacHalf: View {
         }
         .modifier(DormantAfterFade(inHand: inHand, panel: $handDormant, glance: $glanceDormant))
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: shortPicture != nil)
-        .onAppear { reveal() }
-        .onDisappear { hideTask?.cancel(); hideTask = nil }
-        .onChange(of: watcher.isShowing) { _, _ in reveal() }
-        .onChange(of: watcher.answers?.id) { _, _ in reveal() }
-        .onChange(of: watcher.phase) { _, _ in reveal() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your Mac")
     }
@@ -794,7 +782,7 @@ struct DuoMacHalf: View {
             // keys to all be the bottom half … so that nothing blocks the view window"): the
             // picture is the whole half and nothing lies over it — the header, the answers and the
             // words you're saying are on the deck.
-            screen(footInset: 0, floating: false, header: false)
+            screen(footInset: 0, floating: false)
         } else if let short = shortPicture {
             // A window that can't fill the half (the fourth pass — the Mac can't reshape it, or
             // hasn't yet: the whole screen, a window on the book's tall page): the picture at the
@@ -807,7 +795,7 @@ struct DuoMacHalf: View {
                 WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
-                screen(footInset: 0, floating: false, header: false)
+                screen(footInset: 0, floating: false)
                     .frame(height: short)
                 if main.showLiveWords {
                     DuoLiveWords(main: main, room: room, below: true)
@@ -821,7 +809,23 @@ struct DuoMacHalf: View {
                 Spacer(minLength: 0)
             }
         } else {
-            screen(footInset: watcher.phase.holdsLayout && !main.showLiveWords ? floatingHeight : 0, floating: true)
+            // The book's page (Nov 6 2026, Sameer: "I don't like having anything ever overlaid
+            // over the window"): the name on a row of its own above the picture and the answers
+            // on one under it; the picture takes what's between (auto-fit gives it that shape).
+            VStack(spacing: 8) {
+                WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                screen(footInset: 0, floating: true)
+                if watcher.answers != nil, !main.showLiveWords {
+                    WatchActions(watcher: watcher, floating: true)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                        .watchLive(watcher.phase)
+                        .transition(.opacity)
+                }
+            }
+            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.answers?.id)
         }
     }
 
@@ -834,38 +838,17 @@ struct DuoMacHalf: View {
         }
     }
 
-    /// The screen: the picture edge to edge with the overlay header over its top and — `floating`
-    /// — the answers or the words you're saying over its foot (the picture's foot scrolls up above
-    /// the answers: `footInset`).
-    private func screen(footInset: CGFloat, floating: Bool, header: Bool = true) -> some View {
+    /// The screen: the picture edge to edge, nothing over it but — `floating`, only while the mic
+    /// is open — the words you're saying.
+    private func screen(footInset: CGFloat, floating: Bool) -> some View {
         WatchWindow(watcher: watcher, interactive: true, bezelWidth: bezel, corner: corner, fill: true, footInset: footInset, dormant: handDormant || asleep)
             .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
             .overlay(alignment: .bottom) {
-                if floating {
-                    if main.showLiveWords {
-                        DuoLiveWords(main: main, room: room)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    } else {
-                        WatchActions(watcher: watcher, floating: true)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { floatingHeight = watcher.answers == nil ? 0 : $0 }
-                            .watchLive(watcher.phase)
-                    }
+                if floating, main.showLiveWords {
+                    DuoLiveWords(main: main, room: room)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
-            .overlay(alignment: .top) {
-                // Down, it's gone (not merely faded): nothing of it for a finger or
-                // VoiceOver to find over the screen.
-                if header, headerUp {
-                    DuoOverlayHeader(watcher: watcher, twoRows: vertical)
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -8)))
-                }
-            }
-            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.3), value: headerUp)
-            // A touch anywhere on the screen brings the header back (the window's own
-            // gestures go on as before).
-            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in reveal() })
     }
 
     /// The picture's height when it can't fill the half — a window shaped nothing like it (one
@@ -879,57 +862,6 @@ struct DuoMacHalf: View {
         let h = width * ViewerScrollView.fillCap * size.height / size.width + 2 * DuoLook.halfBezel
         // The header's rows above it, the answers and the keys under it.
         return h < room.height - (vertical ? 250 : 200) ? (h / 2).rounded() * 2 : nil
-    }
-
-    /// The header shows: lately touched, or always for VoiceOver (and held for a screenshot).
-    private var headerUp: Bool {
-        #if DEBUG
-        if DebugHooks.duoHeaderHeld { return true }
-        #endif
-        return headerShown || voiceOver || watcher.phase != .live
-    }
-
-    @State private var revealedAt = Date.distantPast
-
-    private func reveal() {
-        // A finger moving over the picture arrives at every frame: the hold is re-armed at most
-        // twice a second (each re-arm is a task), and the header stays up while it moves.
-        let now = Date()
-        guard !headerShown || now.timeIntervalSince(revealedAt) > 0.5 else { return }
-        revealedAt = now
-        hideTask?.cancel()
-        if !headerShown { headerShown = true }
-        hideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(DuoLook.headerHold * 1e9))
-            guard !Task.isCancelled else { return }
-            headerShown = false
-        }
-    }
-}
-
-/// The menu bar over a folded half's picture: the window's header on a dark gradient that
-/// fades into the picture, so the top of the screen is still the screen.
-struct DuoOverlayHeader: View {
-    @ObservedObject var watcher: Watcher
-    var twoRows: Bool
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    var body: some View {
-        WatchHeaderBar(watcher: watcher, twoRows: twoRows, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-            // The bar is a bar: a tap between its controls stays on it (it never clicks through
-            // to the Mac's title bar under it).
-            .contentShape(Rectangle())
-            .onTapGesture {}
-            .background {
-                LinearGradient(colors: [Ink.ground.opacity(reduceTransparency ? 0.96 : 0.82), Ink.ground.opacity(reduceTransparency ? 0.96 : 0.5), .clear],
-                               startPoint: .top, endPoint: .bottom)
-                    .allowsHitTesting(false)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: DuoLook.halfCorner, style: .continuous))
-            .padding(DuoLook.halfBezel)
     }
 }
 

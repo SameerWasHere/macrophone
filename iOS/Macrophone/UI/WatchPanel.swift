@@ -62,56 +62,34 @@ struct WatchPanel: View {
     @State private var switchedTask: Task<Void, Never>?
     /// The window slides in from the side it came from (a swipe's direction, or the menu's).
     @State private var slide: CGFloat = 0
-    /// The window's height here: a tip waits until there's room for its card over the window.
-    @State private var windowHeight: CGFloat = 0
-    /// What floats over the picture's foot on the Duo (the answers): the picture keeps its newest
-    /// lines above it.
-    @State private var floatingHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let floats = duo || cover
         VStack(spacing: compact ? 6 : 8) {
-            // The cover: the name floats over the window's corner instead of taking a row.
-            if !cover { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce) }
-            WatchWindow(watcher: watcher, interactive: true, footInset: floats && watcher.phase.holdsLayout ? floatingHeight : 0, dormant: dormant)
+            // Nothing lies over the window (Nov 6 2026, Sameer: "I don't like having anything ever
+            // overlaid over the window because it blocks UI elements"): the name is a row above it
+            // everywhere — on the cover too, where it had floated over the window's corner — and
+            // the answers and the tips are rows under it.
+            if !bare { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce) }
+            WatchWindow(watcher: watcher, interactive: true, dormant: dormant)
                 .frame(maxHeight: .infinity)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
-                // The first times: what a tap, a hold, a pinch and the side swipe do (on the Duo's
-                // inner screen the tip is a strip under the window instead: never over its words).
-                .overlay(alignment: .top) { if !duo, !cover { WatchTipCard(watcher: watcher, sessions: sessions.count, room: windowHeight) } }
-                // The Duo (inner screen or cover): the question's answers float over the picture's
-                // foot, so the window keeps its room; the key row stays under it. The picture's foot
-                // scrolls up above them (`footInset`), so the question is never under its answers.
-                .overlay(alignment: .bottom) {
-                    if floats {
-                        WatchActions(watcher: watcher, floating: true, oneLine: cover)
-                            .padding(.horizontal, WatchLook.bezelWidth + 10)
-                            .padding(.vertical, WatchLook.bezelWidth + 10)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { floatingHeight = watcher.answers == nil ? 0 : $0 }
-                            .watchLive(watcher.phase)
-                    }
-                }
                 // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
                 .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
-                .overlay(alignment: .topLeading) {
-                    if cover, !bare {
-                        WatchHeaderBar(watcher: watcher, nameOnly: true, onSwitched: announce)
-                            .padding(.leading, 12)
-                            .padding(.trailing, 8)
-                            .fixedSize()
-                            .watchGlass(Capsule())
-                            .padding(WatchLook.bezelWidth + 6)
-                    }
-                }
                 .offset(x: slide)
-            // A strip under the window, never a card over it (the inner screen, and the cover —
-            // whose window is too short to lose to a card).
-            if (duo || cover), !bare, !dormant {
+            // The first times: what a tap, a hold, a pinch and the side swipe do — a strip under
+            // the window, never a card over it.
+            if !bare, !dormant {
                 WatchTipCard(watcher: watcher, sessions: sessions.count, inline: true)
             }
-            // The cover: the answers carry Esc, and Pan | Scroll is in the vertical bar — the key
-            // row steps aside while a question is up, and the window takes its room.
+            // The Duo (inner screen or cover): the question's answers on a row of their own under
+            // the window, the key row under them (on the cover the key row steps aside while a
+            // question is up: the answers carry Esc, and Pan | Scroll is in the vertical bar).
+            if floats, watcher.answers != nil {
+                WatchActions(watcher: watcher, floating: true, oneLine: cover)
+                    .watchLive(watcher.phase)
+                    .transition(.opacity)
+            }
             if !deck, !(cover && watcher.answers != nil) {
                 WatchActions(watcher: watcher, keysOnly: floats, dragElsewhere: cover)
                     .watchLive(watcher.phase)

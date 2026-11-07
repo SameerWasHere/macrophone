@@ -936,6 +936,22 @@ through the hooks and real taps recorded frame by frame (`SettingsWalkUITests`).
   the onboarding test page's title wraps at the accessibility sizes and its pages scroll under the
   pinned button (as Setup Assistant's); the Control Center caps its type at xxLarge (recorded).
 
+## Nothing over the window (Nov 6 2026)
+
+Sameer: "I don't like having anything ever overlaid over the window because it blocks UI elements
+and it makes it so that the user can't fully see the window". This wins over every older section
+that floats something over the picture (the cover's floating name, the book's fading overlay
+header, the answers floating over the picture's foot, the tip card over the window's top):
+- `WatchPanel`: the name (`WatchHeaderBar`, name-only where the vertical bar holds the buttons) is
+  a row above the window on every phone, the cover included (gone with the keyboard up, `bare`);
+  the question's answers on the Duo (cover and inner) are a row under the window
+  (`WatchActions(floating:oneLine:)`, the cover's key row stepping aside as before); tips are the
+  inline strip everywhere (`WatchTipCard(inline: true)`). No `footInset` from the panel.
+- The book's page (`DuoMacHalf`): the header a row above the picture, the answers a row under it;
+  `DuoOverlayHeader` and its fade / reveal are gone. The laptop was already clean.
+- Still over the picture, on purpose: the words you're saying while the mic is open, the
+  Accessibility banner (×), a moment's note ("Terminal — codex ~/api"), full screen's floating mic.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.
@@ -1786,7 +1802,7 @@ swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url
 
 ## Rules
 
-- Never upload to App Store Connect / TestFlight unless Sameer explicitly asks to submit.
+- Every iPhone build goes to TestFlight too (Nov 6 2026): `~/claude-projects/scripts/testflight.sh macrophone`. Never submit for review or touch the store listing unless Sameer asks. The Mac app still installs locally only.
 - The apps collect nothing. Diagnostics never contain dictation text or keys.
 - Primary users are developers dictating long prompts; when in doubt, optimize for them.
 - The simulator can't store the pairing key from a build made with `CODE_SIGNING_ALLOWED=NO`
