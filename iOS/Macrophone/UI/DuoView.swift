@@ -90,6 +90,13 @@ enum DuoLook {
     /// top, and never down to a sliver.
     static let keyboardGap: CGFloat = 8
     static let typingMacFloor: CGFloat = 0.5
+
+    /// How far below the screen's top edge a square picture `side` points in from the sides sits
+    /// so its top corners are just clear of the screen's rounded corners (on the curve, not past).
+    @MainActor static func cornerClear(side: CGFloat) -> CGFloat {
+        let r = displayCorner, dx = max(0, r - side)
+        return ceil(r - (max(0, r * r - dx * dx)).squareRoot())
+    }
 }
 
 extension MainView {
@@ -201,13 +208,14 @@ extension MainView {
                         .frame(height: max(0, macHeight), alignment: .top)
                         .clipped()
                 } else {
-                    // Just under the status bar, the deck's margins either side: the same top on
-                    // every path — in hand or the glance, the keyboard up or the mic open. The
-                    // keyboard shortens the frame from its foot: the viewer keeps its zoom and
-                    // the bottom if it showed, so a chat's composer stays above the keys.
-                    DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * DuoLook.uprightMargin, height: restMac - DuoLook.uprightTop), edge: true)
+                    // In hand from the screen's top edge (the status bar hidden), just clear of
+                    // its rounded corners; at rest just under the status bar. The deck's margins
+                    // either side: the same top on every path — in hand or the glance, the
+                    // keyboard up or the mic open. The keyboard shortens the frame from its foot:
+                    // the viewer keeps its zoom and the bottom if it showed.
+                    DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * DuoLook.uprightMargin, height: restMac - uprightPictureTop), edge: true)
                         .padding(.horizontal, DuoLook.uprightMargin)
-                        .padding(.top, DuoLook.uprightTop)
+                        .padding(.top, uprightPictureTop)
                         .frame(height: max(0, macHeight), alignment: .top)
                 }
                 // The fold: nothing sits here.
@@ -240,9 +248,9 @@ extension MainView {
         guard watcher.isShowing, watcher.isDesktop, let size = watcher.videoSize ?? watcher.image?.size,
               size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return nil }
         let aspect = size.width / size.height
-        // Under the status bar the screen's rounded corners are out of the way: the side margins
-        // are the deck's.
-        let w = min(room.width - 2 * DuoLook.uprightMargin, room.height * aspect).rounded(.down)
+        // The side margins are the deck's; the top stays clear of the screen's rounded corners
+        // (the status bar is hidden while a window is in hand).
+        let w = min(room.width - 2 * DuoLook.uprightMargin, (room.height - uprightPictureTop) * aspect).rounded(.down)
         return CGSize(width: w, height: (w / aspect).rounded(.down))
     }
 

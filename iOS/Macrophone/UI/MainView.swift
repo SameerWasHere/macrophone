@@ -192,15 +192,22 @@ struct MainView: View {
         .onChange(of: posture.pose) { _, _ in innerBarTask?.cancel(); innerBarWindow = watcher.isShowing }
     }
 
-    /// Only full screen hides the status bar. Upright on the inner screen it had gone while a
-    /// window was in hand (Nov 1 2026, so the picture had the top edge), and on iOS 27.1 the
-    /// status bar's row there is a bar the scene is laid out under: hidden, the scene's safe area
-    /// lost the row but its content stayed where the row had pushed it — everything drawn 82 pt
-    /// down under an empty white (or black) band and the mic cut off at the foot, on Show it here,
-    /// after the keyboard, after a fold, even launched with it hidden (Nov 7 2026; a layout pass,
-    /// a nudge of the safe area and dropping the NavigationStack all left it there). With the
-    /// status bar kept, the window's top is the same on every path: just under it.
-    var hidesStatusBar: Bool { inFullScreen }
+    /// Full screen hides the status bar, and so does the inner screen upright with a window in hand
+    /// (the laptop, and flat upright): the Mac's picture runs from the screen's top edge to the
+    /// fold, a little Mac's display (Nov 7 2026, Sameer: "I would rather not accommodate those
+    /// elements in laptop view … fill up as much of the screen without being cut off by the Duo's
+    /// rounded corners"). On iOS 27.1 hiding it there left SwiftUI's root laid out 82 pt down
+    /// under an empty band, the mic cut at the foot — `StatusBarRoomFix` (RootView) pulls the
+    /// root back up to the screen's top, so the band is never drawn.
+    var hidesStatusBar: Bool { inFullScreen || (posture.pose.foldAcross && watcher.isShowing) }
+
+    /// The laptop's picture under the screen's top edge (the status bar hidden) or under the status
+    /// bar: how far it sits down and in. At the top edge the screen's rounded corners (55 pt) would
+    /// cut a square picture's top corners, so it sits just far enough down that each corner point
+    /// is on the curve — its sides keep the deck's margins, so the window, the answers and the
+    /// modes still line up. Square, never rounded: a rounded plate would cut into the Mac window's
+    /// traffic lights in that corner, which is what the inset is there to save.
+    var uprightPictureTop: CGFloat { hidesStatusBar ? DuoLook.cornerClear(side: DuoLook.uprightMargin) : DuoLook.uprightTop }
 
     /// The inner screen's system bar shows: on its side (the vertical bar), and flat upright at
     /// rest (Mac · History · Settings beside the clock). Upright with a window in hand there's

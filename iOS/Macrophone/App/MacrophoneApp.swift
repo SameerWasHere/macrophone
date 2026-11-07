@@ -78,6 +78,7 @@ struct RootView: View {
                     .transition(.opacity)
             }
         }
+        .modifier(StatusBarRoomFix())
         .sheet(item: $model.sheet) { sheet in
             Group {
                 switch sheet {
@@ -168,6 +169,33 @@ extension AppSheet {
     }
 }
 
+/// The status bar's room given back when it hides (Nov 7 2026). On the Duo's inner screen upright
+/// (iOS 27.1) a hidden status bar takes its safe area with it but SwiftUI's root goes on laying
+/// the app out from under where it was: the root's room starts 82 pt down with no inset left to
+/// reach up into, so everything sat under an empty band and the foot ran off the screen (the
+/// window's safe area and the hosting view's say 0 meanwhile). Read where the root's room really
+/// starts (a reader that ignores every safe area, so it sits at the window's top on every other
+/// screen and pose) and pull the app up by that much: the band is never drawn, and nothing changes
+/// anywhere the root starts at the top.
+struct StatusBarRoomFix: ViewModifier {
+    @State private var lag: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.top, -lag)
+            // Measured outside the padding: the room the root gives, which the pull never moves.
+            .background {
+                GeometryReader { geo in
+                    Color.clear.onChange(of: geo.frame(in: .global).minY, initial: true) { _, top in
+                        let next = max(0, top.rounded())
+                        if next != lag { lag = next }
+                    }
+                }
+                .ignoresSafeArea()
+            }
+    }
+}
+
 /// A sheet on the iPhone Duo's inner screen. Every other iPhone's sheets are untouched.
 /// - `screen`: Settings and History, nearly the whole screen (`InnerScreenFill`) — on a form
 ///   card in the middle of the big screen they were a phone's list to scroll through (Nov 1
@@ -248,14 +276,15 @@ struct InnerScreenFill: PresentationSizing {
 }
 
 #if DEBUG
-/// The frame's bars as insets (`DebugHooks.frameInsets`). The status bar stays upright, a window
-/// in hand or not (Nov 7 2026), so the frame keeps its top.
+/// The frame's bars as insets (`DebugHooks.frameInsets`). Upright with a window in hand the status
+/// bar is hidden (`MainView.hidesStatusBar`), so the frame gives its top back.
 private struct DebugFrameInsets: ViewModifier {
     @ObservedObject var watcher: Watcher
     @ObservedObject private var posture = Posture.shared
 
     func body(content: Content) -> some View {
         var insets = DebugHooks.frameInsets ?? EdgeInsets()
+        if posture.pose.foldAcross, watcher.isShowing { insets.top = 0 }
         // A pose with a vertical bar sits in a NavigationStack, which — inside a frame that
         // stops short of the screen's trailing edge — draws its own vertical bar at its trailing
         // edge, ~82 pt wide with the items in it: that stands in for the system's (the same
