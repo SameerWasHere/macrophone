@@ -80,6 +80,18 @@ struct VerticalBarProbe: UIViewRepresentable {
     }
 }
 
+@available(iOS 27.0, *)
+extension ToolbarItemVisibilityPriority {
+    /// The cover bar's tiers as the system's priorities: the first tier above `.high`, the second
+    /// `.high`, each after it a step lower — so a short column folds them from the last.
+    static func bar(_ tier: MainView.BarTier) -> ToolbarItemVisibilityPriority {
+        guard tier.rawValue > 0 else { return .init(higherThan: .high) }
+        var p = ToolbarItemVisibilityPriority.high
+        for _ in 1..<tier.rawValue { p = .init(lowerThan: p) }
+        return p
+    }
+}
+
 extension View {
     /// The cover's stack draws nothing of its own (the sky shows through), and its toolbar items
     /// keep their place in the vertical bar first. The cover is iOS 27.1 only.
