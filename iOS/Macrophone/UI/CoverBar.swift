@@ -102,6 +102,7 @@ struct CoverSoundItem: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .tint(player.isOn ? Light.cyan : nil)
+        .accessibilityLabel("Sound")
         .accessibilityValue(player.isOn ? "On" : "Off")
         .accessibilityHint(player.isOn ? "Stops playing your Mac's sound here." : "Plays your Mac's sound here while the window shows.")
         .accessibilityIdentifier("watch-sound")

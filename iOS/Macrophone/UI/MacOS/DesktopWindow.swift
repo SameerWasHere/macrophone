@@ -38,7 +38,7 @@ struct OutOfReach: ViewModifier {
         content
             .allowsHitTesting(!hidden)
             .accessibilityElement(children: hidden ? .ignore : .contain)
-            .accessibilityHidden(hidden)
+            .accessibilityGone(hidden)
     }
 }
 

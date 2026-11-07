@@ -681,16 +681,23 @@ struct DeliveredCheck: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // Built only while it shows: faded out it was still a node in the accessibility tree
+        // (a "Selected" check VoiceOver's tools stopped on at rest — Nov 7 2026). A mark, not a
+        // control: the status line says what landed.
         ZStack {
-            Circle().fill(Ink.ground).frame(width: 34, height: 34)
-            Circle().strokeBorder(color.opacity(0.6), lineWidth: 1).frame(width: 34, height: 34)
-            Image(systemName: "checkmark")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(color)
+            if visible {
+                ZStack {
+                    Circle().fill(Ink.ground).frame(width: 34, height: 34)
+                    Circle().strokeBorder(color.opacity(0.6), lineWidth: 1).frame(width: 34, height: 34)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(color)
+                }
+                .shadow(color: color.opacity(0.5), radius: 10)
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.4).combined(with: .opacity))
+            }
         }
-        .shadow(color: color.opacity(0.5), radius: 10)
-        .scaleEffect(visible ? 1 : (reduceMotion ? 1 : 0.4))
-        .opacity(visible ? 1 : 0)
+        .frame(width: 34, height: 34)
         .animation(reduceMotion ? .easeOut(duration: 0.2) : .interpolatingSpring(stiffness: 260, damping: 14), value: visible)
         .accessibilityHidden(true)
     }

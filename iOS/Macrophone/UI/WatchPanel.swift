@@ -34,6 +34,12 @@ enum WatchLook {
     /// The header's controls (name, zoom out, Window, Done): a step under the keys, so the window
     /// gets the room (Sameer, Oct 18 2026).
     static let header: CGFloat = 32
+    /// How far a control's touch region reaches above and below its glass (Nov 7 2026): every
+    /// button in the window view is a 44 pt target however small its plate — the way iOS 26's
+    /// toolbar draws a 44 pt item round a smaller glyph — without the row growing. It reaches
+    /// into the row's own gaps (the rows sit 6–8 pt apart and 6–8 off the window), never into a
+    /// neighbour beside it and never over the window's picture.
+    static let reach: CGFloat = 6
     /// The tip card and the notes over the window.
     static let card: CGFloat = 16
     /// A cell's pressed wash, and the hairline between cells.
@@ -332,7 +338,7 @@ struct WatchHeaderBar: View {
                 Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
             }
             .frame(minHeight: WatchLook.header)
-            .contentShape(Rectangle())
+            .watchTouch()
         }
         .accessibilityLabel("Window: \(watcher.name)")
         .accessibilityHint("Shows another window from your Mac — and sends there. You can also swipe in from the side.")
@@ -1112,6 +1118,15 @@ private struct WatchGlassPlate<S: InsettableShape>: ViewModifier {
 extension View {
     /// The watch's glass, in a shape (a capsule for a cluster, a rounded rect for a card).
     func watchGlass<S: InsettableShape>(_ shape: S) -> some View { modifier(WatchGlassPlate(shape: shape)) }
+
+    /// A touch region `reach` taller than the view above and below, the layout unchanged
+    /// (`WatchLook.reach`): the view keeps its drawn size, the row its height; the padding is
+    /// real (a Menu's UIKit button takes it too), then given back to the layout.
+    func watchTouch(_ reach: CGFloat = WatchLook.reach) -> some View {
+        padding(.vertical, reach)
+            .contentShape(Rectangle())
+            .padding(.vertical, -reach)
+    }
 }
 
 /// A cell in a cluster: 44pt tall, its label in the tint, a wash while pressed. `width` fixes it;
@@ -1131,7 +1146,7 @@ struct WatchCellStyle: ButtonStyle {
             .frame(width: width)
             .frame(maxWidth: width == nil && inset == 0 ? .infinity : nil, minHeight: height)
             .background(Capsule().fill(WatchLook.press).opacity(configuration.isPressed ? 1 : 0).padding(3))
-            .contentShape(Rectangle())
+            .watchTouch()
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.95 : 1)
             .opacity(enabled ? 1 : 0.4)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
@@ -1197,7 +1212,8 @@ struct WatchDragSwitch: View {
                             .matchedGeometryEffect(id: "pill", in: pill)
                     }
                 }
-                .contentShape(Capsule())
+                // Through the pill's own padding and the row's gap: a 44 pt target.
+                .watchTouch(WatchLook.reach + 3)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
@@ -1294,10 +1310,20 @@ struct WatchActions: View {
     /// on the keyboard's bar); on a phone "Keys" ends the row (the arrows and Return instead of
     /// these) and Pan | Scroll stays where the key row had it.
     private func answers(_ p: WatchPrompt) -> some View {
+        // Pan | Scroll gives up its words as the key row does when the row is narrow (an SE): the
+        // answers keep 250 pt at least beside it.
+        ViewThatFits(in: .horizontal) {
+            answersRow(p, .words)
+            answersRow(p, .glyphs)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { room = $0 }
+    }
+
+    private func answersRow(_ p: WatchPrompt, _ style: WatchDragSwitch.Style) -> some View {
         HStack(spacing: 8) {
             WatchChipScroller(rows: room >= Self.wideRoom ? 2 : 1) {
                 if !keyboardUp {
-                    key(.escape, label: Text("Esc"), name: "Escape", inset: 16)
+                    key(.escape, label: Text("esc"), name: "Escape", inset: 16)
                         .watchGlass(Capsule())
                         .fixedSize()
                 }
@@ -1315,14 +1341,14 @@ struct WatchActions: View {
                     .accessibilityIdentifier("watch-keys")
                 }
             }
+            .frame(minWidth: 250, idealWidth: 250, maxWidth: .infinity)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(p.question ?? "\(watcher.name) is asking")
             .accessibilityIdentifier("watch-answers")
             if !floating, !dragElsewhere, !keyboardUp {
-                WatchDragSwitch(watcher: watcher, style: .words).fixedSize()
+                WatchDragSwitch(watcher: watcher, style: style).fixedSize()
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { room = $0 }
     }
 
     private func answer(_ p: WatchPrompt, _ i: Int, _ c: WatchPrompt.Choice) -> some View {
@@ -1345,7 +1371,7 @@ struct WatchActions: View {
             .padding(.leading, 8)
             .padding(.trailing, 14)
             .frame(minHeight: WatchLook.control)
-            .contentShape(WatchAnswerStyle.shape)
+            .watchTouch()
         }
         .buttonStyle(WatchAnswerStyle(lit: lit))
         .fixedSize()
@@ -1361,7 +1387,11 @@ struct WatchActions: View {
                 .frame(maxWidth: 320, alignment: .leading)
                 .padding(16)
         }
-        .accessibilityLabel(c.label)
+        // Its number first, as a sighted person reads it ("1, Yes"); the one Return would pick
+        // is selected, and says so.
+        .accessibilityLabel((c.number.map(String.init) ?? c.key).map { "\($0), \(c.label)" } ?? c.label)
+        .accessibilityValue(lit ? "Highlighted on your Mac" : "")
+        .accessibilityAddTraits(lit ? .isSelected : [])
         .accessibilityHint(lit ? "What Return picks now. Answers \(watcher.name) on your Mac." : "Answers \(watcher.name) on your Mac.")
         .accessibilityIdentifier("watch-answer-\(i)")
     }
@@ -1406,7 +1436,7 @@ struct WatchActions: View {
                     .watchGlass(Capsule())
             }
             HStack(spacing: 0) {
-                key(.escape, label: Text("Esc"), name: "Escape")
+                key(.escape, label: Text("esc"), name: "Escape")
                 WatchCellDivider()
                 key(.arrowUp, label: Image(systemName: "arrow.up"), name: "Up arrow")
                 WatchCellDivider()
@@ -1531,7 +1561,11 @@ struct WatchChipScroller<Content: View>: View {
                     contentWidth = w
                     if #unavailable(iOS 18.0) { more = WatchScrollMore(before: false, after: w > width + 1) }
                 }
+                // The scroll view is as tall as the chips' touch regions (a scroll view takes no
+                // touch outside its bounds); the row keeps the chips' height.
+                .padding(.vertical, WatchLook.reach)
         }
+        .padding(.vertical, -WatchLook.reach)
         .scrollIndicators(.hidden)
         .scrollClipDisabled()
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)

@@ -500,19 +500,19 @@ struct MacKeyboardBar: View {
         return "Typing in \(watcher.name)"
     }
 
+    /// The layer switch, as the system keyboard's "123" / "ABC" key: "Mac" brings the Mac's
+    /// keyboard, "ABC" iOS's. A plain word, never lit — it switches layers, it isn't an on/off
+    /// light (Nov 7 2026: drawn as ⌘ it read as the sticky ⌘ key, which it had been in that place).
     private var macKeysToggle: some View {
         Button { choice.toggle(on: surface) } label: {
-            Image(systemName: "command")
+            Text(macKeys ? "ABC" : "Mac")
                 .font(.subheadline.weight(.semibold))
-                .frame(width: 32, height: 32)
-                .background(Capsule().fill(macKeys ? Light.cyan : .clear))
-                .foregroundStyle(macKeys ? Ink.onTint : Ink.ink)
+                .contentTransition(.identity)
         }
-        .buttonStyle(WatchCellStyle(width: 40, height: Self.cell))
+        .buttonStyle(WatchCellStyle(width: 44, height: Self.cell))
         .accessibilityLabel("Mac Keys")
         .accessibilityValue(macKeys ? "on" : "off")
         .accessibilityHint(macKeys ? "Back to the iPhone's keyboard." : "The Mac's keyboard: ⌘ ⌥ ⌃, fn and the function keys.")
-        .accessibilityAddTraits(macKeys ? .isSelected : [])
         .accessibilityIdentifier("keyboard-mac-keys")
     }
 

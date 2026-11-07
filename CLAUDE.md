@@ -1525,6 +1525,45 @@ Nothing on the inner screen shows in the wrong place. Frames: `docs/screens/over
   hand, and `mic-button` while the keyboard is up (the one mic at opacity 0, `accessibilityHidden(!visible)`) — check
   with VoiceOver whether they're reachable (the window-targets-voiceover stream's area); the test checks `duo-show`.
 
+## The window view's basics: touch targets, Mac Keys, VoiceOver (Nov 7 2026, round 3)
+
+Stream `window-targets-voiceover`. Frames and the trees / audits before | after:
+`docs/screens/overnight-nov7/round-3/window-targets-voiceover/`.
+- **44 pt targets, the layout untouched** (`WatchLook.reach` 6, `View.watchTouch`): every button in
+  the window view — the header's cells (name menu, Sound, Mac Controls, zoom out, Window, Done),
+  the key row, the answer chips, Pan | Scroll's options, the keyboard bar's cells — gets real
+  vertical padding that is then given back to the layout, so the glass keeps its 32 / 38 and the
+  row its height (a Menu's UIKit button takes padding where a `contentShape` past the frame
+  wouldn't). It reaches into the rows' own gaps (6–8 pt), never into a neighbour beside it, never
+  over the window. `WatchChipScroller` grows by the same reach (a scroll view takes no touch
+  outside its bounds) and gives it back. Not yet proven by coordinate taps: WatchHeaderUITests
+  ran green on the frame, the tap-5-pt-outside test is still to write.
+- **Mac Keys is a text key**, like the system keyboard's "123" / "ABC": "Mac" while iOS's keyboard
+  is up, "ABC" while the Mac's is — plain, never lit (it switches layers; it isn't a light). It
+  had been ⌘, which with Mac Keys up put two ⌘ on screen with two meanings. Label "Mac Keys",
+  value on / off, id `keyboard-mac-keys` unchanged.
+- **"esc"** everywhere visible (the key row, the answers row, the bar, the keycaps); VoiceOver says
+  "Escape". **Answer chips** read "1, Yes"; the one Return would pick is `.isSelected` with the
+  value "Highlighted on your Mac". In the answers row **Pan | Scroll** collapses to glyphs as the
+  key row does when the answers would keep under 250 pt (`ViewThatFits`, the scroller's ideal
+  width 250): words on a Pro, glyphs on an SE. The cover bar's Sound and Alerts items say On / Off.
+- **Hidden layers in the accessibility tree — the finding** (`UI/AccessibilityGone.swift`,
+  `accessibilityGone(_:)`, used on the phone's settings layer under a window, the carousel's pages
+  and row, `KeptHidden`): on the iOS 27 simulator the XCUITest snapshot and
+  `performAccessibilityAudit` list SwiftUI's nodes whatever `.accessibilityHidden` says — the Mac
+  pill (a plain Button) under a window, the blank status placeholder, the delivered check, the
+  edge strips, `.accessibilityElement(children: .ignore)`'s children: all in every tree, all
+  audited ("Contrast failed" for "Send" under the window). So the audit is not VoiceOver's view,
+  and nothing short of not building a subtree (or `.hidden()`) takes a node out of it. A pair of
+  sentinel platform views hiding the UIKit views between them changed nothing (the sentinels
+  showed as empty nodes; the hosts aren't siblings of the content's views) and was dropped. What
+  does go: `DeliveredCheck` is built only while it shows, and the status slot's blank
+  placeholder is `.hidden()`. `AccessibilityTreeUITests` keeps each state's tree, audit and
+  frame (`TEST_RUNNER_MACROPHONE_TREE_DIR`) and its assertions say what is still in the tree — it
+  fails on main and on this branch for the desktop under a window (by design: it's the record).
+  Whether VoiceOver itself stops on those layers needs a device with VoiceOver on, or the
+  Accessibility Inspector on a simulator; neither was run.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

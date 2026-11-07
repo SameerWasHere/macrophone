@@ -339,7 +339,7 @@ struct KeptHidden: ViewModifier {
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
             .animation(hidden ? Motion.leave : Motion.pick(Motion.settle, reduce: reduceMotion)) { $0.opacity(hidden ? 0 : 1) }
             .allowsHitTesting(!hidden)
-            .accessibilityHidden(hidden)
+            .accessibilityGone(hidden)
             .environment(\.threadPaused, hidden || paused)
     }
 }
