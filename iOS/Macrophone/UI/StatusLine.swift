@@ -128,7 +128,9 @@ struct StatusLine: View {
             if !model.isPaired, desktopSays { return ("", Ink.tertiary) }
             if !model.isPaired { return ("Not paired — your words are copied on this iPhone", Ink.tertiary) }
             switch model.linkState {
-            case .connected(let name):
+            // Back from the background with the link on its way (Nov 7 2026): the words it had on
+            // leaving, nothing about connecting — `returning` ends before any reconnect begins.
+            case .connected, _ where model.returning:
                 // The pick closed on the Mac: say so before he talks, not after.
                 if model.isNotOpen(model.selection.target) {
                     return ("\(model.selection.target.displayName) isn't open on your Mac — it'll be copied instead", Light.ochre)
@@ -136,7 +138,6 @@ struct StatusLine: View {
                 // Ready and connected: nothing to say (Oct 19 2026, Sameer: "the subtext under the
                 // mic button doesn't seem that useful. All that info is available on other parts of
                 // the page" — the Mac's pill says which Mac and how). The line is for news.
-                _ = name
                 return ("", Light.cyan)
             // The link dropped (Nov 5 2026): one message until it's back, whatever it goes
             // through meanwhile — never "Looking for" → "Connecting to" → "not found" in a blip.

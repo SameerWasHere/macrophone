@@ -43,6 +43,12 @@ struct SettingsView: View {
                     path = initialPath
                 }
             }
+        }
+        // The availability check (the cleanup model, the speech engine made ready, the haptic
+        // prepared) runs once the sheet has risen, not in its first frame's pass (Nov 7 2026).
+        .task {
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
             model.refreshAvailability()
         }
     }
@@ -66,6 +72,9 @@ struct SettingsView: View {
                 aboutSection
             }
             .toggleStyle(.settings)
+            // On the Duo's cover the sheet's ground is a card beside the vertical bar
+            // (`InnerScreenSheet`): the Form's own would run under the column.
+            .scrollContentBackground(VerticalBarProbe.edge == nil ? .automatic : .hidden)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.visible, for: .navigationBar)

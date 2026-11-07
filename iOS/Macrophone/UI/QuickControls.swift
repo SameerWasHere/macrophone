@@ -329,7 +329,7 @@ struct PlacesRow: View {
         }
         .padding(.top, compact ? 8 : 12)
         .padding(.bottom, compact ? 4 : 8)
-        .opacity(model.isConnected ? 1 : 0.8)
+        .opacity(model.looksConnected ? 1 : 0.8)
     }
 
 
@@ -342,8 +342,8 @@ struct PlacesRow: View {
             }
             PlaceButton(place: p, selected: p.id == selected, current: current, compact: compact, named: named,
                         tile: tiles ? pickPlate : nil,
-                        watchable: p.id == selected && current != .clipboard && model.isConnected && !notOpen,
-                        needs: model.isConnected ? model.needs(p) : nil,
+                        watchable: p.id == selected && current != .clipboard && model.looksConnected && !notOpen,
+                        needs: model.looksConnected ? model.needs(p) : nil,
                         windowNeeds: { model.needs($0) != nil },
                         onWatch: { watch(current) }) { pick($0) }
                 .id(p.id)
@@ -421,8 +421,8 @@ struct PlacesRow: View {
 
     /// The picked place tapped again: show its window (an app, or Where I'm typing, while connected).
     private func watch(_ t: TargetRef) {
-        guard t != .clipboard, model.isConnected, !model.isNotOpen(t) else { return }
-        model.watcher.open(t)
+        guard t != .clipboard, model.looksConnected, !model.isNotOpen(t) else { return }
+        model.watchWhenConnected(t)
     }
 
     private func pick(_ t: TargetRef) {

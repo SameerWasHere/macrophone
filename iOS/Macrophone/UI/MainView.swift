@@ -201,7 +201,10 @@ struct MainView: View {
                 .allowsHitTesting(!inFullScreen)
                 .accessibilityHidden(inFullScreen)
                 .environment(\.innerAsleep, innerAsleep)
-                .environment(\.threadPaused, inFullScreen)
+                // A sheet that covers the screen (Settings, History, pairing…) has nothing to
+                // show the Thread to: its 60 fps stops competing with the sheet's own first
+                // frames (Nov 7 2026).
+                .environment(\.threadPaused, inFullScreen || model.sheet?.coversScreen == true)
             if inFullScreen {
                 DuoFullScreen(main: self).transition(.opacity)
             }
@@ -284,7 +287,7 @@ struct MainView: View {
                                             // (Not in the moment after launch while it connects:
                                             // the pill would pop in and straight back out — nor
                                             // while a dropped link comes back.)
-                                            if !barUsed || (!model.isConnected && !model.settling && !model.reconnecting) { topBar }
+                                            if !barUsed || (!model.looksConnected && !model.settling && !model.reconnecting) { topBar }
                                         }
                                     } else {
                                         // The phone: a little Mac desktop — the menu bar and the
@@ -707,11 +710,11 @@ struct MainView: View {
                     // What the Mac offered when last connected stays in its place, dimmed, while it
                     // connects again — the buttons never arrive one by one (Nov 3 2026).
                     if model.isConnected ? watcher.canWatchDesktop : barHadWholeScreen {
-                        CoverWholeScreenItem(watcher: watcher).disabled(!model.isConnected)
+                        CoverWholeScreenItem(watcher: watcher).disabled(!model.looksConnected)
                     }
                     if model.isConnected ? model.canMacControls : barHadControls {
                         Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: MacControlsButton.symbol) }
-                            .disabled(!model.isConnected)
+                            .disabled(!model.looksConnected)
                             .accessibilityIdentifier("mac-controls")
                     }
                     Menu {
@@ -1249,7 +1252,7 @@ struct MacPill: View {
                 // The way it's connected, in a slot that's always there: the pill keeps its width
                 // from launch to connected instead of growing when the sign arrives.
                 if model.isPaired {
-                    let route: LinkRoute? = { if case .connected = model.linkState { return model.linkRoute }; return nil }()
+                    let route = model.shownRoute
                     Image(systemName: Self.symbol(route ?? .homeNetwork))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(route?.isAway == true ? Light.cyan : Ink.tertiary)
@@ -1322,6 +1325,7 @@ struct MacPill: View {
     private var position: Int { (model.pairedMacs.firstIndex { $0.id == model.pairedMac?.id } ?? 0) + 1 }
 
     private var dot: Color {
+        if model.looksConnected { return Light.cyan }
         switch model.linkState {
         case .connected: return Light.cyan
         case .unreachable: return Light.ochre

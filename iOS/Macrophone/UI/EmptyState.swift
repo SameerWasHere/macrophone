@@ -83,7 +83,7 @@ enum DesktopTrouble: Equatable {
     @MainActor static func current(_ model: AppModel, micOff: Bool) -> DesktopTrouble? {
         if micOff { return .micOff(speech: model.startError == .speechDenied) }
         if !model.isPaired { return .unpaired }
-        guard !model.settling, !model.reconnecting, model.isUnreachable else { return nil }
+        guard !model.settling, !model.reconnecting, !model.returning, model.isUnreachable else { return nil }
         return model.localNetworkDenied ? .localNetwork : .notFound
     }
 }

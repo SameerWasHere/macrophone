@@ -1079,6 +1079,60 @@ needs only now and then; `ReplyWatcher`'s still threshold is 0.6%, which is why 
   (which state it shows), then an alert through iCloud with the app closed; **needs the installed
   Mac build:** a Terminal command finishing and a Claude reply with the window on watch.
 
+## Overnight polish, round 2: back without a hitch (Nov 7 2026)
+
+Round 2's "return-without-a-hitch" stream (Sameer: "the apps layout was jumping around and was not
+reliable"). Frames: `docs/screens/overnight-nov7/round-2/return-without-a-hitch/`.
+- **A return grace** (`AppModel`, "Back without a hitch"). The link is let go in the background
+  and made again on return (~400 ms on home Wi-Fi), and every return flashed "Reconnecting to
+  ‹Mac›…", a dimmed Whole Screen and Mac Controls, the eye badge gone from the pick, the pill's
+  light grey. Now `returning` is set the moment the app leaves with the link up (`holdLooks` in
+  `scenePhaseChanged(.background)` — the app switcher's snapshot and the first frame back show
+  the populated bar; the link's states while away change nothing on screen) and ends on the
+  connect or `returnGrace` (1.5 s) after the scene is active again; only then is a link still
+  down a reconnect (`beginReconnecting`, as a drop while here). `looksConnected` =
+  `isConnected || returning || (settling && connectedLastSession)` (`link.wasConnected`, written
+  on connect, cleared on not found / unpaired) is for **looks only**: the Dock's eye badge, needs
+  marks and window previews, the menu bar's extras (`PhoneMenuBar`), the cover bar's items and
+  `CoverMacItem`, the pill's light and glyph (`shownRoute` = the live route, else `lastRoute`),
+  the cover tiles, `DesktopTrouble`. The status line keeps the words it had on leaving (the
+  `.connected` branch also matches `returning`; never "Connecting…"). An action needing the link
+  waits: the eye / a tile tapped again calls `watchWhenConnected`, which keeps `waitingWatch`
+  and opens it on the connect (dropped only if the reconnect limit passes). A watched window:
+  `Watcher.sceneBecameActive(quietFor:)` sets `quietUntil`, and `WatchPanel`'s capsule waits
+  `capsuleWait` (the longer of `WatchReconnect.quietFor` and what's left of the grace) — the held
+  picture stays bare through it; a real drop while active (`beginReconnecting` clears
+  `quietUntil`) shows it after 0.5 s as before. Proven on an iPhone 17 Pro simulator against
+  `mpctl serve`, recorded (`simctl io recordVideo`, 4 fps tiles): before, "Reconnecting to…"
+  under the mic for ~1 s on every return; after, nothing — unless the link really takes longer
+  than the grace (this Mac, loaded with seven serves, took 2–8 s some runs: then the line comes
+  at 1.5 s and goes on the connect, the extras dim with it). Serve killed while away: the grace,
+  then "Reconnecting to ‹Mac›…"; serve back: connected.
+- **Settings' first frame, measured, not fixed.** `HITCH sheet@settings` on the Pro: 389 ms the
+  first open, 153–167 ms after (before); 395 / 154–165 (after). `sample` of the open: no app
+  code in the top frames — ~200 ms is `CABackingStoreUpdate_` waiting on the render server
+  (`CA::Render::Context::wait_for_synchronize`, the simulator's software renderer) and ~125 ms
+  SwiftUI laying out the Form's cells (`UICollectionView` list cells measured one by one,
+  `_UIHostingView.layoutSubviews`). What moved anyway: `refreshAvailability()` runs 0.6 s after
+  the sheet rises (`.task`), not in `onAppear`'s pass, and the Thread's display link pauses under
+  a sheet that covers the screen (`AppSheet.coversScreen` → `threadPaused`; `ThreadView.tick` was
+  36 of the main thread's samples while the sheet came up). Needs his phone (Release, a real
+  render server) before chasing it further; the under-100 ms target wasn't met here.
+- **The cover's sheets beside the vertical bar** (`InnerScreenSheet`'s cover branch, iOS 27.1,
+  `VerticalBarProbe.edge` / `.width`): the system already lays a sheet's content beside the
+  bar's column and vends its Done / × into the column (as the main screen's items), but the
+  sheet's white ran the full width under the clock and Wi-Fi. Now the sheet's ground is cleared
+  (`presentationBackground(.clear)`) and a card of the system's ground (grouped for Settings /
+  History, plain for the rest) is drawn beside the column with the sheet's top corners; Settings
+  hides the Form's own ground there (`scrollContentBackground(.hidden)`). Pairing's inline title
+  is a `.principal` item on the cover, so it reads centred as on every other iPhone. Tried and
+  dropped: padding the content itself by the bar's width — the NavigationStack inside still
+  reserves the column from its own bounds (the trait says the bar is there), so the form came out
+  230 pt wide. Inner-screen sheets and every other iPhone are untouched.
+- Hooks / scripts used: `MACROPHONE_HITCH=1 MACROPHONE_WATCH=rest MACROPHONE_WATCH_ACTIONS=
+  sheet@settings,sheet@none,…`; the return is `simctl launch com.apple.Preferences`, a wait, then
+  `simctl launch com.sameer.macrophone` under `recordVideo`.
+
 ## Overnight polish, round 1 (Nov 7 2026)
 
 Sameer, going to sleep: "make macrophone the best iPhone Mac controller period … polish and detail

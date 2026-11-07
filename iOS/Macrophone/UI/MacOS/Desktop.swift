@@ -38,11 +38,13 @@ struct PhoneMenuBar: View {
             MacPill(menuBar: true).layoutPriority(1)
             if !wakeElsewhere { WakeMacButton().controlSize(.small) }
         } trailing: {
+            // `looksConnected`: back from the background the extras hold as they were while the
+            // link comes back (Nov 7 2026); a tap meanwhile waits for it.
             if model.isConnected ? watcher.canWatchDesktop : hadWholeScreen {
-                WholeScreenButton(watcher: watcher, menuExtra: true).disabled(!model.isConnected)
+                WholeScreenButton(watcher: watcher, menuExtra: true).disabled(!model.looksConnected)
             }
             if model.isConnected ? model.canMacControls : hadControls {
-                MacControlsButton(style: .menuExtra).disabled(!model.isConnected)
+                MacControlsButton(style: .menuExtra).disabled(!model.looksConnected)
             }
             Button { model.sheet = .history } label: { Image(systemName: "clock") }
                 .buttonStyle(MenuExtraStyle())
