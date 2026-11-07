@@ -255,11 +255,17 @@ public enum TrackpadMotion {
         return low + (high - low) * (speed - slow) / (fast - slow)
     }
 
-    /// One touch move: the finger's delta (phone points) over `dt` seconds, as Mac points.
-    public static func step(_ delta: CGVector, dt: TimeInterval) -> CGVector {
+    /// The speed setting's range (Settings › Trackpad Speed, Nov 7 2026): a multiplier on the
+    /// whole curve, 1 the default.
+    public static let speeds: ClosedRange<Double> = 0.4...2.5
+
+    /// One touch move: the finger's delta (phone points) over `dt` seconds, as Mac points, at
+    /// the person's speed setting.
+    public static func step(_ delta: CGVector, dt: TimeInterval, speed setting: Double = 1) -> CGVector {
         let d = max(dt, 1.0 / 240)
         let speed = (delta.dx * delta.dx + delta.dy * delta.dy).squareRoot() / d
-        let g = gain(speed: Double(speed))
+        let s = setting.isFinite ? min(max(setting, speeds.lowerBound), speeds.upperBound) : 1
+        let g = gain(speed: Double(speed)) * s
         return CGVector(dx: delta.dx * g, dy: delta.dy * g)
     }
 }

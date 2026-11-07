@@ -259,13 +259,50 @@ struct SettingsView: View {
 
     // Each switch explains itself in its own footer (the three explanations used to run together
     // as one nine-line footer, Oct 18 2026).
-    private var watchSection: some View {
+    @ViewBuilder private var watchSection: some View {
         Section {
             Toggle(isOn: $settings.watchAfterSending) {
                 Label { Text("Show the app after sending") } icon: { SettingsIcon(symbol: "eye.fill", color: Color(uiColor: .systemIndigo)) }
             }
         } footer: {
             Text("Your iPhone shows that app's window live, so you can read the answer, tap to click, swipe to scroll, and press Esc, the arrows or Return. Only that window, and only while you look.")
+        }
+        trackpadSection
+    }
+
+    /// Trackpad Speed (Nov 7 2026, Sameer: "a trackpad sensitivity toggle in settings") — the
+    /// Mac's own Tracking speed: a slider from the tortoise to the hare, Normal in the middle.
+    private var trackpadSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label { Text("Trackpad speed") } icon: { SettingsIcon(symbol: "rectangle.and.hand.point.up.left.fill", color: Color(uiColor: .systemGray)) }
+                    Spacer(minLength: 8)
+                    Text(TrackpadSpeedWords.words(settings.trackpadSpeed))
+                        .foregroundStyle(Ink.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: TrackpadSpeedWords.position($settings.trackpadSpeed), in: 0...1, step: 0.1) {
+                    Text("Trackpad speed")
+                } minimumValueLabel: {
+                    Image(systemName: "tortoise.fill").foregroundStyle(Ink.secondary)
+                } maximumValueLabel: {
+                    Image(systemName: "hare.fill").foregroundStyle(Ink.secondary)
+                } onEditingChanged: { editing in
+                    if !editing { Haptics.pick() }
+                }
+                .accessibilityValue(TrackpadSpeedWords.words(settings.trackpadSpeed))
+                .accessibilityIdentifier("trackpad-speed")
+            }
+            .padding(.vertical, 4)
+            if abs(settings.trackpadSpeed - 1) > 0.01 {
+                Button("Back to Normal") {
+                    withAnimation(Motion.settle) { settings.trackpadSpeed = 1 }
+                }
+                .accessibilityIdentifier("trackpad-speed-reset")
+            }
+        } footer: {
+            Text("How far the pointer moves when your finger does on the trackpad. A quick flick always goes further than a slow move.")
         }
     }
 
@@ -815,5 +852,36 @@ struct ScrolledPast: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// The trackpad speed slider's scale: the slider runs 0…1 with Normal (1×) in the middle, on a
+/// curve so each step feels like the same change (0.4× … 1× … 2.5×).
+enum TrackpadSpeedWords {
+    static func speed(at position: Double) -> Double {
+        let r = TrackpadMotion.speeds
+        return r.lowerBound * pow(r.upperBound / r.lowerBound, min(max(position, 0), 1))
+    }
+
+    static func position(of speed: Double) -> Double {
+        let r = TrackpadMotion.speeds
+        let s = min(max(speed, r.lowerBound), r.upperBound)
+        return log(s / r.lowerBound) / log(r.upperBound / r.lowerBound)
+    }
+
+    @MainActor static func position(_ value: Binding<Double>) -> Binding<Double> {
+        Binding(get: { position(of: value.wrappedValue) },
+                set: { p in
+                    let rounded = (p * 10).rounded() / 10
+                    value.wrappedValue = abs(rounded - 0.5) < 0.001 ? 1 : speed(at: rounded)
+                })
+    }
+
+    static func words(_ speed: Double) -> String {
+        let p = position(of: speed)
+        if abs(speed - 1) < 0.01 { return "Normal" }
+        if p <= 0.001 { return "Slowest" }
+        if p >= 0.999 { return "Fastest" }
+        return p < 0.5 ? "Slower" : "Faster"
     }
 }

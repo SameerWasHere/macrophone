@@ -464,7 +464,7 @@ final class MacInput: ObservableObject {
         trackpadUsed = true
         untouchedSinceShown = false
         watcher?.touch()
-        let step = TrackpadMotion.step(delta, dt: dt)
+        let step = TrackpadMotion.step(delta, dt: dt, speed: Settings.trackpadSpeedNow)
         let before = pointer
         pointer.move(by: step, window: windowPoints)
         pointerSeq &+= 1
@@ -515,7 +515,7 @@ final class MacInput: ObservableObject {
 
     func dragMoved(by delta: CGVector, dt: TimeInterval) {
         untouchedSinceShown = false
-        pointer.move(by: TrackpadMotion.step(delta, dt: dt), window: windowPoints)
+        pointer.move(by: TrackpadMotion.step(delta, dt: dt, speed: Settings.trackpadSpeedNow), window: windowPoints)
         pointerSeq &+= 1
         _ = sendMouse(WatchMouseEvent(.drag, at: pointer.point))
     }

@@ -143,6 +143,15 @@ final class TrackpadTests: XCTestCase {
         XCTAssertGreaterThan(flick.dx, 40)
     }
 
+    func testTheSpeedSettingScalesTheWholeCurve() {
+        let d = CGVector(dx: 1, dy: 0), dt = 1.0 / 60
+        XCTAssertEqual(TrackpadMotion.step(d, dt: dt, speed: 2).dx, 2, accuracy: 0.001)
+        XCTAssertEqual(TrackpadMotion.step(d, dt: dt, speed: 0.5).dx, 0.5, accuracy: 0.001)
+        // Out of range or nonsense is held to the range / the default.
+        XCTAssertEqual(TrackpadMotion.step(d, dt: dt, speed: 10).dx, 2.5, accuracy: 0.001)
+        XCTAssertEqual(TrackpadMotion.step(d, dt: dt, speed: .nan).dx, 1, accuracy: 0.001)
+    }
+
     func testThePointerStaysInTheWindow() {
         var p = TrackpadPointer()
         XCTAssertEqual(p.point, CGPoint(x: 0.5, y: 0.5))

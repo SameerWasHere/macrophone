@@ -1885,6 +1885,18 @@ the rise frame by frame). Measured on a Duo simulator's cover (the UI test print
   are two) or the system giving the column the keyboard's bar height back — Apple's call. Dark mode
   and the rest set were shot, not changed.
 
+## Trackpad speed (Nov 7 2026)
+
+Sameer: "a trackpads sensitivity toggle in setting". Settings › (under Show the app after sending)
+**Trackpad speed**: the Mac's own Tracking speed slider — tortoise to hare, ten steps, Normal (1×)
+in the middle, on a log curve 0.4× … 2.5× (`TrackpadSpeedWords`, SettingsView.swift); the value
+reads Slowest · Slower · Normal · Faster · Fastest; Back to Normal shows while it isn't.
+`settings.trackpadSpeed` (UserDefaults; `Settings.trackpadSpeedNow` for the pointer path) multiplies
+`TrackpadMotion.step(_:dt:speed:)` — the whole acceleration curve — for the pointer and drags
+(`MacInput.pointerMoved` / `dragMoved`), every trackpad (the page, the Duo's deck, full screen's
+pad). Two-finger scrolling keeps its own speed. Ids `trackpad-speed`, `trackpad-speed-reset`.
+Frame: `docs/screens/trackpad-speed-nov7/`.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.
