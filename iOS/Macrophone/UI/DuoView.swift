@@ -427,9 +427,10 @@ extension MainView {
 /// turning — and the mic used to turn up at the first frame it was given and glide from there: on
 /// the Mac window's text, over the Dock, over the glance, cut off in a corner. Now a frame counts
 /// once it has held still for two display frames with nothing on its way (no pose change in the
-/// last `poseQuiet`, the keyboard not coming or going); from hidden the mic fades in there; it
-/// glides only from a settled slot it showed in to another in the same pose; a pose change hides
-/// it until the new slot settles. A finger on it keeps it where it is, shown — a hold is never lost.
+/// last `poseQuiet`, the keyboard not coming or going, its own room not moving); from hidden the
+/// mic fades in there; it glides only from a settled slot it showed in to another of the same
+/// layout in the same pose; a pose change, or the window coming into hand or going back, hides it
+/// until the new slot settles. A finger on it keeps it where it is, shown — a hold is never lost.
 struct InnerMic: View {
     let main: MainView
     let slots: [MicSlot]
@@ -438,14 +439,24 @@ struct InnerMic: View {
     @State private var placed: CGRect = .zero
     @State private var placedSize: CGFloat = 92
     @State private var placedPose: FoldPose?
+    /// Whose slot it was placed in (`MainView.micOwner`): in hand or at rest.
+    @State private var placedOwner: String?
     @State private var shown = false
     @State private var clock = SettleClock()
     @State private var settleTask: Task<Void, Never>?
 
     static let poseQuiet: TimeInterval = 0.45
     static let keyboardQuiet: TimeInterval = 0.35
-    /// Two display frames.
-    static let still: TimeInterval = 0.034
+    /// How long a shown mic moves in step with its slot after its room was re-laid (a spring's length).
+    static let follow: TimeInterval = 0.9
+    /// The longest it waits for a bar at the foot that's due, and the room that says it's there
+    /// (the home indicator's 34 and the bar's 48 on the simulator; the threshold sits between).
+    static let barWait: TimeInterval = 1.5
+    static let roomQuiet: TimeInterval = 0.3
+    static let footBarRoom: CGFloat = 60
+    /// A few display frames: a spring's frames come further apart than two when the main thread
+    /// is busy (a window coming into hand), and the mic took a frame mid-spring for its place.
+    static let still: TimeInterval = 0.1
 
     /// What the slot says now and when anything last moved — a box, so the settling task reads
     /// the newest without the view redrawing for it.
@@ -453,12 +464,25 @@ struct InnerMic: View {
         var target: Target?
         var rectChanged = Date.distantPast
         var quietUntil = Date.distantPast
+        /// Until when a shown mic moves with its slot frame by frame: its room is being re-laid
+        /// under it (a bar arriving late), and the layout it sits in springs to its new place.
+        var followUntil = Date.distantPast
+        /// Its room as last measured, and until when it waits for a bar at the foot that's due.
+        var room: RoomKey?
+        var barWaitUntil = Date.distantPast
+    }
+
+    /// The mic's own room: where it is on the screen and what it keeps clear of.
+    struct RoomKey: Equatable {
+        var frame: CGRect
+        var insets: EdgeInsets
     }
 
     struct Target: Equatable {
         var rect: CGRect
         var size: CGFloat
         var pose: FoldPose
+        var owner: String
         var visible: Bool
     }
 
@@ -470,10 +494,13 @@ struct InnerMic: View {
             let slot = slots.last { $0.owner == want }
             let pose = main.posture.pose
             let r = slot.map { geo[$0.anchor] } ?? .zero
-            let target = Target(rect: r, size: slot?.size ?? 92, pose: pose,
-                                visible: (slot?.visible ?? false) && r.width > 1 && r.height > 1)
-            // Never in a pose it wasn't placed in, not for a frame (unless a finger is on it).
-            let visible = shown && (placedPose == pose || fingerDown)
+            // A slot laid out off the screen (a layout measured mid-turn) is no place for it.
+            let onScreen = r.width > 1 && r.height > 1 && r.minX > -8 && r.minY > -8
+            let target = Target(rect: r, size: slot?.size ?? 92, pose: pose, owner: want,
+                                visible: (slot?.visible ?? false) && onScreen)
+            // Never in a pose or a layout it wasn't placed in, not for a frame (unless a finger is
+            // on it): the window coming into hand re-lays the screen in the very next passes.
+            let visible = shown && ((placedPose == pose && placedOwner == want) || fingerDown)
             main.micCore(size: MainView.innerMicBase)
                 .scaleEffect(placedSize / MainView.innerMicBase)
                 .frame(width: placedSize * 1.3, height: placedSize * 1.25)
@@ -486,6 +513,32 @@ struct InnerMic: View {
                 .onChange(of: target, initial: true) { old, new in heard(new, was: old) }
                 .onChange(of: main.posture.settleSeq) { _, _ in poseMoved() }
                 .onChange(of: main.input.keysUp) { _, _ in quiet(for: Self.keyboardQuiet) }
+                // In hand or back at rest: the status bar, the bars and the kept layers re-lay the
+                // screen over the next few passes (the system's, not ours) — gone at once, back
+                // once that has settled. Gliding from the old slot, it rose or fell 50–100 pt
+                // after Done and Show it here (Nov 7 2026, on his Duo: "the mic button seems to
+                // shift up and then come down to its appropriate place after about a second").
+                .onChange(of: main.watcher.isShowing) { _, _ in
+                    quiet(for: Self.poseQuiet)
+                    clock.barWaitUntil = Date().addingTimeInterval(Self.barWait)
+                    // (At once: a fade began under a main thread busy building the window's
+                    // half and drew its first frame after the room had moved — 82 pt up, opaque.)
+                    if !fingerDown { hide(animated: false) }
+                    settle()
+                }
+                // Its own room re-laid (a bar arriving late, the status bar's room given back):
+                // whatever the slot says isn't settled yet.
+                // Shown, it moves with the layout around it, in step — never after it, as a glide.
+                .onChange(of: RoomKey(frame: geo.frame(in: .global), insets: geo.safeAreaInsets), initial: true) { _, room in
+                    clock.room = room
+                    clock.rectChanged = Date()
+                    // (The layout follows its room a pass or two later — the fold's halves are
+                    // measured and published after it — and only then springs: give it that.)
+                    quiet(for: Self.roomQuiet)
+                    if shown { clock.followUntil = Date().addingTimeInterval(Self.follow) }
+                    if !shown { settle() }
+                }
+                .onAppear { clock.barWaitUntil = Date().addingTimeInterval(Self.barWait) }
                 .onDisappear { settleTask?.cancel(); settleTask = nil }
         }
     }
@@ -496,6 +549,7 @@ struct InnerMic: View {
 
     private func poseMoved() {
         quiet(for: Self.poseQuiet)
+        clock.barWaitUntil = Date().addingTimeInterval(Self.barWait)
         if !fingerDown { hide(animated: false) }
         settle()
     }
@@ -514,7 +568,13 @@ struct InnerMic: View {
             withAnimation(Motion.pick(Motion.settle, reduce: main.reduceMotion)) { place(new) }
             return
         }
-        if shown, new.rect == placed, new.size == placedSize, new.pose == placedPose { return }
+        if shown, new.rect == placed, new.size == placedSize, new.pose == placedPose, new.owner == placedOwner { return }
+        // Its room re-laid a moment ago: the slot is riding the layout's own spring — in step.
+        if shown, new.pose == placedPose, new.owner == placedOwner, Date() < clock.followUntil {
+            var t = Transaction(animation: nil); t.disablesAnimations = true
+            withTransaction(t) { place(new) }
+            return
+        }
         settle()
     }
 
@@ -530,6 +590,7 @@ struct InnerMic: View {
         placed = t.rect
         placedSize = t.size
         placedPose = t.pose
+        placedOwner = t.owner
     }
 
     /// Waits for the slot to hold still with nothing on its way, then shows the mic there.
@@ -543,6 +604,13 @@ struct InnerMic: View {
                 // The keyboard page's keyboard still up after the page left it: on its way down
                 // (for a moment at most — a keyboard that stays isn't one going).
                 if main.input.keysUp, main.input.page != .keyboard, now.timeIntervalSince(began) < 0.6 { quiet(for: 0.05) }
+                // Upright at rest the system puts the bar's lower group at the foot — after a turn,
+                // most of a second late (the stack still laying out the vertical bar it had); the
+                // mic's slot then rises by the bar's height while all above it stays (Nov 7 2026,
+                // his Duo: "the mic button seems to shift … then come down to its appropriate
+                // place"). Due and not there yet: not settled (for `barWait` at most — if it never
+                // comes, the mic still shows).
+                if main.uprightFootBar, (clock.room?.insets.bottom ?? 0) < Self.footBarRoom, now < clock.barWaitUntil { quiet(for: 0.05) }
                 let ready = max(clock.rectChanged.addingTimeInterval(Self.still), clock.quietUntil)
                 if ready > now {
                     try? await Task.sleep(nanoseconds: UInt64(ready.timeIntervalSince(now) * 1e9) + 2_000_000)
@@ -556,7 +624,7 @@ struct InnerMic: View {
 
     private func commit(_ t: Target) {
         settleTask = nil
-        if shown, placedPose == t.pose, placed.width > 1 {
+        if shown, placedPose == t.pose, placedOwner == t.owner, placed.width > 1 {
             withAnimation(Motion.pick(Motion.settle, reduce: main.reduceMotion)) { place(t) }
             return
         }

@@ -284,6 +284,12 @@ struct MainView: View {
     @ViewBuilder func innerBarred<Content: View>(_ content: Content) -> some View {
         NavigationStack {
             content
+                // Upright there's no vertical bar, so no room at the sides to keep (Nov 7 2026):
+                // turning upright from a pose that has one (the cover, the book), the stack kept
+                // the bar's 84 pt at the trailing side for most of a second after the turn — the
+                // laptop's window and deck laid out 585 wide and then sprang out to 669, and the
+                // mic, shown in the narrower layout, glided across after it.
+                .ignoresSafeArea(.container, edges: posture.pose.foldAcross ? .horizontal : [])
                 // The one mic, over whichever layout is on screen (`innerMic`).
                 .overlayPreferenceValue(MicSlotKey.self) { innerMic($0) }
                 .toolbar { if innerBarShown { coverToolbar } }
@@ -750,10 +756,10 @@ struct MainView: View {
                 Group {
                     // What the Mac offered when last connected stays in its place, dimmed, while it
                     // connects again — the buttons never arrive one by one (Nov 3 2026).
-                    if model.isConnected ? watcher.canWatchDesktop : barHadWholeScreen {
+                    if barWholeScreen {
                         CoverWholeScreenItem(watcher: watcher).disabled(!model.looksConnected)
                     }
-                    if model.isConnected ? model.canMacControls : barHadControls {
+                    if barMacControls {
                         Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: MacControlsButton.symbol) }
                             .disabled(!model.looksConnected)
                             .accessibilityIdentifier("mac-controls")
@@ -764,6 +770,13 @@ struct MainView: View {
             }
         }
     }
+
+    /// The bar's lower group at rest: Whole Screen and Mac Controls, each when the Mac offers it (or
+    /// did when last connected, while it connects again).
+    var barWholeScreen: Bool { model.isConnected ? watcher.canWatchDesktop : barHadWholeScreen }
+    var barMacControls: Bool { model.isConnected ? model.canMacControls : barHadControls }
+    /// Upright on the inner screen at rest, the system lays those out in a bar at the foot.
+    var uprightFootBar: Bool { posture.pose.foldAcross && innerBarShown && (barWholeScreen || barMacControls) }
 
     /// The keyboard in the bar, one item in both states (Nov 7 2026): it raises the keyboard page
     /// and, while that's up, puts it away — the symbol turns, the item stays.

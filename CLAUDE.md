@@ -1630,6 +1630,49 @@ screen hides it". Frames: `docs/screens/duo/nov7-laptop-fill/` (the 55 pt corner
   before the fade; after Done it comes in low (behind the bottom toolbar) and rises ~65 pt over
   0.6 s. Also a transient bottom inset of 82 (34 + a 48 pt bottom bar) for ~0.1 s at launch and
   after an unfold, which shrinks the whole root for that moment. Same on build 11 (baseline run).
+  **[The mic part is fixed — see the next section.]**
+
+## The inner mic and the laptop, verified on a Duo sim (Nov 7 2026)
+
+Sameer on build 11: "In both modes [inner portrait and laptop] the mic button seems to shift up and
+then come down to its appropriate place after about a second." Round 3's settle and the laptop fill
+were checked on a real `duo-sim.sh` pose against `mpctl serve`, every frame of the inner display
+recorded and the mic found in each (frames `docs/screens/duo/nov7-verify/`, before | after). Three
+causes were left, all the system re-laying the screen a pass or more *after* the slot had settled:
+- **The vertical bar's room outlived the turn.** Upright from a pose with a vertical bar (the
+  simulator unfolds through landscape; the cover has one too) the inner NavigationStack kept the
+  bar's 84 pt trailing inset for ~0.6–0.85 s: the laptop's window and deck laid out 585 wide and then
+  sprang to 669, and the mic, shown in the narrow layout, glided 57 pt across after. Upright the
+  content now ignores the horizontal safe area (`innerBarred`: `.ignoresSafeArea(.container, edges:
+  foldAcross ? .horizontal : [])`) — upright has none of its own.
+- **The bar's lower group arrives late at the foot** (flat upright at rest: Whole Screen · Mac
+  Controls), ~0.4 s after the turn, and only the mic's slot moves (the bar's 48 pt; all above stays).
+  `InnerMic` waits for it when it's due (`MainView.uprightFootBar` and the room's bottom inset under
+  `footBarRoom`, `barWait` 1.5 s at most), and any change of its own room (`RoomKey`: its frame and
+  insets) restarts the stillness and adds `roomQuiet` (0.3 s — the halves are published a pass
+  later, then spring). Shown, a room change makes it move in step with the slot (`follow`), never
+  glide after it.
+- **In hand ↔ at rest:** Show it here hid the mic with a fade that began under a busy main thread
+  and drew after the status bar's 82 pt had gone — one opaque frame 82 pt up; Done showed it in the
+  hidden rest layer's old frame (100 pt low) and it rose for up to 2 s. Now `watcher.isShowing`
+  hides it at once, the owner (`placedOwner`, rest or hand) is checked in the body like the pose (so
+  no frame shows it in the other layout's place), and it waits `poseQuiet` before its new slot.
+  It no longer glides between rest and hand — it fades in where it stays. `still` is 0.1 s (a busy
+  main thread spaced a spring's frames past two display frames, and it took a mid-spring frame).
+- A slot laid out off the screen (negative origin, a layout measured mid-turn) never counts.
+- **Seen, per path, after:** cold launch flat upright and laptop, unfold closed → flat upright and →
+  laptop (at rest and with a window in hand), Show it here / Done ×3, the laptop's trackpad · mic ·
+  keyboard switches, laptop → flat upright → laptop: the mic only ever appears where it stays
+  (after Done ~0.6 s with no mic, then a fade in place). Once, on the first unfold after a launch, it
+  showed 8 pt low at a spring's tail and settled over 0.25 s. The laptop in hand: no status bar,
+  the picture 21 pt from the top, full width from the first frame, the top edge unmoved by the
+  keyboard (its foot gives way as designed).
+- **Left (simulator):** `duo-sim.sh` unfolds through a landscape pose for ~1 s, so the side layout
+  (and its mic, cut at the edge) shows in the system's rotation; whether a real unfold does is his
+  phone's to say. On Show it here the cover's view drops its "Paste only" row and shifts 25 pt for
+  two frames before its fade (the bottom bar going). With the simulator's hardware keyboard
+  connected a fold always opens the deck on the trackpad (`deckPage`), so the mic mode after an
+  unfold needs `page@mic` (or a run with `GCKeyboard` kept out).
 
 ## The ten polish ideas (Nov 5 2026)
 
