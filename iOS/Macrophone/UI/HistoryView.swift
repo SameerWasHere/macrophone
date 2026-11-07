@@ -274,37 +274,56 @@ struct HistoryRow: View {
     @State private var landings = 0
 
     var body: some View {
-        Group {
-            if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 10) {
-                        HistoryIcon(item: item, size: 36)
-                        name
-                    }
-                    subject
-                    HStack(alignment: .firstTextBaseline, spacing: 6) { glyphs; time }
-                    PreviewLines(text: item.text(cleaned: true), lines: 3)
-                }
-            } else {
-                HStack(alignment: .top, spacing: 12) {
-                    HistoryIcon(item: item, size: 36)
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            name.layoutPriority(1)
-                            Spacer(minLength: 6)
-                            glyphs
-                            time
+        HStack(alignment: .center, spacing: 10) {
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) {
+                            HistoryIcon(item: item, size: 36)
+                            name
                         }
                         subject
-                        PreviewLines(text: item.text(cleaned: true))
+                        HStack(alignment: .firstTextBaseline, spacing: 6) { glyphs; time }
+                        PreviewLines(text: item.text(cleaned: true), lines: 3)
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 12) {
+                        HistoryIcon(item: item, size: 36)
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                name.layoutPriority(1)
+                                Spacer(minLength: 6)
+                                glyphs
+                                time
+                            }
+                            subject
+                            PreviewLines(text: item.text(cleaned: true))
+                        }
                     }
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(item.targetName.map { "To \($0)" } ?? "On this iPhone"), \(item.dictation.createdAt.formatted(date: .omitted, time: .shortened)), \(item.labels.joined(separator: ", "))")
+            .accessibilityValue(item.text(cleaned: true))
+            // The Mac's last paste, while it can still take it back: Undo in plain sight at the
+            // row's end, as Mail's Unsend (Nov 7 2026, round 4); the swipe and the menu keep it too.
+            if model.canUndo(item.id) {
+                Button { model.undo(id: item.id) } label: {
+                    Text("Undo").font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .tint(Light.cyan)
+                .fixedSize()
+                .transition(.opacity)
+                .accessibilityLabel("Undo paste into \(model.undoable?.appName ?? "your Mac")")
+                .accessibilityHint("Takes the paste back on your Mac.")
+                .accessibilityIdentifier("history-undo-button")
+            }
         }
         .padding(.vertical, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(item.targetName.map { "To \($0)" } ?? "On this iPhone"), \(item.dictation.createdAt.formatted(date: .omitted, time: .shortened)), \(item.labels.joined(separator: ", "))")
-        .accessibilityValue(item.text(cleaned: true))
+        .animation(.easeOut(duration: 0.2), value: model.undoable)
     }
 
     /// The app, and the window's title apart — as Mail has the sender, then the subject — so the
