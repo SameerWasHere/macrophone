@@ -683,9 +683,10 @@ final class AppModel: ObservableObject {
         // Full screen on the Duo (Nov 3 2026, Sameer: "it should default to pasting wherever the
         // cursor is … so it can actually be used as text input anywhere"): the words go to Where
         // I'm typing — whatever field he last tapped into on the Mac — not the Send to pick.
-        // Pasted only, never sent: it's text input, wherever the cursor is.
+        // Pasted only, never sent: it's text input, wherever the cursor is. Otherwise the window on
+        // screen is where the words go (a flip only looks; Send to stays): `watchedPlace`.
         let override = asked ?? (watcher.fullScreen && watcher.isShowing
-            ? SendSelection(target: .frontApp, send: false) : nil)
+            ? SendSelection(target: .frontApp, send: false) : watchedPlace)
         recordingOverride = override
         #if DEBUG
         // UI tests drive the real button and gestures with a stand-in recognizer
@@ -1474,20 +1475,53 @@ final class AppModel: ObservableObject {
 
     // MARK: Watching — flipping between windows (Oct 16 2026)
 
-    /// Every window the Mac can show, in a steady order (the Mac's own list re-sorts by use, which
-    /// would move the next one while flipping).
+    /// The order the current watch flips in (`watch` = `Watcher.watchCount`).
+    private var flipOrder: (watch: Int, order: [TargetRef])?
+
+    /// Every window the Mac can show, in the Dock's order (Nov 7 2026): the apps as `placeOptions`
+    /// shows them, each app's windows in the Mac's order — so the edge swipe from Claude goes to
+    /// the app beside it in the Dock, not the next title alphabetically. Held steady while a watch
+    /// lasts: the order is taken as the watch opens, a window opened meanwhile joins at the end, a
+    /// closed one drops, so the next one never moves mid-flip.
     var watchSessions: [LiveTarget] {
-        liveTargets.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        let dock = Self.dockOrder(liveTargets)
+        guard watcher.isOpen else { flipOrder = nil; return dock }
+        var order = flipOrder?.watch == watcher.watchCount ? flipOrder!.order : []
+        let now = Set(dock.map(\.ref))
+        order.removeAll { !now.contains($0) }
+        for t in dock where !order.contains(t.ref) { order.append(t.ref) }
+        flipOrder = (watcher.watchCount, order)
+        return order.compactMap { ref in dock.first { $0.ref == ref } }
     }
 
-    /// Watch that window, and send there too — the window on screen is where the words go.
+    /// The Dock's order: one app after another as first seen, its windows together.
+    private static func dockOrder(_ targets: [LiveTarget]) -> [LiveTarget] {
+        var apps: [String] = [], windows: [String: [LiveTarget]] = [:]
+        for t in targets {
+            if windows[t.bundleID] == nil { apps.append(t.bundleID) }
+            windows[t.bundleID, default: []].append(t)
+        }
+        return apps.flatMap { windows[$0] ?? [] }
+    }
+
+    /// Watch that window. A flip is looking (Nov 7 2026): Send to stays what it was — the Dock's
+    /// pick and the desktop's card are untouched, and a dictation while the window shows goes to
+    /// it for that recording alone (`watchedPlace`). On the Duo's inner screen the pick is the
+    /// window beside Send to (the glance and Show it here follow it), so there the flip picks.
     @discardableResult
     func watchSession(_ t: LiveTarget) -> Bool {
         guard !(watcher.target?.matches(t) ?? false) else { return false }
         Haptics.pick()
-        pick(t.ref)
+        if lastPose.isInner { pick(t.ref) }
         watcher.open(t.ref)
         return true
+    }
+
+    /// The window on screen is where the words go: a window in hand that isn't the pick, as the
+    /// place for one recording (never the whole screen — its words go to the pick, as ever).
+    var watchedPlace: SendSelection? {
+        guard watcher.isShowing, let t = watcher.target, !watcher.isDesktop, t != settings.selection.target else { return nil }
+        return SendSelection(target: t, send: settings.rememberedSend(for: t))
     }
 
     /// The next (1) or previous (-1) window, wrapping round. Returns the one it went to.
