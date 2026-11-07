@@ -132,11 +132,9 @@ struct MainView: View {
         // A pose settling: the layouts cross-fade (the halves' own motion follows the hinge).
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: posture.pose)
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: inFullScreen)
-        // The laptop with a window in hand is a little Mac (Nov 1 2026, Sameer: "the view window
-        // should take up the whole top half of the duo. Almost as if the duo was a mini Mac"):
-        // the status bar goes, so the picture has the top edge too — folded or laid flat, the
-        // same layout.
-        .statusBarHidden(posture.pose.foldAcross && watcher.isShowing || inFullScreen)
+        // Full screen has the whole screen. (Upright on the inner screen the status bar stays —
+        // see `hidesStatusBar`.)
+        .statusBarHidden(hidesStatusBar)
         .persistentSystemOverlays(inFullScreen ? .hidden : .automatic)
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         // The Mac's own wallpaper behind everything; the state's light washes in from the foot —
@@ -184,6 +182,22 @@ struct MainView: View {
         }
     }
 
+    /// Only full screen hides the status bar. Upright on the inner screen it had gone while a
+    /// window was in hand (Nov 1 2026, so the picture had the top edge), and on iOS 27.1 the
+    /// status bar's row there is a bar the scene is laid out under: hidden, the scene's safe area
+    /// lost the row but its content stayed where the row had pushed it — everything drawn 82 pt
+    /// down under an empty white (or black) band and the mic cut off at the foot, on Show it here,
+    /// after the keyboard, after a fold, even launched with it hidden (Nov 7 2026; a layout pass,
+    /// a nudge of the safe area and dropping the NavigationStack all left it there). With the
+    /// status bar kept, the window's top is the same on every path: just under it.
+    var hidesStatusBar: Bool { inFullScreen }
+
+    /// The inner screen's system bar shows: on its side (the vertical bar), and flat upright at
+    /// rest (Mac · History · Settings beside the clock). Upright with a window in hand there's
+    /// none — the deck's own header has Done and the window's controls, the laptop's and flat
+    /// upright's alike, so folding one into the other moves nothing.
+    var innerBarShown: Bool { barUsed && !(posture.pose.foldAcross && watcher.isShowing) }
+
     /// The pose's layout: the phone's (the cover screen, every other iPhone), or the Duo's.
     /// The window has the whole inner screen (the Duo on its side, Full Screen).
     var inFullScreen: Bool { watcher.fullScreen && watcher.isShowing && Watcher.allowsFullScreen(posture.pose) }
@@ -225,13 +239,14 @@ struct MainView: View {
 
     /// The inner screen's layouts, inside the one bar they share.
     @ViewBuilder private var innerLayout: some View {
-        switch posture.pose {
-        // The inner screen's vertical bar (open on its side, the book) holds the cover's buttons.
-        case .open(landscape: true): openLandscapeBody.transition(.opacity)
-        case .book: bookBody.transition(.opacity)
-        // Upright the fold runs across the middle, flat or folded: the laptop's layout either
-        // way (one view, so folding it moves nothing — the halves follow the hinge).
-        default: laptopBody.transition(.opacity)
+        // One layout per way the screen is held, folded or flat: folding never swaps it, so it
+        // moves nothing — the halves follow the hinge. On its side (the book, open flat) the
+        // vertical bar holds the cover's buttons; upright (the laptop, open flat) the fold runs
+        // across the middle.
+        if posture.pose.foldAcross {
+            laptopBody.transition(.opacity)
+        } else {
+            sideBody.transition(.opacity)
         }
     }
 
@@ -245,14 +260,14 @@ struct MainView: View {
             content
                 // The one mic, over whichever layout is on screen (`innerMic`).
                 .overlayPreferenceValue(MicSlotKey.self) { innerMic($0) }
-                .toolbar { if barUsed { coverToolbar } }
-                .toolbar(barUsed ? .automatic : .hidden, for: .navigationBar)
-                .toolbar(barUsed ? .automatic : .hidden, for: .bottomBar)
+                .toolbar { if innerBarShown { coverToolbar } }
+                .toolbar(innerBarShown ? .automatic : .hidden, for: .navigationBar)
+                .toolbar(innerBarShown ? .automatic : .hidden, for: .bottomBar)
                 .navigationBarTitleDisplayMode(.inline)
                 .coverBarStyle()
                 .macSharePickers(photo: $coverPickingPhoto, file: $coverPickingFile, model: model)
         }
-        .environment(\.controlsInVerticalBar, barUsed)
+        .environment(\.controlsInVerticalBar, innerBarShown)
     }
 
     // MARK: The phone's layout (the cover screen too)

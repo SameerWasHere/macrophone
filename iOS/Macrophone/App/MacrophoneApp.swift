@@ -223,16 +223,14 @@ struct InnerScreenFill: PresentationSizing {
 }
 
 #if DEBUG
-/// The frame's bars as insets (`DebugHooks.frameInsets`). The laptop (folded or flat) with a
-/// window in hand hides the status bar, and the frame gives the top back then, as a screen with
-/// no cutout at that edge would (whether the Duo's does needs a real Duo).
+/// The frame's bars as insets (`DebugHooks.frameInsets`). The status bar stays upright, a window
+/// in hand or not (Nov 7 2026), so the frame keeps its top.
 private struct DebugFrameInsets: ViewModifier {
     @ObservedObject var watcher: Watcher
     @ObservedObject private var posture = Posture.shared
 
     func body(content: Content) -> some View {
         var insets = DebugHooks.frameInsets ?? EdgeInsets()
-        if posture.pose.foldAcross, watcher.isShowing { insets.top = 0 }
         // A pose with a vertical bar sits in a NavigationStack, which — inside a frame that
         // stops short of the screen's trailing edge — draws its own vertical bar at its trailing
         // edge, ~82 pt wide with the items in it: that stands in for the system's (the same

@@ -94,7 +94,8 @@ final class DuoShotsTests: XCTestCase {
         XCTAssertTrue(switcher.waitForExistence(timeout: 20))
         let folder = URL(fileURLWithPath: dir).appendingPathComponent("probe")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.17, dy: 0.5)).tap()
+        // Keyboard: the mode bar's last segment (Trackpad · Mic · Keyboard).
+        switcher.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.5)).tap()
         for i in 0..<6 {
             RunLoop.current.run(until: Date().addingTimeInterval(0.7))
             try? XCUIScreen.main.screenshot().pngRepresentation.write(to: folder.appendingPathComponent("k\(i).png"))

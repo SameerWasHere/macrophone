@@ -46,8 +46,8 @@ final class DuoUITests: XCTestCase {
         try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
     }
 
-    /// A page by the corner switcher: its cell by name (the frame is drawn at 0.4×, so a cell is
-    /// 18 × 14 points on the cover — a tap on the cell itself lands, a fraction of the row may not).
+    /// A mode by the deck's mode bar (Trackpad · Mic · Keyboard): its segment by name, else a tap
+    /// at that fraction of the bar (the frame is drawn at 0.4× on the cover).
     private func pick(_ switcher: XCUIElement, _ page: String, at fraction: CGFloat) {
         let cell = switcher.buttons[page]
         let want = NSPredicate(format: "value == %@", page)
@@ -80,9 +80,9 @@ final class DuoUITests: XCTestCase {
         let answer = app.buttons["watch-answer-0"]
         XCTAssertTrue(answer.waitForExistence(timeout: 8), "the demo Mac's question is up")
         let switcher = app.descendants(matching: .any)["input-pages"]
-        XCTAssertTrue(switcher.waitForExistence(timeout: 3), "the modes' cluster is in the deck's corner")
+        XCTAssertTrue(switcher.waitForExistence(timeout: 3), "the modes are a row of their own on the deck")
         // The deck remembers its mode across launches (the trackpad the first time): start there.
-        if switcher.value as? String != "Trackpad" { pick(switcher, "Trackpad", at: 0.83) }
+        if switcher.value as? String != "Trackpad" { pick(switcher, "Trackpad", at: 0.17) }
         XCTAssertEqual(switcher.value as? String, "Trackpad")
         // Nothing over the picture: the header, the answers, the modes and the trackpad are all
         // under the fold.
@@ -121,9 +121,9 @@ final class DuoUITests: XCTestCase {
         shot("laptop-mic")
 
         // The keyboard mode: the iOS keyboard rises over the deck; hide comes back to the trackpad.
-        pick(switcher, "Keyboard", at: 0.17)
+        pick(switcher, "Keyboard", at: 0.83)
         let cont = app.buttons["Continue"]
-        if cont.waitForExistence(timeout: 2) { cont.tap(); pick(switcher, "Keyboard", at: 0.17) }
+        if cont.waitForExistence(timeout: 2) { cont.tap(); pick(switcher, "Keyboard", at: 0.83) }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 6), "the iOS keyboard comes up")
         app.typeText("duo")
         shot("laptop-keyboard")
@@ -211,5 +211,141 @@ final class DuoUITests: XCTestCase {
         XCTAssertGreaterThan(trackpad.frame.minX, split - 2)
         XCTAssertGreaterThan(app.buttons["deck-return"].frame.minX, split - 2, "with the keys")
         shot("landscape")
+    }
+}
+
+/// The inner screen upright lays out the same way whatever path reached it (Nov 7 2026): the
+/// window's top never moves — launched straight into hand, after Show it here, after the keyboard
+/// came and went, after a dictation — no empty band over it, and the mic is whole on the screen.
+/// Runs on a real Duo simulator held in the pose first (`duo-sim.sh pose <udid> portrait|tabletop`),
+/// not the frame on the cover: `TEST_RUNNER_MACROPHONE_DUO_REAL=portrait|laptop`. Needs a paired
+/// `mpctl serve`.
+final class DuoLayoutStabilityUITests: XCTestCase {
+    override func setUp() { continueAfterFailure = false }
+
+    private var pose: String? { ProcessInfo.processInfo.environment["MACROPHONE_DUO_REAL"] }
+
+    private func launch(_ extra: [String: String]) -> XCUIApplication {
+        let app = XCUIApplication()
+        var env = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Terminal"]
+        env.merge(extra) { $1 }
+        app.launchEnvironment = env
+        app.launch()
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
+        return app
+    }
+
+    /// The window in hand's frame once it has settled (two reads a beat apart agree).
+    private func settledWindow(_ app: XCUIApplication, _ what: String) -> CGRect {
+        let window = app.descendants(matching: .any)["duo-window"].firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 20), "\(what): the window is in hand")
+        var last = CGRect.null
+        for _ in 0..<12 {
+            let f = window.frame
+            if f.width > 50, abs(f.minY - last.minY) < 0.5, abs(f.height - last.height) < 0.5 { return f }
+            last = f
+            usleep(500_000)
+        }
+        return last
+    }
+
+    /// The top 80 points of the screen: never one flat fill (the band was solid white or black).
+    /// XCUIScreen gives the cover's pixels on the Duo simulator in Xcode 27 (1398 wide, dark while
+    /// the phone is open), so the pixels are read only when they're the inner screen's; the frame
+    /// check (`assertUnderStatusBar`) holds either way, and `duo-sim.sh shot … inner` from outside
+    /// the test takes the inner screen's pixels.
+    private func assertNoBand(_ what: String) {
+        let shot = XCUIScreen.main.screenshot()
+        if let dir = ProcessInfo.processInfo.environment["MACROPHONE_DUO_SHOTS"] {
+            try? shot.pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("stable-\(pose ?? "")-\(what).png"))
+        }
+        // The inner screen's own pixels (2007 wide upright): the cover's are dark while it's open.
+        guard let cg = shot.image.cgImage, cg.width >= 1900 else { return }
+        let scale = CGFloat(cg.width) / shot.image.size.width
+        guard let data = cg.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return }
+        let bpr = cg.bytesPerRow, bpp = cg.bitsPerPixel / 8
+        var seen = Set<UInt32>()
+        for y in stride(from: Int(4 * scale), to: Int(78 * scale), by: Int(6 * scale)) {
+            for x in stride(from: Int(20 * scale), to: cg.width - Int(20 * scale), by: Int(9 * scale)) {
+                let o = y * bpr + x * bpp
+                // Colours to the nearest 8 (the wallpaper's gradient, the clock, the window).
+                seen.insert(UInt32(bytes[o] >> 3) << 16 | UInt32(bytes[o + 1] >> 3) << 8 | UInt32(bytes[o + 2] >> 3))
+            }
+        }
+        XCTAssertGreaterThan(seen.count, 3, "\(what): the top of the screen is one flat fill — a band")
+    }
+
+    /// Nothing but the status bar (82 pt upright on the inner screen) over the window: the band
+    /// had pushed it down another 82.
+    private func assertUnderStatusBar(_ f: CGRect, _ what: String) {
+        XCTAssertLessThan(f.minY, 100, "\(what): only the status bar is over the window, at \(f.minY)")
+    }
+
+    func testTheWindowsTopNeverMoves() throws {
+        guard let pose else { throw XCTSkip("set TEST_RUNNER_MACROPHONE_DUO_REAL with the Duo simulator held in that pose") }
+        // (a) Straight into hand.
+        var app = launch(["MACROPHONE_WATCH": "1"])
+        let straight = settledWindow(app, "straight into hand")
+        assertUnderStatusBar(straight, "straight into hand")
+        assertNoBand("a-straight")
+        app.terminate()
+
+        // (b) From the glance, by Show it here.
+        app = launch(["MACROPHONE_WATCH": "rest", "MACROPHONE_WATCH_ACTIONS": "show"])
+        let shown = settledWindow(app, "after Show it here")
+        XCTAssertEqual(shown.minY, straight.minY, accuracy: 0.5, "after Show it here the window's top is where it always is")
+        assertNoBand("b-show")
+        app.terminate()
+
+        // (c) The keyboard up, then back to the mic.
+        app = launch(["MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "page@keyboard,page@mic"])
+        sleep(5)
+        let typed = settledWindow(app, "after the keyboard")
+        XCTAssertEqual(typed.minY, straight.minY, accuracy: 0.5, "the keyboard never moves the window's top")
+        assertNoBand("c-keyboard")
+        app.terminate()
+
+        // (d) A dictation over the trackpad: the mic shows, lit and in reach, and after it the
+        // window is where it was.
+        app = launch(["MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "page@trackpad,say@hello there this is a test"])
+        let stops = app.buttons.matching(NSPredicate(format: "label == %@", "Stop and send"))
+        XCTAssertTrue(stops.firstMatch.waitForExistence(timeout: 20), "the mic is up while the words come")
+        sleep(1)
+        let all = stops.allElementsBoundByIndex
+        let reachable = all.first { $0.isHittable }
+        XCTAssertNotNil(reachable, "and can be tapped to stop: \(all.map { "\($0.frame) hittable \($0.isHittable)" })")
+        guard let stop = reachable else { return }
+        XCTAssertTrue(app.frame.contains(stop.frame), "and is whole on the screen: \(stop.frame)")
+        stop.tap()
+        sleep(4)
+        let dictated = settledWindow(app, "after a dictation")
+        XCTAssertEqual(dictated.minY, straight.minY, accuracy: 0.5, "a dictation never moves the window's top")
+        assertNoBand("d-dictation")
+        app.terminate()
+    }
+
+    /// Flat upright the deck is one height with every mode: the mic is whole on the screen, with
+    /// a question's answers up or not, and the window doesn't move between them.
+    func testTheMicIsWholeOnFlatUpright() throws {
+        guard pose == "portrait" else { throw XCTSkip("needs the Duo simulator held flat upright (TEST_RUNNER_MACROPHONE_DUO_REAL=portrait)") }
+        let app = launch(["MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "page@mic"])
+        let window = settledWindow(app, "in hand")
+        let mic = app.buttons["Start dictation"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 10))
+        let answer = app.buttons["watch-answer-0"]
+        if answer.waitForExistence(timeout: 8) {
+            XCTAssertTrue(app.frame.contains(mic.frame), "with the answers up the mic is whole: \(mic.frame) in \(app.frame)")
+            answer.tap()
+            _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: answer)], timeout: 6)
+        }
+        if !answer.exists {
+            XCTAssertTrue(app.frame.contains(mic.frame), "without them too: \(mic.frame)")
+            XCTAssertEqual(settledWindow(app, "answered").minY, window.minY, accuracy: 0.5, "the answers going never moves the window")
+            XCTAssertEqual(settledWindow(app, "answered").height, window.height, accuracy: 0.5, "nor its height")
+        }
+        let modes = app.descendants(matching: .any)["input-pages"]
+        XCTAssertTrue(modes.exists, "the modes have a home of their own")
+        XCTAssertGreaterThan(modes.frame.minY, window.maxY, "under the window, never over it")
     }
 }

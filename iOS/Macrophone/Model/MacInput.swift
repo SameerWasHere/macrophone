@@ -146,33 +146,73 @@ final class MacInput: ObservableObject {
         if !pages.contains(page) { show(.mic, quiet: true) }
     }
 
-    /// The window view opened: the mic, every time — unless the Duo is folded into the laptop
-    /// or the book (Oct 25 2026), where the deck opens on the page remembered for that pose (the
-    /// trackpad the first time, like a laptop).
+    /// The window view opened: the mic, every time — unless it's the Duo's inner screen (Oct 25
+    /// 2026), where the deck opens on the page remembered for it (the trackpad the first time,
+    /// like a laptop).
     func opened() {
         refreshPages()
-        let wanted = pose.isFolded ? deckPage(for: pose) : .mic
+        let wanted = pose.isInner ? deckPage(for: pose) : .mic
         if page != wanted { show(wanted, quiet: true) }
         noteHardwareKeyboard()
     }
 
     // MARK: The Duo's deck (Oct 25 2026)
 
-    /// How the Duo is held (`Posture`): folded, the deck remembers its page per pose.
+    /// How the Duo is held (`Posture`): on the inner screen the deck remembers its page.
     private(set) var pose: FoldPose = .closed
 
-    /// The pose changed: a folded pose brings its remembered page up (the trackpad the first
-    /// time); back to a flat or closed screen, the mic — the page the window view always opens on.
+    /// The pose changed. The inner screen has two decks — upright (the laptop, and laid flat:
+    /// one layout, the fold in the same place) and on its side (the book, and laid flat) — and
+    /// folding within one moves nothing, the page included (Nov 7 2026: the laptop's trackpad
+    /// laid flat came back as the mic). Turning to the other deck brings its remembered page (the
+    /// trackpad the first time); back to the cover, the mic — the page the window view always
+    /// opens on there.
     func poseChanged(_ p: FoldPose) {
         let was = pose
         pose = p
         // The window in hand (the glance has its pages put away: no pointer to show there).
         guard watcher?.isShowing == true else { return }
         refreshPages()
-        if p.isFolded, p != was {
-            show(deckPage(for: p), quiet: true)
-        } else if !p.isFolded, was.isFolded, page == .trackpad {
+        if p.isInner {
+            if !was.isInner || Self.deckKey(p) != Self.deckKey(was), !micHeld { show(deckPage(for: p), quiet: true) }
+        } else if was.isInner, page == .trackpad {
             show(.mic, quiet: true)
+        }
+    }
+
+    // MARK: The mic open over a deck (Nov 7 2026)
+
+    /// A dictation is under way: the mic is the page, whatever the deck was on (a laptop's
+    /// trackpad showed the words with no mic under them and no way to stop), and no page takes
+    /// its place until it ends.
+    private(set) var micHeld = false
+    /// The deck's page before the mic opened over it: where it goes back to after.
+    private var beforeMic: Page?
+    /// The page the mic page last took over from, and when (the phone's own view may bring the
+    /// mic up a moment before the deck hears the mic open).
+    private var micTookOver: (page: Page, at: Date)?
+
+    func micOpen(_ live: Bool) {
+        if live {
+            guard !micHeld else { return }
+            micHeld = true
+            if pose.isInner {
+                if page != .mic {
+                    beforeMic = page
+                } else if let t = micTookOver, Date().timeIntervalSince(t.at) < 1 {
+                    beforeMic = t.page
+                }
+                if beforeMic == .keyboard { beforeMic = underKeyboard == .keyboard ? nil : underKeyboard }
+            }
+            if page != .mic { show(.mic, quiet: true) }
+        } else {
+            guard micHeld else { return }
+            micHeld = false
+            let back = beforeMic
+            beforeMic = nil
+            if let back, back != .mic, page == .mic, pose.isInner, watcher?.isShowing == true, pages.contains(back) {
+                show(back, quiet: true)
+            }
         }
     }
 
@@ -188,7 +228,8 @@ final class MacInput: ObservableObject {
         return pages.contains(wanted) ? wanted : .mic
     }
 
-    private static func deckKey(_ p: FoldPose) -> String { "duo.deck.\(p.name)" }
+    /// Upright and on its side each keep their own (the laptop's key and the book's, as before).
+    private static func deckKey(_ p: FoldPose) -> String { "duo.deck.\(p.foldAcross ? "laptop" : "book")" }
 
     /// The page the keyboard rose over (a folded deck: what hiding it goes back to).
     private var underKeyboard: Page = .mic
@@ -199,7 +240,7 @@ final class MacInput: ObservableObject {
     /// the mic, as ever.
     func hideKeyboard(quiet: Bool = false) {
         guard page == .keyboard else { return }
-        let back: Page = pose.isFolded && pages.contains(underKeyboard) && underKeyboard != .keyboard ? underKeyboard : .mic
+        let back: Page = pose.isInner && pages.contains(underKeyboard) && underKeyboard != .keyboard ? underKeyboard : .mic
         show(back, quiet: true)
         if !quiet { Haptics.pick() }
     }
@@ -213,6 +254,7 @@ final class MacInput: ObservableObject {
         modifiers = []
         page = .mic
         pages = [.mic]
+        beforeMic = nil
     }
 
     /// The link came back: the pages may differ (another Mac), and a trackpad page still up gets
@@ -235,10 +277,14 @@ final class MacInput: ObservableObject {
     func show(_ p: Page, quiet: Bool = false) {
         guard pages.contains(p) || p == .mic else { return }
         guard p != page else { return }
+        // While the mic is open nothing quietly takes its page (a deck keeping its trackpad, the
+        // keyboard going): a tap of his own still does.
+        if micHeld, p != .mic, quiet { return }
         watcher?.touch()
         if !quiet { Haptics.pick() }
         let wasTrackpad = page == .trackpad
         if p == .keyboard { underKeyboard = page }
+        micTookOver = p == .mic ? (page, Date()) : nil
         page = p
         if p == .trackpad, canMouse {
             // The pointer starts in the middle of what's on screen (the window's centre could be
@@ -256,7 +302,7 @@ final class MacInput: ObservableObject {
         // keyboard page lets it go, so no page ever carries one it can't show (the polish pass).
         if p != .keyboard, !modifiers.isEmpty { modifiers = [] }
         // Folded: the deck remembers the page he picked for this pose (the mic or the trackpad).
-        if pose.isFolded, !quiet, p != .keyboard { UserDefaults.standard.set(p.rawValue, forKey: Self.deckKey(pose)) }
+        if pose.isInner, !quiet, p != .keyboard { UserDefaults.standard.set(p.rawValue, forKey: Self.deckKey(pose)) }
         watcher?.log?.add("watching: input page \(p.rawValue)")
         watcher?.inputPageChanged()
     }
