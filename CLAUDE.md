@@ -86,7 +86,7 @@ replaces are marked **superseded**); the sections below keep the mechanics and t
 | Feature | iPhone | Mac |
 | --- | --- | --- |
 | **Send to** (the shared choice, "Send to" everywhere — never "Send To") | The controls panel by the mic: `SEND TO` kicker, the pick's name, a row of app icons only (a long press lists an app's windows), **+** at the end = Open an App (the only way to open one that isn't open), **⋯** = Send a Photo… · Send a File… · Copy Mac's Clipboard · Send Clipboard to Mac · Refresh Open Apps **[superseded Nov 7 2026, round 2: one paperclip, `AttachMenu`; Refresh in Open an App]**. Settings › Send to is the full list. `UI/QuickControls.swift`, `UI/SendTo.swift`, `UI/SendToMac.swift` | The menu bar menu's Send to section (a check on the current, the first six apps, More Apps, Send after pasting as its own toggle); the `SendToCard` above every window pane; the first-run step. `UI/StatusItemController.swift`, `UI/Components/SendTo.swift` |
-| **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, tap twice = double-click, tap then hold-and-move = drag, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons; the **KEYBOARD · MIC · TRACKPAD** row above the Thread (Oct 19 2026 — the pages slide under it; the trackpad takes the Thread's room); **Mac Controls** beside Sound in the header (the carousel fixes). `UI/WatchPanel.swift`, `Model/Watcher.swift`, `UI/InputCarousel.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, drags, the pointer, typing, keys and trackpad-style scrolls (`InputService.swift`, `ScrollPoster.swift`); the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
+| **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, tap twice = double-click, tap then hold-and-move = drag, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons; the **KEYBOARD · MIC · TRACKPAD** row above the Thread (Oct 19 2026 — the pages slide under it; the trackpad takes the Thread's room) **[superseded Nov 7 2026, round 5: on every iPhone, while a window shows, one row — Keyboard · a 64 pt mic · Trackpad — no page row, no Thread]**; **Mac Controls** beside Sound in the header (the carousel fixes). `UI/WatchPanel.swift`, `Model/Watcher.swift`, `UI/InputCarousel.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, drags, the pointer, typing, keys and trackpad-style scrolls (`InputService.swift`, `ScrollPoster.swift`); the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
 | **The header cluster** by Done: **zoom out** (`arrow.down.right.and.arrow.up.left`, the whole window and back), **Window** (`macwindow`) | One piece of glass; each only when the connected Mac names its feature. `UI/WatchReader.swift` is Text: your text size, selectable, Copy All, follows the newest line, asked every 2.5 s | Reader: a terminal's own text, else recognition over the column you type in (`WindowReader.swift`); `mpctl reader` |
 | **The Window menu** (in order of use) | Fit to iPhone · Text size on this iPhone (Normal · Larger · Largest, per app) · Size on your Mac (Fill the Screen `rectangle.inset.filled` · Left Half · Right Half · Middle · Back to How It Was) · Minimize · Close Window (asked first) · the photo / file / clipboard items (the same as Send to's ⋯, here because the panel is away) **[superseded Nov 7 2026, round 2: gone — the paperclip leads the key row]** · Show Tips Again | `WindowFit.swift` resizes through Accessibility and restores on Done / Quit |
 | **First-use tips** (`UI/WatchTips.swift`) | Five at most, one card at a time over the window's top, each only when it works with this Mac: Tap to click / hold to right-click · Pinch to zoom, or Fit to iPhone · Swipe in from the side (two windows or more) · Pan or Scroll (auto-Scroll named)· More keys. `watch.tips.seen`; Window › Show Tips Again | — |
@@ -1755,6 +1755,33 @@ frames `docs/screens/overnight-nov7/round-4/<stream>/`. Wins over round 2 where 
   under it (seen in Control Center; system).
 
 ## Overnight polish, round 5 (Nov 7 2026)
+
+Round 5 of the overnight passes (Sameer's goal as in round 1). Emphasis: the regular iPhone's
+window gets as much of the screen as it can, and the Duo cover's vertical bar holds its set while
+typing. Two streams, merged together; frames `docs/screens/overnight-nov7/round-5/<stream>/`. In
+one breath:
+- **The window takes the iPhone:** while a window shows, the regular iPhone does what the cover
+  does (`MainView.rowWatching`, was `coverWatching`): no page row, no Thread, one row of Keyboard ·
+  64 pt mic · Trackpad (`pageButton`, ids `phone-page-*`; the cover keeps `cover-page-*`); the
+  trackpad gets its own `TrackpadBar` with close. The picture 41% → 66% of a Pro's height (SE 44% →
+  67%). The room changes only on a page change (the pages' spring) or with `keysUp`; the zoom holds
+  for the trackpad as for the keyboard (`WindowViewer(keyboardUp:)` = `input.page != .mic ||
+  input.keysUp` — on the inner screen too, where the trackpad is often the page). The page left for
+  the keyboard goes at once, so no ghost of the mic row under the keyboard's glass bar.
+- **The cover's bar holds while typing:** the trailing items are separate `ToolbarItem`s in tiers
+  (`BarTier`, `ToolbarItemVisibilityPriority.bar`), one identity each (`bar-keyboard` in both
+  states — `bar-keyboard-hide` is gone; the bell `cover-alert`). The cover's keyboard leaves the
+  system's column two positions whatever the app asks, so typing shows Done · ⋯ (Hide Keyboard
+  first in it); hiding brings the eight back to the pixel.
+- **Integration (this merge):** only CLAUDE.md conflicted (both streams opened this section).
+  Smoke-tested on a Duo (cover; flat on its side; tabletop) and an iPhone 17 Pro against `mpctl
+  serve`: open, trackpad click (`WATCH MOUSE`), keyboard typing (`WATCH TYPE`), Done (`WATCH WINDOW
+  restore`); the cover's one row and its bar folding to ✓ · ⋯ with the keyboard up; the inner
+  deck's modes and the glance unchanged; the Pro's one row with the window at about two thirds.
+  `InputCarouselUITests` (4) and `StabilityUITests` pass on the Pro after the merge.
+- **Needs a real Duo / phone:** the empty room for the 4–5 frames before the keys rise (the cost
+  of no ghost); the tiered items' glass on a real cover; the trackpad's held zoom on the laptop and
+  the book in hand (not re-tested); the plate's left-edge swipe back (close is the way out).
 
 ### The window takes the iPhone
 
