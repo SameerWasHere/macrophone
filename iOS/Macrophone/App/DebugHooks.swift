@@ -27,7 +27,7 @@ import UIKit
 /// MACROPHONE_PILL_ROLL=<0…1>                 the pill held mid-roll at that point (with several fake Macs)
 /// MACROPHONE_SWITCH_MAC=<Mac name>           once connected, switch to that paired Mac (as a swipe or the list does)
 /// MACROPHONE_FAKE_TARGETS=default|long|none|many  stand-in for the Mac's open apps (long: a very long window name; many: 15)
-/// MACROPHONE_SEND_TO=clipboard|front|<app name>  the Send-to choice (as if picked)
+/// MACROPHONE_SEND_TO=clipboard|front|screen|<app name>  the Send-to choice (as if picked; screen = the Whole Screen)
 /// MACROPHONE_SEND=1|0                        Paste & send on / off for it
 /// MACROPHONE_CLEANUP=off|light|medium|heavy|custom  the cleanup level
 /// MACROPHONE_CUSTOM_INSTRUCTIONS=<text>      the Custom level's instructions ("default" = back to Medium's)
@@ -235,6 +235,7 @@ enum DebugHooks {
         switch to {
         case "clipboard": return .clipboard
         case "front": return .frontApp
+        case "screen": return model.reach.wholeScreenTarget
         default:
             if let t = model.liveTargets.first(where: { $0.title == to || $0.appName == to }) { return t.ref }
             // A sample app that isn't open now (MACROPHONE_FAKE_TARGETS=none): picked anyway, so it shows as closed.
