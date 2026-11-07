@@ -598,7 +598,7 @@ struct MainView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Group {
-                    if input.pages.contains(.keyboard) { coverKeyboardItem }
+                    if input.pages.contains(.keyboard), !posture.pose.isInner { coverKeyboardItem }
                     // While the link comes back the bar's items hold their places, dimmed.
                     if model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature) {
                         CoverSoundItem(player: model.macAudio).disabled(!model.macAudio.macCanPlay)
