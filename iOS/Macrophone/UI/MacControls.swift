@@ -12,6 +12,9 @@ import SwiftUI
 /// `MacControlsPanel`. (It was a submenu in the window's ··· keys menu and Send to's ⋯.)
 struct MacControlsButton: View {
     enum Style { case cell, round, menuExtra }
+    /// Control Center's own glyph, the one Mac Controls wears everywhere (the window's header, the
+    /// vertical bar, the menu bar).
+    static let symbol = "switch.2"
     @EnvironmentObject var model: AppModel
     var style: Style
 
@@ -20,20 +23,20 @@ struct MacControlsButton: View {
             switch style {
             case .cell:
                 Button { open() } label: {
-                    Image(systemName: "slider.horizontal.3").font(.subheadline.weight(.semibold)).frame(width: 20)
+                    Image(systemName: Self.symbol).font(.subheadline.weight(.semibold)).frame(width: 20)
                 }
                 .buttonStyle(WatchCellStyle(width: 40, height: WatchLook.header))
             case .round:
                 // The same round glass as ⋯ beside it.
                 Button { open() } label: {
-                    Image(systemName: "slider.horizontal.3").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
+                    Image(systemName: Self.symbol).font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
                 }
                 .nativeGlassButton()
                 .buttonBorderShape(.circle)
                 .controlSize(.small)
             case .menuExtra:
                 // Control Center's own glyph, in the menu bar where a Mac keeps it.
-                Button { open() } label: { Image(systemName: "switch.2") }
+                Button { open() } label: { Image(systemName: Self.symbol) }
                     .buttonStyle(MenuExtraStyle())
             }
         }

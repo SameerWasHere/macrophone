@@ -92,12 +92,15 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             if multi, !rowHidden {
+                // While the keyboard is up the row folds away in the keyboard's own motion (the
+                // keyboard's bar says where you are, and hide goes back): drawn under the window's
+                // key row as both moved, the two had overlapped (Nov 7 2026).
                 InputPageRow(input: input)
-                    .frame(height: InputCarouselLook.row)
-                    .padding(.bottom, InputCarouselLook.rowGap)
-                    .opacity(rowDimmed ? 0.3 : 1)
-                    .allowsHitTesting(!rowDimmed)
-                    .accessibilityHidden(rowDimmed)
+                    .frame(height: keysUp ? 0 : InputCarouselLook.row, alignment: .top)
+                    .padding(.bottom, keysUp ? 0 : InputCarouselLook.rowGap)
+                    .opacity(keysUp ? 0 : rowDimmed ? 0.3 : 1)
+                    .allowsHitTesting(!rowDimmed && !keysUp)
+                    .accessibilityHidden(rowDimmed || keysUp)
                     .animation(.easeInOut(duration: 0.2), value: rowDimmed)
                     .transition(.opacity)
             }
@@ -115,13 +118,26 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                 // on Sameer's Duo a page measured wider than the screen on the first pass, the
                 // carousel took that width and kept it, and the trackpad ran off both sides with
                 // the keyboard's button out of sight).
+                // A page tapped (the row, the cover's buttons, the trackpad's bar) changes in
+                // place: the one leaving fades, the one arriving fades and settles at its own
+                // place (Nov 7 2026 — sliding by three widths, the trackpad passed through the
+                // mic on its way to the keyboard, and each arrived from the screen's edge). Only a
+                // finger on the Thread slides them, following it.
                 PagesLayout {
                     ForEach(pages) { page in
+                        let on = page == current
                         pageView(page)
                             .frame(width: width > 0 ? width : nil)
                             .offset(x: offset(of: page))
-                            .accessibilityHidden(page != current)
-                            .allowsHitTesting(page == current)
+                            // (The keyboard page draws nothing and is never faded or scaled: its
+                            // field won't take the keyboard from under a faded ancestor, and
+                            // moved into an effect's new container UIKit hands it the keyboard
+                            // back after it let go — `KeyboardTextView`.)
+                            .scaleEffect(on || slideMode || reduceMotion || page == .keyboard ? 1 : 0.96, anchor: .bottom)
+                            .opacity(on || slideMode || page == .keyboard ? 1 : 0)
+                            .animation(on || slideMode ? motion : leave, value: current)
+                            .accessibilityHidden(!on)
+                            .allowsHitTesting(on)
                     }
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -130,11 +146,14 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                 // status) hung over the home indicator until the height caught up; and as the
                 // keyboard went, the mic row rode down from the top of the shrinking room with the
                 // window's foot. (The keyboard page draws nothing; the trackpad's is the room.)
-                .frame(height: pagesHeight, alignment: smoothHeight ? .bottom : .top)
+                .frame(height: pagesHeight, alignment: .bottom)
                 // Clipped at the sides only: the pages slide in from there, but the mic's glow
                 // runs past the page above and below (Oct 31 2026: "the glow of the orange mic
                 // indicator is getting cut off").
                 .clipShape(SidesOnly())
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                if current != .keyboard, !keysUp { restBand = h }
             }
             // Without a shape of its own the empty room beside the mic and under the Thread
             // would take no touch at all.
@@ -143,7 +162,28 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         }
         .animation(motion, value: current)
         .animation(motion, value: pages)
+        // A finger on the Thread: the pages lie side by side while it moves and while they settle
+        // after it lets go, then back in place (the others hidden).
+        .onChange(of: dragX != 0) { _, dragging in
+            slideEnd?.cancel()
+            if dragging { sliding = true; return }
+            slideEnd = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                var t = Transaction(); t.disablesAnimations = true
+                withTransaction(t) { sliding = false }
+            }
+        }
     }
+
+    /// The pages lie side by side (a swipe on the Thread, and its settling).
+    @State private var sliding = false
+    @State private var slideEnd: Task<Void, Never>?
+    /// The Thread and the pages' height on the last page that wasn't the keyboard.
+    @State private var restBand: CGFloat = 0
+    private var slideMode: Bool { sliding || dragX != 0 }
+    /// What leaves goes quickly: the arriving page is what the eye follows.
+    private var leave: Animation { .easeOut(duration: reduceMotion ? 0.2 : 0.12) }
 
     /// The pages' height: the mic page's own; the trackpad's that plus the Thread's room (the
     /// screen above never moves); the keyboard's a breath once the keyboard is up (its keys ride
@@ -157,12 +197,17 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         }
         switch current {
         case .mic: return micHeight > 0 ? micHeight : nil
-        case .trackpad, .keyboard: return micHeight > 0 ? micHeight + threadHeight : nil
+        case .trackpad: return micHeight > 0 ? micHeight + threadHeight : nil
+        // Until the keyboard rises, the room the page before it had, whatever that was (the
+        // cover's trackpad is taller than its mic row): the window moves once, as it rises.
+        case .keyboard: return restBand > 0 ? restBand : micHeight > 0 ? micHeight + threadHeight : nil
         }
     }
 
-    /// Where a page sits: the current one at 0, the others a width to each side.
+    /// Where a page sits: in place, or — while a finger slides them — the current one at 0, the
+    /// others a width to each side.
     private func offset(of page: MacInput.Page) -> CGFloat {
+        guard slideMode else { return 0 }
         guard let i = pages.firstIndex(of: page), width > 0 else { return page == current ? 0 : 10_000 }
         return CGFloat(i - index) * width + dragX
     }
@@ -171,6 +216,11 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         switch page {
         case .mic:
             mic()
+                // Its own height, whatever room it's offered: measured in the room it was given
+                // last, a page that can give up a line (the status slot) did, and kept the
+                // smaller height for good — the cover's mic sat 20 pt lower after every Done
+                // (Nov 7 2026).
+                .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
                     if smoothHeight, micHeight > 0, !reduceMotion { withAnimation(motion) { micHeight = h } } else { micHeight = h }
                 }
@@ -180,7 +230,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
         case .trackpad:
             VStack(spacing: 0) {
                 TrackpadPage(input: input, watcher: watcher, big: rowHidden && !trackpadBar,
-                             inset: trackpadBar ? 16 : WatchLook.sideMargin)
+                             inset: trackpadBar ? 16 : WatchLook.sideMargin, barSays: trackpadBar)
                     .frame(maxHeight: .infinity)
                 if trackpadBar { TrackpadBar(input: input) }
             }
@@ -246,10 +296,13 @@ private struct PagesLayout: Layout {
         return CGSize(width: w, height: h)
     }
 
+    /// Each page on the room's foot: the mic sits on the screen's foot whatever height the room
+    /// has on its way to another page's (the keyboard going, the mic was drawn from the room's
+    /// top, riding down over the keyboard's bar — Nov 7 2026).
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         for s in subviews {
-            s.place(at: CGPoint(x: bounds.midX, y: bounds.minY), anchor: .top,
-                    proposal: ProposedViewSize(width: bounds.width, height: proposal.height))
+            let p = ProposedViewSize(width: bounds.width, height: proposal.height)
+            s.place(at: CGPoint(x: bounds.midX, y: bounds.maxY), anchor: .bottom, proposal: p)
         }
     }
 }
