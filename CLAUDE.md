@@ -1314,6 +1314,48 @@ Frames: `docs/screens/overnight-nov7/round-2/attach-and-send-toggle/`.
   browser doesn't list the app's Documents, so the pick itself is the hook's. On a Duo simulator:
   the cover at rest and watching, the laptop's and the book's header.
 
+## Overnight polish, round 2: Undo you can reach (Nov 7 2026)
+
+Sameer's round-2 emphasis ("what's primary vs buried … Undo kept longer"): the Mac undoes its last
+paste for 30 s (`UndoPaste.window`), but the phone offered Undo on the landed pill for 5 s and the
+pill hung over the mic's ring and bloom. Now, one path in AppModel (`undo(id:)`, `undoable`,
+`canUndo(_:)`; the chip, a shake and History all use it; it refuses after the window):
+- **The pill, then the chip.** The landed pill rises as before (2.2 s, `AppModel.pillHold`; its
+  foot now 18 pt clear of the ring at every mic size — `landedPill(size:)`, the frame is 1.25 × the
+  disc and the ring 6 pt outside it). For a paste the Mac can take back (`LandedChip.canUndo`) it
+  then shrinks into **`UndoChip`** (MainView.swift: `arrow.uturn.backward` + Undo on glass, 28 pt,
+  `landed-undo-chip`) — a `matchedGeometryEffect` pair in `micSpace` (`LandedMatch`; Reduce
+  Motion: a fade). The chip sits at the trailing end of the Thread's band, centred on it
+  (`View.undoChip`, on `threadBand`), where the mic's bloom never reaches; it never moves the mic,
+  the Thread or the status line. It stays until `AppModel.undoLife` (28 s — a breath under the
+  Mac's own 30) after the landing, the next dictation, the next landing or Undo, and fades to 0.55
+  for its last 5 s (`chipFade`). On the cover while watching it takes the status line's place under
+  the mic row, as the pill does; on the Duo's inner screen the cover's view has the same Thread
+  band; in full screen it floats just above the mic's lip (`FloatingMic`). A new landing or a
+  landing that failed clears the one before (`rememberUndoable`); the Mac undoes only its last.
+- **Shake to Undo** (`UI/ShakeToUndo.swift`): while the pill or chip is up, a shake asks "Undo
+  Paste into ‹App›?" (Undo · Cancel, a UIAlertController over whatever's in front), only while the
+  system's Shake to Undo is on (`UIAccessibility.isShakeToUndoEnabled`). Heard at the end of the
+  responder chain — `AppDelegate` is a `UIResponder` now (one word in DuoView.swift) and the override
+  lives in the extension — so nothing takes first responder from the keyboard's field or
+  `HardwareKeysView`.
+- **History**: while a dictation is the Mac's last paste and still undoable, its row's leading swipe
+  offers **Undo Paste** first (`history-undo`, ember; a full swipe never undoes by accident), the
+  context menu too, and `HistoryPage`'s bottom bar has Undo Paste before Send Again
+  (`history-page-undo`). After an undo the row reads "Undone from the phone" (`AppModel.undoneWords`,
+  `HistoryItem.wasUndone`; `Landing.chip` / `.sentence` pass it through; the mark is the uturn arrow).
+- **Hooks**: `MACROPHONE_WATCH_ACTIONS=…,undo,shake`; `MACROPHONE_UNDO_LIFE=<s>` shortens the chip's
+  life (DEBUG). Log lines carry seconds only ("undo asked 12s after the landing"). `UndoChipUITests`
+  (a paired `mpctl serve`): the pill → the chip, clear of the mic, out at its life's end with the mic
+  unmoved; the chip's Undo reaches the Mac (`UNDO <id>` in serve's log); a shake asks; History offers
+  Undo Paste only while it can. Frames: `docs/screens/overnight-nov7/round-2/undo-you-can-reach/`.
+- Left: a window in hand on the inner screen (the laptop's mic mode, the book's column —
+  `DuoLaptopDeck` / `DuoDeck`) draws its own mic with no Thread band, so the chip isn't placed
+  there — the pill, a shake and History still work there; the cover-watching frame in the folder
+  caught the Clipboard pick (no undoable paste), so that placement is by code only; `mpctl serve`'s stdout is
+  block-buffered to a file, so its `LANDED` line lands late — time a shot from the phone's
+  diagnostics log instead.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

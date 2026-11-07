@@ -750,31 +750,98 @@ final class AppModel: ObservableObject {
         var undone = false
         /// Sent after pasting (the pill's paper plane, not the check).
         var sent = false
+        /// When the words landed: the undo window runs from here.
+        var landedAt = Date()
+        /// The pill has had its moment; what's left is the small Undo chip by the Thread.
+        var compact = false
+        /// The chip's last seconds: it fades a little before it goes.
+        var fading = false
     }
-    /// Where the last words landed, over the mic for a moment (`LandedPill`).
+    /// Where the last words landed, over the mic for a moment (`LandedPill`), then — for a paste
+    /// the Mac can take back — the Undo chip until the Mac no longer can (Nov 7 2026).
     @Published private(set) var landedChip: LandedChip?
     private var chipTask: Task<Void, Never>?
+
+    /// The Mac's last paste from here while it still undoes it (`UndoPaste.window`), for the
+    /// chip, a shake and History alike; nil once undone, superseded or out of time.
+    @Published private(set) var undoable: Undoable?
+    struct Undoable: Equatable {
+        var id: UUID
+        var landedAt: Date
+        var appName: String
+        var until: Date { landedAt + AppModel.undoLife }
+    }
+    private var undoableTask: Task<Void, Never>?
+
+    /// How long after a landing the phone offers Undo: a breath under the Mac's own window, so
+    /// an ask never arrives just too late. DEBUG `MACROPHONE_UNDO_LIFE=<s>` shortens it for a test.
+    nonisolated static var undoLife: TimeInterval {
+        #if DEBUG
+        if let s = DebugHooks.env["MACROPHONE_UNDO_LIFE"].flatMap(Double.init) { return s }
+        #endif
+        return UndoPaste.window - 2
+    }
+    /// The pill's moment, before it becomes the chip (or goes).
+    static let pillHold: TimeInterval = 2.2
+    /// The chip fades for its last seconds.
+    static let chipFade: TimeInterval = 5
 
     private func showChip(_ c: LandedChip, for seconds: Double? = nil) {
         landedChip = c
         chipTask?.cancel()
-        let hold = seconds ?? (c.canUndo ? 5 : 2.2)
         chipTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(hold * 1e9))
+            try? await Task.sleep(nanoseconds: UInt64((seconds ?? Self.pillHold) * 1e9))
+            guard !Task.isCancelled, let self else { return }
+            guard seconds == nil, c.canUndo, self.canUndo(c.id) else { self.landedChip = nil; return }
+            self.landedChip?.compact = true
+            let fadeAt = c.landedAt + Self.undoLife - Self.chipFade
+            try? await Task.sleep(until: .now + .seconds(max(0, fadeAt.timeIntervalSinceNow)))
             guard !Task.isCancelled else { return }
-            self?.landedChip = nil
+            self.landedChip?.fading = true
+            try? await Task.sleep(until: .now + .seconds(max(0, (c.landedAt + Self.undoLife).timeIntervalSinceNow)))
+            guard !Task.isCancelled else { return }
+            self.landedChip = nil
         }
     }
 
-    /// The pill's Undo: the Mac takes the paste back (⌘Z in that app).
-    func undoLanded() {
-        guard var c = landedChip, c.canUndo, client.undoPaste(c.id) else { return }
+    /// A landing the Mac can take back: remembered until it can't (the chip, a shake, History).
+    private func rememberUndoable(_ u: Undoable?) {
+        undoableTask?.cancel()
+        undoable = u
+        guard let u else { return }
+        undoableTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(until: .now + .seconds(max(0, u.until.timeIntervalSinceNow)))
+            guard !Task.isCancelled, self?.undoable?.id == u.id else { return }
+            self?.undoable = nil
+        }
+    }
+
+    /// This dictation is the Mac's last paste from here and still within its undo window.
+    func canUndo(_ id: UUID) -> Bool {
+        guard let u = undoable, u.id == id else { return false }
+        return Date() < u.until
+    }
+
+    /// Undo: the Mac takes the paste back (⌘Z in that app). One path for the chip, a shake and
+    /// History; refused once the window has passed.
+    @discardableResult
+    func undo(id: UUID) -> Bool {
+        guard canUndo(id), client.undoPaste(id) else { return false }
         Haptics.press()
+        log.add("undo asked \(Int(Date().timeIntervalSince(undoable?.landedAt ?? Date())))s after the landing")
+        rememberUndoable(nil)
+        var c = landedChip?.id == id ? landedChip! : LandedChip(id: id, words: "", ok: true)
         c.undoing = true
         c.canUndo = false
+        c.compact = false
+        c.fading = false
+        if c.words.isEmpty, let it = item(id), let l = it.landed { c.words = l.chipWords }
         showChip(c, for: 4)
-        log.add("undo asked")
+        return true
     }
+
+    /// The pill's Undo (kept for the hooks).
+    func undoLanded() { if let c = landedChip { undo(id: c.id) } }
 
     private func recordingStartedHidesChip() { chipTask?.cancel(); landedChip = nil }
 
@@ -1115,9 +1182,14 @@ final class AppModel: ObservableObject {
         status = .landed(l)
         if l.isSuccess { Haptics.landed() } else { Haptics.failed() }
         if l.isSuccess {
-            showChip(LandedChip(id: id, words: l.chipWords, ok: true,
-                                canUndo: result == .pasted && !late && client.macCanUndo, sent: result == .sent))
+            // Every landing is the Mac's newest paste: the one before can't be taken back any more.
+            let canUndo = result == .pasted && !late && client.macCanUndo
+            let now = Date()
+            rememberUndoable(canUndo ? Undoable(id: id, landedAt: now, appName: l.chipWords.replacingOccurrences(of: "Pasted into ", with: "")) : nil)
+            showChip(LandedChip(id: id, words: l.chipWords, ok: true, canUndo: canUndo, sent: result == .sent, landedAt: now))
             pillSaidIt = true
+        } else {
+            rememberUndoable(nil)
         }
         bumpPulse()
         // Sent into an app: show its window, so the answer can be read (and approved) from here.
@@ -2192,10 +2264,20 @@ extension AppModel: LinkClientUndoDelegate {
     func linkClient(_ client: LinkClient, undoDone r: UndoResult) {
         log.add("undo: \(r.ok ? "done" : "not done")")
         if r.ok { Haptics.landed() } else { Haptics.caution() }
-        // The line under the mic says so once the pill has gone (not "Pasted into …" any more).
-        if r.ok { updateItem(r.id) { $0.landingDetail = r.detail } }
+        // The line under the mic says so once the pill has gone (not "Pasted into …" any more);
+        // History's row reads "Undone from the phone", as the Mac's own History does.
+        if r.ok { updateItem(r.id) { $0.landingDetail = Self.undoneWords } }
         if r.ok, case .landed = status { status = .notice(r.detail); scheduleStatusReset(after: 6) }
+        if undoable?.id == r.id { rememberUndoable(nil) }
         guard landedChip?.id == r.id else { return }
         showChip(LandedChip(id: r.id, words: r.ok ? "Undone" : r.detail, ok: r.ok, undone: r.ok), for: 2)
     }
+
+    /// The History row's words for a paste the phone took back.
+    static let undoneWords = "Undone from the phone"
+}
+
+extension HistoryItem {
+    /// Taken back from the phone (`AppModel.undoneWords`).
+    var wasUndone: Bool { landingDetail == AppModel.undoneWords }
 }

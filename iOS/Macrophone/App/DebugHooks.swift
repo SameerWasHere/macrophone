@@ -75,8 +75,10 @@ import UIKit
 ///                                            points), click@2 (a click at the pointer, with its count), rclick,
 ///                                            drag@dx@dy (press, move, release), tap@0.2@0.5@2 (a double-click there),
 ///                                            type@<words> (as the keyboard would), mod@command (a sticky modifier),
-///                                            key@cmd+shift+f5, appswitch (⌘ held, Tab)
-/// MACROPHONE_VIDEO=0                         a phone from before video: the Mac sends pictures (to compare the two)
+///                                            key@cmd+shift+f5, appswitch (⌘ held, Tab),
+///                                            undo (the chip's Undo), shake (the phone shaken: Undo Paste into ‹App›?)
+/// MACROPHONE_UNDO_LIFE=<s>                   how long after a landing Undo is offered (the chip's life; 28 s otherwise)
+/// MACROPHONE_VIDEO=0                       a phone from before video: the Mac sends pictures (to compare the two)
 /// MACROPHONE_FRAME=375x667                   the mic screen in a smaller phone's frame (an SE: compact < 700pt) on this simulator
 ///                                            — or the Duo's inner screen (951x669 on its side, 669x951 upright), drawn to
 ///                                            scale on a smaller one with its bars stood in for (`frameInsets`)
@@ -465,6 +467,9 @@ enum DebugHooks {
                         if let i = v.first.flatMap(Int.init) { model.beginFix(i); if v.count > 1 { model.commitFix(v[1]) } }
                     } else if a == "undo" {
                         model.undoLanded()
+                    } else if a == "shake" {
+                        // The phone shaken (Device › Shake): Undo Paste into ‹App›? while the chip is up.
+                        ShakeToUndo.shaken()
                     } else if a.hasPrefix("fixopen@"), let i = Int(a.dropFirst(8)) {
                         model.beginFix(i)
                     } else if a == "record" || a == "stoprecord" {
