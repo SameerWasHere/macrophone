@@ -802,7 +802,9 @@ struct MainView: View {
                         .accessibilityLabel("Recording time \(Int(ctx.date.timeIntervalSince(start))) seconds")
                 }
             } else {
-                Text(" ").font(.mono(.subheadline)).accessibilityHidden(true)
+                // Hidden, not merely out of VoiceOver's way: the blank placeholder was a node the
+                // accessibility audit stopped on (Nov 7 2026).
+                Text(" ").font(.mono(.subheadline)).hidden()
             }
         }
         .frame(minHeight: 22)

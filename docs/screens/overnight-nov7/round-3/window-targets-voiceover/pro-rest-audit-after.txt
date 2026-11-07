@@ -1,0 +1,5 @@
+65536 | Dynamic Type font sizes are unsupported | el=48 id= label=Claude frame=(17.0, 390.0, 63.66666666666666, 23.666666666666686)
+65536 | Dynamic Type font sizes are partially unsupported | el=48 id= label=Cleanup off frame=(216.83333333333334, 518.0, 81.66666666666666, 18.0)
+65536 | Dynamic Type font sizes are partially unsupported | el=48 id= label=MP r3 window-targets-voiceover frame=(16.0, 62.0, 175.33333333333334, 44.0)
+65536 | Dynamic Type font sizes are partially unsupported | el=48 id= label=Send frame=(45.33333206176758, 518.0, 57.33333206176758, 18.0)
+131072 | Text clipped | el=48 id= label=MP r3 window-targets-voiceover frame=(16.0, 62.0, 175.33333333333334, 44.0)
