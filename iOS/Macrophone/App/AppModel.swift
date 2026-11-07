@@ -752,15 +752,26 @@ final class AppModel: ObservableObject {
         var sent = false
         /// When the words landed: the undo window runs from here.
         var landedAt = Date()
-        /// The pill has had its moment; what's left is the small Undo chip by the Thread.
+        /// The pill has had its moment; what's left is the small Undo chip in the same place.
         var compact = false
         /// The chip's last seconds: it fades a little before it goes.
         var fading = false
+        /// What landed: words, or a photo / file (confirmed the same way — Nov 7 2026, round 4).
+        var kind: Kind = .paste
+        /// The photo that went, small, in the pill's glyph's place.
+        var thumbnail: UIImage?
+
+        enum Kind { case paste, photo, file, downloads }
+        /// Where the paste can still be taken back, for the compact chip's ring.
+        var undoUntil: Date { landedAt + AppModel.undoLife }
     }
-    /// Where the last words landed, over the mic for a moment (`LandedPill`), then — for a paste
-    /// the Mac can take back — the Undo chip until the Mac no longer can (Nov 7 2026).
+    /// Where the last words landed, in the status line's place under the mic for a moment
+    /// (`LandedPill`), then — for a paste the Mac can take back — the Undo chip in that same
+    /// place until the Mac no longer can (Nov 7 2026).
     @Published private(set) var landedChip: LandedChip?
     private var chipTask: Task<Void, Never>?
+    /// A photo or file on its way to the Mac: what the pill will show when it lands.
+    private var attachmentsInFlight: [UUID: LandedChip] = [:]
 
     /// The Mac's last paste from here while it still undoes it (`UndoPaste.window`), for the
     /// chip, a shake and History alike; nil once undone, superseded or out of time.
@@ -2136,22 +2147,44 @@ extension AppModel: LinkClientDelegate {
         attachToDownloads = false
         let downloads = canSaveToDownloads && (asked || SaveToDownloads.isDefault(for: target))
         guard data.count <= AttachmentChunk.chunkSize * AttachmentChunk.maxChunks else { explain("That's over 20 MB — too big to send"); return }
-        guard client.sendAttachment(data, filename: filename, kind: kind, target: target, downloads: downloads) != nil else {
+        guard let id = client.sendAttachment(data, filename: filename, kind: kind, target: target, downloads: downloads) else {
             explain(isConnected ? "Update Macrophone on your Mac to send photos and files" : "Your Mac isn't connected")
             return
         }
         Haptics.press()
         let what = kind == "image" ? "the photo" : "the file"
-        sendingAttachment = downloads ? "Saving \(what) to your Mac's Downloads…" : "Sending \(what) to \(Places.appName(target, in: self))…"
+        let name = Places.appName(target, in: self)
+        sendingAttachment = downloads ? "Saving \(what) to your Mac's Downloads…" : "Sending \(what) to \(name)…"
         explain(sendingAttachment ?? "", for: 30)
         log.add("attachment: sending (\(kind))\(downloads ? " to Downloads" : "")")
+        // Confirmed like a paste when it lands (Nov 7 2026, round 4): the pill under the mic, with
+        // the photo itself in it — bigger than a dictation, and as easy to send into the wrong chat.
+        attachmentsInFlight[id] = LandedChip(id: id, words: downloads ? "Saved to your Mac's Downloads" : "Added to \(name)", ok: true,
+                                             kind: downloads ? .downloads : kind == "image" ? .photo : .file)
+        if kind == "image", !downloads, let image = UIImage(data: data) {
+            Task { [weak self] in
+                let thumb = await image.byPreparingThumbnail(ofSize: CGSize(width: 96, height: 96))
+                self?.attachmentsInFlight[id]?.thumbnail = thumb
+            }
+        }
     }
 
     func linkClient(_ client: LinkClient, attachmentLanded id: UUID, ok: Bool, detail: String) {
         guard client === self.client else { return }
         sendingAttachment = nil
         if ok { Haptics.landed() } else { Haptics.failed() }
-        explain(detail, for: 4)
+        guard var chip = attachmentsInFlight.removeValue(forKey: id) else { explain(detail, for: 4); return }
+        chip.landedAt = Date()
+        if !ok {
+            chip.ok = false
+            chip.thumbnail = nil
+            chip.words = "Couldn't send \(chip.kind == .photo ? "the photo" : "the file")"
+        }
+        showChip(chip)
+        // The line under it once the pill has had its moment: the Mac's own words when something
+        // went wrong or it went to Downloads; into a chat, the mic is the next step.
+        let line = !ok || chip.kind == .downloads ? detail : "Say what it's for"
+        if !line.isEmpty { explain(line, for: Self.pillHold + 4) }
     }
 
     /// JPEG at most `maxBytes`, the long side at most `side` pixels.
@@ -2273,10 +2306,17 @@ extension AppModel: LinkClientUndoDelegate {
     func linkClient(_ client: LinkClient, undoDone r: UndoResult) {
         log.add("undo: \(r.ok ? "done" : "not done")")
         if r.ok { Haptics.landed() } else { Haptics.caution() }
-        // The line under the mic says so once the pill has gone (not "Pasted into …" any more);
-        // History's row reads "Undone from the phone", as the Mac's own History does.
+        // History's row reads "Undone from the phone", as the Mac's own History does; the line
+        // under the mic says what was taken out, by name, in the app's own even tone once the pill
+        // has said "Undone" (a caution-coloured notice read as something wrong — Nov 7 2026).
         if r.ok { updateItem(r.id) { $0.landingDetail = Self.undoneWords } }
-        if r.ok, case .landed = status { status = .notice(r.detail); scheduleStatusReset(after: 6) }
+        if r.ok {
+            let app = item(r.id)?.dictation.target.map { Places.appName($0, in: self) } ?? "your Mac"
+            // The landing's own reset to ready would drop the note (a status change clears it).
+            statusReset?.cancel()
+            if case .landed = status { status = .ready }
+            explain("Took the paste out of \(app)", for: 2 + 5)
+        }
         if undoable?.id == r.id { rememberUndoable(nil) }
         guard landedChip?.id == r.id else { return }
         showChip(LandedChip(id: r.id, words: r.ok ? "Undone" : r.detail, ok: r.ok, undone: r.ok), for: 2)

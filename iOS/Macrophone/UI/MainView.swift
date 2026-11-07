@@ -497,13 +497,11 @@ struct MainView: View {
                                 .frame(height: 18)
                                 // The landed pill sits here while it shows: centred on the line,
                                 // clear of the mic and the buttons beside it (hung from the mic's
-                                // frame it rode up over the disc and both buttons — Nov 4 2026).
+                                // frame it rode up over the disc and both buttons — Nov 4 2026);
+                                // then Undo, in the same place (Nov 7 2026).
                                 .opacity(model.landedChip == nil ? 1 : 0)
                                 .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
-                                .overlay { LandedPill(namespace: micSpace) }
-                                // And the Undo chip after it, in the same quiet place: under the
-                                // mic row, never over the window above (Nov 7 2026).
-                                .overlay { UndoChip(namespace: micSpace) }
+                                .overlay { LandedSlot(namespace: micSpace) }
                         } else {
                             Group {
                                 if tightInner {
@@ -517,12 +515,16 @@ struct MainView: View {
                                     statusSlot
                                 }
                             }
-                                // The cover: the landed pill is the status line's here too, under
-                                // the mic — hung over the mic it sat across the Thread and the
-                                // mic's ring (Nov 4 2026), and moved from under to over on Done.
-                                .opacity(isCover && model.landedChip != nil ? 0 : 1)
+                                // The landed pill is the status line's on every phone (Nov 7 2026,
+                                // round 4 — the cover's since Nov 4): one quiet word under the mic,
+                                // then Undo in the same place. Hung over the mic it had sat across
+                                // the Thread and the mic's ring, beside a check on the Thread and
+                                // a chip on its end — three sayings of one landing.
+                                // (The inner screen's one mic floats the pill itself, `InnerMic`;
+                                // the slot there carries the Undo that follows it.)
+                                .opacity(model.landedChip != nil ? 0 : 1)
                                 .animation(.easeOut(duration: 0.15), value: model.landedChip == nil)
-                                .overlay(alignment: .top) { if isCover { LandedPill().padding(.top, 2) } }
+                                .overlay { LandedSlot(pill: !posture.pose.isInner, namespace: micSpace) }
                                 .padding(.bottom, tightInner ? 2 : compact ? 6 : 18)
                         }
                     }
@@ -611,9 +613,9 @@ struct MainView: View {
     func micButton(size: CGFloat) -> some View {
         micCore(size: size)
             .matchedGeometryEffect(id: micID, in: micSpace)
-            // (The cover: the pill is the status line's, under the mic — above it are the window's
-            // answers, or the Thread. Nov 4 2026.)
-            .landedPill(on: !isCover, size: size, namespace: micSpace)
+            // The pill is the status line's, under the mic, on every phone (Nov 7 2026); only full
+            // screen's floating mic, which has no line under it, keeps it floating above.
+            .landedPill(on: watcher.fullScreen, size: size, namespace: micSpace)
     }
 
     /// The mic button itself, wherever a layout puts it.
@@ -863,9 +865,9 @@ struct MainView: View {
                 VStack(spacing: 0) {
                     ZStack {
                         Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
-                        // The cover: the landed pill says it, right here — the check peeked out
-                        // from behind the pill (Nov 4 2026).
-                        DeliveredCheck(visible: showCheck && !(isCover && model.landedChip != nil), color: checkColor)
+                        // The landed pill says it, under the mic — the Thread's mint is enough here
+                        // (the check had said it a second time, every phone since Nov 7 2026).
+                        DeliveredCheck(visible: showCheck && model.landedChip == nil, color: checkColor)
                     }
                     .frame(height: 56)
                     if timerLine > 0 { timer.frame(height: timerLine).transition(.opacity) }
@@ -874,16 +876,13 @@ struct MainView: View {
                 ZStack {
                     Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
                         .frame(height: filamentSlot)
-                    DeliveredCheck(visible: showCheck, color: checkColor)
+                    DeliveredCheck(visible: showCheck && model.landedChip == nil, color: checkColor)
                     timer.frame(maxHeight: .infinity, alignment: .bottom)
                 }
             }
         }
         .frame(height: filamentSlot)
         .padding(.horizontal, -4)
-        // Undo, for as long as the Mac can: at the band's trailing end, centred on the Thread,
-        // where the mic's bloom never reaches (Nov 7 2026).
-        .undoChip(namespace: micSpace)
     }
 
     // MARK: While the mic is open: the transcript takes the whole area
@@ -1686,9 +1685,25 @@ private struct FootOnly: Shape {
 
 // MARK: The landed pill (Nov 3 2026)
 
-/// Where the words landed, rising from the mic and fading (Sameer chose "a clear 'it landed'
-/// moment"): "Pasted into Claude", "Sent to Claude", "On your Mac's clipboard" — and, for a paste
-/// that wasn't sent, Undo for a few seconds (the Mac takes it back with ⌘Z, `UndoPaste`).
+/// One quiet confirmation in one place (Nov 7 2026, round 4): the pill, then the Undo that follows
+/// it, both centred in the status line's slot under the mic — the pill shrinks into the chip where
+/// it stands (`LandedMatch`). `pill` off: the pill is drawn elsewhere (the inner screen's one mic
+/// floats it) and the slot carries only the Undo after it.
+struct LandedSlot: View {
+    var pill = true
+    var namespace: Namespace.ID? = nil
+
+    var body: some View {
+        ZStack {
+            if pill { LandedPill(namespace: namespace) }
+            UndoChip(namespace: namespace)
+        }
+    }
+}
+
+/// Where the words landed, for a moment (Sameer chose "a clear 'it landed' moment"): "Pasted into
+/// Claude", "Sent to Claude", "On your Mac's clipboard", a photo's "Added to Claude" with the photo
+/// — and, for a paste that wasn't sent, Undo (the Mac takes it back with ⌘Z, `UndoPaste`).
 struct LandedPill: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1701,7 +1716,7 @@ struct LandedPill: View {
                 pill(c)
                     .modifier(LandedMatch(namespace: reduceMotion ? nil : namespace))
                     // Going as the chip arrives it follows the chip's frame (the matched geometry).
-                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 14)).combined(with: .scale(scale: 0.92, anchor: .bottom)),
+                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)).combined(with: .scale(scale: 0.92)),
                                                                      removal: .opacity))
             }
         }
@@ -1722,10 +1737,12 @@ struct LandedPill: View {
                     .accessibilityIdentifier("landed-undo")
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.leading, c.thumbnail == nil ? 14 : 8)
+        .padding(.trailing, 14)
         .frame(height: 36)
         .watchGlass(Capsule())
         .fixedSize()
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("landed-pill")
     }
@@ -1745,11 +1762,12 @@ private struct LandedMatch: ViewModifier {
 }
 
 /// Undo, for as long as the Mac can take the paste back (Nov 7 2026, round 2: "Undo kept
-/// longer"): once the landed pill has had its moment it shrinks into this small glass chip —
-/// `arrow.uturn.backward` + Undo — at the trailing end of the Thread's band, clear of the mic's
-/// ring and bloom, never moving the mic, the Thread or the status line. It stays until a breath
-/// under the Mac's own 30 s (`AppModel.undoLife`), the next dictation, the next landing, or
-/// Undo; it fades a little for its last seconds. A shake asks the same question (`ShakeToUndo`).
+/// longer"): once the landed pill has had its moment it becomes this small glass chip in the
+/// same place — `arrow.uturn.backward` in a thin ring that drains over the undo's remaining
+/// life, and "Undo Paste" — a 44 pt target drawn 32 pt tall, never moving the mic, the Thread
+/// or the status line. It stays until a breath under the Mac's own 30 s (`AppModel.undoLife`),
+/// the next dictation, the next landing, or Undo; it fades a little for its last seconds. A
+/// shake asks the same question (`ShakeToUndo`).
 struct UndoChip: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1768,19 +1786,26 @@ struct UndoChip: View {
 
     private func chip(_ c: AppModel.LandedChip) -> some View {
         Button { model.undo(id: c.id) } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "arrow.uturn.backward")
-                    .font(.caption.weight(.bold))
-                Text("Undo")
+            HStack(spacing: 7) {
+                ZStack {
+                    UndoRing(until: c.undoUntil)
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .frame(width: 20, height: 20)
+                Text("Undo Paste")
                     .font(.footnote.weight(.semibold))
             }
             .foregroundStyle(Light.cyan)
-            .padding(.horizontal, 11)
-            .frame(height: 28)
-            .contentShape(Capsule())
+            .padding(.leading, 8)
+            .padding(.trailing, 12)
+            .frame(height: 32)
+            .watchGlass(Capsule())
+            // The touch target: 44 pt tall, the glass 32.
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .watchGlass(Capsule())
         .fixedSize()
         .opacity(c.fading ? 0.55 : 1)
         .animation(.easeInOut(duration: 0.8), value: c.fading)
@@ -1791,23 +1816,58 @@ struct UndoChip: View {
     }
 }
 
-/// The pill's glyph, which says how it landed as it rises: the check draws itself on for a paste
-/// (iOS 26; a bounce before), the paper plane flies up for a send, and Undo's arrow replaces the
-/// check in place. Under Reduce Motion it's simply there.
+/// The ring round Undo's arrow: full when the chip arrives, drained when the Mac can no longer
+/// take the paste back (a static ring under Reduce Motion).
+private struct UndoRing: View {
+    var until: Date
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var left: CGFloat = 1
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Light.cyan.opacity(0.22), lineWidth: 1.5)
+            Circle()
+                .trim(from: 0, to: left)
+                .stroke(Light.cyan, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .task {
+            guard !reduceMotion else { return }
+            withAnimation(.linear(duration: max(0.1, until.timeIntervalSinceNow))) { left = 0 }
+        }
+    }
+}
+
+/// The pill's glyph, which says how it landed: the check draws itself on for a paste (iOS 26; a
+/// bounce before), the paper plane flies up for a send, a photo shows itself small, a file its
+/// page, and Undo's arrow replaces the check in place. Under Reduce Motion it's simply there.
 private struct LandedGlyph: View {
     var chip: AppModel.LandedChip
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
     var body: some View {
-        let symbol = chip.undone ? "arrow.uturn.backward.circle.fill"
-            : !chip.ok ? "exclamationmark.circle.fill"
-            : chip.sent ? "paperplane.circle.fill" : "checkmark.circle.fill"
-        Image(systemName: symbol)
-            .foregroundStyle(chip.ok ? Light.mint : Light.ochre)
-            .contentTransition(.symbolEffect(.replace))
-            .modifier(Arrival(sent: chip.sent && chip.ok && !chip.undone, shown: shown || reduceMotion))
-            .onAppear { shown = true }
+        if let thumb = chip.thumbnail, chip.ok {
+            Image(uiImage: thumb)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 24, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Ink.line, lineWidth: 0.5))
+                .accessibilityHidden(true)
+        } else {
+            let symbol = chip.undone ? "arrow.uturn.backward.circle.fill"
+                : !chip.ok ? "exclamationmark.circle.fill"
+                : chip.kind == .file ? "doc.fill"
+                : chip.kind == .downloads ? "arrow.down.circle.fill"
+                : chip.kind == .photo ? "photo.fill"
+                : chip.sent ? "paperplane.circle.fill" : "checkmark.circle.fill"
+            Image(systemName: symbol)
+                .foregroundStyle(chip.ok ? Light.mint : Light.ochre)
+                .contentTransition(.symbolEffect(.replace))
+                .modifier(Arrival(sent: chip.sent && chip.ok && !chip.undone, shown: shown || reduceMotion))
+                .onAppear { shown = true }
+        }
     }
 
     private struct Arrival: ViewModifier {
@@ -1826,8 +1886,9 @@ private struct LandedGlyph: View {
 }
 
 extension View {
-    /// The landed pill floats just above this (the mic), never moving it. (Off: it's drawn
-    /// elsewhere — the cover's status line while a window shows.)
+    /// The landed pill floats just above this (the mic), never moving it — where there's no status
+    /// line under the mic to carry it (full screen's floating mic, the inner screen's one mic).
+    /// Off: the slot under the mic has it (`LandedSlot`).
     func landedPill(on: Bool = true, size: CGFloat = 92, namespace: Namespace.ID? = nil) -> some View {
         overlay(alignment: .top) {
             // The mic's frame is 1.25 × its disc; its ring sits 6 pt outside the disc. The pill's
@@ -1839,7 +1900,8 @@ extension View {
         }
     }
 
-    /// The Undo chip at the trailing end of this (the Thread's band), centred on it.
+    /// The Undo chip at the trailing end of this, centred on it (kept for a layout with no slot
+    /// under the mic; the phone's Thread no longer wears it — the slot does).
     func undoChip(on: Bool = true, namespace: Namespace.ID? = nil) -> some View {
         overlay(alignment: .trailing) {
             // In from the band's end: on the inner screen upright the Thread runs edge to edge.

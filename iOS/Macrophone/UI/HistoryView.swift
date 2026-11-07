@@ -174,6 +174,13 @@ struct HistoryView: View {
                                 }
                             }
                         }
+                        // The Mac's last paste, while it can still take it back: Undo in plain
+                        // sight at the row's end, as Mail's Unsend (Nov 7 2026, round 4) — its own
+                        // element and its own tap, beside the link rather than inside its label.
+                        .overlay(alignment: .trailing) {
+                            if model.canUndo(item.id) { HistoryUndoButton(item: item) }
+                        }
+                        .animation(.easeOut(duration: 0.2), value: model.undoable)
                         // The Mac's last paste, while it can still take it back: Undo Paste first
                         // (a full swipe never undoes by accident — Nov 7 2026).
                         .swipeActions(edge: .leading, allowsFullSwipe: !model.canUndo(item.id)) {
@@ -266,6 +273,31 @@ enum HistoryMark {
 
 /// One dictation in the list, as a message in Mail: where it went and its icon, the time and how it
 /// landed, then its first two lines. At the accessibility text sizes the three stack, as Mail's do.
+/// Undo on the newest row while the Mac can still take that paste back: a small bordered
+/// capsule at the row's trailing end (Mail's Unsend); the same `undo(id:)` as the chip, the
+/// shake and the swipe. Gone the moment the window passes (`undoable` changes).
+struct HistoryUndoButton: View {
+    @EnvironmentObject var model: AppModel
+    var item: HistoryItem
+    /// The row keeps this much clear at its end for the button.
+    static let room: CGFloat = 60
+
+    var body: some View {
+        Button { model.undo(id: item.id) } label: {
+            Text("Undo").font(.subheadline.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .tint(Light.cyan)
+        .fixedSize()
+        .transition(.opacity)
+        .accessibilityLabel("Undo paste into \(model.undoable?.appName ?? "your Mac")")
+        .accessibilityHint("Takes the paste back on your Mac.")
+        .accessibilityIdentifier("history-undo-button")
+    }
+}
+
 struct HistoryRow: View {
     @EnvironmentObject var model: AppModel
     var item: HistoryItem
@@ -274,37 +306,44 @@ struct HistoryRow: View {
     @State private var landings = 0
 
     var body: some View {
-        Group {
-            if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 10) {
-                        HistoryIcon(item: item, size: 36)
-                        name
-                    }
-                    subject
-                    HStack(alignment: .firstTextBaseline, spacing: 6) { glyphs; time }
-                    PreviewLines(text: item.text(cleaned: true), lines: 3)
-                }
-            } else {
-                HStack(alignment: .top, spacing: 12) {
-                    HistoryIcon(item: item, size: 36)
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            name.layoutPriority(1)
-                            Spacer(minLength: 6)
-                            glyphs
-                            time
+        HStack(alignment: .center, spacing: 10) {
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) {
+                            HistoryIcon(item: item, size: 36)
+                            name
                         }
                         subject
-                        PreviewLines(text: item.text(cleaned: true))
+                        HStack(alignment: .firstTextBaseline, spacing: 6) { glyphs; time }
+                        PreviewLines(text: item.text(cleaned: true), lines: 3)
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 12) {
+                        HistoryIcon(item: item, size: 36)
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                name.layoutPriority(1)
+                                Spacer(minLength: 6)
+                                glyphs
+                                time
+                            }
+                            subject
+                            PreviewLines(text: item.text(cleaned: true))
+                        }
                     }
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(item.targetName.map { "To \($0)" } ?? "On this iPhone"), \(item.dictation.createdAt.formatted(date: .omitted, time: .shortened)), \(item.labels.joined(separator: ", "))")
+            .accessibilityValue(item.text(cleaned: true))
+            // Room for Undo at the row's end while the Mac can still take the paste back
+            // (`HistoryUndoButton`, laid over the row by the list — inside the link's label it was
+            // folded into the row's one element).
+            if model.canUndo(item.id) { Color.clear.frame(width: HistoryUndoButton.room, height: 1) }
         }
         .padding(.vertical, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(item.targetName.map { "To \($0)" } ?? "On this iPhone"), \(item.dictation.createdAt.formatted(date: .omitted, time: .shortened)), \(item.labels.joined(separator: ", "))")
-        .accessibilityValue(item.text(cleaned: true))
+        .animation(.easeOut(duration: 0.2), value: model.undoable)
     }
 
     /// The app, and the window's title apart — as Mail has the sender, then the subject — so the
