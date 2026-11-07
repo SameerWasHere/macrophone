@@ -18,6 +18,8 @@ struct TrackpadPage: View {
     var big = false
     /// The plate's room at the sides.
     var inset: CGFloat = WatchLook.sideMargin
+    /// A bar under the plate already says what two fingers do (the cover's `TrackpadBar`).
+    var barSays = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -37,26 +39,25 @@ struct TrackpadPage: View {
             }
             TrackpadSurface(input: input, watcher: watcher)
                 .clipShape(shape)
-            // Only on the trackpad's own page, and once it has slid into place (Nov 4 2026): the
-            // words were drawn where the page would land while the plate was still sliding in,
-            // across the mic and its buttons.
-            if !input.trackpadUsed, input.page == .trackpad {
-                VStack(spacing: 6) {
-                    Image(systemName: "hand.point.up.left")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(Light.cyan)
-                    Text("Move a finger to point · tap to click")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Ink.ink)
-                    Text(big ? "Two fingers scroll, pinch or right-click. Three fingers: up for Mission Control, sideways for your desktops, tap to look up. Spread four for the desktop." : "Two fingers scroll, or tap for a right-click. Tap, then hold and move, to drag.")
-                        .font(.caption)
-                        .foregroundStyle(Ink.secondary)
+            // One quiet line, part of the plate from its first frame until the trackpad's first
+            // use (Nov 7 2026: a paragraph faded in after the plate had arrived, and read as a
+            // second thing arriving; the rest of the gestures are taught by the tips). Where a
+            // bar under the plate says what two fingers do, the plate only names itself.
+            if !input.trackpadUsed {
+                HStack(spacing: 6) {
+                    Text("Trackpad").foregroundStyle(Ink.secondary)
+                    if !barSays {
+                        Text("·").foregroundStyle(Ink.tertiary)
+                        Text("Two fingers scroll").foregroundStyle(Ink.tertiary)
+                    }
                 }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+                .font(.footnote.weight(.medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 16)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .allowsHitTesting(false)
-                .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.25).delay(0.3)),
-                                        removal: .opacity.animation(.easeOut(duration: 0.1))))
+                .transition(.opacity)
             }
         }
         .padding(.horizontal, inset)

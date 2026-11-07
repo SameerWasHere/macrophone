@@ -46,15 +46,9 @@ struct MainView: View {
     /// steps aside for the words while the mic is open, or comes back after them: it grew out
     /// of the hidden Dock then, as if opened again (Nov 4 2026).
     @State var windowViaDock = true
-    /// The inner screen's bar changes its buttons once the window has finished moving (Nov 4
-    /// 2026): the bar's items are UIKit's, made again each time they change — a tenth of a second
-    /// on the main thread (more the first time), which held Show it here and Done that long
-    /// before the window moved. Changed after the motion, the window starts on the next frame.
-    @State var innerBarWindow = false
     /// The pose's layout lies under full screen: its windows have no viewer (`poseBody`).
     @State var innerAsleep = false
     @State var innerAsleepTask: Task<Void, Never>?
-    @State var innerBarTask: Task<Void, Never>?
     /// The mic is one thing wherever a layout puts it (Nov 4 2026): as one layout gives way to
     /// another (a window coming into hand on the Duo's inner screen, a pose) it moves to its new
     /// place instead of one fading out where it was while another fades in somewhere else.
@@ -112,8 +106,10 @@ struct MainView: View {
     var showSettings: Bool { !showLiveWords && !watcher.isShowing }
 
     /// The bar holds the window's buttons (Done, Sound, …) rather than the app's (the Mac, History,
-    /// Settings, …). On the inner screen a beat behind the window (`innerBarWindow`).
-    var barWindow: Bool { posture.pose.isInner ? innerBarWindow : watcher.isShowing }
+    /// Settings, …) — changed in the same transaction as the layout, in every pose (Nov 7 2026: on
+    /// the inner screen it followed 0.55 s behind, so after Done the window's items stayed a beat
+    /// and empty glass flashed at the foot; in hand, the rest group sat over the mic meanwhile).
+    var barWindow: Bool { watcher.isShowing }
 
     /// The phone's layout shows the window in its own area — not on the Duo's inner screen, where
     /// it's the cover's view beside the window and stays at rest (Nov 4 2026: it stays built, hidden,
@@ -162,25 +158,10 @@ struct MainView: View {
         .onChange(of: recorder.hasWords) { _, _ in react() }
         .onChange(of: model.status) { _, _ in react() }
         .onAppear { react() }
-        .onAppear { innerBarWindow = watcher.isShowing }
-        .onChange(of: watcher.isShowing) { _, on in barFollows(on) }
-        // A pose change is a new layout anyway: the bar follows at once.
-        .onChange(of: posture.pose) { _, _ in innerBarTask?.cancel(); innerBarWindow = watcher.isShowing }
         // A pose settling: a soft tick, and VoiceOver hears what's where now.
         .onChange(of: posture.settleSeq) { _, _ in
             Haptics.arrived()
             UIAccessibility.post(notification: .layoutChanged, argument: posture.pose.spoken)
-        }
-    }
-
-    /// The inner screen's bar follows the window once its motion is done (`innerBarWindow`).
-    func barFollows(_ on: Bool) {
-        innerBarTask?.cancel()
-        guard posture.pose.isInner, innerBarWindow != on else { innerBarWindow = on; return }
-        innerBarTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 550_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.2)) { innerBarWindow = watcher.isShowing }
         }
     }
 
@@ -462,8 +443,9 @@ struct MainView: View {
             // stretched the window to the foot, then the keyboard rising squeezed it back — now
             // that fold rides the keyboard's own time (`MacInput.keysUp` changes inside a spring
             // of the keyboard's duration), so the window's foot moves once, up.
-            // (Constant off the cover, so the phone and the inner screen are untouched.)
-            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: isCover ? input.page : .mic)
+            // Every phone since Nov 7 2026: the page row's tap changed the pages on their spring
+            // while the window above took its new height in one frame.
+            .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: input.page)
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { compact = geo.size.height < 700 }
             .onChange(of: geo.size.height) { _, h in compact = h < 700 }
@@ -583,42 +565,46 @@ struct MainView: View {
             .accessibilityIdentifier("watch-done")
     }
 
-    /// Done first, then the window's own buttons (Apple's order for the bar); at rest History and
-    /// Settings. While the mic is open nothing: the transcript has the screen.
+    /// Done first, then the window's own buttons (Apple's order for the bar); at rest the Mac,
+    /// History and Settings, with Whole Screen, Mac Controls and ⋯ nearer the thumb.
+    ///
+    /// The bar's items are UIKit's, vended again whenever the set changes — the bar empties into
+    /// its glass and refills item by item (Nov 7 2026: the keyboard's hide button arriving and
+    /// leaving did it on every keyboard). So each set is fixed while it shows: an item changes
+    /// only by being dimmed or by its symbol, never by coming or going. While the mic is open the
+    /// set stays, dimmed (the transcript has the screen; the bar never empties under it).
     @ToolbarContentBuilder var coverToolbar: some ToolbarContent {
-        if barWindow && !showLiveWords {
+        if barWindow {
             // Done is the last to fold into the bar's overflow (the keyboard leaves it short).
             if #available(iOS 27.0, *) {
-                ToolbarItem(placement: .topBarLeading) { coverDone }.visibilityPriority(.high)
+                ToolbarItem(placement: .topBarLeading) { coverDone.disabled(showLiveWords) }.visibilityPriority(.high)
             } else {
-                ToolbarItem(placement: .topBarLeading) { coverDone }
+                ToolbarItem(placement: .topBarLeading) { coverDone.disabled(showLiveWords) }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                // The keyboard up: putting it away is the first thing in the bar.
-                if input.page == .keyboard {
-                    Button { input.hideKeyboard() } label: { Label("Hide Keyboard", systemImage: "keyboard.chevron.compact.down") }
-                        .accessibilityIdentifier("bar-keyboard-hide")
-                }
-                // While the link comes back the bar's items hold their places, dimmed: the bar
-                // never re-vends its items for a blip.
-                if model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature) {
-                    CoverSoundItem(player: model.macAudio).disabled(!model.macAudio.macCanPlay)
-                }
-                if model.canMacControls || watcher.heldFeature(MacControl.feature) {
-                    Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
-                        .disabled(!model.canMacControls)
-                        .accessibilityIdentifier("mac-controls")
-                }
-                if let t = watcher.target, model.canAlert, case .app = t, !DesktopWatch.isDesktop(t) {
-                    let on = model.alertWatch(for: t) != nil
-                    Button { model.toggleAlertWatch(t) } label: {
-                        Label(on ? "Alerts On" : "Alerts Off", systemImage: on ? "bell.fill" : "bell")
-                            .contentTransition(.symbolEffect(.replace))
+                Group {
+                    if input.pages.contains(.keyboard) { coverKeyboardItem }
+                    // While the link comes back the bar's items hold their places, dimmed.
+                    if model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature) {
+                        CoverSoundItem(player: model.macAudio).disabled(!model.macAudio.macCanPlay)
                     }
-                    .tint(on ? Light.gold : nil)
-                    .accessibilityIdentifier(on ? "watch-alert-on" : "watch-alert-off")
-                }
-                if watcher.phase.holdsLayout {
+                    if model.canMacControls || watcher.heldFeature(MacControl.feature) {
+                        Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: MacControlsButton.symbol) }
+                            .disabled(!model.canMacControls)
+                            .accessibilityIdentifier("mac-controls")
+                    }
+                    if let t = watcher.target, model.canAlert || watcher.heldFeature(MacAlerts.feature), case .app = t, !DesktopWatch.isDesktop(t) {
+                        let on = model.alertWatch(for: t) != nil
+                        Button { model.toggleAlertWatch(t) } label: {
+                            Label(on ? "Alerts On" : "Alerts Off", systemImage: on ? "bell.fill" : "bell")
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        .tint(on ? Light.gold : nil)
+                        .disabled(!model.canAlert)
+                        .accessibilityIdentifier(on ? "watch-alert-on" : "watch-alert-off")
+                    }
+                    // From the window's first moment, dimmed until its first picture (it arrived
+                    // with the picture, and the bar re-vended for it).
                     Button { watcher.setDrag(watcher.drag == .pan ? .scroll : .pan) } label: {
                         Label(watcher.drag == .pan ? "Pan" : "Scroll", systemImage: watcher.drag == .pan ? "hand.draw" : "arrow.up.and.down")
                             .contentTransition(.symbolEffect(.replace))
@@ -629,45 +615,68 @@ struct MainView: View {
                     .accessibilityValue(watcher.drag == .pan ? "Pan" : "Scroll")
                     .accessibilityHint("Switches between moving the picture and scrolling the window on your Mac.")
                     .accessibilityIdentifier("cover-drag")
-                }
-                if watcher.macCanFit, watcher.target != .clipboard {
-                    Button { watcher.toggleWholeWindow() } label: {
-                        Label(watcher.wholeWindow ? "Zoom Back In" : "Whole Window",
-                              systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                    if watcher.macCanFit, watcher.target != .clipboard {
+                        Button { watcher.toggleWholeWindow() } label: {
+                            Label(watcher.wholeWindow ? "Zoom Back In" : "Whole Window",
+                                  systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        .disabled(watcher.phase != .live)
+                        .accessibilityIdentifier("watch-whole")
+                        if !watcher.isDesktop { WatchWindowMenu(watcher: watcher, bar: true) }
                     }
-                    .disabled(watcher.phase != .live)
-                    .accessibilityIdentifier("watch-whole")
-                    if !watcher.isDesktop { WatchWindowMenu(watcher: watcher, bar: true) }
                 }
+                .disabled(showLiveWords)
             }
-        } else if !barWindow && !showLiveWords {
+        } else {
             // The upper group: the Mac and the app's own pages.
             ToolbarItemGroup(placement: .topBarTrailing) {
-                CoverMacItem()
-                Button { model.sheet = .history } label: { Label("History", systemImage: "clock.arrow.circlepath") }
-                Button { model.sheet = .settings } label: { Label("Settings", systemImage: "gearshape") }
+                Group {
+                    CoverMacItem()
+                    Button { model.sheet = .history } label: { Label("History", systemImage: "clock.arrow.circlepath") }
+                    Button { model.sheet = .settings } label: { Label("Settings", systemImage: "gearshape") }
+                }
+                .disabled(showLiveWords)
             }
             // The lower group, nearer the thumb: what Send to's round buttons did.
             ToolbarItemGroup(placement: .bottomBar) {
-                // What the Mac offered when last connected stays in its place, dimmed, while it
-                // connects again — the buttons never arrive one by one (Nov 3 2026).
-                if model.isConnected ? watcher.canWatchDesktop : barHadWholeScreen {
-                    CoverWholeScreenItem(watcher: watcher).disabled(!model.isConnected)
-                }
-                if model.isConnected ? model.canMacControls : barHadControls {
-                    Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: "slider.horizontal.3") }
-                        .disabled(!model.isConnected)
-                        .accessibilityIdentifier("mac-controls")
-                }
-                Menu {
-                    if model.isConnected {
-                        Button { model.refreshTargets(); Haptics.press() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+                Group {
+                    // What the Mac offered when last connected stays in its place, dimmed, while it
+                    // connects again — the buttons never arrive one by one (Nov 3 2026).
+                    if model.isConnected ? watcher.canWatchDesktop : barHadWholeScreen {
+                        CoverWholeScreenItem(watcher: watcher).disabled(!model.isConnected)
                     }
-                    MacShareItems(pickingPhoto: $coverPickingPhoto, pickingFile: $coverPickingFile)
-                } label: { Label("More", systemImage: "ellipsis") }
-                    .accessibilityIdentifier("send-to-more")
+                    if model.isConnected ? model.canMacControls : barHadControls {
+                        Button { model.sheet = .macControls } label: { Label("Mac Controls", systemImage: MacControlsButton.symbol) }
+                            .disabled(!model.isConnected)
+                            .accessibilityIdentifier("mac-controls")
+                    }
+                    Menu {
+                        if model.isConnected {
+                            Button { model.refreshTargets(); Haptics.press() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
+                        }
+                        MacShareItems(pickingPhoto: $coverPickingPhoto, pickingFile: $coverPickingFile)
+                    } label: { Label("More", systemImage: "ellipsis") }
+                        .accessibilityIdentifier("send-to-more")
+                }
+                .disabled(showLiveWords)
             }
         }
+    }
+
+    /// The keyboard in the bar, one item in both states (Nov 7 2026): it raises the keyboard page
+    /// and, while that's up, puts it away — the symbol turns, the item stays.
+    var coverKeyboardItem: some View {
+        let up = input.page == .keyboard
+        return Button {
+            if up { input.hideKeyboard() } else { withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { input.show(.keyboard) } }
+        } label: {
+            Label(up ? "Hide Keyboard" : "Keyboard", systemImage: up ? "keyboard.chevron.compact.down" : "keyboard")
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .tint(up ? Light.cyan : nil)
+        .accessibilityHint(up ? "Puts the keyboard away." : "Types on your Mac with the iPhone's keyboard.")
+        .accessibilityIdentifier(up ? "bar-keyboard-hide" : "bar-keyboard")
     }
 
     // MARK: Top

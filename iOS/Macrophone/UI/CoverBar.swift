@@ -94,14 +94,16 @@ struct CoverWholeScreenItem: View {
     @ObservedObject private var reach = MacReach.shared
 
     var body: some View {
+        // Last time's shape while the Mac connects (`looksSeveral`, as the menu bar's): connecting
+        // changes only its opacity, never the item (a new item re-vends the whole bar).
         Group {
-            if reach.several {
+            if reach.looksSeveral {
                 Menu { WholeScreenItems(watcher: watcher) } label: { Label("Whole Screen", systemImage: "display.2") }
             } else {
                 Button { model.watchWholeScreen() } label: { Label("Whole Screen", systemImage: "display") }
             }
         }
-        .accessibilityHint(reach.several ? "Pick a display to see and use, live." : "See and use your Mac's whole screen, live.")
+        .accessibilityHint(reach.looksSeveral ? "Pick a display to see and use, live." : "See and use your Mac's whole screen, live.")
         .accessibilityIdentifier("whole-screen")
     }
 }
