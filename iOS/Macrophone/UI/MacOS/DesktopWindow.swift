@@ -2,21 +2,24 @@ import MacrophoneKit
 import SwiftUI
 
 // The pick's window on the desktop (Nov 7 2026, Sameer: "what should be easy to access vs buried
-// in a menu"): the room between the menu bar and the Dock was empty, and the only way to watch was
-// tapping the picked Dock icon a second time. Now that room holds the pick's window, drawn as a
-// small Mac window — the picture it showed last time inside a real title bar — and the whole card
-// is the button that shows it. The window grows out of the card, and Done puts it back.
+// in a menu"): the room between the menu bar and the Dock holds the pick's window, and the whole
+// card is the button that shows it — the one way to watch you can see from the desktop. Drawn as
+// App Exposé draws a window (round 4, the same night): the picture it showed last time, whole —
+// its own title bar and all, so never a second, drawn one over it — and a caption under it. The
+// window's picture flies out of the card on open and back into it on Done (`WindowZoom`).
 //
-//   ┌ ● ● ●  ▣ Claude  Fix the login bug …   [👁 Watch] ┐
-//   │                                                  │
-//   │            (the window's kept picture)           │
-//   └──────────────────────────────────────────────────┘
+//   ┌──────────────────────────────────────┐
+//   │ ● ● ●        (the window's           │
+//   │               kept picture)       👁 │
+//   └──────────────────────────────────────┘
+//          ▣ Claude  Fix the login bug …
 
-/// Where the card is on screen: the window grows out of it when the card opened it, and goes back
-/// into it on Done. Nil while no card is drawn.
+/// Where the card's picture is on screen: the window's picture flies out of it when the card
+/// opened it, and back into it on Done. Nil while no card is drawn.
 @MainActor
 final class DesktopWindowSpot {
     static let shared = DesktopWindowSpot()
+    /// The picture's rect (not the caption's), in global space.
     var frame: CGRect?
 }
 
@@ -43,26 +46,32 @@ struct OutOfReach: ViewModifier {
 }
 
 enum DesktopWindowLook {
-    static let bar: CGFloat = 32
     /// Below this much room the card isn't drawn (an SE at accessibility sizes): a window too
     /// small to read is only clutter over the wallpaper.
     static let leastRoom: CGFloat = 140
     static let widest: CGFloat = 440
-    /// A window with no picture yet is drawn this shape (a Mac window's usual).
-    static let defaultAspect: CGFloat = 16.0 / 10.0
+    /// Air above and below the card, between the menu bar and the Dock.
+    static let air: CGFloat = 24
+    static let corner: CGFloat = 12
+    /// The caption under the picture, and the gap over it.
+    static let caption: CGFloat = 20
+    static let captionGap: CGFloat = 8
+    /// A window with no picture yet: a quiet plate, never taller than this.
+    static let plateHeight: CGFloat = 180
+    static let badge: CGFloat = 26
 }
 
 struct DesktopWindowCard: View {
     @EnvironmentObject var model: AppModel
     var target: TargetRef
-    /// The room it may take (the desktop between the menu bar and the Dock).
+    /// The room it may take (the desktop between the menu bar and the Dock, less its air).
     var room: CGSize
-    /// Under the window or the words: kept laid out (Done shrinks the window back into it), taking
+    /// Under the window or the words: kept laid out (Done flies the picture back into it), taking
     /// no touch.
     var hidden = false
     var onWatch: () -> Void
+    @ObservedObject private var zoom = WindowZoom.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var scheme
     /// Bumped when a window's picture is kept: the card reads the new one.
     @State private var kept = 0
 
@@ -79,7 +88,7 @@ struct DesktopWindowCard: View {
         return Places.appName(target, in: model)
     }
 
-    /// The window's own title, under the app's name ("Fix the login bug — claude").
+    /// The window's own title, beside the app's name ("Fix the login bug — claude").
     private var detail: String? {
         if isDesktop { return model.pairedMac?.name }
         guard let t = model.liveTarget(for: target)?.windowTitle, !t.isEmpty, t != name else { return nil }
@@ -92,37 +101,51 @@ struct DesktopWindowCard: View {
         return "Show \(name.hasSuffix("s") ? name + "'" : name + "'s") window"
     }
 
+    private var invitation: String {
+        if isDesktop { return "Show your Mac's screen here" }
+        if case .frontApp = target { return "Show the app you're typing in" }
+        return "Show the \(name) window here"
+    }
+
     var body: some View {
         let _ = kept
-        let picture = WindowSnapshots.cached(key)
-        let aspect = picture.map { $0.size.width / max(1, $0.size.height) } ?? DesktopWindowLook.defaultAspect
-        let size = fitted(aspect: aspect)
+        let picture = notOpen ? nil : WindowSnapshots.cached(key)
         Group {
             if notOpen, let bid = target.bundleID {
-                window(picture: nil, size: size, trailing: { EmptyView() }) {
-                    VStack(spacing: 10) {
-                        DockTile(target: target, icon: icon, size: 40).saturation(0).opacity(0.7)
-                        Text("\(name) isn't open").font(.subheadline.weight(.semibold)).foregroundStyle(Ink.secondary)
-                        Button("Open \(name)") { model.openOnMac(MacApp(bundleID: bid, name: name)) }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .accessibilityIdentifier("desktop-window-open")
+                VStack(spacing: DesktopWindowLook.captionGap) {
+                    plate {
+                        VStack(spacing: 8) {
+                            DockTile(target: target, icon: icon, size: 40).saturation(0).opacity(0.7)
+                            Text("\(name) isn't open").font(.subheadline.weight(.semibold)).foregroundStyle(Ink.secondary)
+                            Button("Open \(name)") { model.openOnMac(MacApp(bundleID: bid, name: name)) }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("desktop-window-open")
+                        }
+                        .padding(12)
                     }
-                    .padding(12)
                 }
                 .accessibilityElement(children: .contain)
             } else {
                 Button(action: onWatch) {
-                    window(picture: picture, size: size, trailing: { watchLabel }) {
-                        VStack(spacing: 8) {
-                            DockTile(target: target, icon: icon, size: 40)
-                            Text(isDesktop ? "Show your Mac's screen here" : target == .frontApp ? "Show the app you're typing in" : "Show the \(name) window here")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(Ink.secondary)
-                                .multilineTextAlignment(.center)
+                    VStack(spacing: DesktopWindowLook.captionGap) {
+                        if let picture {
+                            thumbnail(picture)
+                        } else {
+                            plate {
+                                VStack(spacing: 8) {
+                                    DockTile(target: target, icon: icon, size: 40)
+                                    Text(invitation)
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(Ink.secondary)
+                                        .multilineTextAlignment(.center)
+                                }
+                                .padding(12)
+                            }
                         }
-                        .padding(12)
+                        caption
                     }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(CardPress())
                 .disabled(!canWatch)
@@ -134,65 +157,62 @@ struct DesktopWindowCard: View {
                 .accessibilityIdentifier("desktop-window")
             }
         }
+        .opacity(canWatch || notOpen ? 1 : 0.55)
         .accessibilityHidden(hidden)
         .allowsHitTesting(!hidden)
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { DesktopWindowSpot.shared.frame = $0 }
         .onDisappear { DesktopWindowSpot.shared.frame = nil }
         .onReceive(NotificationCenter.default.publisher(for: WindowSnapshots.didKeep)) { n in
             if (n.object as? String) == key { kept &+= 1 }
         }
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: key)
-        .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: size)
+        .animation(.easeInOut(duration: 0.2), value: canWatch)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
-    /// The picture's shape inside the room, the title bar on top; never so narrow that the bar
-    /// can't hold the lights, the name and Watch.
-    private func fitted(aspect: CGFloat) -> CGSize {
-        let maxW = min(room.width, DesktopWindowLook.widest)
-        let maxPicture = max(1, room.height - DesktopWindowLook.bar)
-        var w = maxW, h = w / aspect
-        if h > maxPicture { h = maxPicture; w = h * aspect }
-        w = max(w, min(maxW, 260))
-        return CGSize(width: w.rounded(), height: (h + DesktopWindowLook.bar).rounded())
+    /// The picture's room: the card's less its caption.
+    private var pictureRoom: CGSize {
+        CGSize(width: min(room.width, DesktopWindowLook.widest),
+               height: max(1, room.height - DesktopWindowLook.caption - DesktopWindowLook.captionGap))
     }
 
-    private var icon: Data? {
-        model.liveTarget(for: target)?.icon ?? target.bundleID.flatMap { b in model.macApps.first { $0.bundleID == b }?.icon }
+    /// The window as App Exposé shows it: whole, never cropped, its corners rounded, a hairline
+    /// and a soft shadow lifting it off the wallpaper.
+    private func thumbnail(_ picture: UIImage) -> some View {
+        let aspect = picture.size.width / max(1, picture.size.height)
+        var w = pictureRoom.width, h = w / aspect
+        if h > pictureRoom.height { h = pictureRoom.height; w = h * aspect }
+        let shape = RoundedRectangle(cornerRadius: DesktopWindowLook.corner, style: .continuous)
+        return Image(uiImage: picture)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
+            .frame(width: w.rounded(), height: h.rounded())
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Ink.line, lineWidth: 0.5))
+            .overlay(alignment: .bottomTrailing) { EyeBadge().padding(8) }
+            // While its picture is flying (to the window or back), the card's own waits under it.
+            .opacity(zoom.cardHidden ? 0 : 1)
+            .shadow(color: .black.opacity(0.16), radius: 14, y: 5)
+            .id(key)
+            .transition(.opacity)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { DesktopWindowSpot.shared.frame = $0 }
     }
 
-    private var needs: NeedsYou? {
-        guard model.looksConnected, let live = model.liveTarget(for: target) else { return nil }
-        return model.needs(live)
+    /// No picture yet, or the app isn't open: a quiet plate in the window's place.
+    private func plate<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        let shape = RoundedRectangle(cornerRadius: DesktopWindowLook.corner, style: .continuous)
+        let h = min(DesktopWindowLook.plateHeight, room.height / 2, pictureRoom.height)
+        return content()
+            .frame(width: min(pictureRoom.width, 320), height: max(h, 120))
+            .background(shape.fill(.regularMaterial))
+            .overlay(shape.strokeBorder(Ink.line, lineWidth: 0.5))
+            .overlay(alignment: .bottomTrailing) { if !notOpen { EyeBadge().padding(8) } }
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { DesktopWindowSpot.shared.frame = $0 }
     }
 
-    private var needsWords: String? { needs.map { $0.asking ? "Asking you something" : "Answered you" } }
-
-    private func window<T: View, E: View>(picture: UIImage?, size: CGSize, @ViewBuilder trailing: () -> T, @ViewBuilder empty: () -> E) -> some View {
-        let trailingView = trailing(), emptyView = empty()
-        return MacWindowFrame(decorative: true, lights: picture == nil, barHeight: DesktopWindowLook.bar) {
-            titleRow
-        } trailing: {
-            trailingView
-        } content: {
-            ZStack {
-                Ink.sunk
-                if let picture {
-                    Image(uiImage: picture)
-                        .resizable()
-                        .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
-                        .id(key)
-                        .transition(.opacity)
-                } else {
-                    emptyView.transition(.opacity)
-                }
-            }
-        }
-        .frame(width: size.width, height: size.height)
-    }
-
-    private var titleRow: some View {
+    /// Under the picture: the app, the window's title, and what it's waiting for.
+    private var caption: some View {
         HStack(spacing: 6) {
             DockTile(target: target, icon: icon, size: 16)
             Text(name)
@@ -217,26 +237,41 @@ struct DesktopWindowCard: View {
                     .truncationMode(.tail)
             }
         }
+        .frame(height: DesktopWindowLook.caption)
+        .frame(maxWidth: pictureRoom.width)
+        .padding(.horizontal, 4)
     }
 
-    private var watchLabel: some View {
-        Label("Watch", systemImage: "eye")
-            .font(.system(size: 13, weight: .semibold))
-            .labelStyle(WatchLabelStyle())
-            .foregroundStyle(canWatch ? Light.cyan : Ink.tertiary)
-            .padding(.horizontal, 9)
-            .frame(height: 24)
-            .background(Capsule().fill((canWatch ? Light.cyan : Ink.tertiary).opacity(0.14)))
-            .fixedSize()
+    private var icon: Data? {
+        model.liveTarget(for: target)?.icon ?? target.bundleID.flatMap { b in model.macApps.first { $0.bundleID == b }?.icon }
     }
+
+    private var needs: NeedsYou? {
+        guard model.looksConnected, let live = model.liveTarget(for: target) else { return nil }
+        return model.needs(live)
+    }
+
+    private var needsWords: String? { needs.map { $0.asking ? "Asking you something" : "Answered you" } }
 }
 
-private struct WatchLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.icon.font(.system(size: 11, weight: .bold))
-            configuration.title
-        }
+/// The picture's corner badge, as Photos marks a video: it says a tap plays it live. Decorative —
+/// the card's own label says so to VoiceOver.
+private struct EyeBadge: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        Image(systemName: "eye.fill")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Ink.ink)
+            .frame(width: DesktopWindowLook.badge, height: DesktopWindowLook.badge)
+            .background {
+                if #available(iOS 26.0, *), !reduceTransparency {
+                    Color.clear.glassEffect(.regular, in: Circle())
+                } else {
+                    Circle().fill(.regularMaterial)
+                }
+            }
+            .accessibilityHidden(true)
     }
 }
 

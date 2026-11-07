@@ -32,6 +32,10 @@ final class DesktopWindowUITests: XCTestCase {
         XCTAssertTrue(card.waitForExistence(timeout: 5), "the pick's window is on the desktop")
         XCTAssertEqual(card.label, "Show Claude's window")
         XCTAssertTrue(card.isHittable)
+        // One way to watch: the card is a single button (no Watch capsule of its own), and the
+        // Dock's pick wears no eye.
+        XCTAssertFalse(app.buttons["Watch"].exists, "no separate Watch button on the desktop")
+        let rest = card.frame
         shot("1-card")
 
         card.tap()
@@ -46,6 +50,8 @@ final class DesktopWindowUITests: XCTestCase {
         waitForExpectations(timeout: 3)
         sleep(1)
         XCTAssertTrue(card.isHittable, "Done brings the card back")
+        XCTAssertEqual(card.frame.minY, rest.minY, accuracy: 0.5, "the card is where it was")
+        XCTAssertEqual(card.frame.height, rest.height, accuracy: 0.5, "…at the size it was")
         shot("3-back")
     }
 }
