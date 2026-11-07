@@ -19,6 +19,11 @@ struct PairingView: View {
                         if !isPaired {
                             ToolbarItem(placement: .topBarLeading) { closeButton }
                         }
+                        // The Duo's cover lays an inline title at the leading edge; this one
+                        // reads centred, as on every other iPhone (Nov 7 2026).
+                        if VerticalBarProbe.edge != nil {
+                            ToolbarItem(placement: .principal) { Text(title).font(.headline) }
+                        }
                     }
             }
             .tint(Light.cyan)
@@ -41,9 +46,11 @@ struct PairingView: View {
     /// flow (pairing the first Mac had it flip to "Pair Another Mac" on the success page — Nov 4 2026).
     @State private var hadMac: Bool?
 
+    private var title: String { hadMac ?? model.isPaired ? "Pair Another Mac" : "Pair Your Mac" }
+
     private var content: some View {
         PairingPanel(onDone: { dismiss() })
-            .navigationTitle(hadMac ?? model.isPaired ? "Pair Another Mac" : "Pair Your Mac")
+            .navigationTitle(title)
             .onAppear { if hadMac == nil { hadMac = model.isPaired } }
             .navigationBarTitleDisplayMode(.inline)
             .onDisappear {

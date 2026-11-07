@@ -1,0 +1,8 @@
+HITCH" = 1;
+HITCH" => <string: 0x109faf2a0> { string cache = 0x0, length = 1, contents = "1" }
+HITCH sheet@settings: first frame +389 ms, longest gap 389 ms, 42 frames, 7 over 25 ms
+HITCH sheet@none: first frame +31 ms, longest gap 54 ms, 59 frames, 10 over 25 ms
+HITCH sheet@settings: first frame +167 ms, longest gap 167 ms, 53 frames, 9 over 25 ms
+HITCH sheet@none: first frame +24 ms, longest gap 65 ms, 60 frames, 9 over 25 ms
+HITCH sheet@settings: first frame +153 ms, longest gap 153 ms, 53 frames, 9 over 25 ms
+HITCH"'

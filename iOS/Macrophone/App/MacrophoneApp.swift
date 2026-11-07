@@ -158,6 +158,16 @@ struct RootView: View {
     }
 }
 
+extension AppSheet {
+    /// A sheet that takes the whole height on a phone: nothing of the main screen shows under it.
+    var coversScreen: Bool {
+        switch self {
+        case .settings, .history, .pairing, .openApp, .customCleanup: return true
+        case .macControls, .macs: return false
+        }
+    }
+}
+
 /// A sheet on the iPhone Duo's inner screen. Every other iPhone's sheets are untouched.
 /// - `screen`: Settings and History, nearly the whole screen (`InnerScreenFill`) — on a form
 ///   card in the middle of the big screen they were a phone's list to scroll through (Nov 1
@@ -188,6 +198,21 @@ struct InnerScreenSheet: ViewModifier {
             // the phone re-sizes an open sheet to the new shape.
             case .screen: content.presentationSizing(InnerScreenFill(room: InnerScreenFill.room()))
             }
+        } else if let edge = VerticalBarProbe.edge {
+            // The Duo's cover (Nov 7 2026): a sheet ran the full width under the vertical bar,
+            // the clock and Wi-Fi drawn over its white. The system already lays the content
+            // beside the bar's column (and puts the sheet's Done in it, as the main screen's
+            // items are); here the sheet's own ground is a card beside the column too, so the
+            // column shows the screen behind, as it does above a sheet on any iPhone.
+            let barEdge: Edge.Set = edge == .trailing ? .trailing : .leading
+            content
+                .background {
+                    Color(uiColor: size == .screen ? .systemGroupedBackground : .systemBackground)
+                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 38, topTrailingRadius: 38, style: .continuous))
+                        .padding(barEdge, VerticalBarProbe.width)
+                        .ignoresSafeArea()
+                }
+                .presentationBackground(.clear)
         } else {
             content
         }
