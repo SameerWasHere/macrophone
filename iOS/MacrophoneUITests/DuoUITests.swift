@@ -126,7 +126,8 @@ final class DuoUITests: XCTestCase {
         // The trackpad is the deck: its whole width, most of the half under the header.
         let deck = inner.height / 2
         XCTAssertGreaterThan(trackpad.frame.width, inner.width * 0.8, "the trackpad is the deck's width: \(trackpad.frame.width) of \(inner.width)")
-        XCTAssertGreaterThan(trackpad.frame.height, deck * 0.6, "and most of its height: \(trackpad.frame.height) of \(deck)")
+        // (The question's answers are up — the demo Mac's — and take a row of the deck: half, not more.)
+        XCTAssertGreaterThan(trackpad.frame.height, deck * 0.5, "and most of its height: \(trackpad.frame.height) of \(deck)")
         shot("laptop-trackpad")
 
         // A drag on the trackpad moves the pointer.
@@ -149,8 +150,9 @@ final class DuoUITests: XCTestCase {
         pick(app, "Mic")
         let mic = app.buttons["Start dictation"]
         XCTAssertTrue(mic.waitForExistence(timeout: 4), "the mic mode has the mic")
-        // The pages slide: the trackpad's page is a width to the side, off the screen.
-        XCTAssertFalse(trackpad.exists && trackpad.frame.intersects(inner.insetBy(dx: 4, dy: 4)), "one mode at a time")
+        // The pages change in place (Nov 7 2026): the trackpad's stays built, faded out, so the
+        // mode bar says which one is up.
+        XCTAssertEqual(switcher.value as? String, "Mic", "one mode at a time")
         XCTAssertGreaterThan(mic.frame.minY, inner.midY, "the mic is on the deck")
         XCTAssertLessThan(mic.frame.maxY, inner.maxY + 2, "and whole in it")
         assertEscFirst(app, "on the mic")
