@@ -393,7 +393,7 @@ This section wins over the four passes above where they differ.
 - **The mini MacBook** (`UI/DuoLaptopDeck.swift`) **[superseded Nov 1 2026 on the laptop: its deck is one mode at a time, each the whole half; this column stays on the book's page and the open screen's right page]**: while a window shows on the inner screen the
   deck is a laptop's lower half, all at once — Send to as a menu (every open app with its icon; a
   pick shows its window), the Thread and the mic on the "palm rest", the trackpad in the middle,
-  keycaps on the right (esc ⇥ ⌫ ⌨︎ · ⌘ ⌥ ⌃ ⇧ lit when waiting · return · fn and the inverted-T
+  keycaps on the right **[superseded Nov 7 2026 on the column: a Keyboard button and a Mac Keys toggle; keycaps only with it on]** (esc ⇥ ⌫ ⌨︎ · ⌘ ⌥ ⌃ ⇧ lit when waiting · return · fn and the inverted-T
   arrows with half-height ▲▼, repeating while held). Across on the laptop's deck and under the
   window open upright (270 pt; it folds away while the keyboard is up); down a column on the
   book's page and the open screen's rail. The deck keeps the input page on the trackpad (the
@@ -523,14 +523,14 @@ differ. Frames: `docs/screens/duo/nov1/` (before | after sheets per pose and the
   .laptopModes`): the top half is `WatchWindow` with **no bezel and no corner** (`bezelWidth` 0,
   `corner` 0 — `DuoGlance(edge:)` the same at rest), filling the half (`fill`; auto-fit gives the
   Mac's window the half's shape, so a window the Mac reshapes has no bands; the demo's fixed
-  1400 × 900 fills a 669 × 393 half by zoom), **the status bar hidden while a window is in hand**
+  1400 × 900 fills a 669 × 393 half by zoom), **the status bar hidden while a window is in hand** **[superseded Nov 7 2026: only full screen hides it — see Overnight polish, round 1]**
   (`.statusBarHidden`, folded or laid flat; the frame gives its top 82 back then — whether the
   real screen does, with the camera on that edge, needs a real Duo), nothing over it. The deck: `WatchHeaderBar` across
   the top (name, Sound|Mac Controls, Pan|Scroll, zoom out|Window, Done — never fades), **the
   question's answers on a row of their own under it only while one is up** (in the header's
   middle they had room for one digit at 669 pt), then **one mode at a time, the whole of the
   rest** — the trackpad edge to edge (~645 × 330), the mic with the Thread across the half, or
-  the iOS keyboard with the Mac's keys on its bar — picked by the `InputCornerSwitcher` cluster
+  the iOS keyboard with the Mac's keys on its bar — picked by the `InputCornerSwitcher` cluster **[superseded Nov 7 2026: `DuoModeBar`, a labelled Trackpad · Mic · Keyboard control]**
   overlaid in the deck's top-right corner (it had been written and never placed: the modes had
   no way between them). The deck remembers its mode (the trackpad first; `MacInput.deckPage`).
   While you talk the words sit over the Thread (`DuoLiveWords(below:)`); the mic never moves.
@@ -783,7 +783,7 @@ the menus' `UIKitMenuButton`), ~60–120 ms on its own.
   one leaving keeps its viewer through its fade (`DormantAfterFade`, 0.25 s) — gone at once it left an
   empty plate fading. The cover's view on the inner screen is the rest view only (`windowHere`,
   `phoneSettings`, `InputCarousel(restOnly:)`): never the window's pages, never a keyboard field.
-- **The bar changes after the motion** (`innerBarWindow`, `barFollows`): on the inner screen the
+- **The bar changes after the motion** **[superseded Nov 7 2026: it swaps in the layout's own transaction]** (`innerBarWindow`, `barFollows`): on the inner screen the
   bar's items (Done · Sound · … or the Mac · History · Settings) swap 0.55 s after the window, once
   it has settled; a pose change swaps at once. (Hiding the bar is as costly: the laptop keeps its
   own top bar at rest, made to fit — `tightInner`: a breath less over the mic and a one-line status
@@ -1079,6 +1079,99 @@ needs only now and then; `ReplyWatcher`'s still threshold is 0.6%, which is why 
   (which state it shows), then an alert through iCloud with the app closed; **needs the installed
   Mac build:** a Terminal command finishing and a Claude reply with the window on watch.
 
+## Overnight polish, round 1 (Nov 7 2026)
+
+Sameer, going to sleep: "make macrophone the best iPhone Mac controller period … polish and detail
+and perfection … a really easy to use app that excels on the iPhone Duo", and earlier the same night:
+the Mac keyboard "is much slower to type on than the default iOS keyboard … give users the iOS
+keyboard and give them the ability to toggle to the more detailed Mac keyboard", "the apps layout
+was jumping around", "doesn't have perspective on what should be easy to access vs buried in a
+menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round-1/<stream>/`,
+`docs/screens/keyboard-nov7/`, `docs/screens/duo/nov7/`, `docs/screens/stability-nov7/`,
+`docs/screens/watch-header-nov7/`.
+- **Typing: iOS's keyboard first, everywhere** (the phone, the cover, the laptop, the book, flat).
+  Autocorrect and predictions on; smart quotes, dashes, auto-capitals and Writing Tools off (a
+  rewrite would go to the Mac as typing). **One 44 pt bar** (`MacKeyboardBar`, was two rows /
+  94 pt): esc · ⇥ · ← ↑ ↓ → (held repeat) · `KeyboardEcho` (the words just typed, grey, newest at
+  the right; back to "Typing in ‹app›" 1.5 s after the last key; "⌘ next key" in blue, a chord as
+  "⌘K"; never logged) · **Mac Keys** (`keyboard-mac-keys`) · hide (`keyboard-hide`). Mac Keys swaps
+  the field's `inputView` for `DeckKeyboardHost` in place, like the globe key (`reloadSoon()`, the
+  next run-loop turn — never inside `updateUIView`), at the iOS keyboard's measured height on that
+  screen (`keyboard.iosKeys.<surface>.<tall|wide>`; capped to the bottom half upright inside), so
+  the window doesn't move; ABC (`keyboard-abc`) swaps back. Remembered per screen
+  (`Model/KeyboardChoice.swift`, `keyboard.macKeys.phone|cover|inner`; the surface is decided in
+  `KeyboardTextView.applyKeys()`, pose first, then the vertical bar). The bar's ⌘ ⌥ ⌃ ⇧ and fn moved
+  into Mac Keys. `DeckKeyboard` (`deck-keyboard`): keys fire on touch-down with a pop-up, ⌫ /
+  arrows / space repeat (the first press felt, repeats quiet), bottom row ABC · fn · ⌃ · ⌥ · ⌘ ·
+  space · arrows, ⇧ both ends (double tap = caps lock), on the system keyboard's background. The
+  book's / side column: a Keyboard button (`deck-keyboard-button`) + a Mac Keys toggle
+  (`deck-mac-keys`) instead of four rows of keycaps (three rows with it on); the column hides
+  whole while the keyboard is up (`micSlot(visible:)`). Hook `MACROPHONE_MAC_KEYS=1|0` (DEBUG, not
+  saved); `type@` now types through the real field. `KeyboardChoiceUITests`.
+- **The Duo's inner screen, the same on every path.** *The band:* hiding the status bar at runtime
+  on iOS 27.1 (upright with a window in hand) left SwiftUI's content 82 pt down under an empty band
+  with the mic cut at the foot — so **only full screen hides it** (`MainView.hidesStatusBar`) and
+  the window sits just under the status bar on every path. Upright with a window in hand there's
+  no system bar — the deck's header has Done and the controls; flat upright at rest keeps Mac ·
+  History · Settings (`innerBarShown`). *The laptop's deck*, top down: the answers row (only while
+  a question is up), one mode, **`DuoModeBar`** (`UI/DuoModeBar.swift`: Trackpad · Mic · Keyboard,
+  glyph and word, 44 pt, the lit one slides; still the adjustable `input-pages` element — tests tap
+  it by position, 0.17 / 0.5 / 0.83), then the header. The mic fits the room (`DuoLook.deckMicFit`:
+  112 → 92 → 80). Flat upright's deck is a fixed 372 pt (was 300 / 360), so a mode change or an
+  answer never moves the window. *Dictating from the trackpad* shows the mic and goes back to the
+  mode after (`MacInput.micOpen(_:)`, a 1 s window for the phone's view switching first). The deck's
+  mode is kept across a fold (upright = "laptop", on its side = "book"). *The book and flat on its
+  side are one view* (`sideBody`, replacing `bookBody` / `openLandscapeBody`; `DuoMacArea` is gone),
+  so folding between them moves nothing; the book's fade with the hinge is gone (at his 174° it left
+  the deck ~30% visible). Typing on any inner pose sizes the window from the keyboard's real frame
+  (`input.keyboardRoom`, `keyboardTop`). *The glance*: connecting and live share one frame and the
+  bar under the picture (`DuoGlance.pictured`, 64 pt). `DuoLayoutStabilityUITests`
+  (`TEST_RUNNER_MACROPHONE_DUO_REAL=portrait|laptop`, a real duo-sim pose).
+- **The cover and the phone hold still.** *The drift:* the mic page measured itself in the room it
+  was last offered, so after open → Done the status line kept one line and the cover's desktop sat
+  20 pt low until relaunch; it measures at its own height now (`InputCarousel`, fixedSize) —
+  `StabilityUITests` holds rest = after Done (±0.5 pt). *The vertical bar's set is fixed while it
+  shows:* Done · Keyboard (one toggle, `bar-keyboard` / `bar-keyboard-hide`) · Sound · Mac Controls ·
+  bell · Pan|Scroll (there from the first moment, dimmed until live) · zoom out · Window; items only
+  dim or change symbol, never come or go (each change re-vends the bar), and with the mic open the
+  set stays, dimmed. The inner bar swaps in the layout's own transaction (`innerBarWindow` /
+  `barFollows` removed). *Pages change in place:* a tap fades the old page out and the new one in
+  with a 0.96 settle (Reduce Motion: fade); only a finger on the Thread slides them; pages sit on
+  the room's foot; the keyboard page keeps the last page's room (`restBand`) until the keys rise.
+  The keyboard page itself is never faded or scaled (an effect's new container made UIKit hand the
+  keyboard back after it let go). `phoneBody` animates on `input.page` on every phone; the regular
+  iPhone's page row folds away while `keysUp`. The trackpad's hint is one line ("Trackpad · Two
+  fingers scroll"); Mac Controls is `switch.2` everywhere (`MacControlsButton.symbol`); the cover's
+  Whole Screen keeps last time's shape while connecting.
+- **The window's own controls, primary first** (`UI/WatchPanel.swift`). *The name reads whole* on
+  every phone (it was "C…" on a Pro, gone on an SE): the header's bell is gone — a gold
+  `WatchAlertBadge` (`watch-alert-on`, "Alerts on") beside the name when alerts are on (not where a
+  vertical bar has its own bell), Alert Me first in the Window menu; a tight row gives up the page
+  dots, then "Paused ·", then zoom out, which moves into the Window menu (`WatchWindowMenu
+  (zoomItem:)`, "Show the Whole Window" / "Zoom Back In"). `WatchAlertToggle` is removed. *Answers
+  are chips* (`chipWords`: the number and whole words to ~24 letters, then "…"; the full answer to
+  VoiceOver and in a long-press preview with Answer): on a phone one sideways row
+  (`WatchChipScroller`, Esc first, Keys last, an edge fade while more is hidden) exactly as tall as
+  the key row it replaces, so a question never moves the window; at 560 pt or wider
+  (`WatchActions.wideRoom`) up to two rows (`WatchChipRows`), never three. *The zoom holds* as the
+  answers come or go (`ViewerScrollView.answersUp`, 0.8 s, like `keyboardUp`; logged "viewer: the
+  answers came/went — zoom X before, Y after"). *A window filled past its width with no saved view
+  opens at its top-left* (`reset()`, `fromCorner`), so the traffic lights show. `WatchHeaderUITests`
+  (`TEST_RUNNER_MACROPHONE_WATCH_SE=1` for the SE frame).
+- **Needs a real Duo:** the laptop's keyboard — iOS reserves a ~55 pt band above its keys off the
+  hinge, so the bar sits just above the fold on the window's half (nothing inside the keyboard moves
+  it; the window should give up that strip); whether hiding the status bar upright misbehaves on
+  hardware as on the 27.1 simulator (if not, the mini-Mac top edge could come back); the cover
+  keyboard's height and the system background behind Mac Keys; the inner bar's swap in Release
+  (Debug drew the new items 0.2–0.3 s before the layout moved — delay by `Motion.leave` if it shows).
+  Left: the bar has no ⌘ on the iOS keyboard (Mac Keys is one tap; ask him); Mac Keys inside is one
+  setting for the column's keycaps and the keyboard that rises; on an SE the echo shows only the
+  last letters; to pin the picture's foot on the trackpad page too, `WindowViewer(keyboardUp:)`
+  could take `input.page != .mic || input.keysUp`. Pre-existing failures seen again:
+  `DuoUITests` laptop / open portrait (and book / open-landscape on some runs),
+  `HardwareKeyboardUITests.testAHardwareKeyboardTypesAndChordsOnTheMac`,
+  `InputCarouselUITests.testClosingTheWindowBringsTheMainScreenBack`, `testMicButtonNeverMoves`.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.
@@ -1200,7 +1293,7 @@ Mac Controls button and panel, Close Window → the main screen.
   the window's gestures and vertical scrolling are untouched. The Thread shows on the mic page only.
 - **The trackpad takes the Thread's room** (`pagesHeight`: the mic page's height + the Thread's slot,
   so the window above never moves; Reduce Motion: a fade). The row stays above it to go back.
-- **The keyboard page is the iOS keyboard with ONE bar** (`MacKeyboardBar`, two rows, 94pt:
+- **The keyboard page is the iOS keyboard with ONE bar** **[superseded Nov 7 2026: one 44 pt row, the modifiers in Mac Keys — round 1]** (`MacKeyboardBar`, two rows, 94pt:
   `esc ⇥ | ← ↑ ↓ →  Typing in Claude` over `⌘ ⌥ ⌃ ⇧ … fn | ⌨︎`): the arrows had been on the
   carousel's page and the modifiers on the keyboard's bar — two strips laid out by two systems that
   overlapped once the keyboard rose. The page itself is a 10pt breath under the row. A swipe
@@ -1250,7 +1343,7 @@ Mac Controls button and panel, Close Window → the main screen.
 Sameer: "do a polish agent to make sure everything works well together and looks fantastic."
 Walked on the simulators against `mpctl serve`; the contact sheet is `docs/screens/polish-oct19/`.
 What changed (the mechanics below still hold where not named here):
-- **The keyboard's keys fit every phone, in two rows** (`MacKeyboardStrip` + `MacKeyboardBar`,
+- **The keyboard's keys fit every phone, in two rows** **[superseded Nov 7 2026: one 44 pt bar + Mac Keys — round 1]** (`MacKeyboardStrip` + `MacKeyboardBar`,
   `UI/MacKeyboardView.swift`): the carousel's keyboard page is now **esc · ⇥ | ← ↑ ↓ →** with
   "Typing in Claude" / "⌘ next key" / "Tap for next app" beside them when there's room (the
   one-row bar of twelve cells was cut mid-arrow even on a Pro); the keyboard's own accessory bar
