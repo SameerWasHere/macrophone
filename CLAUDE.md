@@ -1270,6 +1270,50 @@ watch was the picked Dock icon's second tap. Frames: `docs/screens/overnight-nov
   stand-in Mac a second time; the recording opened from the Dock); a card for a pick that isn't
   open wasn't shot. `DesktopWindowUITests` (a paired `mpctl serve`, Claude open).
 
+## Attach and Send after pasting, in plain sight (Nov 7 2026, overnight round 2)
+
+Sameer: "doesn't have perspective on what should be easy to access vs buried in a menu". The two
+things a developer uses every dictation are now one obvious tap in every state. Wins over the map's
+"⋯ = Send a Photo… · Send a File… · …" and the Window menu's photo / file / clipboard items.
+Frames: `docs/screens/overnight-nov7/round-2/attach-and-send-toggle/`.
+- **Send after pasting is `SendToggle`** (QuickControls.swift): one button that says its state —
+  "Paste only" (`paperplane`, ink) or "Paste & Send" (`paperplane.fill`, white on a capsule of the
+  accent, like the lit answer and `DuoModeBar`). Both words are laid in one `ZStack`, so a flip never
+  changes the bar's width. `Haptics.pick`, `setSend`, `explain`, the plane hops on turning on and on
+  a sent landing. VoiceOver: label "Send after pasting", value On / Off, `.isToggle`, the hint the
+  place's detail; id `send-toggle` (UI tests find it with `descendants(matching: .any)`, not
+  `switches`). **Hidden, not greyed, where the pick can't send** (the Clipboard). `short: true` says
+  "Send" with the lit state (the last fallback). `OptionsRow` (the unpaired panel, the cover's old
+  panel) uses it too.
+- **`DockOptions`** (Desktop.swift) is [Send toggle] · [Cleanup ⌄] · [📎 Attach]; the words give
+  way in order: "Cleanup:" → Attach's word → the toggle's. A Pro keeps "Paste only · Medium ·
+  Attach"; a level longer than Medium or the simulator's "Cleanup off" drops Attach's word.
+- **`AttachMenu`** (SendToMac.swift, id `attach-menu`; styles `.labelled`, `.glyph`, `.round`,
+  `.cell(height:)`, `.bar`): the paperclip over `MacShareItems`, now Photo… · File… (under "Into
+  ‹app›", or "To your Mac's Downloads" where `SaveToDownloads.isDefault`) · Save to Mac's Downloads ›
+  (chats) · Clipboard: Send Clipboard to Mac · Copy Mac's Clipboard. Shown when the Mac can attach or
+  share the clipboard. The pickers stay with the binding's owner (`macSharePickers`), outside any
+  `ViewThatFits` that lays a menu out more than once.
+- **Where it is:** at rest by the Dock (phone, cover, the inner screen's cover half); watching on a
+  phone or the cover it **leads the key row** [📎] [Esc ↑ ↓ ⏎ ···] [Pan|Scroll] (`WatchActions
+  .keyRow`; the keys keep 200 pt before Pan | Scroll turns to glyphs, then the gaps tighten — an SE
+  fits); while answers show, "Keys" brings it back. In hand on the Duo's inner screen it's a cell in
+  the deck's header beside Window (`WatchHeaderBar.attachHere` = `dragSwitch`: the laptop's deck,
+  flat upright; on the book, where the bar holds the window's buttons, at the header's end). Full
+  screen: none (nothing over the window). A photo or file sent while watching still goes into the
+  watched window's chat (`attachTarget`).
+- **Gone:** the Window menu's share items (it's about the window now: alerts, fit, text size, sizes,
+  minimize / close, tips), the cover bar's ⋯ at rest (Attach is by its Dock), the Send to panel's ⋯
+  and round Refresh (the panel's Attach is `.round`). **Refresh Open Apps lives in Open an App**:
+  pull to refresh, a toolbar button (`refresh-apps`), and a fresh look every time the sheet opens.
+- Proven on an iPhone 17 Pro (and the SE frame), light and dark, against `mpctl serve --save-to`:
+  `MACROPHONE_SEND_FILE=attach-notes.txt` landed ("ATTACHMENT saved 25 bytes as attach-notes.txt");
+  `MacrophoneUITests.testAttachMenu` (`TEST_RUNNER_MACROPHONE_LIVE=1`, `…_ATTACH_SHOTS=<dir>`,
+  `…_ATTACH_FILE=<name>`, `…_ATTACH_FRAME=375x667`) opens Attach at rest and in the key row, opens
+  the file picker from File…, and checks the Window menu has no share items. The simulator's file
+  browser doesn't list the app's Documents, so the pick itself is the hook's. On a Duo simulator:
+  the cover at rest and watching, the laptop's and the book's header.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

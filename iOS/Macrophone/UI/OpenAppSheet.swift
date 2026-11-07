@@ -45,11 +45,27 @@ struct OpenAppSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your Mac's apps")
             .toolbar {
+                if model.isConnected {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                            .accessibilityLabel("Refresh Open Apps")
+                            .accessibilityHint("Looks again at the apps on your Mac.")
+                            .accessibilityIdentifier("refresh-apps")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.doneButtonStyle() }
             }
         }
         .tint(Light.cyan)
-        .onAppear { model.requestMacApps() }
+        // A fresh look every time it opens: the Send to row behind it gets the same look.
+        .onAppear { model.requestMacApps(); model.refreshTargets() }
+    }
+
+    /// Refresh Open Apps (Nov 7 2026: it was an item in the ⋯ by Send to, among the attachments).
+    private func refresh() {
+        Haptics.press()
+        model.refreshTargets()
+        model.requestMacApps()
     }
 
     private var list: some View {
@@ -61,6 +77,10 @@ struct OpenAppSheet: View {
             if !rest.isEmpty {
                 Section("Applications") { ForEach(rest) { row($0) } }
             }
+        }
+        .refreshable {
+            refresh()
+            try? await Task.sleep(for: .milliseconds(600))
         }
         .confirmationDialog(toQuit.map { "Quit \($0.name) on your Mac?" } ?? "", isPresented: Binding(get: { toQuit != nil }, set: { if !$0 { toQuit = nil } }),
                             titleVisibility: .visible, presenting: toQuit) { app in

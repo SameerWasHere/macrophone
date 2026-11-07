@@ -181,10 +181,9 @@ struct PanelDivider: View {
 /// "SEND TO", the picked place's name, and a row of buttons — one per place.
 struct PlacesRow: View {
     @EnvironmentObject var model: AppModel
-    /// The ⋯ menu's photo and file pickers.
+    /// Attach's photo and file pickers.
     @State private var pickingPhoto = false
     @State private var pickingFile = false
-    @State private var refreshTurns = 0
     var current: TargetRef
     var compact = false
     /// Each place's name under its icon (the Duo's open inner screen).
@@ -385,38 +384,14 @@ struct PlacesRow: View {
         if model.canMacControls {
             MacControlsButton(style: .round).transition(.opacity)
         }
-        // A fresh look at the open apps: its own round icon too (Oct 19 2026, Sameer).
-        if model.isConnected {
-            Button {
-                model.refreshTargets()
-                Haptics.press()
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.6)) { refreshTurns += 1 }
-            } label: {
-                Image(systemName: "arrow.clockwise").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
-                    .rotationEffect(.degrees(Double(refreshTurns) * 360))
-            }
-            .nativeGlassButton()
-            .buttonBorderShape(.circle)
-            .controlSize(.small)
-            .accessibilityLabel("Refresh Open Apps")
-            .accessibilityHint("Looks again at the apps open on your Mac.")
-            .accessibilityIdentifier("refresh-apps")
-            .transition(.opacity)
+        // Attach: a photo, a file or the clipboard into the chat you send to (Nov 7 2026: the
+        // paperclip, as by the Dock — it was an unlabelled ⋯). A fresh look at the open apps is in
+        // Open an App (the + at the end of the row), where the list is.
+        if AttachMenu.available(model) {
+            AttachMenu(style: .round, pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
+                .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
+                .transition(.opacity)
         }
-        // ⋯: a photo, a file or the clipboard into the chat you send to, and a fresh look at the
-        // open apps. Opening an app that isn't open is the + at the end of the row, and only there.
-        Menu {
-            MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
-        } label: {
-            Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).frame(width: 20, height: 20)
-        }
-        .nativeGlassButton()
-        .buttonBorderShape(.circle)
-        .controlSize(.small)
-        .accessibilityLabel("More")
-        .accessibilityHint("Send a photo or file into \(Places.appName(current, in: model)), or move the clipboard.")
-        .accessibilityIdentifier("send-to-more")
-        .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
     }
 
     /// The picked place tapped again: show its window (an app, or Where I'm typing, while connected).
@@ -757,22 +732,24 @@ struct OptionsRow: View {
 
     var body: some View {
         Group {
-            if let target {
+            // Send after pasting only where it can send (never greyed: Clipboard only copies).
+            if let target, target.canSend {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 12) {
-                        sendSwitch(target).fixedSize()
+                        SendToggle(target: target).fixedSize()
                         Spacer(minLength: 0)
                         CleanupMenu(settings: settings, onEditCustom: onEditCustom).fixedSize()
                     }
-                    // The level alone beside the switch ("✦ Medium ⌄"; VoiceOver still says Cleanup).
+                    // The level alone beside the toggle ("✦ Medium ⌄"; VoiceOver still says Cleanup).
                     HStack(spacing: 10) {
-                        sendSwitch(target).fixedSize()
+                        SendToggle(target: target).fixedSize()
                         Spacer(minLength: 0)
                         CleanupMenu(settings: settings, short: true, onEditCustom: onEditCustom).fixedSize()
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        sendSwitch(target)
-                        CleanupMenu(settings: settings, onEditCustom: onEditCustom)
+                    HStack(spacing: 10) {
+                        SendToggle(target: target, short: true).fixedSize()
+                        Spacer(minLength: 0)
+                        CleanupMenu(settings: settings, short: true, onEditCustom: onEditCustom).fixedSize()
                     }
                 }
             } else {
@@ -785,25 +762,102 @@ struct OptionsRow: View {
         .padding(.horizontal, inset)
         .padding(.vertical, compact ? 6 : 9)
     }
+}
 
-    private func sendSwitch(_ target: TargetRef) -> some View {
-        let enabled = target.canSend
-        let on = enabled && model.sendSetting(for: target)
-        return Toggle(isOn: Binding(get: { on }, set: { new in
-            Haptics.pick()
-            withAnimation(Motion.snap) { model.setSend(new, for: target) }
-            model.explain(Places.sentence(for: target, send: new))
-        })) {
-            Text("Send after pasting")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
+/// Send after pasting (Nov 7 2026, Sameer: "doesn't have perspective on what should be easy to
+/// access"): one button that says what the next dictation does — "Paste only" in ink, or "Paste &
+/// Send" lit, white on the accent like the lit answer and the deck's mode. It had been a mini
+/// switch beside a paper plane, whose off state on glass read as disabled and whose words
+/// shortened to "Send". Both words are measured, so a flip never changes the width of what holds
+/// it. Shown only where the pick can send (the Clipboard only copies).
+struct SendToggle: View {
+    @EnvironmentObject var model: AppModel
+    var target: TargetRef
+    /// Inside a bar of glass (the Dock's options): no glass of its own.
+    var plain = false
+    /// "Send" in either state, the lit capsule saying which (accessibility sizes, a tight room).
+    var short = false
+    /// The paper plane hops up when it's turned on and when a dictation is sent.
+    @State private var flights = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let on = model.sendSetting(for: target)
+        Button { flip(!on) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: on ? "paperplane.fill" : "paperplane")
+                    .font(.footnote.weight(.semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce.up.byLayer, value: flights)
+                if short {
+                    Text("Send")
+                } else {
+                    ZStack(alignment: .leading) {
+                        Text("Paste & Send").opacity(on ? 1 : 0)
+                        Text("Paste only").opacity(on ? 0 : 1)
+                    }
+                }
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(on ? Ink.onTint : Ink.ink)
+            .lineLimit(1)
+            .fixedSize()
         }
-        .toggleStyle(.switch)
-        .tint(Light.cyan)
-        .disabled(!enabled)
-        // VoiceOver hears what it is and what it does here (or why it can't).
-        .accessibilityLabel("Send after pasting. \(Places.sendDetail(target, in: model))")
+        .buttonStyle(SendToggleStyle(on: on, plain: plain))
+        .accessibilityLabel("Send after pasting")
+        .accessibilityValue(on ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityHint(Places.sendDetail(target, in: model))
         .accessibilityIdentifier("send-toggle")
+        .onChange(of: model.landedChip?.sent == true) { _, sent in if sent { flights += 1 } }
+    }
+
+    private func flip(_ new: Bool) {
+        Haptics.pick()
+        if new { flights += 1 }
+        withAnimation(Motion.pick(Motion.snap, reduce: reduceMotion)) { model.setSend(new, for: target) }
+        model.explain(Places.sentence(for: target, send: new))
+    }
+}
+
+/// The toggle's look: on, a capsule of the accent inside whatever holds it (concentric with the Dock's
+/// bar, 4 pt in); off, nothing behind the words. Standalone it brings its own glass.
+private struct SendToggleStyle: ButtonStyle {
+    var on: Bool
+    var plain: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let label = configuration.label
+            .padding(.horizontal, 12)
+            .frame(maxHeight: plain ? .infinity : nil)
+            .frame(minHeight: plain ? nil : 32)
+            .background {
+                Capsule().fill(Light.cyan).opacity(on ? 1 : 0)
+                    .padding(plain ? 4 : 0)
+            }
+            .contentShape(Capsule())
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        if plain {
+            label.padding(.horizontal, 2)
+        } else {
+            label.modifier(ToggleGlass())
+        }
+    }
+}
+
+/// Glass behind the standalone toggle (as the Cleanup menu beside it has).
+private struct ToggleGlass: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *), !reduceTransparency {
+            content.glassEffect(.regular, in: Capsule())
+        } else {
+            content.background(Capsule().fill(reduceTransparency ? AnyShapeStyle(Ink.raised) : AnyShapeStyle(.regularMaterial)))
+                .overlay(Capsule().strokeBorder(Ink.line, lineWidth: 0.5))
+        }
     }
 }
 

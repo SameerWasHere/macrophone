@@ -191,8 +191,15 @@ struct WatchHeaderBar: View {
     /// The screen's vertical bar holds Done and the window's buttons (the Duo, cover or inner).
     @Environment(\.controlsInVerticalBar) private var inBar
     @Environment(\.fullScreenAvailable) private var fullScreenAvailable
+    /// Attach's pickers (the deck's header: it has no key row to carry the paperclip).
+    @State private var pickingPhoto = false
+    @State private var pickingFile = false
 
     var body: some View {
+        rows.macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
+    }
+
+    @ViewBuilder private var rows: some View {
         if nameOnly || inBar {
             HStack(spacing: 10) {
                 nameDotsIfRoom
@@ -202,6 +209,9 @@ struct WatchHeaderBar: View {
                 } else {
                     Spacer(minLength: 0)
                 }
+                // The book's page: the vertical bar has the window's buttons, the header the
+                // paperclip (its deck has no key row).
+                if !nameOnly, attachHere { attachCell.watchGlass(Capsule()) }
             }
             .frame(minHeight: WatchLook.header)
         } else if twoRows {
@@ -395,9 +405,23 @@ struct WatchHeaderBar: View {
                     if !folded { WatchCellDivider() }
                     WatchWindowMenu(watcher: watcher, zoomItem: folded)
                 }
+                if attachHere {
+                    WatchCellDivider()
+                    attachCell
+                }
             }
             .watchGlass(Capsule())
+        } else if attachHere {
+            attachCell.watchGlass(Capsule())
         }
+    }
+
+    /// Attach in the header (Nov 7 2026): only where there's no key row to lead with it — the Duo
+    /// deck's header (`dragSwitch`), beside Window.
+    private var attachHere: Bool { dragSwitch && AttachMenu.available(model) }
+
+    private var attachCell: some View {
+        AttachMenu(style: .cell(height: WatchLook.header), pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
     }
 
     /// Full Screen: the window takes the whole inner screen, edge to edge (`DuoFullScreen`).
@@ -473,7 +497,8 @@ struct WatchWholeButton: View {
 
 /// The Window menu (Oct 17 2026): everything about the window itself, by how often it's wanted —
 /// Fit to iPhone and the text size (how it fits here), sizes laid out on the Mac's screen, minimize
-/// and close (asked first), a photo, a file or the clipboard into its chat, and the tips. Picked
+/// and close (asked first), and the tips. (A photo, a file or the clipboard is Attach, by the keys
+/// or in the deck's header — Nov 7 2026.) Picked
 /// from a list, since dragging a window's edge on a phone is fiddly (Sill's window controls, the
 /// same idea). Tinted while a text size narrows the window.
 struct WatchWindowMenu: View {
@@ -484,8 +509,6 @@ struct WatchWindowMenu: View {
     /// Zoom out lives here (a header too narrow for its own cell beside the window's name).
     var zoomItem = false
     @State private var confirmClose = false
-    @State private var pickingPhoto = false
-    @State private var pickingFile = false
 
     var body: some View {
         Menu {
@@ -529,9 +552,6 @@ struct WatchWindowMenu: View {
                     }
                 }
             }
-            // A photo, a file or the clipboard into this window's chat — the same items as the ⋯ by
-            // Send to, here because the controls panel is away while a window shows.
-            MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
             Section {
                 Button { WatchTips.reset() } label: { Label("Show Tips Again", systemImage: "lightbulb") }
             }
@@ -546,9 +566,8 @@ struct WatchWindowMenu: View {
         .modifier(WatchCellUnlessBar(bar: bar, width: 42, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
         .disabled(watcher.phase != .live)
         .accessibilityLabel("Window")
-        .accessibilityHint("Fit to iPhone and the text size here; the window's size, minimize and close on your Mac; a photo, a file or the clipboard into its chat; the tips again.")
+        .accessibilityHint("Fit to iPhone and the text size here; the window's size, minimize and close on your Mac; the tips again.")
         .accessibilityIdentifier("watch-window")
-        .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
         .confirmationDialog("Close \(watcher.name)'s window on your Mac?", isPresented: $confirmClose, titleVisibility: .visible) {
             Button("Close Window", role: .destructive) { watcher.window(.close) }
         } message: {
@@ -1215,6 +1234,7 @@ struct WatchStrip: View {
 /// laptop's deck, 560 pt or more) wraps them onto two rows, then scrolls. On a phone the row is as
 /// tall as the key row it replaces, so a question coming or going never moves the window.
 struct WatchActions: View {
+    @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
     /// Which input page is up: with the keyboard, its own bar carries Esc, the arrows and Return,
     /// so this row steps aside and the window keeps the room (the polish pass, Oct 19 2026).
@@ -1233,6 +1253,9 @@ struct WatchActions: View {
     var dragElsewhere = false
     /// The row's width, measured: 560 pt or more is a wide room.
     @State private var room: CGFloat = 0
+    /// Attach's pickers (the paperclip leading the key row).
+    @State private var pickingPhoto = false
+    @State private var pickingFile = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(watcher: Watcher, wide: Bool = false, floating: Bool = false, keysOnly: Bool = false, oneLine: Bool = false, dragElsewhere: Bool = false) {
@@ -1263,6 +1286,7 @@ struct WatchActions: View {
         .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86), value: watcher.answers?.id)
         // The keyboard's own motion (`MacInput.keysUp` changes inside it), not a spring of its own.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
     }
 
     /// The question's answers: the one the arrows are on — what Return would pick — stands out
@@ -1362,16 +1386,25 @@ struct WatchActions: View {
 
     /// The row at the widest it fits: Pan | Scroll as words, else as glyphs (Oct 18 2026 — with
     /// glyphs and words the row was 381pt, so on every phone it overflowed the margins by a few
-    /// points each side and widened the whole panel with it).
+    /// points each side and widened the whole panel with it). The gaps narrow last.
     private var keys: some View {
         ViewThatFits(in: .horizontal) {
             keyRow(.words)
             keyRow(.glyphs)
+            keyRow(.glyphs, tight: true)
         }
     }
 
-    private func keyRow(_ style: WatchDragSwitch.Style) -> some View {
-        HStack(spacing: 8) {
+    /// Attach leads the key row (Nov 7 2026): a photo, a file or the clipboard into the watched
+    /// window's chat, one tap — it had been low in the Window menu.
+    private var attachShown: Bool { AttachMenu.available(model) }
+
+    private func keyRow(_ style: WatchDragSwitch.Style, tight: Bool = false) -> some View {
+        HStack(spacing: tight ? 6 : 8) {
+            if attachShown {
+                AttachMenu(style: .cell(height: WatchLook.control), pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
+                    .watchGlass(Capsule())
+            }
             HStack(spacing: 0) {
                 key(.escape, label: Text("Esc"), name: "Escape")
                 WatchCellDivider()
@@ -1385,6 +1418,9 @@ struct WatchActions: View {
                     moreKeys
                 }
             }
+            // Each key keeps a thumb's width before Pan | Scroll gives up its words (the cells
+            // stretch, so without a floor every variant "fits" and the keys get cramped).
+            .frame(minWidth: tight || !attachShown ? nil : (watcher.canPressKeys ? 200 : 160))
             .watchGlass(Capsule())
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Keys")

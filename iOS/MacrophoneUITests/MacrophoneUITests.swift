@@ -18,8 +18,9 @@ final class MacrophoneUITests: XCTestCase {
 
     /// "Send to: Claude" — the panel's header line.
     private func sendTo(_ app: XCUIApplication) -> XCUIElement { app.descendants(matching: .any)["send-to"] }
-    /// The native Send after pasting switch.
-    private func sendSwitch(_ app: XCUIApplication) -> XCUIElement { app.switches["send-toggle"] }
+    /// Send after pasting: one toggle button that says its state (Nov 7 2026), hidden where the
+    /// pick can't send.
+    private func sendSwitch(_ app: XCUIApplication) -> XCUIElement { app.descendants(matching: .any)["send-toggle"] }
     /// The Cleanup menu by the switch (Oct 19 2026: a menu, not a segmented row).
     private func cleanupMenu(_ app: XCUIApplication) -> XCUIElement { app.buttons["cleanup-menu"] }
     /// Picks a cleanup level from the menu (waiting for the panel to be back first).
@@ -39,14 +40,14 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(item.waitForExistence(timeout: 3))
         item.tap()
     }
-    /// Flips the switch itself (the row is the element; the switch sits at its trailing end).
     /// Waits for the controls to be back (they step aside until a dictation has gone out), then taps.
     private func tapWhenBack(_ e: XCUIElement) {
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: e)
         waitForExpectations(timeout: 15)
         e.tap()
     }
-    private func flip(_ e: XCUIElement) { e.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap() }
+    /// Flips Send after pasting (the whole button is the toggle).
+    private func flip(_ e: XCUIElement) { e.tap() }
 
     private func statusContains(_ app: XCUIApplication, _ text: String, timeout: TimeInterval = 20) -> Bool {
         app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: timeout)
@@ -104,7 +105,7 @@ final class MacrophoneUITests: XCTestCase {
         sleep(3)
         same(idle, frame(app, "Stop and send"), "recording (an app said first) keeps the button in place")
         // While the mic is open the controls step aside: the transcript has the whole area.
-        XCTAssertFalse(app.switches["send-toggle"].isHittable, "the controls are hidden while recording")
+        XCTAssertFalse(sendSwitch(app).isHittable, "the controls are hidden while recording")
         XCTAssertFalse(app.buttons["History"].isHittable, "the top bar is hidden while recording")
         app.buttons["Stop and send"].tap()
         same(idle, frame(app, "Start dictation"), "sending keeps the button in place")
@@ -211,7 +212,7 @@ final class MacrophoneUITests: XCTestCase {
         let chip = sendTo(app)
         XCTAssertTrue(chip.waitForExistence(timeout: 8))
         XCTAssertTrue(chip.label.contains("Clipboard"), chip.label)
-        XCTAssertFalse(sendSwitch(app).isEnabled, "Send after pasting is greyed out for Clipboard")
+        XCTAssertFalse(sendSwitch(app).exists, "no Send after pasting for Clipboard (it only copies)")
         // Every place is a button in the row — and no full list behind it.
         for name in ["Clipboard", "Where I'm typing", "Claude", "Messages", "Terminal"] {
             XCTAssertTrue(app.buttons[name].exists, "the row shows \(name)")
@@ -224,12 +225,15 @@ final class MacrophoneUITests: XCTestCase {
         XCTAssertTrue(messages.isSelected, "the picked app is the prominent button")
         // Send after pasting: one tap, and the status line says what it does now.
         let send = sendSwitch(app)
+        XCTAssertTrue(send.waitForExistence(timeout: 3), "Send after pasting shows for an app")
         XCTAssertTrue(["Off", "0"].contains("\(send.value ?? "")"), "\(send.value ?? "nil")")
-        XCTAssertTrue(send.label.contains("Presses Return in Messages after pasting"), send.label)
+        XCTAssertEqual(send.label, "Send after pasting")
+        XCTAssertTrue(app.staticTexts["Paste only"].exists, "the toggle says its state in words")
         flip(send)
         // The status line first: it says what changed for a few seconds only.
         XCTAssertTrue(statusContains(app, "Pastes into Messages, then sends", timeout: 3))
         XCTAssertTrue(["On", "1"].contains("\(send.value ?? "")"), "\(send.value ?? "nil")")
+        XCTAssertTrue(app.staticTexts["Paste & Send"].exists, "on, it says so")
         // Cleanup: Light, from its menu.
         pickLevel(app, "Light")
         XCTAssertTrue(isLevel(app, "Light"))
@@ -358,16 +362,15 @@ final class MacrophoneUITests: XCTestCase {
         let app = launch(["MACROPHONE_RESET": "1", "MACROPHONE_SCREEN": "main", "MACROPHONE_FAKE_PAIRED": "Test Mac",
                           "MACROPHONE_CLEANUP_AVAILABLE": "1", "MACROPHONE_SEND_TO": "clipboard"])
         let send = sendSwitch(app)
-        XCTAssertTrue(send.waitForExistence(timeout: 8))
-        XCTAssertFalse(send.isEnabled)
-        XCTAssertTrue(send.label.contains("Clipboard only copies — pick an app to send"), send.label)
+        XCTAssertTrue(cleanupMenu(app).waitForExistence(timeout: 8))
+        XCTAssertFalse(send.exists, "Clipboard only copies: no Send after pasting to grey out")
         pickLevel(app, "Heavy")
         XCTAssertTrue(statusContains(app, "Heavy cleanup — Rewrites rambling speech", timeout: 3))
         XCTAssertTrue(isLevel(app, "Heavy"))
         app.buttons["Where I'm typing"].tap()
         XCTAssertTrue(statusContains(app, "Pastes where you're typing on your Mac", timeout: 3))
+        XCTAssertTrue(send.waitForExistence(timeout: 3), "an app can send: the toggle is back")
         XCTAssertTrue(send.isEnabled)
-        XCTAssertTrue(send.label.contains("Presses Return where you're typing"), send.label)
         pickLevel(app, "Custom")
         XCTAssertTrue(statusContains(app, "Custom cleanup — Medium's instructions", timeout: 3))
         cleanupMenu(app).tap()
@@ -505,20 +508,22 @@ final class MacrophoneUITests: XCTestCase {
         print("LIVE chip now: \(sendTo(app).label)")
     }
 
-    /// Save to Mac's Downloads (Oct 19 2026): with Send to on the clipboard the ⋯ items save to
+    /// Save to Mac's Downloads (Oct 19 2026): with Send to on the clipboard Attach's items save to
     /// Downloads; on a chat they send into it, with Save to Mac's Downloads one more choice.
     func testSaveToDownloadsItems() throws {
         guard ProcessInfo.processInfo.environment["MACROPHONE_LIVE"] == "1" else { throw XCTSkip("needs mpctl serve") }
-        for (pick, expect) in [("clipboard", "Save a File to Mac's Downloads…"), ("Claude", "Send a File…")] {
+        for (pick, header) in [("clipboard", "To your Mac's Downloads"), ("Claude", "Into Claude")] {
             let app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": pick])
             XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Connected to'")).firstMatch.waitForExistence(timeout: 20), "connected")
-            let more = app.buttons["send-to-more"]
-            XCTAssertTrue(more.waitForExistence(timeout: 5))
-            more.tap()
-            XCTAssertTrue(app.buttons[expect].waitForExistence(timeout: 5), "\(pick): \(expect)")
+            let attach = app.buttons["attach-menu"]
+            XCTAssertTrue(attach.waitForExistence(timeout: 5), "Attach is in plain sight by the Dock")
+            attach.tap()
+            XCTAssertTrue(app.buttons["File…"].waitForExistence(timeout: 5), "\(pick): File…")
+            XCTAssertTrue(app.staticTexts[header].exists, "\(pick): \(header)")
+            XCTAssertTrue(app.buttons["Send Clipboard to Mac"].exists)
             if pick != "clipboard" {
                 let save = app.buttons["Save to Mac's Downloads"]
-                XCTAssertTrue(save.exists, "the choice under Send a File…")
+                XCTAssertTrue(save.exists, "the choice under File…")
                 save.tap()
                 XCTAssertTrue(app.buttons["A File…"].waitForExistence(timeout: 3))
             }
@@ -528,6 +533,85 @@ final class MacrophoneUITests: XCTestCase {
             add(shot)
             app.terminate()
         }
+    }
+
+    /// Attach (Nov 7 2026): one paperclip by the Dock at rest and leading the key row while
+    /// watching; the Window menu no longer carries the share items; File… opens the picker and a
+    /// file picked there goes to the Mac (`MACROPHONE_ATTACH_FILE`: a file's name in the app's
+    /// Documents, picked from the browser when it lists it). `MACROPHONE_ATTACH_SHOTS=<dir>`
+    /// keeps the frames. Needs a paired `mpctl serve`.
+    func testAttachMenu() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard env["MACROPHONE_LIVE"] == "1" else { throw XCTSkip("needs mpctl serve") }
+        let frame = env["MACROPHONE_ATTACH_FRAME"].map { ["MACROPHONE_FRAME": $0] } ?? [:]
+        func shot(_ name: String) {
+            guard let dir = env["MACROPHONE_ATTACH_SHOTS"] else { return }
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+        }
+        func connected(_ app: XCUIApplication) -> Bool {
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Connected to'")).firstMatch.waitForExistence(timeout: 20)
+        }
+        // At rest: the paperclip, labelled, by the Dock.
+        var app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_CLEANUP_AVAILABLE": "1"].merging(frame) { $1 })
+        XCTAssertTrue(connected(app), "connected")
+        let attach = app.buttons["attach-menu"]
+        XCTAssertTrue(attach.waitForExistence(timeout: 5), "Attach in plain sight")
+        XCTAssertFalse(app.buttons["send-to-more"].exists, "no unlabelled ⋯")
+        attach.tap()
+        XCTAssertTrue(app.buttons["Photo…"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["File…"].exists)
+        XCTAssertTrue(app.buttons["Send Clipboard to Mac"].exists)
+        XCTAssertTrue(app.buttons["Copy Mac's Clipboard"].exists)
+        XCTAssertFalse(app.buttons["Refresh Open Apps"].exists, "Refresh lives in Open an App")
+        sleep(1)
+        shot("attach-menu-rest")
+        app.buttons["File…"].firstMatch.tap()
+        // The system's document browser.
+        let browser = app.descendants(matching: .any).matching(NSPredicate(format: "label IN {'Browse', 'Recents', 'Shared', 'Cancel', 'Close'}")).firstMatch
+        XCTAssertTrue(browser.waitForExistence(timeout: 15), "File… opens the file picker")
+        sleep(2)
+        shot("attach-file-picker")
+        if let name = env["MACROPHONE_ATTACH_FILE"] {
+            let file = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", (name as NSString).deletingPathExtension)).firstMatch
+            if file.waitForExistence(timeout: 6) {
+                file.tap()
+                XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'file'")).firstMatch.waitForExistence(timeout: 10), "the status line says where it went")
+                shot("attach-file-sent")
+            } else {
+                print("ATTACH the browser doesn't list \(name) here")
+            }
+        }
+        app.terminate()
+        // Watching: the paperclip leads the key row; the Window menu has no share items.
+        app = launch(["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_WATCH": "1", "MACROPHONE_WATCH_ACTIONS": "keys"].merging(frame) { $1 })
+        let escape = app.buttons["watch-escape"].firstMatch
+        XCTAssertTrue(escape.waitForExistence(timeout: 20))
+        sleep(1)
+        // The Dock's Attach stays built under the window (faded): the one level with Esc.
+        let rowAttach = app.buttons.matching(identifier: "attach-menu").allElementsBoundByIndex
+            .first { abs($0.frame.midY - escape.frame.midY) < 4 } ?? app.buttons["attach-menu"]
+        XCTAssertTrue(rowAttach.exists, "Attach leads the key row")
+        XCTAssertLessThan(rowAttach.frame.maxX, escape.frame.minX, "the paperclip comes first")
+        XCTAssertGreaterThanOrEqual(rowAttach.frame.minX, 0)
+        XCTAssertLessThanOrEqual(escape.frame.maxX, app.windows.firstMatch.frame.maxX)
+        rowAttach.tap()
+        XCTAssertTrue(app.buttons["File…"].waitForExistence(timeout: 4))
+        sleep(1)
+        shot("attach-menu-watching")
+        // Away from the menu: the empty corner under the mic.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.95)).tap()
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["File…"])
+        wait(for: [gone], timeout: 4)
+        sleep(1)
+        let window = app.buttons["watch-window"].firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 4))
+        window.tap()
+        let windowItem = app.buttons.matching(NSPredicate(format: "label IN {'Fit to iPhone', 'Minimize', 'Normal text', 'Show Tips Again'}")).firstMatch
+        XCTAssertTrue(windowItem.waitForExistence(timeout: 4), "the Window menu opened")
+        XCTAssertFalse(app.buttons["File…"].exists, "the Window menu is about the window")
+        XCTAssertFalse(app.buttons["Send Clipboard to Mac"].exists)
+        sleep(1)
+        shot("window-menu")
     }
 
     /// Where it landed, in the status line's words (the debug statuses, no Mac needed). The ✓ only

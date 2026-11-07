@@ -61,37 +61,43 @@ struct PhoneMenuBar: View {
 
 /// What the next dictation does, under the Dock (Nov 1 2026, Sameer: "the send after pasting
 /// toggle and the AI strength toggle … don't quite look like they're placed in the right place"):
-/// one bar of glass, centred — Send after pasting (a real switch) · Cleanup's level · ⋯ (a photo,
-/// a file, the clipboard, a fresh look at the open apps) — hairlines between, the words shortened
-/// only when the full ones don't fit.
+/// one bar of glass, centred, hairlines between. Nov 7 2026 ("what should be easy to access vs
+/// buried in a menu"): the two things used every dictation in plain sight — Send after pasting as
+/// a toggle that says its state ("Paste only" · "Paste & Send", gone where the pick can't send),
+/// Cleanup's level, and Attach (a photo, a file, the clipboard), which had been an unlabelled ⋯.
+/// The words give way in order — Cleanup's "Cleanup:", then Attach's word, then the toggle's.
 struct DockOptions: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
     @State private var pickingPhoto = false
     @State private var pickingFile = false
-    /// The switch's paper plane flies up when it's turned on and when a dictation is sent.
-    @State private var flights = 0
 
     var body: some View {
         let target = model.selection.target
         ViewThatFits(in: .horizontal) {
-            bar(target, send: "Send after pasting", short: false)
-            bar(target, send: "Send after pasting", short: true)
-            bar(target, send: "Send", short: true)
+            bar(target, cleanupShort: false, attachWord: true, sendShort: false)
+            bar(target, cleanupShort: true, attachWord: true, sendShort: false)
+            bar(target, cleanupShort: true, attachWord: false, sendShort: false)
+            bar(target, cleanupShort: true, attachWord: false, sendShort: true)
         }
         .frame(maxWidth: .infinity)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .macSharePickers(photo: $pickingPhoto, file: $pickingFile, model: model)
-        .onChange(of: model.landedChip?.sent == true) { _, sent in if sent { flights += 1 } }
+        .animation(Motion.snap, value: target.canSend)
     }
 
-    private func bar(_ target: TargetRef, send: String, short: Bool) -> some View {
+    private func bar(_ target: TargetRef, cleanupShort: Bool, attachWord: Bool, sendShort: Bool) -> some View {
         HStack(spacing: 0) {
-            sendSwitch(target, words: send)
-            hairline
-            CleanupMenu(settings: settings, short: short, plain: true) { model.sheet = .customCleanup }
-            hairline
-            more
+            if target.canSend {
+                SendToggle(target: target, plain: true, short: sendShort)
+                    .transition(.opacity)
+                hairline
+            }
+            CleanupMenu(settings: settings, short: cleanupShort, plain: true) { model.sheet = .customCleanup }
+            if AttachMenu.available(model) {
+                hairline
+                AttachMenu(style: attachWord ? .labelled : .glyph, pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
+            }
         }
         .frame(height: 40)
         .fixedSize(horizontal: true, vertical: false)
@@ -101,65 +107,9 @@ struct DockOptions: View {
     private var hairline: some View {
         Rectangle().fill(Ink.line).frame(width: 0.5, height: 20).accessibilityHidden(true)
     }
-
-    private func sendSwitch(_ target: TargetRef, words: String) -> some View {
-        let enabled = target.canSend
-        let on = enabled && model.sendSetting(for: target)
-        return Toggle(isOn: Binding(get: { on }, set: { new in
-            Haptics.pick()
-            if new { flights += 1 }
-            withAnimation(Motion.snap) { model.setSend(new, for: target) }
-            model.explain(Places.sentence(for: target, send: new))
-        })) {
-            Label {
-                Text(words)
-            } icon: {
-                Image(systemName: "paperplane").symbolEffect(.bounce.up.byLayer, value: flights)
-            }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
-                .labelStyle(DockOptionLabel())
-                .fixedSize()
-        }
-        .toggleStyle(.switch)
-        .controlSize(.mini)
-        .tint(Light.cyan)
-        .disabled(!enabled)
-        .padding(.leading, 14)
-        .padding(.trailing, 10)
-        .accessibilityLabel("Send after pasting. \(Places.sendDetail(target, in: model))")
-        .accessibilityIdentifier("send-toggle")
-    }
-
-    private var more: some View {
-        Menu {
-            if model.isConnected {
-                Button { model.refreshTargets(); Haptics.press() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
-                    .accessibilityIdentifier("refresh-apps")
-            }
-            MacShareItems(pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
-        } label: {
-            Image(systemName: "ellipsis").font(.subheadline.weight(.bold)).foregroundStyle(Ink.ink)
-                .frame(width: 44, height: 40).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("More")
-        .accessibilityHint("Send a photo or file into \(Places.appName(model.selection.target, in: model)), or move the clipboard.")
-        .accessibilityIdentifier("send-to-more")
-    }
 }
 
-/// The glyph in the accent, the words in ink.
-private struct DockOptionLabel: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.font(.footnote.weight(.semibold)).foregroundStyle(Light.cyan)
-            configuration.title
-        }
-    }
-}
-
-/// A capsule of glass behind a control that isn't a button (the switch).
+/// A capsule of glass behind the options' bar.
 private struct OptionGlass: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {

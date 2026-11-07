@@ -717,13 +717,7 @@ struct MainView: View {
                             .disabled(!model.looksConnected)
                             .accessibilityIdentifier("mac-controls")
                     }
-                    Menu {
-                        if model.isConnected {
-                            Button { model.refreshTargets(); Haptics.press() } label: { Label("Refresh Open Apps", systemImage: "arrow.clockwise") }
-                        }
-                        MacShareItems(pickingPhoto: $coverPickingPhoto, pickingFile: $coverPickingFile)
-                    } label: { Label("More", systemImage: "ellipsis") }
-                        .accessibilityIdentifier("send-to-more")
+                    // (Attach is by the Dock now, and Refresh in Open an App — Nov 7 2026.)
                 }
                 .disabled(showLiveWords)
             }
