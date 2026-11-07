@@ -91,7 +91,8 @@ public enum AlertReading {
             case .updated: happened = "something new just appeared in it"
             case .dialog: happened = "a dialog just opened over it"
             case .asking: happened = "it is asking the user a question"
-            case .closed, .calmed: return nil
+            // A chat's answer has its own headline; the line under it is the window's own.
+            case .closed, .calmed, .answered: return nil
             }
             let text = newLines.suffix(30).joined(separator: "\n")
             let prompt = "App: \(app)\nWindow: \(title)\nWhat happened: \(happened)\nNew text:\n\(String(text.prefix(1800)))"

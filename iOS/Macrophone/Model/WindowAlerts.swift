@@ -13,8 +13,9 @@ extension AppModel: LinkClientAlertsDelegate {
         guard client === self.client else { return }
         if alertWatches != list { alertWatches = list }
         // Something on watch: make sure iCloud will bring its alerts while the app is closed (at
-        // launch the list wasn't here yet, so the launch's check passed this by).
-        if !list.isEmpty, !AgentAlerts.cloudReady { Task { await AgentAlerts.shared.subscribeInCloud() } }
+        // launch the list wasn't here yet, so the launch's check passed this by; a try that
+        // failed before is tried again).
+        if !list.isEmpty { Task { await AgentAlerts.shared.retryIfNeeded() } }
     }
 
     func linkClient(_ client: LinkClient, macAlert a: MacAlert) {

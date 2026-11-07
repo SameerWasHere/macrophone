@@ -271,6 +271,9 @@ struct SettingsView: View {
                     else if model.alertWatches.isEmpty { await AgentAlerts.shared.unsubscribeInCloud() }
                 }
             }
+            // Why an alert couldn't reach this iPhone with the app closed, and the button that
+            // fixes it (Nov 7 2026) — only while something wants alerts and something's in the way.
+            if settings.agentAlerts || !model.alertWatches.isEmpty { CloudAlertsStatusRow() }
             // Windows on watch (Nov 6 2026): each one a row; a swipe ends it.
             ForEach(model.alertWatches) { w in
                 HStack(spacing: 12) {

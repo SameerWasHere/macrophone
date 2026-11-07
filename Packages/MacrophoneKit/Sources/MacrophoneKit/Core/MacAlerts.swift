@@ -54,6 +54,9 @@ public struct MacAlert: Codable, Sendable, Equatable, Identifiable {
         case updated
         /// A question (an agent, a prompt in a terminal).
         case asking
+        /// A chat you wrote to from the phone answered (ReplyWatcher's word, Nov 7 2026; a phone
+        /// from before reads it as `updated`).
+        case answered
         /// A dialog or a sheet came up over it.
         case dialog
         /// It closed (the watch ends).
@@ -167,6 +170,21 @@ public struct AlertWatchRequest: Codable, Sendable, Equatable {
 /// It never floods: past three alerts in ten minutes the window is **calm** — from then on only a
 /// stillness of two minutes counts ("tell me when it stops"), until half an hour passes with no
 /// alert.
+///
+/// **Animations aren't activity (Nov 7 2026).** Sameer put the Claude app's window on watch, its
+/// reply came, and no alert ever did: measured on that window at rest, 0.01–0.11% of the picture
+/// changed between every two looks — a spinner, the composer's caret, a live preview pane — which
+/// straddles `activity`, so the window read as busy for most of every minute and was never still
+/// for the eight seconds a settle needs (`ReplyWatcher`, whose still threshold is 0.6%, marked
+/// the same reply answered). Now each sample carries a **heat**: up by two when it changed since
+/// the last look, down by one when it didn't. A sample at `animated` heat or more has been
+/// changing look after look — an animation — and its changes don't count as activity, as long as
+/// the animated samples together are a small part of the picture (`liveArea`): a column of text
+/// scrolling as a reply streams in is far larger, and that is activity until it stops. At a settle
+/// the comparison with the picture from before leaves out what is still animating right now
+/// (`heatCap` − 1 or more: changing on nearly every look), so a spinner turning in both pictures
+/// never makes a settle news — a reply that stopped three looks ago has cooled below that and
+/// counts whole.
 public struct WindowChangeDetector: Sendable {
     public enum Event: Equatable, Sendable {
         /// It settled after `ran` seconds of change; `changed` is the share of the picture that
@@ -189,10 +207,21 @@ public struct WindowChangeDetector: Sendable {
     public static let burstWindow: TimeInterval = 600
     public static let calmSettle: TimeInterval = 120
     public static let calmLasts: TimeInterval = 1800
+    /// A sample this hot has changed on look after look: an animation, not activity.
+    public static let animated: UInt8 = 3
+    public static let heatCap: UInt8 = 6
+    /// Animated samples are left out of the activity only while they're this small a share of
+    /// the picture together: a spinner, a caret, a clock, a small live preview — not a column of
+    /// text scrolling as a reply streams in.
+    public static let liveArea = 0.02
+    /// Told of by another path (a chat answered): the next settle within this long isn't news.
+    public static let toldFor: TimeInterval = 30
 
     public private(set) var last: [UInt32]?
     /// The picture before the current activity (or when last settled).
     public private(set) var reference: [UInt32]?
+    /// Per sample: how lately it has kept changing (see above).
+    public private(set) var heat: [UInt8] = []
     public private(set) var busySince: Date?
     public private(set) var lastChange: Date?
     public private(set) var dialogUp = false
@@ -202,6 +231,11 @@ public struct WindowChangeDetector: Sendable {
     public var becameCalm = false
     /// The last time anything happened (activity or an alert), for the watch's expiry.
     public private(set) var lastEvent: Date
+    /// What the last look saw, for the log: the activity share, the share of the picture that's
+    /// animating, and — at a settle — the change against the picture from before.
+    public private(set) var lastShare = 0.0
+    public private(set) var animatedShare = 0.0
+    public private(set) var lastSettle: (ran: TimeInterval, changed: Double)?
 
     public init(at now: Date = Date()) { lastEvent = now }
 
@@ -210,14 +244,16 @@ public struct WindowChangeDetector: Sendable {
     /// One look: `sample` is the picture (WatchChange.sample), `working` the window says it's at
     /// it, `dialog` something's laid over it.
     public mutating func look(_ sample: [UInt32], working: Bool = false, dialog: Bool = false, at now: Date) -> Event? {
-        guard let prev = last else {
+        guard let prev = last, prev.count == sample.count, !sample.isEmpty else {
             last = sample
             reference = sample
+            heat = [UInt8](repeating: 0, count: sample.count)
             dialogUp = dialog
             return nil
         }
-        let share = WatchChange.changedShare(prev, sample)
+        let share = measure(prev, sample)
         last = sample
+        lastSettle = nil
         if calm, let newest = alerts.last, now.timeIntervalSince(newest) > Self.calmLasts { calm = false }
 
         if dialog, !dialogUp {
@@ -239,12 +275,48 @@ public struct WindowChangeDetector: Sendable {
         let settle = calm ? Self.calmSettle : min(Self.settleMax, max(Self.settleMin, ran * 0.1))
         guard now.timeIntervalSince(changed) >= settle else { return nil }
         busySince = nil
-        let total = reference.map { WatchChange.changedShare($0, sample) } ?? 1
+        let total = reference.map { settled(from: $0, to: sample) } ?? 1
         reference = sample
+        lastSettle = (ran, total)
         // A blip that left the window as it was (a spinner came and went) isn't news — but a long
-        // run is, even when it ends looking the same (a build or tests run again).
+        // run is, even when it ends looking the same (a build or tests run again). Nor is a change
+        // another path already told of (the chat answered, and said so).
         guard total >= Self.meaningful || ran >= Self.longRun else { return nil }
+        if let told = toldAt, now.timeIntervalSince(told) < Self.toldFor { return nil }
         return admit(.settled(ran: ran, changed: total), at: now)
+    }
+
+    /// The share of the picture that changed since the last look, animations left out while
+    /// they're small; the heat of every sample moves on.
+    private mutating func measure(_ prev: [UInt32], _ sample: [UInt32]) -> Double {
+        let n = sample.count
+        if heat.count != n { heat = [UInt8](repeating: 0, count: n) }
+        var changed = 0, active = 0, hot = 0
+        heat.withUnsafeMutableBufferPointer { h in
+            for i in 0..<n {
+                let c = WatchChange.differs(prev[i], sample[i])
+                let was = h[i]
+                if was >= Self.animated { hot += 1 }
+                if c {
+                    changed += 1
+                    if was < Self.animated { active += 1 }
+                    h[i] = was >= Self.heatCap - 1 ? Self.heatCap : was + 2
+                } else if was > 0 {
+                    h[i] = was - 1
+                }
+            }
+        }
+        animatedShare = Double(hot) / Double(n)
+        lastShare = Double(animatedShare < Self.liveArea ? active : changed) / Double(n)
+        return lastShare
+    }
+
+    /// The change from the picture before the activity, leaving out what's still animating now.
+    private func settled(from reference: [UInt32], to sample: [UInt32]) -> Double {
+        guard reference.count == sample.count, !sample.isEmpty else { return 1 }
+        var n = 0
+        for i in 0..<sample.count where heat[i] < Self.heatCap - 1 && WatchChange.differs(reference[i], sample[i]) { n += 1 }
+        return Double(n) / Double(sample.count)
     }
 
     /// He looked at it (on the phone): what's there now is seen.
@@ -252,6 +324,21 @@ public struct WindowChangeDetector: Sendable {
         reference = last
         busySince = nil
         lastChange = nil
+    }
+
+    private var toldAt: Date?
+
+    /// Another path told him what this window did just now (its chat answered, its agent
+    /// finished): what's there is as good as seen, and it counts as an alert for calm's sake.
+    public mutating func told(at now: Date) {
+        seen()
+        toldAt = now
+        _ = admit(.settled(ran: 0, changed: 0), at: now)
+    }
+
+    /// An alert went out this recently (by any path).
+    public func alerted(within seconds: TimeInterval, at now: Date) -> Bool {
+        alerts.last.map { now.timeIntervalSince($0) < seconds } ?? false
     }
 
     private mutating func admit(_ e: Event, at now: Date) -> Event {
@@ -286,6 +373,7 @@ public enum AlertWords {
             if kind == .finished { return "\(app) finished" }
             return "\(app) has something new"
         case .asking: return "\(app) is asking you something"
+        case .answered: return "\(app) answered you"
         case .dialog: return "\(app) is showing a dialog"
         case .closed: return "\(app) window closed"
         case .calmed: return "\(app) keeps changing"
@@ -351,6 +439,7 @@ public enum AlertWords {
     public static func body(_ kind: MacAlert.Kind) -> String {
         switch kind {
         case .asking: return "Tap to see it and answer."
+        case .answered: return "Tap to read it."
         case .closed: return "It's off watch now."
         case .calmed: return "You'll hear when it stops changing."
         case .dialog: return "Tap to see it and answer."
