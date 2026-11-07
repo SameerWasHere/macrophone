@@ -116,7 +116,26 @@ struct MainView: View {
     /// Settings, …) — changed in the same transaction as the layout, in every pose (Nov 7 2026: on
     /// the inner screen it followed 0.55 s behind, so after Done the window's items stayed a beat
     /// and empty glass flashed at the foot; in hand, the rest group sat over the mic meanwhile).
-    var barWindow: Bool { watcher.isShowing }
+    var barWindow: Bool { innerSideBar ? innerBarWindow : watcher.isShowing }
+
+    /// The inner screen on its side, where the vertical bar holds the window's buttons in hand.
+    var innerSideBar: Bool { posture.pose.isInner && !posture.pose.foldAcross }
+    /// The inner side bar's set (Nov 7 2026): the deck fades in on the settle spring and the bar
+    /// changed on the tap, a beat ahead of it, so Show it here changes it `Motion.leave` later —
+    /// about when the deck is half in. Done changes it at once, as the deck starts to go (a
+    /// delay there left the window's items a beat over the cover's view).
+    @State var innerBarWindow = false
+    @State var innerBarTask: Task<Void, Never>?
+
+    func followBar(_ showing: Bool) {
+        innerBarTask?.cancel()
+        guard showing, innerSideBar, !innerBarWindow else { innerBarWindow = showing; return }
+        innerBarTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard !Task.isCancelled, watcher.isShowing else { return }
+            innerBarWindow = true
+        }
+    }
 
     /// The phone's layout shows the window in its own area — not on the Duo's inner screen, where
     /// it's the cover's view beside the window and stays at rest (Nov 4 2026: it stays built, hidden,
@@ -168,6 +187,9 @@ struct MainView: View {
             Haptics.arrived()
             UIAccessibility.post(notification: .layoutChanged, argument: posture.pose.spoken)
         }
+        .onChange(of: watcher.isShowing, initial: true) { _, on in followBar(on) }
+        // A pose change takes the bar's set as it is, with the layout.
+        .onChange(of: posture.pose) { _, _ in innerBarTask?.cancel(); innerBarWindow = watcher.isShowing }
     }
 
     /// Only full screen hides the status bar. Upright on the inner screen it had gone while a
@@ -197,9 +219,10 @@ struct MainView: View {
         // moved (Nov 4 2026).
         ZStack {
             layoutBody
-                .opacity(inFullScreen ? 0 : 1)
-                .allowsHitTesting(!inFullScreen)
-                .accessibilityHidden(inFullScreen)
+                // Not drawn from a pose guessed before the hinge spoke (`Posture.provisional`).
+                .opacity(inFullScreen || posture.provisional ? 0 : 1)
+                .allowsHitTesting(!inFullScreen && !posture.provisional)
+                .accessibilityHidden(inFullScreen || posture.provisional)
                 .environment(\.innerAsleep, innerAsleep)
                 // A sheet that covers the screen (Settings, History, pairing…) has nothing to
                 // show the Thread to: its 60 fps stops competing with the sheet's own first
@@ -234,12 +257,17 @@ struct MainView: View {
         // moves nothing — the halves follow the hinge. On its side (the book, open flat) the
         // vertical bar holds the cover's buttons; upright (the laptop, open flat) the fold runs
         // across the middle.
+        // Across a turn the layout leaving goes at once (Nov 7 2026): fading out in the new
+        // screen's bounds it drew its controls where nothing is — a "Show it here" stranded on an
+        // empty screen as the phone turned upright.
         if posture.pose.foldAcross {
-            laptopBody.transition(.opacity)
+            laptopBody.transition(Self.turn)
         } else {
-            sideBody.transition(.opacity)
+            sideBody.transition(Self.turn)
         }
     }
+
+    static let turn = AnyTransition.asymmetric(insertion: .opacity, removal: .identity)
 
     /// The inner screen's bar, one for every inner pose (Nov 4 2026): the pose's layout changes
     /// inside it, the stack itself never does. A stack per pose (and none on the laptop) made

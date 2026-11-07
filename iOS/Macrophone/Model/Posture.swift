@@ -28,6 +28,12 @@ final class Posture: ObservableObject {
     /// Bumped when the pose changes after the first one is known: a soft tick, a VoiceOver
     /// announcement (the pose the app opens in is no change he made).
     @Published private(set) var settleSeq = 0
+    /// The pose so far is a guess: the inner screen measured before the hinge has spoken, so the
+    /// no-hinge rule says "open" — upright that drew the flat screen's bar for a frame before the
+    /// laptop (Nov 7 2026). The first inner layout waits, hidden, until the hinge speaks or
+    /// `hingeWait` has passed.
+    @Published private(set) var provisional = false
+    static let hingeWait: TimeInterval = 0.3
     /// What the pose was derived from, for the log and the tests (not published: see above).
     private(set) var reading: FoldReading = .none
     /// The pose before this one (what to restore on the way back).
@@ -40,6 +46,9 @@ final class Posture: ObservableObject {
     private var screen: CGSize = .zero
     private var division: FoldDivision?
     private var derivedOnce = false
+    private var hingeHeard = false
+    private var hingeWaitOver = false
+    private var hingeWaitTask: Task<Void, Never>?
 
     #if DEBUG
     /// `MACROPHONE_POSTURE`: the pose, and the angle it's held at.
@@ -71,6 +80,7 @@ final class Posture: ObservableObject {
         let stepped = FoldPose.deckRise(angle: angle) != FoldPose.deckRise(angle: self.angle)
         guard status != hinge || stepped else { self.angle = angle; return }
         let wasOpen = hingeOpen
+        hingeHeard = true
         hinge = status
         self.angle = angle
         recompute()
@@ -132,6 +142,7 @@ final class Posture: ObservableObject {
         #endif
         let p = FoldPose.derive(r)
         reading = r
+        updateProvisional(p, reading: r)
         let rise = p.isFolded ? FoldPose.deckRise(angle: r.angle) : 0
         if rise != self.rise { self.rise = rise }
         let h = FoldHalves.split(r.size, pose: p, division: r.division)
@@ -143,6 +154,23 @@ final class Posture: ObservableObject {
         log?.add("pose: \(p.name) (\(Int(r.angle))°, \(Int(r.size.width))×\(Int(r.size.height)) on \(Int(r.screen.width))×\(Int(r.screen.height)))")
         // The first pose derived after the first measure is the one the app opened in.
         if size != .zero { derivedOnce = true }
+    }
+
+    private func updateProvisional(_ p: FoldPose, reading r: FoldReading) {
+        var guess = false
+        if #available(iOS 27.1, *) {
+            guess = p.isInner && r.hinge == nil && !hingeHeard && !hingeWaitOver
+        }
+        // (The wait runs from the first measure: before it the scene has no size to wait on.)
+        if guess, r.size != .zero, hingeWaitTask == nil {
+            hingeWaitTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(Self.hingeWait * 1e9))
+                guard let self else { return }
+                hingeWaitOver = true
+                if provisional { provisional = false }
+            }
+        }
+        if guess != provisional { provisional = guess }
     }
 
     /// The fold's line in the scene even when the screen is flat (the inactive region): what an
