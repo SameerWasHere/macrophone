@@ -519,6 +519,7 @@ final class AppModel: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(WatchReconnect.limit * 1_000_000_000))
             guard !Task.isCancelled else { return }
             self?.reconnecting = false
+            self?.waitingWatch = nil
         }
     }
 
@@ -527,21 +528,87 @@ final class AppModel: ObservableObject {
         if reconnecting { reconnecting = false }
     }
 
+    // MARK: Back without a hitch (Nov 7 2026)
+
+    // The link is let go in the background and made again on return — ~400 ms on home Wi-Fi —
+    // and every return flashed "Reconnecting to ‹Mac›…", a dimmed Whole Screen and Mac Controls,
+    // and the eye badge gone from the pick. Now the looks hold from the moment the app leaves
+    // (the app switcher's snapshot and the first frame back show the populated bar) until the
+    // link is back or `returnGrace` after it's active again; only then is a link still down a
+    // reconnect, as before.
+
+    /// From leaving the screen with the link up until it's back, or the grace after returning
+    /// runs out. Nothing on screen says "not connected" meanwhile.
+    @Published private(set) var returning = false
+    private var returnTask: Task<Void, Never>?
+    static let returnGrace: TimeInterval = 1.5
+    /// The link last session ended connected (`link.wasConnected`): at launch, `settling`, the
+    /// looks start connected too.
+    private var connectedLastSession = UserDefaults.standard.bool(forKey: "link.wasConnected")
+    /// How the Mac was reached when the link was last up: the pill's glyph while the looks hold.
+    @Published private(set) var lastRoute: LinkRoute?
+    /// Watch asked for while the link was on its way back: runs on the connect (never dropped).
+    private var waitingWatch: TargetRef?
+
+    /// Connected, or as good as, for looks only: the eye badge, the needs marks, the menu bar's
+    /// extras, the cover bar's items, the pill's light. An action needing the link waits for
+    /// `isConnected` (`watchWhenConnected`).
+    var looksConnected: Bool { isConnected || (isPaired && (returning || (settling && connectedLastSession))) }
+
+    /// The route the pill shows: the live one, else the last while the looks hold.
+    var shownRoute: LinkRoute? { isConnected ? linkRoute : looksConnected ? lastRoute : nil }
+
+    private func holdLooks() {
+        returnTask?.cancel()
+        returning = true
+    }
+
+    /// Back on screen: the link gets `returnGrace` to come back quietly; still down after that,
+    /// it's a reconnect (the status line says so, as a drop while here does).
+    private func beginReturnGrace() {
+        guard returning else { return }
+        returnTask?.cancel()
+        returnTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.returnGrace * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.returning else { return }
+            self.returning = false
+            if !self.isConnected, self.isPaired { self.beginReconnecting() } else { self.waitingWatch = nil }
+        }
+    }
+
+    private func endReturning() {
+        returnTask?.cancel()
+        if returning { returning = false }
+    }
+
+    /// Watch, asked for while the link only looks up: it opens the moment the Mac is back.
+    func watchWhenConnected(_ target: TargetRef) {
+        if isConnected { watcher.open(target); return }
+        guard looksConnected || reconnecting else { return }
+        waitingWatch = target
+        log.add("watch asked for while the link comes back — waiting for it")
+    }
+
     func scenePhaseChanged(_ phase: ScenePhase) {
         switch phase {
         case .active:
-            if !sceneActive, connectedWhenLeft, !isConnected { beginReconnecting() }
+            if !sceneActive, connectedWhenLeft { beginReturnGrace() }
             connectedWhenLeft = false
             if !sceneActive { beginSettling() }
             sceneActive = true
             endBackgroundTask()
             refreshAvailability()
             if networkExplained || isPaired { client.start() }
-            // A window that was being watched comes back by itself (the link reconnects first).
-            watcher.sceneBecameActive()
+            // A window that was being watched comes back by itself (the link reconnects first);
+            // its held picture stays bare through the grace.
+            watcher.sceneBecameActive(quietFor: returning ? Self.returnGrace : 0)
             if pendingStart { pendingStart = false; Task { await startRecording(override: recordingOverride) } }
         case .background:
-            if sceneActive { connectedWhenLeft = isConnected }
+            if sceneActive {
+                connectedWhenLeft = isConnected
+                // The looks hold from here: the link's states while away change nothing on screen.
+                if connectedWhenLeft { holdLooks() }
+            }
             sceneActive = false
             watcher.pause(.leftScreen)
             enterBackground()
@@ -1679,11 +1746,20 @@ extension AppModel: LinkClientDelegate {
         if case .notPaired = state { needsYou = [] }
         // The link to the Mac it was connected to dropped while he's here: one word until it's back.
         switch state {
-        case .connected, .notPaired: endReconnecting()
+        case .connected, .notPaired: endReconnecting(); endReturning()
         default:
             if case .connected = was, sceneActive, pairedMac?.id == connectedMacID { beginReconnecting() }
         }
-        if case .connected = state { connectedMacID = pairedMac?.id }
+        switch state {
+        case .connected:
+            connectedMacID = pairedMac?.id
+            lastRoute = client.route
+            if !connectedLastSession { connectedLastSession = true; UserDefaults.standard.set(true, forKey: "link.wasConnected") }
+        case .notPaired, .unreachable:
+            if case .notPaired = state { waitingWatch = nil }
+            if connectedLastSession { connectedLastSession = false; UserDefaults.standard.set(false, forKey: "link.wasConnected") }
+        default: break
+        }
         switch state {
         case .connected: watcher.linkChanged(connected: true)
         case .notPaired: watcher.linkChanged(connected: false, gone: true)
@@ -1691,6 +1767,8 @@ extension AppModel: LinkClientDelegate {
         }
         // A quick action or Shortcut asked for the whole screen before the Mac was here.
         if case .connected = state, waitingWholeScreen { waitingWholeScreen = false; watchWholeScreenWhenReady() }
+        // Watch, tapped while the link was on its way back.
+        if case .connected = state, let t = waitingWatch { waitingWatch = nil; watcher.open(t) }
         // On the Duo's inner screen with nothing watched yet: the pick's window, now that the Mac is here.
         if case .connected = state { openWindowForPose() }
     }

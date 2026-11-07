@@ -886,8 +886,10 @@ struct WatchWindow: View {
         }
         .task(id: watcher.phase == .reconnecting) {
             guard watcher.phase == .reconnecting else { heldShown = false; return }
-            try? await Task.sleep(nanoseconds: UInt64(WatchReconnect.quietFor * 1_000_000_000))
-            guard !Task.isCancelled else { return }
+            // A hiccup shows nothing; neither does a return from the background while the link
+            // is on its way back (`Watcher.capsuleWait`, Nov 7 2026).
+            try? await Task.sleep(nanoseconds: UInt64(watcher.capsuleWait * 1_000_000_000))
+            guard !Task.isCancelled, watcher.phase == .reconnecting else { return }
             withAnimation(.easeOut(duration: 0.3)) { heldShown = true }
             if interactive { UIAccessibility.post(notification: .announcement, argument: "Reconnecting to your Mac") }
         }

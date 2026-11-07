@@ -134,11 +134,11 @@ struct SendToDock: View {
         let isPick = p.id == selected
         return DockIcon(place: p, selected: isPick, current: current,
                         scale: scale(for: p.id),
-                        watchable: isPick && current != .clipboard && model.isConnected && !notOpen,
-                        needs: model.isConnected ? model.needs(p) : nil,
-                        windowNeeds: { model.isConnected ? model.needs($0) : nil },
+                        watchable: isPick && current != .clipboard && model.looksConnected && !notOpen,
+                        needs: model.looksConnected ? model.needs(p) : nil,
+                        windowNeeds: { model.looksConnected ? model.needs($0) : nil },
                         macID: model.pairedMac?.id,
-                        canWatchWindows: model.isConnected && p.kind == .app,
+                        canWatchWindows: model.looksConnected && p.kind == .app,
                         room: room,
                         onWatchWindow: { watch($0) },
                         label: isPick ? current.displayName : nil,
@@ -194,8 +194,9 @@ struct SendToDock: View {
     }
 
     private func watch() {
-        guard current != .clipboard, model.isConnected, !model.isNotOpen(current) else { return }
-        model.watcher.open(current)
+        guard current != .clipboard, model.looksConnected, !model.isNotOpen(current) else { return }
+        // The link only looks up (back from the background): it opens on the connect.
+        model.watchWhenConnected(current)
     }
 
     /// Show Window from an icon's window previews: that window becomes the pick and shows — after
@@ -204,8 +205,8 @@ struct SendToDock: View {
         pick(t)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 320_000_000)
-            guard t == model.selection.target, t != .clipboard, model.isConnected, !model.isNotOpen(t) else { return }
-            model.watcher.open(t)
+            guard t == model.selection.target, t != .clipboard, model.looksConnected, !model.isNotOpen(t) else { return }
+            model.watchWhenConnected(t)
         }
     }
 

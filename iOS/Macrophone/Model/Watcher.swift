@@ -400,12 +400,25 @@ final class Watcher: ObservableObject {
     }
 
     /// The app is back on screen: a watch that only stopped because it left picks up by itself.
-    func sceneBecameActive() {
+    /// `quietFor`: the held picture stays bare (no shade, no "Reconnecting…") this long — the
+    /// link's own grace on a return (Nov 7 2026); a drop while here shows it after
+    /// `WatchReconnect.quietFor` as ever.
+    func sceneBecameActive(quietFor: TimeInterval = 0) {
         guard isOpen, phase == .paused(.leftScreen) else { return }
+        quietUntil = quietFor > 0 ? Date().addingTimeInterval(quietFor) : nil
         // The window it left, coming back as it was: no light round the rim, no tap.
         resuming = hasPicture && !stale
         start()
         log?.add("watching resumed on return")
+    }
+
+    /// Until when a reconnect's hold shows nothing over the picture (`WatchPanel` reads it).
+    private(set) var quietUntil: Date?
+
+    /// How long the capsule waits before it shows over a held picture: the longer of the usual
+    /// quiet moment and what's left of a return's grace.
+    var capsuleWait: TimeInterval {
+        max(WatchReconnect.quietFor, quietUntil.map { $0.timeIntervalSinceNow } ?? 0)
     }
 
     /// Something the person did here: keeps it live for another two minutes.
@@ -1025,6 +1038,7 @@ final class Watcher: ObservableObject {
 
     private func beginReconnecting() {
         guard phase != .reconnecting else { return }
+        quietUntil = nil
         keepPicture()
         freezePicture()
         idleTask?.cancel()

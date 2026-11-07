@@ -23,6 +23,27 @@ struct VerticalBarProbe: UIViewRepresentable {
         }
     }
 
+    /// Which side the bar is on right now (nil: none) — the sheets keep clear of it (Nov 7 2026).
+    @MainActor static var edge: HorizontalEdge? {
+        guard #available(iOS 27.1, *) else { return nil }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            switch scene.traitCollection.verticalBarEdge {
+            case .leading: return .leading
+            case .trailing: return .trailing
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    /// The bar's width (a safe-area inset of 84 pt on his Duo), read off the scene's window.
+    @MainActor static var width: CGFloat {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        guard let w = windows.first(where: \.isKeyWindow) ?? windows.first else { return 84 }
+        let side = max(w.safeAreaInsets.left, w.safeAreaInsets.right)
+        return side > 40 ? side : 84
+    }
+
     func makeUIView(context: Context) -> UIView {
         if #available(iOS 27.1, *) {
             let v = Probe()
@@ -119,9 +140,9 @@ struct CoverMacItem: View {
         } label: {
             Label(model.pairedMac?.name ?? "Mac", systemImage: "laptopcomputer")
         }
-        .tint(model.isConnected ? Light.cyan : nil)
+        .tint(model.looksConnected ? Light.cyan : nil)
         .accessibilityLabel("Mac: \(model.pairedMac?.name ?? "not paired")")
-        .accessibilityValue(model.isConnected ? "Connected" : "Not connected")
+        .accessibilityValue(model.looksConnected ? "Connected" : "Not connected")
         .accessibilityIdentifier("cover-mac")
     }
 }
