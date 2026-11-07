@@ -18,12 +18,47 @@ final class MacReach: ObservableObject {
     /// The Mac's answer to the last Mac Controls key (the panel's readout: "Volume 56%", a meter).
     @Published private(set) var lastControl: MacControlResult?
 
-    /// The Mac's volume as last read back, kept across keys that don't read it (brightness, music):
-    /// Control Center's slider stands at it (Nov 1 2026).
-    @Published private(set) var lastVolume: Double?
-    func noteControl(_ r: MacControlResult) {
+    /// What each Mac's volume is, as it last said (Nov 7 2026): Control Center's slider stands at
+    /// it from the moment the panel opens. A Mac that says its volume (`MacVolume.feature`) tells
+    /// it after the welcome and on every change, and it's kept per Mac (`mac.volume.<id>`) so the
+    /// panel opens at the last level before the Mac has answered; a Mac from before tells it only
+    /// in a volume key's answer, held for this run only (its own keys would make a kept one stale).
+    @Published private(set) var volumes: [UUID: MacVolume] = [:]
+
+    /// The volume of this Mac, when known — nil draws the slider with no level, never a guessed 0.
+    func volume(of macID: UUID?) -> MacVolume? {
+        guard let macID else { return nil }
+        if let v = volumes[macID] { return v }
+        guard let data = UserDefaults.standard.data(forKey: Self.volumeKey(macID)) else { return nil }
+        return try? JSONDecoder().decode(MacVolume.self, from: data)
+    }
+
+    func noteVolume(_ v: MacVolume, macID: UUID, keep: Bool) {
+        volumes[macID] = v
+        let key = Self.volumeKey(macID)
+        if keep, let data = try? JSONEncoder().encode(v) { UserDefaults.standard.set(data, forKey: key) }
+    }
+
+    /// Unpaired Macs' volumes go.
+    func forgetVolumes(except macIDs: [UUID]) {
+        let keep = Set(macIDs)
+        for id in volumes.keys where !keep.contains(id) { volumes[id] = nil }
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(Self.volumePrefix) {
+            if let id = UUID(uuidString: String(key.dropFirst(Self.volumePrefix.count))), !keep.contains(id) {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+
+    private static let volumePrefix = "mac.volume."
+    private static func volumeKey(_ id: UUID) -> String { volumePrefix + id.uuidString }
+
+    func noteControl(_ r: MacControlResult, macID: UUID?, keep: Bool) {
         lastControl = r
-        if let v = r.volume { lastVolume = r.muted == true ? lastVolume : v }
+        guard r.control.isVolume, r.ok, let macID, r.volume != nil || r.muted != nil else { return }
+        let before = volume(of: macID)
+        let v = MacVolume(volume: r.volume ?? before?.volume, muted: r.muted ?? before?.muted ?? false)
+        noteVolume(v, macID: macID, keep: keep)
     }
 
     private var wakeTask: Task<Void, Never>?
@@ -157,11 +192,27 @@ extension AppModel {
         log.add("wake info: \(wakeInfo.interfaces.count) interface(s), wake for network \(wakeInfo.wakeForNetwork.map { $0 ? "on" : "off" } ?? "unknown")")
     }
 
+    /// The active Mac's volume as Control Center should show it: what it said this run, else (a
+    /// Mac that says its volume) what it said last time. Nil: unknown.
+    var macVolumeShown: MacVolume? {
+        guard let id = pairedMac?.id else { return nil }
+        if let v = reach.volumes[id] { return v }
+        guard !isConnected || client.macSendsVolume else { return nil }
+        return reach.volume(of: id)
+    }
+
     func linkClient(_ client: LinkClient, macControlDone result: MacControlResult) {
         guard client === self.client else { return }
         if !result.ok { Haptics.caution() }
-        reach.noteControl(result)
+        reach.noteControl(result, macID: pairedMac?.id, keep: client.macSendsVolume)
         explain(result.detail, for: result.ok ? 1.6 : 4)
+    }
+}
+
+extension AppModel: LinkClientVolumeDelegate {
+    func linkClient(_ client: LinkClient, macVolume: MacVolume, macID: UUID) {
+        guard client === self.client else { return }
+        reach.noteVolume(macVolume, macID: macID, keep: true)
     }
 }
 
