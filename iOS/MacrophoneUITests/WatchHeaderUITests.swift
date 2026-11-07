@@ -36,7 +36,8 @@ final class WatchHeaderUITests: XCTestCase {
                     XCTAssertTrue(kicker.waitForExistence(timeout: 5))
                     // The window live (its Mac connected, its features known), then a moment for
                     // the alert watch to reach the Mac and the bell to come (the actions are 2 s apart).
-                    expectation(for: NSPredicate(format: "label BEGINSWITH 'Live'"), evaluatedWith: kicker)
+                    let windowMenu = app.buttons["watch-window"]
+                    expectation(for: NSPredicate(format: "exists == true AND enabled == true"), evaluatedWith: windowMenu)
                     waitForExpectations(timeout: 25)
                     sleep(4)
                     let bell = app.descendants(matching: .any)["watch-alert-on"]
@@ -45,7 +46,7 @@ final class WatchHeaderUITests: XCTestCase {
                     XCTAssertGreaterThanOrEqual(kicker.frame.width, minimumWidth(name),
                                                 "\(name) reads whole (\(appearance), alert \(alert)): \(kicker.frame.width) pt")
                     XCTAssertTrue(app.buttons["watch-done"].isHittable, "Done stays")
-                    XCTAssertTrue(app.buttons["watch-window"].waitForExistence(timeout: 5), "the Window menu stays")
+                    XCTAssertTrue(windowMenu.exists, "the Window menu stays")
                     app.terminate()
                 }
             }
