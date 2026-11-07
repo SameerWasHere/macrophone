@@ -1211,7 +1211,9 @@ duo-inner-typing/`):
   (`TEST_RUNNER_MACROPHONE_DUO_REAL=book|laptop`, the real pose): Claude and the Whole Screen, Mac
   Keys off and on — the window's left, width and top unchanged (±1), the book's window never past
   the screen's middle, back to its rest frame after hide; it prints where the keyboard's bar lands
-  against the fold.
+  against the fold. Measured on the laptop (tabletop): Claude (12, 88, 645 × 368) → 645 × 308,
+  the Whole Screen (44, 83, 581 × 373) unchanged, the bar's top at 408 of 951 (the fold at 475)
+  with either keyboard.
 
 ## The ten polish ideas (Nov 5 2026)
 

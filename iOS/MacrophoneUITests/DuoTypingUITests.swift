@@ -72,19 +72,23 @@ final class DuoTypingUITests: XCTestCase {
                 let what = "\(place), Mac Keys \(macKeys == "1" ? "on" : "off")"
                 let app = launch(["MACROPHONE_SEND_TO": place, "MACROPHONE_MAC_KEYS": macKeys])
                 let rest = settledWindow(app, "\(what): at rest")
+                // XCUITest reports the app's frame upright (669 × 951) whichever way the inner
+                // screen is held; the fold is across the long side's middle: the laptop's across
+                // (y), the book's down it (x).
                 let screen = app.frame
+                let fold = max(screen.width, screen.height) / 2
                 raiseKeyboard(app)
                 let typed = settledWindow(app, "\(what): typing")
                 shot("typing-\(pose)-\(place)-mackeys\(macKeys)")
-                // For the log: where the keyboard's bar sits against the fold (the screen's middle).
+                // For the log: where the keyboard's bar sits against the fold.
                 let bar = app.buttons["keyboard-hide"].frame
-                print("DuoTyping \(pose) \(what): window \(rest) → \(typed); the keyboard's bar top at \(bar.minY) of \(screen.height) (the fold at \(screen.midY))")
+                print("DuoTyping \(pose) \(what): window \(rest) → \(typed); the keyboard's bar top at \(bar.minY) (the fold at \(fold))")
                 XCTAssertEqual(typed.minX, rest.minX, accuracy: 1, "\(what): the window's left edge never moves for the keyboard")
                 XCTAssertEqual(typed.width, rest.width, accuracy: 1, "\(what): nor its width (\(rest.width) → \(typed.width))")
                 XCTAssertEqual(typed.minY, rest.minY, accuracy: 1, "\(what): nor its top (\(rest.minY) → \(typed.minY))")
                 XCTAssertGreaterThan(typed.height, rest.height * 0.5, "\(what): the Mac's screen is never a sliver (\(rest.height) → \(typed.height))")
                 if pose == "book" {
-                    XCTAssertLessThanOrEqual(typed.maxX, screen.midX + 1, "\(what): the book stays a book — the window never crosses the crease (\(typed.maxX) of \(screen.width))")
+                    XCTAssertLessThanOrEqual(typed.maxX, fold + 1, "\(what): the book stays a book — the window never crosses the crease (\(typed.maxX), the fold at \(fold))")
                 }
                 lowerKeyboard(app)
                 let back = settledWindow(app, "\(what): the keyboard gone")
