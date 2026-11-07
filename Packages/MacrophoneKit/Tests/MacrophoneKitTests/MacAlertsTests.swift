@@ -163,6 +163,97 @@ final class MacAlertsTests: XCTestCase {
         XCTAssertEqual(AlertWords.newLines(before: before, now: now), ["Upload complete: report.pdf"])
     }
 
+    // MARK: Animations aren't activity (Nov 7 2026)
+
+    /// A picture with a spinner at samples 0..<10 (0.1% of it) in the frame's phase, a caret at
+    /// 20..<22 blinking, and `text` samples of settled text from 1000.
+    private func live(_ i: Int, text: Int = 0, caret: Bool = true) -> [UInt32] {
+        var a = pic(1000, 1000 + text, tone: 0xA0A0A0)
+        let phase: UInt32 = i % 2 == 0 ? 0xFF0000 : 0x00FF00
+        for s in 0..<10 { a[s] = phase }
+        if caret, i % 2 == 1 { a[20] = 0xFFFFFF; a[21] = 0xFFFFFF }
+        return a
+    }
+
+    func testASpinnerAndACaretThatNeverStopAreNotActivity() {
+        var d = WindowChangeDetector(at: t0)
+        let events = run(&d, (0..<40).map { live($0) })
+        XCTAssertTrue(events.allSatisfy { $0 == nil })
+        // Busy for the first looks at most (the heat has to build), still from then on.
+        XCTAssertFalse(d.isBusy)
+        XCTAssertLessThan(d.lastShare, WindowChangeDetector.activity)
+        XCTAssertEqual(d.animatedShare, 0.0012, accuracy: 0.0003)
+    }
+
+    func testAReplyBesideASpinnerAlertsOnceWhenItStops() {
+        var d = WindowChangeDetector(at: t0)
+        // 30 s at rest with the spinner turning, then a reply grows over four looks, then rest.
+        var pics = (0..<10).map { live($0) }
+        for k in 1...4 { pics.append(live(10 + k, text: k * 300)) }
+        pics += (15..<30).map { live($0, text: 1200) }
+        let events = run(&d, pics)
+        let fired = events.enumerated().filter { $0.element != nil }
+        XCTAssertEqual(fired.count, 1)
+        guard case .settled(_, let changed)? = fired.first?.element else { return XCTFail() }
+        XCTAssertEqual(changed, 0.12, accuracy: 0.001)
+        // Within 8–11 s of the reply's last change (look 13), spinner or no spinner.
+        let at = fired.first!.offset
+        XCTAssertGreaterThanOrEqual(Double(at - 13) * 3, WindowChangeDetector.settleMin)
+        XCTAssertLessThanOrEqual(Double(at - 13) * 3, WindowChangeDetector.settleMin + 3)
+    }
+
+    func testAColumnScrollingAsAReplyStreamsIsBusyUntilItStops() {
+        var d = WindowChangeDetector(at: t0)
+        // 30% of the picture changes on every look for ten looks (text scrolling by), then still.
+        var pics = [pic()]
+        for i in 1...10 { pics.append(pic(0, 3000, tone: UInt32(i) * 0x20 << 8)) }
+        pics += Array(repeating: pic(0, 3000, tone: 0xC00000), count: 10)
+        var events: [WindowChangeDetector.Event?] = []
+        for (i, p) in pics.enumerated() {
+            events.append(d.look(p, at: t0 + Double(i) * 3))
+            if (2...10).contains(i) { XCTAssertTrue(d.isBusy, "busy while the column scrolls (look \(i))") }
+        }
+        let fired = events.compactMap { $0 }
+        XCTAssertEqual(fired.count, 1)
+        guard case .settled(let ran, _)? = fired.first else { return XCTFail() }
+        XCTAssertGreaterThanOrEqual(ran, WindowChangeDetector.longRun)
+    }
+
+    func testAClockTickingIsNotNews() {
+        var d = WindowChangeDetector(at: t0)
+        // Five samples change once a minute (every 20 looks), nothing else does.
+        let pics = (0..<80).map { i in pic(0, 5, tone: UInt32(i / 20) * 0x30 + 0x30) }
+        XCTAssertTrue(run(&d, pics).allSatisfy { $0 == nil })
+    }
+
+    func testToldOfByAnotherPathTheSettleIsntNews() {
+        var d = WindowChangeDetector(at: t0)
+        _ = run(&d, [pic(), pic(0, 400), pic(0, 800)])
+        // The chat answered and the phone was told that way: nothing more when it settles.
+        d.told(at: t0 + 9)
+        XCTAssertTrue(d.alerted(within: 30, at: t0 + 10))
+        XCTAssertTrue(run(&d, Array(repeating: pic(0, 800), count: 10), start: 12).allSatisfy { $0 == nil })
+        // A trailing re-render right after is part of the same answer.
+        XCTAssertTrue(run(&d, [pic(0, 820)] + Array(repeating: pic(0, 820), count: 5), start: 15).allSatisfy { $0 == nil })
+        // Later, something new is news again.
+        XCTAssertFalse(d.alerted(within: 30, at: t0 + 100))
+        XCTAssertEqual(run(&d, [pic(0, 1200)] + Array(repeating: pic(0, 1200), count: 5), start: 100).compactMap { $0 }.count, 1)
+    }
+
+    func testTheLogNumbersFollowTheLook() {
+        var d = WindowChangeDetector(at: t0)
+        _ = run(&d, [pic(), pic(0, 50)])
+        XCTAssertEqual(d.lastShare, 0.005, accuracy: 0.0001)
+        XCTAssertNil(d.lastSettle)
+        // The settle's numbers stand for the look that settled (the next look clears them).
+        var seen: (ran: TimeInterval, changed: Double)?
+        for i in 0..<4 {
+            if d.look(pic(0, 50), at: t0 + 6 + Double(i) * 3) != nil { seen = d.lastSettle }
+        }
+        XCTAssertEqual(seen?.changed ?? -1, 0.005, accuracy: 0.0001)
+        XCTAssertNil(d.lastSettle)
+    }
+
     #if canImport(FoundationModels)
     @available(macOS 26.0, iOS 26.0, *)
     func testAHeadlineSticksToTheWindowsWords() {

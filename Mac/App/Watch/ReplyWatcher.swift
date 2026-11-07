@@ -54,6 +54,13 @@ final class ReplyWatcher {
         .sorted { $0.since > $1.since }
     }
 
+    /// This chat answered (since when, and whether it's asking) — for a window on watch, which
+    /// alerts on it the same moment (WindowAlertWatcher, Nov 7 2026).
+    func answered(windowID: CGWindowID) -> (since: Date, asking: Bool)? {
+        guard let c = chats[windowID], let at = c.detector.answeredAt else { return nil }
+        return (at, c.detector.asking)
+    }
+
     // MARK: You wrote
 
     /// You sent this window something: it's a chat now, waiting for its answer (any mark it had

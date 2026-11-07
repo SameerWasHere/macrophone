@@ -1026,6 +1026,59 @@ older alert sections where they differ.
   copied in fine. **Needs his phone:** the picture in the notification; an alert through iCloud with
   the app closed (Production "Ask" type and the Mac's save); the model's headlines on real apps.
 
+## Alerts that arrive: animations aren't activity, the chat's answer is the word (Nov 7 2026)
+
+Sameer, away on Tailscale, put the Claude app's window on watch (07:49:38 UTC), dictated, left,
+and the reply came (`ReplyWatcher`: "needs you: a chat answered" 07:51:19) — no alert, and after
+bfd57f4 (the Mac always posts to iCloud with no phone connected) still no `alert:` line at all.
+Measured with a Debug copy on that very window at rest (`MACROPHONE_ALERTS_PRINT=1`, 41 looks):
+**0.01–0.11% of the picture changed between every two looks** — the composer's caret, a spinner,
+the live simulator panes beside the chat — straddling `WindowChangeDetector.activity` (0.03%), so
+the window read as busy for 20–30 s of every minute and was still for the eight seconds a settle
+needs only now and then; `ReplyWatcher`'s still threshold is 0.6%, which is why it saw the answer.
+- **The detector** (`WindowChangeDetector`, MacrophoneKit, `MacAlertsTests`): every sample has a
+  **heat** — up two on a change since the last look, down one without; at `animated` (3) it has
+  been changing look after look and its changes aren't activity, as long as the animated samples
+  together are under `liveArea` (2% of the picture: a column scrolling as a reply streams is far
+  more, and stays busy until it stops). At a settle the comparison with the picture from before
+  leaves out what's animating right now (heat ≥ 5), so a spinner in both never makes a settle
+  news, while a reply that stopped three looks ago has cooled and counts whole. A clock ticking
+  once a minute is a blip that settles as not news. `told(at:)` — another path told him (below) —
+  makes the settle that follows not news for 30 s. `WatchChange.differs` is the one-sample compare.
+- **What the Mac knows counts too** (`WindowAlertWatcher.signal`): a chat he wrote to from the
+  phone answering (`ReplyWatcher.answered(windowID:)` — exact for a hook agent, by picture
+  otherwise) alerts a window on watch the moment it's known, kind `answered` ("Claude answered
+  you", the window's last line under it; `asking` when it's asking — a phone from before reads
+  `answered` as `updated`); an agent's turn ending (`AgentHub.state(of:)` → not working) alerts
+  `finished`. One alert per happening: the detector is `told`, and a signal within 30 s of a
+  picture alert is dropped ("told by its picture already").
+- **The log says why not** (diagnostics.log, numbers only): "a window went still after N s of
+  change but 0.08% of it differs from before — no alert"; "a window has kept changing for 90 s
+  (0.05% of it since the last look, 0.12% animating) — no alert until it's still" (once per busy
+  stretch); "no picture of a window 3 looks in a row"; "Screen Recording is off".
+- **The list survives a restart** (`alerts.watches`, `restore()` at launch: each window by its
+  number and app, those gone dropped — "N back on watch from last time (M gone)"), and the phone
+  gets it with the welcome as before.
+- **Phone:** `AgentAlerts.cloudState` (idle · unavailable · notificationsOff · noAccount ·
+  failed · trying · ready) — the account is checked before the save; the subscription is tried
+  again when the app comes to the front and when the Mac's list arrives (`retryIfNeeded`).
+  Settings › Alerts shows `CloudAlertsStatusRow` only while something wants alerts and something's
+  in the way: one line, one button (Open Settings for notifications or iCloud, Try Again for a
+  refusal). The Mac's 07:57 line "the phone hasn't said it subscribed" means his phone never
+  managed the subscription — the row now says which of the three it is.
+- **Proven on this Mac** with a Debug copy (125 s, the Claude window on watch, 39 looks every
+  3 s): its idle flicker ended in "went still after 3 s of change but 0.01% of it differs from
+  before — no alert" three times and nothing else; one real change in it (the chat moved on)
+  gave exactly one alert, "finished", with a 144 KB picture; the watch came back at launch ("1
+  back on watch from last time"). The real app's log already shows `CloudAlerts.post` succeeding
+  from the iCloud-signed build ("alert: dialog in Claude — sent through iCloud", 07:57:43). A
+  Terminal job finishing and a chat's answer through `ReplyWatcher` are proven by the unit tests
+  only: the Debug copy's Screen Recording grant flapped off on every other look once its binary
+  had been rebuilt (TCC; the same code had looked fine minutes before), and AppleScript to drive
+  Terminal / TextEdit hangs without Automation consent. **Needs his phone:** Settings › Alerts' row
+  (which state it shows), then an alert through iCloud with the app closed; **needs the installed
+  Mac build:** a Terminal command finishing and a Claude reply with the window on watch.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

@@ -119,6 +119,9 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         replies = ReplyWatcher(app: self)
         alerts = AlertCenter(app: self)
         windowAlerts = WindowAlertWatcher(app: self)
+        // The windows on watch before the app last quit come back (Nov 7 2026), once the list
+        // of open apps and the phones' delegate are in place.
+        Task { @MainActor [weak self] in self?.windowAlerts.restore() }
         attachments = AttachmentInbox(app: self)
         stayAwake = StayAwake(log: log)
         watch.onChange = { [weak self] in

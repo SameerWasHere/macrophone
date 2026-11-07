@@ -209,6 +209,15 @@ public enum WatchChange {
         }
     }
 
+    /// Two samples differ by more than a little in some channel.
+    @inline(__always)
+    public static func differs(_ x: UInt32, _ y: UInt32, tolerance: UInt32 = 16) -> Bool {
+        guard x != y else { return false }
+        let r = x & 0xFF, g = x >> 8 & 0xFF, bl = x >> 16 & 0xFF
+        let r2 = y & 0xFF, g2 = y >> 8 & 0xFF, b2 = y >> 16 & 0xFF
+        return (r > r2 ? r - r2 : r2 - r) > tolerance || (g > g2 ? g - g2 : g2 - g) > tolerance || (bl > b2 ? bl - b2 : b2 - bl) > tolerance
+    }
+
     /// The share of samples that differ by more than a little in any channel (1 when the two
     /// can't be compared).
     public static func changedShare(_ a: [UInt32], _ b: [UInt32], tolerance: Int = 16) -> Double {
