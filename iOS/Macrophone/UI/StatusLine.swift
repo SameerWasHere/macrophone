@@ -67,8 +67,9 @@ struct StatusLine: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, Space.text)
-        // An empty line is no element at all (an empty slot read as one with no words).
-        .accessibilityHidden(text.isEmpty)
+        // An empty line is no element at all (an empty slot read as one with no words) — a
+        // placeholder of blanks included.
+        .accessibilityHidden(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .animation(.easeInOut(duration: 0.2), value: text)
     }
 

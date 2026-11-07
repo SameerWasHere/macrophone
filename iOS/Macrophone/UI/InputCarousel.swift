@@ -100,7 +100,7 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                     .padding(.bottom, keysUp ? 0 : InputCarouselLook.rowGap)
                     .opacity(keysUp ? 0 : rowDimmed ? 0.3 : 1)
                     .allowsHitTesting(!rowDimmed && !keysUp)
-                    .accessibilityHidden(rowDimmed || keysUp)
+                    .accessibilityGone(rowDimmed || keysUp)
                     .animation(.easeInOut(duration: 0.2), value: rowDimmed)
                     .transition(.opacity)
             }
@@ -136,7 +136,9 @@ struct InputCarousel<Mic: View, Thread: View>: View {
                             .scaleEffect(on || slideMode || reduceMotion || page == .keyboard ? 1 : 0.96, anchor: .bottom)
                             .opacity(on || slideMode || page == .keyboard ? 1 : 0)
                             .animation(on || slideMode ? motion : leave, value: current)
-                            .accessibilityHidden(!on)
+                            // Out of the tree, not faded: the trackpad's and the keyboard's UIKit
+                            // views stayed elements under the mic page (`accessibilityGone`).
+                            .accessibilityGone(!on)
                             .allowsHitTesting(on)
                     }
                 }

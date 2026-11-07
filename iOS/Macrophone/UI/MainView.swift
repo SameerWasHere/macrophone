@@ -322,7 +322,7 @@ struct MainView: View {
                     // (The cover: back in once the window has gone — Motion.afterLeave.)
                     .animation(phoneSettings ? (isCover && !reduceMotion ? Motion.afterLeave : Motion.pick(Motion.settle, reduce: reduceMotion)) : .easeOut(duration: 0.1), value: phoneSettings)
                     .allowsHitTesting(phoneSettings)
-                    .accessibilityHidden(!phoneSettings)
+                    .accessibilityGone(!phoneSettings)
                     // Watching: the window takes the area (Done brings the settings back).
                     if windowHere && !showLiveWords {
                         WatchPanel(watcher: watcher, compact: compact, cover: isCover,
@@ -616,6 +616,9 @@ struct MainView: View {
                         }
                         .tint(on ? Light.gold : nil)
                         .disabled(!model.canAlert)
+                        .accessibilityLabel("Alerts")
+                        .accessibilityValue(on ? "On" : "Off")
+                        .accessibilityHint("Notifies you when this window changes.")
                         .accessibilityIdentifier(on ? "watch-alert-on" : "watch-alert-off")
                     }
                     // From the window's first moment, dimmed until its first picture (it arrived
