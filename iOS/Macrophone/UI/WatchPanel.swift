@@ -1735,7 +1735,19 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     /// the zoom and the spot — the newest lines stay in view if they were.
     var keyboardUp = false {
         didSet {
-            guard keyboardUp != oldValue, !keyboardUp else { return }
+            guard keyboardUp != oldValue else { return }
+            if imageSize != .zero, lastBounds != .zero {
+                // Said once the keyboard has settled, for the log: the zoom should read the same
+                // both sides of it (Nov 7 2026: on the Duo's book the window had been given the
+                // whole width over the keyboard, and the zoom doubled each way).
+                let zoom = zoomScale, height = lastBounds.height, came = keyboardUp
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                    guard let self, abs(self.bounds.height - height) >= 1, self.imageSize != .zero else { return }
+                    self.onLog?(String(format: "viewer: the keyboard %@ — zoom %.3f before, %.3f after (view %d → %d pt)",
+                                       came ? "came" : "went", zoom, self.zoomScale, Int(height), Int(self.bounds.height)))
+                }
+            }
+            guard !keyboardUp else { return }
             // The keyboard's way down settles within a second; after that a height change is
             // the view's own again.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in

@@ -1172,6 +1172,47 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   `HardwareKeyboardUITests.testAHardwareKeyboardTypesAndChordsOnTheMac`,
   `InputCarouselUITests.testClosingTheWindowBringsTheMainScreenBack`, `testMicButtonNeverMoves`.
 
+## Typing on the inner screen never moves the Mac's screen (Nov 7 2026, round 3)
+
+Round 3's `duo-inner-typing` stream. Found frame by frame on a Duo simulator (`vid/…` under the
+round's scratch, 3 fps): on the book the keyboard rising gave the Mac's window the *whole* width
+(the code assumed "the keyboard is the screen's width"; iOS splits it at the hinge), so the picture
+stretched across the crease at twice the zoom each way and the right page vanished; on the laptop
+the top half took "everything above the keyboard", so the Whole Screen was re-measured from the
+shorter room and shrank from 579 to ~480 pt wide, re-centred (the spec's `p2laptop/t82 → t84`).
+Now (`UI/DuoView.swift`, `sideBody` / `laptopBody`; frames `docs/screens/overnight-nov7/round-3/
+duo-inner-typing/`):
+- **The book stays a book** (and flat on its side — one layout): while typing each page keeps its
+  width and the crease between them; only their heights give way to the keyboard's top
+  (`keyboardTop(in:)` − `DuoLook.keyboardGap`), in the keyboard's own motion (`keysUp` and
+  `keyboardRoom` change inside it — no spring of our own). The deck is framed to end at the
+  keyboard's top, never to width 0 (its field hosts the keyboard); what it shows above the keys
+  is the deck's own business. The answers row under the picture keeps its chips (Esc rides the
+  keyboard's bar, as on every screen).
+- **The laptop (and flat upright) is a Mac's screen**: the room at rest (`restMac` · `restGap` ·
+  `restDeck`) is computed once, untouched by the keyboard. The deck ends at the keyboard's top;
+  only where the keyboard reaches up past the fold does the Mac's frame give room, from its foot
+  only, never below `DuoLook.typingMacFloor` (half) of its rest. A window's frame shortens from the
+  bottom, so the viewer keeps its zoom and the bottom if it showed (the composer stays above the
+  keys); the Whole Screen is sized from the rest room and sits in a frame clipped from the bottom
+  — the keyboard's band hides its foot instead of shrinking it. Width, scale and top edge never
+  change for either keyboard.
+- **The viewer says so** (`ViewerScrollView.keyboardUp`): "viewer: the keyboard came/went — zoom
+  X before, Y after (view H → H pt)" 1.2 s after each flip. Measured: the book 0.559 → 0.559
+  (471 → 198 pt), the laptop 0.461 → 0.461 (367 → 307 pt), iOS's keyboard and Mac Keys alike;
+  `mpctl serve` printed one `WATCH SHAPE` per window opened and none for five keyboard rises.
+- **Why Mac Keys lost the title bar** (the spec's d): not a push — on the folded laptop the
+  keyboard's frame reaches ~68 pt above the fold (the ~55 pt band iOS keeps above its keys off the
+  hinge, plus the gap), the same for iOS's keys and the Mac's (the host takes the measured iOS
+  height, capped to the half), so the window's foot gives 60 pt and `keepZoom` keeps the bottom —
+  the title bar scrolls up out of a shorter view, by design. The top never moves.
+- `MACROPHONE_SEND_TO=screen` now picks the Whole Screen (the hook had no such case, so the
+  earlier "Whole Screen" runs were Claude's window). `DuoTypingUITests`
+  (`TEST_RUNNER_MACROPHONE_DUO_REAL=book|laptop`, the real pose): Claude and the Whole Screen, Mac
+  Keys off and on — the window's left, width and top unchanged (±1), the book's window never past
+  the screen's middle, back to its rest frame after hide; it prints where the keyboard's bar lands
+  against the fold.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

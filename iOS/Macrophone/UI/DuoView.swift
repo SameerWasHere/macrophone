@@ -83,6 +83,12 @@ enum DuoLook {
     /// the deck's own, so the window, the answers and the modes line up.
     static let uprightTop: CGFloat = 6
     static let uprightMargin: CGFloat = 12
+    /// Typing (Nov 7 2026, round 3): the breath between the Mac's picture and the keyboard's bar
+    /// where the keyboard reaches up into the Mac's room, and the least of the Mac's room at rest
+    /// the keyboard may leave — the picture's foot gives way, never its width, its scale or its
+    /// top, and never down to a sliver.
+    static let keyboardGap: CGFloat = 8
+    static let typingMacFloor: CGFloat = 0.5
 }
 
 extension MainView {
@@ -102,15 +108,22 @@ extension MainView {
             // The left page meets the screen's rounded corners on three sides: the picture sits in
             // from them, so the curve never cuts the window's title bar or the answers under it.
             let inset = DuoLook.edgeInset
-            // Typing: the keyboard is the screen's width, so the window takes the whole width over
-            // it, the deck's page giving way (in the tree, at no width: the keyboard's field lives
-            // there) — a moment's change, so the Mac's window isn't reshaped for it.
+            // Typing: the keyboard rises over the foot of both pages (iOS splits its keys at the
+            // hinge), and the book stays a book (Nov 7 2026, round 3): each page keeps its width
+            // and the crease between them, and only their heights give way, down to the
+            // keyboard's top, in the keyboard's own motion (`keysUp` and `keyboardRoom` change
+            // inside it). The Mac's window had taken the whole width over the keyboard — the
+            // picture stretched across the crease at twice the zoom each time, and the deck
+            // vanished. The deck ends at the keyboard too and stays in the tree: the keyboard's
+            // field lives in it. A moment's change, so the Mac's window isn't reshaped for it.
             let typing = typingOver
-            let pageWidth = typing ? geo.size.width - inset - 8 : max(0, h.mac.width - inset)
-            let pageHeight = typing ? max(0, keyboardTop(in: geo) - inset - 8) : max(0, geo.size.height - 2 * inset)
-            let gap = typing ? 0 : max(0, h.deck.minX - h.mac.maxX)
-            HStack(spacing: 0) {
-                DuoMacHalf(main: self, vertical: true, room: CGSize(width: pageWidth, height: pageHeight))
+            let pageWidth = max(0, h.mac.width - inset)
+            let restHeight = max(0, geo.size.height - 2 * inset)
+            let pageHeight = typing ? max(0, min(restHeight, keyboardTop(in: geo) - inset - DuoLook.keyboardGap)) : restHeight
+            let gap = max(0, h.deck.minX - h.mac.maxX)
+            let deckHeight = typing ? max(0, min(geo.size.height, keyboardTop(in: geo))) : geo.size.height
+            HStack(alignment: .top, spacing: 0) {
+                DuoMacHalf(main: self, vertical: true, room: CGSize(width: pageWidth, height: restHeight))
                     .environment(\.fullScreenAvailable, true)
                     .frame(width: pageWidth, height: pageHeight)
                     .padding(.leading, inset)
@@ -118,10 +131,10 @@ extension MainView {
                     .frame(height: geo.size.height, alignment: .top)
                 Color.clear.frame(width: gap)
                 DuoDeck(main: self, vertical: true)
-                    .frame(width: typing ? 0 : max(0, geo.size.width - h.deck.minX))
+                    .frame(width: max(0, geo.size.width - h.deck.minX), height: deckHeight, alignment: .top)
                     .clipped()
             }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
         }
         // The keyboard rises over both pages: laid out from its own frame (`keyboardTop`).
@@ -151,43 +164,56 @@ extension MainView {
             let h = posture.halves(for: .laptop, in: geo.size)
             // Flat and upright there's no fold to keep to: the window takes all but the deck.
             let flat = posture.pose == .open(landscape: false)
-            // The keyboard up: it covers the deck, so the window takes everything above it (and
-            // its Hide button) and nothing overlaps the picture (Nov 1 2026, Sameer: "the
-            // keyboard and the hide button … overlap with the view window"). A moment's change:
-            // the Mac's window isn't reshaped for it. The deck stays in the tree at no height —
-            // the keyboard's field lives in it.
-            let typing = typingOver
-            // Flat and upright with a window in hand the deck is one height whatever its mode
-            // (the tallest's: the header, the modes, a question's answers and the mic with its
-            // Thread), so changing mode, a question coming or going, never moves the window.
-            let deckHeight = typing ? 0 : flat ? min(geo.size.height * (watcher.isShowing ? 0.45 : 0.52), watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
-            let gap: CGFloat = typing ? 0 : flat ? 10 : h.deck.minY - h.mac.maxY
-            let macHeight = typing ? max(0, keyboardTop(in: geo) - 8) : flat ? geo.size.height - deckHeight - gap : h.mac.height
+            // The room at rest — the Mac's half, the fold, the deck — which the keyboard never
+            // changes. Flat and upright with a window in hand the deck is one height whatever its
+            // mode (the tallest's: the header, the modes, a question's answers and the mic with
+            // its Thread), so changing mode, a question coming or going, never moves the window.
+            let restDeck = flat ? min(geo.size.height * (watcher.isShowing ? 0.45 : 0.52), watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
+            let restGap: CGFloat = flat ? 10 : h.deck.minY - h.mac.maxY
+            let restMac = flat ? geo.size.height - restDeck - restGap : h.mac.height
+            // The keyboard up (Nov 7 2026, round 3): the top half is the Mac's screen, and a
+            // Mac's screen doesn't move for a keyboard — its width, its scale and its top edge
+            // stay. The deck ends at the keyboard's top (in the tree still: the keyboard's field
+            // lives in it); where the keyboard reaches up past the fold the Mac's frame gives it
+            // the room from its foot only, in the keyboard's own motion, never below half of what
+            // it had. (It used to take everything above the keyboard: the Whole Screen was
+            // re-measured from the shorter room and shrank, re-centred, by a hundred points.) A
+            // moment's change: the Mac's window isn't reshaped for it.
+            let keysTop = typingOver ? keyboardTop(in: geo) : nil
+            let macHeight = keysTop.map { max(min(restMac, $0 - DuoLook.keyboardGap), (restMac * DuoLook.typingMacFloor).rounded()) } ?? restMac
+            let gap = keysTop.map { min(restGap, max(0, $0 - macHeight)) } ?? restGap
+            let deckHeight = keysTop.map { max(0, $0 - macHeight - gap) } ?? restDeck
             VStack(spacing: 0) {
                 // The Mac's screen: the picture as big as the half allows, in from the screen's
                 // rounded corners so none of it is cut (Nov 1 2026, Sameer: "the view window
                 // should take up the whole top half … as if the duo was a mini Mac").
-                if let whole = wholeScreenSize(in: CGSize(width: geo.size.width, height: macHeight)) {
+                if let whole = wholeScreenSize(in: CGSize(width: geo.size.width, height: restMac)) {
                     // The whole screen: all of it, as big as it goes — the half's own shape is
                     // taller than a Mac's display, so the frame takes the picture's shape (no
-                    // bars), its foot on the fold, its top corners clear of the screen's.
+                    // bars), its foot on the fold, its top corners clear of the screen's. Sized
+                    // from the room at rest; the keyboard's band hides its foot (the frame
+                    // shortens from the bottom, clipped) rather than shrinking it.
                     DuoMacHalf(main: self, vertical: false, room: whole, edge: true)
                         .frame(width: whole.width, height: whole.height)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .frame(height: max(0, macHeight))
+                        .frame(maxWidth: .infinity, alignment: .bottom)
+                        .frame(height: max(0, restMac), alignment: .bottom)
+                        .frame(height: max(0, macHeight), alignment: .top)
+                        .clipped()
                 } else {
                     // Just under the status bar, the deck's margins either side: the same top on
-                    // every path — in hand or the glance, the keyboard up or the mic open.
-                    DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * DuoLook.uprightMargin, height: macHeight - DuoLook.uprightTop), edge: true)
+                    // every path — in hand or the glance, the keyboard up or the mic open. The
+                    // keyboard shortens the frame from its foot: the viewer keeps its zoom and
+                    // the bottom if it showed, so a chat's composer stays above the keys.
+                    DuoMacHalf(main: self, vertical: false, room: CGSize(width: geo.size.width - 2 * DuoLook.uprightMargin, height: restMac - DuoLook.uprightTop), edge: true)
                         .padding(.horizontal, DuoLook.uprightMargin)
                         .padding(.top, DuoLook.uprightTop)
-                        .frame(height: max(0, macHeight))
+                        .frame(height: max(0, macHeight), alignment: .top)
                 }
                 // The fold: nothing sits here.
                 Color.clear.frame(height: max(0, gap))
                 DuoDeck(main: self, vertical: false)
-                    .frame(height: max(0, deckHeight))
-                    // At no height (typing) nothing of it may spill up over the window.
+                    .frame(height: max(0, deckHeight), alignment: .top)
+                    // Nothing of it may spill up over the window (typing: it ends at the keys).
                     .clipped()
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
@@ -208,6 +234,7 @@ extension MainView {
     /// the bottom … maximize that screen size as much as possible … without getting cut off"):
     /// the widest picture of the Mac's display, centred across with its foot on the fold, whose
     /// top corners stay clear of the screen's rounded ones. Nil for a window (it fills the half).
+    /// From the room at rest: the keyboard never re-measures it.
     func wholeScreenSize(in room: CGSize) -> CGSize? {
         guard watcher.isShowing, watcher.isDesktop, let size = watcher.videoSize ?? watcher.image?.size,
               size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return nil }
