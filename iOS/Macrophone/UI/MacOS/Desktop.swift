@@ -65,7 +65,12 @@ struct PhoneMenuBar: View {
 /// buried in a menu"): the two things used every dictation in plain sight — Send after pasting as
 /// a toggle that says its state ("Paste only" · "Paste & Send", gone where the pick can't send),
 /// Cleanup's level, and Attach (a photo, a file, the clipboard), which had been an unlabelled ⋯.
-/// The words give way in order — Cleanup's "Cleanup:", then Attach's word, then the toggle's.
+/// One vocabulary whatever the state (Nov 7 2026, round 4): the toggle says "Paste only" or
+/// "Paste & Send", Cleanup the wand and its level's word — Off · Light · Medium · Heavy · Custom,
+/// never "Cleanup:" and never "Cleanup off" — and Attach its word. Each segment is as wide as its
+/// widest word (the toggle and Cleanup lay every word hidden under the visible one), so the bar
+/// is one width on a given phone and a change of level or a landing never re-lays it; the room
+/// alone decides, in order: Attach gives up its word, then the toggle says "Send".
 struct DockOptions: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var settings: Settings
@@ -75,10 +80,9 @@ struct DockOptions: View {
     var body: some View {
         let target = model.selection.target
         ViewThatFits(in: .horizontal) {
-            bar(target, cleanupShort: false, attachWord: true, sendShort: false)
-            bar(target, cleanupShort: true, attachWord: true, sendShort: false)
-            bar(target, cleanupShort: true, attachWord: false, sendShort: false)
-            bar(target, cleanupShort: true, attachWord: false, sendShort: true)
+            bar(target, attachWord: true, sendShort: false)
+            bar(target, attachWord: false, sendShort: false)
+            bar(target, attachWord: false, sendShort: true)
         }
         .frame(maxWidth: .infinity)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
@@ -86,14 +90,14 @@ struct DockOptions: View {
         .animation(Motion.snap, value: target.canSend)
     }
 
-    private func bar(_ target: TargetRef, cleanupShort: Bool, attachWord: Bool, sendShort: Bool) -> some View {
+    private func bar(_ target: TargetRef, attachWord: Bool, sendShort: Bool) -> some View {
         HStack(spacing: 0) {
             if target.canSend {
                 SendToggle(target: target, plain: true, short: sendShort)
                     .transition(.opacity)
                 hairline
             }
-            CleanupMenu(settings: settings, short: cleanupShort, plain: true) { model.sheet = .customCleanup }
+            CleanupMenu(settings: settings, short: true, plain: true) { model.sheet = .customCleanup }
             if AttachMenu.available(model) {
                 hairline
                 AttachMenu(style: attachWord ? .labelled : .glyph, pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
