@@ -1,0 +1,481 @@
+  0.00s  top 321  foot 2045
+  0.03s  top 321  foot 2045
+  0.07s  top 321  foot 2045
+  0.10s  top 321  foot 2045
+  0.13s  top 321  foot 2045
+  0.17s  top 321  foot 2045
+  0.20s  top 321  foot 2045
+  0.23s  top 321  foot 2045
+  0.27s  top 321  foot 2045
+  0.30s  top 321  foot 2045
+  0.33s  top 321  foot 2045
+  0.37s  top 321  foot 2045
+  0.40s  top 321  foot 2045
+  0.43s  top 321  foot 2045
+  0.47s  top 321  foot 2045
+  0.50s  top 321  foot 2045
+  0.53s  top 321  foot 2045
+  0.57s  top 321  foot 2045
+  0.60s  top 321  foot 2045
+  0.63s  top 321  foot 2045
+  0.67s  top 321  foot 2045
+  0.70s  top 321  foot 2045
+  0.73s  top 321  foot 2045
+  0.77s  top 321  foot 2045
+  0.80s  top 321  foot 2045
+  0.83s  top 321  foot 2045
+  0.87s  top 321  foot 2045
+  0.90s  top 321  foot 2045
+  0.93s  top 321  foot 2045
+  0.97s  top 321  foot 2045
+  1.00s  top 321  foot 2045
+  1.03s  top 321  foot 2045
+  1.07s  top 321  foot 2045
+  1.10s  top 321  foot 2045
+  1.13s  top 321  foot 2045
+  1.17s  top 321  foot 2045
+  1.20s  top 321  foot 2045
+  1.23s  top 321  foot 2045
+  1.27s  top 321  foot 2045
+  1.30s  top 321  foot 2045
+  1.33s  top 321  foot 2045
+  1.37s  top 321  foot 2045
+  1.40s  top 321  foot 2045
+  1.43s  top 321  foot 2045
+  1.47s  top 321  foot 2045
+  1.50s  top 321  foot 2045
+  1.53s  top 321  foot 2045
+  1.57s  top 321  foot 2045
+  1.60s  top 321  foot 2045
+  1.63s  top 321  foot 2045
+  1.67s  top 321  foot 2045
+  1.70s  top 321  foot 2045
+  1.73s  top 321  foot 2045
+  1.77s  top 321  foot 2045
+  1.80s  top 321  foot 2045
+  1.83s  top 321  foot 2045
+  1.87s  top 321  foot 2045
+  1.90s  top 321  foot 2045
+  1.93s  top 321  foot 2045
+  1.97s  top 321  foot 2045
+  2.00s  top 321  foot 2045
+  2.03s  top 321  foot 2045
+  2.07s  top 321  foot 2045
+  2.10s  top 321  foot 2045
+  2.13s  top 321  foot 2045
+  2.17s  top 321  foot 2045
+  2.20s  top 321  foot 2045
+  2.23s  top 321  foot 2045
+  2.27s  top 321  foot 2045
+  2.30s  top 321  foot 2045
+  2.33s  top 321  foot 2045
+  2.37s  top 321  foot 2045
+  2.40s  top 321  foot 2045
+  2.43s  top 321  foot 2045
+  2.47s  top 321  foot 2045
+  2.50s  top 321  foot 2045
+  2.53s  top 321  foot 2045
+  2.57s  top 321  foot 2045
+  2.60s  top 321  foot 2045
+  2.63s  top 321  foot 2045
+  2.67s  top 321  foot 2045
+  2.70s  top 321  foot 2045
+  2.73s  top 321  foot 2045
+  2.77s  top 321  foot 2045
+  2.80s  top 321  foot 2045
+  2.83s  top 321  foot 2045
+  2.87s  top 321  foot 2045
+  2.90s  top 321  foot 2045
+  2.93s  top 321  foot 2045
+  2.97s  top 321  foot 2045
+  3.00s  top 321  foot 2045
+  3.03s  top 321  foot 2045
+  3.07s  top 321  foot 2045
+  3.10s  top 321  foot 2045
+  3.13s  top 321  foot 2045
+  3.17s  top 321  foot 2045
+  3.20s  top 321  foot 2045
+  3.23s  top 321  foot 2045
+  3.27s  top 321  foot 2045
+  3.30s  top 321  foot 2045
+  3.33s  top 321  foot 2045
+  3.37s  top 321  foot 2045
+  3.40s  top 321  foot 2024  (-21)
+  3.43s  top 321  foot 1898  (-126)
+  3.47s  top 321  foot 1747  (-151)
+  3.50s  top 321  foot 1616  (-131)
+  3.53s  top 321  foot 1515  (-101)
+  3.57s  top 321  foot 1442  (-73)
+  3.60s  top 321  foot 1391  (-51)
+  3.63s  top 321  foot 1356  (-35)
+  3.67s  top 321  foot 1333  (-23)
+  3.70s  top 321  foot 1317  (-16)
+  3.73s  top 321  foot 1307  (-10)
+  3.77s  top 321  foot 1301  (-6)
+  3.80s  top 321  foot 1296  (-5)
+  3.83s  top 321  foot 1294  (-2)
+  3.87s  top 321  foot 1292  (-2)
+  3.90s  top 321  foot 1291  (-1)
+  3.93s  top 321  foot 1290  (-1)
+  3.97s  top 321  foot 1289  (-1)
+  4.00s  top 321  foot 1289
+  4.03s  top 321  foot 1289
+  4.07s  top 321  foot 1289
+  4.10s  top 321  foot 1289
+  4.13s  top 321  foot 1289
+  4.17s  top 321  foot 1289
+  4.20s  top 321  foot 1289
+  4.23s  top 321  foot 1289
+  4.27s  top 321  foot 1289
+  4.30s  top 321  foot 1289
+  4.33s  top 321  foot 1289
+  4.37s  top 321  foot 1289
+  4.40s  top 321  foot 1289
+  4.43s  top 321  foot 1289
+  4.47s  top 321  foot 1289
+  4.50s  top 321  foot 1289
+  4.53s  top 321  foot 1289
+  4.57s  top 321  foot 1289
+  4.60s  top 321  foot 1289
+  4.63s  top 321  foot 1289
+  4.67s  top 321  foot 1289
+  4.70s  top 321  foot 1289
+  4.73s  top 321  foot 1289
+  4.77s  top 321  foot 1289
+  4.80s  top 321  foot 1289
+  4.83s  top 321  foot 1289
+  4.87s  top 321  foot 1289
+  4.90s  top 321  foot 1289
+  4.93s  top 321  foot 1289
+  4.97s  top 321  foot 1289
+  5.00s  top 321  foot 1289
+  5.03s  top 321  foot 1289
+  5.07s  top 321  foot 1289
+  5.10s  top 321  foot 1286  (-3)
+  5.13s  no window
+  5.17s  no window
+  5.20s  no window
+  5.23s  no window
+  5.27s  no window
+  5.30s  no window
+  5.33s  top 323  foot 1284
+  5.37s  top 323  foot 1285  (+1)
+  5.40s  top 321  foot 1286  (+1)
+  5.43s  top 321  foot 1286
+  5.47s  top 321  foot 1289  (+3)
+  5.50s  top 321  foot 1289
+  5.53s  top 321  foot 1289
+  5.57s  top 321  foot 1289
+  5.60s  top 321  foot 1289
+  5.63s  top 321  foot 1289
+  5.67s  top 321  foot 1289
+  5.70s  top 321  foot 1289
+  5.73s  top 321  foot 1289
+  5.77s  top 321  foot 1289
+  5.80s  top 321  foot 1289
+  5.83s  top 321  foot 1289
+  5.87s  top 321  foot 1289
+  5.90s  top 321  foot 1289
+  5.93s  top 321  foot 1289
+  5.97s  top 321  foot 1289
+  6.00s  top 321  foot 1289
+  6.03s  top 321  foot 1289
+  6.07s  top 321  foot 1289
+  6.10s  top 321  foot 1289
+  6.13s  top 321  foot 1289
+  6.17s  top 321  foot 1289
+  6.20s  top 321  foot 1289
+  6.23s  top 321  foot 1289
+  6.27s  top 321  foot 1289
+  6.30s  top 321  foot 1289
+  6.33s  top 321  foot 1289
+  6.37s  top 321  foot 1289
+  6.40s  top 321  foot 1289
+  6.43s  top 321  foot 1289
+  6.47s  top 321  foot 1289
+  6.50s  top 321  foot 1289
+  6.53s  top 321  foot 1289
+  6.57s  top 321  foot 1289
+  6.60s  top 321  foot 1289
+  6.63s  top 321  foot 1289
+  6.67s  top 321  foot 1289
+  6.70s  top 321  foot 1289
+  6.73s  top 321  foot 1289
+  6.77s  top 321  foot 1289
+  6.80s  top 321  foot 1289
+  6.83s  top 321  foot 1289
+  6.87s  top 321  foot 1289
+  6.90s  top 321  foot 1289
+  6.93s  top 321  foot 1289
+  6.97s  top 321  foot 1289
+  7.00s  top 321  foot 1289
+  7.03s  top 321  foot 1289
+  7.07s  top 321  foot 1289
+  7.10s  top 321  foot 1289
+  7.13s  top 321  foot 1289
+  7.17s  top 321  foot 1289
+  7.20s  top 321  foot 1289
+  7.23s  top 321  foot 1289
+  7.27s  top 321  foot 1289
+  7.30s  top 321  foot 1289
+  7.33s  top 321  foot 1289
+  7.37s  top 321  foot 1289
+  7.40s  top 321  foot 1289
+  7.43s  top 321  foot 1289
+  7.47s  top 321  foot 1289
+  7.50s  top 321  foot 1289
+  7.53s  top 321  foot 1289
+  7.57s  top 321  foot 1289
+  7.60s  top 321  foot 1289
+  7.63s  top 321  foot 1289
+  7.67s  top 321  foot 1289
+  7.70s  top 321  foot 1289
+  7.73s  top 321  foot 1289
+  7.77s  top 321  foot 1289
+  7.80s  top 321  foot 1289
+  7.83s  top 321  foot 1289
+  7.87s  top 321  foot 1289
+  7.90s  top 321  foot 1289
+  7.93s  top 321  foot 1289
+  7.97s  top 321  foot 1289
+  8.00s  top 321  foot 1289
+  8.03s  top 321  foot 1289
+  8.07s  top 321  foot 1289
+  8.10s  top 321  foot 1289
+  8.13s  top 321  foot 1289
+  8.17s  top 321  foot 1289
+  8.20s  top 321  foot 1289
+  8.23s  top 321  foot 1451  (+162)
+  8.27s  top 321  foot 1471  (+20)
+  8.30s  top 321  foot 1526  (+55)
+  8.33s  top 321  foot 1690  (+164)
+  8.37s  top 321  foot 1831  (+141)
+  8.40s  top 321  foot 1934  (+103)
+  8.43s  top 321  foot 2021  (+87)
+  8.47s  top 321  foot 2045  (+24)
+  8.50s  top 321  foot 2045
+  8.53s  top 321  foot 2045
+  8.57s  top 321  foot 2045
+  8.60s  top 321  foot 2045
+  8.63s  top 321  foot 2045
+  8.67s  top 321  foot 2045
+  8.70s  top 321  foot 2045
+  8.73s  top 321  foot 2045
+  8.77s  top 321  foot 2045
+  8.80s  top 321  foot 2045
+  8.83s  top 321  foot 2045
+  8.87s  top 321  foot 2045
+  8.90s  top 321  foot 2045
+  8.93s  top 321  foot 2045
+  8.97s  top 321  foot 2045
+  9.00s  top 321  foot 2045
+  9.03s  top 321  foot 2045
+  9.07s  top 321  foot 2045
+  9.10s  top 321  foot 2045
+  9.13s  top 321  foot 2045
+  9.17s  top 321  foot 2045
+  9.20s  top 321  foot 2045
+  9.23s  top 321  foot 2045
+  9.27s  top 321  foot 2045
+  9.30s  top 321  foot 2045
+  9.33s  top 321  foot 2045
+  9.37s  top 321  foot 2045
+  9.40s  top 321  foot 2045
+  9.43s  top 321  foot 2045
+  9.47s  top 321  foot 2045
+  9.50s  top 321  foot 2045
+  9.53s  top 321  foot 2045
+  9.57s  top 321  foot 2045
+  9.60s  top 321  foot 2045
+  9.63s  top 321  foot 2045
+  9.67s  top 321  foot 2045
+  9.70s  top 321  foot 2045
+  9.73s  top 321  foot 2045
+  9.77s  top 321  foot 2045
+  9.80s  top 321  foot 2045
+  9.83s  top 321  foot 2045
+  9.87s  top 321  foot 2045
+  9.90s  top 321  foot 2045
+  9.93s  top 321  foot 2045
+  9.97s  top 321  foot 2045
+ 10.00s  top 321  foot 2045
+ 10.03s  top 321  foot 2045
+ 10.07s  top 321  foot 2045
+ 10.10s  top 321  foot 2045
+ 10.13s  top 321  foot 2045
+ 10.17s  top 321  foot 2045
+ 10.20s  top 321  foot 2045
+ 10.23s  top 321  foot 2045
+ 10.27s  top 321  foot 2045
+ 10.30s  top 321  foot 2045
+ 10.33s  top 321  foot 2045
+ 10.37s  top 321  foot 2045
+ 10.40s  top 321  foot 2045
+ 10.43s  top 321  foot 2045
+ 10.47s  top 321  foot 2045
+ 10.50s  top 321  foot 2045
+ 10.53s  top 321  foot 2045
+ 10.57s  top 321  foot 2045
+ 10.60s  top 321  foot 2045
+ 10.63s  top 321  foot 2045
+ 10.67s  top 321  foot 2045
+ 10.70s  top 321  foot 2045
+ 10.73s  top 321  foot 2045
+ 10.77s  top 321  foot 2045
+ 10.80s  top 321  foot 2045
+ 10.83s  top 321  foot 2045
+ 10.87s  top 321  foot 2045
+ 10.90s  top 321  foot 2045
+ 10.93s  top 321  foot 2045
+ 10.97s  top 321  foot 2045
+ 11.00s  top 321  foot 2045
+ 11.03s  top 321  foot 2045
+ 11.07s  top 321  foot 2045
+ 11.10s  top 321  foot 2045
+ 11.13s  top 321  foot 2045
+ 11.17s  top 321  foot 2045
+ 11.20s  top 321  foot 2032  (-13)
+ 11.23s  top 321  foot 1934  (-98)
+ 11.27s  top 321  foot 1824  (-110)
+ 11.30s  top 321  foot 1694  (-130)
+ 11.33s  top 321  foot 1624  (-70)
+ 11.37s  top 321  foot 1582  (-42)
+ 11.40s  top 321  foot 1556  (-26)
+ 11.43s  top 321  foot 1541  (-15)
+ 11.47s  top 321  foot 1532  (-9)
+ 11.50s  top 321  foot 1528  (-4)
+ 11.53s  top 321  foot 1527  (-1)
+ 11.57s  top 321  foot 1527
+ 11.60s  top 321  foot 1527
+ 11.63s  top 321  foot 1529  (+2)
+ 11.67s  top 321  foot 1529
+ 11.70s  top 321  foot 1529
+ 11.73s  top 321  foot 1529
+ 11.77s  top 321  foot 1529
+ 11.80s  top 321  foot 1529
+ 11.83s  top 321  foot 1529
+ 11.87s  top 321  foot 1529
+ 11.90s  top 321  foot 1529
+ 11.93s  top 321  foot 1529
+ 11.97s  top 321  foot 1529
+ 12.00s  top 321  foot 1529
+ 12.03s  top 321  foot 1529
+ 12.07s  top 321  foot 1529
+ 12.10s  top 321  foot 1529
+ 12.13s  top 321  foot 1529
+ 12.17s  top 321  foot 1529
+ 12.20s  top 321  foot 1529
+ 12.23s  top 321  foot 1529
+ 12.27s  top 321  foot 1529
+ 12.30s  top 321  foot 1529
+ 12.33s  top 321  foot 1529
+ 12.37s  top 321  foot 1529
+ 12.40s  top 321  foot 1529
+ 12.43s  top 321  foot 1529
+ 12.47s  top 321  foot 1529
+ 12.50s  top 321  foot 1529
+ 12.53s  top 321  foot 1529
+ 12.57s  top 321  foot 1529
+ 12.60s  top 321  foot 1529
+ 12.63s  top 321  foot 1529
+ 12.67s  top 321  foot 1529
+ 12.70s  top 321  foot 1529
+ 12.73s  top 321  foot 1529
+ 12.77s  top 321  foot 1529
+ 12.80s  top 321  foot 1529
+ 12.83s  top 321  foot 1529
+ 12.87s  top 321  foot 1529
+ 12.90s  top 321  foot 1529
+ 12.93s  top 321  foot 1529
+ 12.97s  top 321  foot 1529
+ 13.00s  top 321  foot 1529
+ 13.03s  top 321  foot 1529
+ 13.07s  top 321  foot 1529
+ 13.10s  top 321  foot 1529
+ 13.13s  top 321  foot 1529
+ 13.17s  top 321  foot 1529
+ 13.20s  top 321  foot 1541  (+12)
+ 13.23s  top 321  foot 1639  (+98)
+ 13.27s  top 321  foot 1749  (+110)
+ 13.30s  top 321  foot 1879  (+130)
+ 13.33s  top 321  foot 1949  (+70)
+ 13.37s  top 321  foot 1991  (+42)
+ 13.40s  top 321  foot 2006  (+15)
+ 13.43s  top 321  foot 2026  (+20)
+ 13.47s  top 321  foot 2038  (+12)
+ 13.50s  top 321  foot 2043  (+5)
+ 13.53s  top 321  foot 2046  (+3)
+ 13.57s  top 321  foot 2047  (+1)
+ 13.60s  top 321  foot 2046  (-1)
+ 13.63s  top 321  foot 2045  (-1)
+ 13.67s  top 321  foot 2045
+ 13.70s  top 321  foot 2045
+ 13.73s  top 321  foot 2045
+ 13.77s  top 321  foot 2045
+ 13.80s  top 321  foot 2045
+ 13.83s  top 321  foot 2045
+ 13.87s  top 321  foot 2045
+ 13.90s  top 321  foot 2045
+ 13.93s  top 321  foot 2045
+ 13.97s  top 321  foot 2045
+ 14.00s  top 321  foot 2045
+ 14.03s  top 321  foot 2045
+ 14.07s  top 321  foot 2045
+ 14.10s  top 321  foot 2045
+ 14.13s  top 321  foot 2045
+ 14.17s  top 321  foot 2045
+ 14.20s  top 321  foot 2045
+ 14.23s  top 321  foot 2045
+ 14.27s  top 321  foot 2045
+ 14.30s  top 321  foot 2045
+ 14.33s  top 321  foot 2045
+ 14.37s  top 321  foot 2045
+ 14.40s  top 321  foot 2045
+ 14.43s  top 321  foot 2045
+ 14.47s  top 321  foot 2045
+ 14.50s  top 321  foot 2045
+ 14.53s  top 321  foot 2045
+ 14.57s  top 321  foot 2045
+ 14.60s  top 321  foot 2045
+ 14.63s  top 321  foot 2045
+ 14.67s  top 321  foot 2045
+ 14.70s  top 321  foot 2045
+ 14.73s  top 321  foot 2045
+ 14.77s  top 321  foot 2045
+ 14.80s  top 321  foot 2045
+ 14.83s  top 321  foot 2045
+ 14.87s  top 321  foot 2045
+ 14.90s  top 321  foot 2045
+ 14.93s  top 321  foot 2045
+ 14.97s  top 321  foot 2045
+ 15.00s  top 321  foot 2045
+ 15.03s  top 321  foot 2045
+ 15.07s  top 321  foot 2045
+ 15.10s  top 321  foot 2045
+ 15.13s  top 321  foot 2045
+ 15.17s  top 321  foot 2045
+ 15.20s  top 321  foot 2045
+ 15.23s  top 321  foot 2045
+ 15.27s  top 321  foot 2045
+ 15.30s  top 321  foot 2045
+ 15.33s  top 321  foot 2045
+ 15.37s  top 321  foot 2045
+ 15.40s  top 321  foot 2045
+ 15.43s  top 321  foot 2045
+ 15.47s  top 321  foot 2045
+ 15.50s  top 321  foot 2045
+ 15.53s  top 321  foot 2045
+ 15.57s  top 321  foot 2045
+ 15.60s  top 321  foot 2045
+ 15.63s  top 321  foot 2045
+ 15.67s  top 321  foot 2045
+ 15.70s  top 321  foot 2045
+ 15.73s  top 321  foot 2045
+ 15.77s  top 321  foot 2045
+ 15.80s  top 321  foot 2045
+ 15.83s  top 321  foot 2045
+ 15.87s  top 321  foot 2045
+ 15.90s  top 321  foot 2045
+ 15.93s  top 321  foot 2045
+ 15.97s  top 321  foot 2045
+ 16.00s  top 321  foot 2045

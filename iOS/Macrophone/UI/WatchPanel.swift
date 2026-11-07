@@ -777,7 +777,10 @@ struct WatchWindow: View {
                              drag: watcher.drag, phased: watcher.macCanScroll, fill: fill, footInset: footInset,
                              viewKey: interactive ? watcher.viewKey : nil,
                              pointer: live && input.pointerShown ? input.pointer.point : nil, pointerSeq: input.pointerSeq,
-                             canDrag: live && watcher.canMouse, keyboardUp: input.page == .keyboard || input.keysUp,
+                             canDrag: live && watcher.canMouse,
+                             // The trackpad too (Nov 7 2026, round 5): its page takes room from
+                             // under the window as the keyboard's does, and the zoom holds the same way.
+                             keyboardUp: input.page != .mic || input.keysUp,
                              answersUp: watcher.answers != nil,
                              onLog: interactive ? { [weak watcher] in watcher?.log?.add($0) } : nil,
                              onTouch: { watcher.touch() },
@@ -1809,7 +1812,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     private var hadPicture = false
     private var lastBounds: CGSize = .zero
     /// The keyboard page is up (Nov 4 2026, Sameer: "I don't want the window to auto zoom when
-    /// I open the keyboard"): the view getting shorter as it rises, and taller as it goes, keeps
+    /// I open the keyboard") — or the trackpad's (Nov 7 2026): the view getting shorter as it rises, and taller as it goes, keeps
     /// the zoom and the spot — the newest lines stay in view if they were.
     var keyboardUp = false {
         didSet {
@@ -1821,7 +1824,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
                 let zoom = zoomScale, height = lastBounds.height, came = keyboardUp
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
                     guard let self, abs(self.bounds.height - height) >= 1, self.imageSize != .zero else { return }
-                    self.onLog?(String(format: "viewer: the keyboard %@ — zoom %.3f before, %.3f after (view %d → %d pt)",
+                    self.onLog?(String(format: "viewer: the keyboard or trackpad %@ — zoom %.3f before, %.3f after (view %d → %d pt)",
                                        came ? "came" : "went", zoom, self.zoomScale, Int(height), Int(self.bounds.height)))
                 }
             }

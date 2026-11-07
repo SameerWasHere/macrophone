@@ -695,7 +695,8 @@ the Duo unless it says so.
   after. Done still goes into the Dock.
 - **The landed pill is said once:** the status line no longer repeats "Pasted into …" when the
   pill leaves (`AppModel.pillSaidIt`). While the mic is open over a window the page row stays in
-  its place, faded, and takes no tap or swipe (`InputCarousel(rowDimmed:)`).
+  its place, faded, and takes no tap or swipe (`InputCarousel(rowDimmed:)`) **[superseded Nov 7
+  2026, round 5: the phone draws no page row; `rowDimmed` now only stops the swipe]**.
 - **The Dock:** the pick's name stays on the visible shelf over an icon at either end, scrolled
   or not (it was cut: "alendar"); a pick's old name goes at once (two labels garbled together).
 - **The menu bar:** a long Mac name ends in "…" (it pushed the bar past both sides and lost
@@ -1141,7 +1142,7 @@ menu". Four streams, merged together. Frames: `docs/screens/overnight-nov7/round
   the room's foot; the keyboard page keeps the last page's room (`restBand`) until the keys rise.
   The keyboard page itself is never faded or scaled (an effect's new container made UIKit hand the
   keyboard back after it let go). `phoneBody` animates on `input.page` on every phone; the regular
-  iPhone's page row folds away while `keysUp`. The trackpad's hint is one line ("Trackpad · Two
+  iPhone's page row folds away while `keysUp` **[superseded round 5: no page row on the phone while a window shows]**. The trackpad's hint is one line ("Trackpad · Two
   fingers scroll"); Mac Controls is `switch.2` everywhere (`MacControlsButton.symbol`); the cover's
   Whole Screen keeps last time's shape while connecting.
 - **The window's own controls, primary first** (`UI/WatchPanel.swift`). *The name reads whole* on
@@ -1752,6 +1753,48 @@ frames `docs/screens/overnight-nov7/round-4/<stream>/`. Wins over round 2 where 
   **Open:** the cover's sheet's white panel stops short of the vertical bar while its glass runs
   under it (seen in Control Center; system).
 
+## Overnight polish, round 5 (Nov 7 2026)
+
+### The window takes the iPhone
+
+On a regular iPhone the watched window had 41% of the screen (43% on an SE): under the key row sat
+the page row (Keyboard · Mic · Trackpad), the Thread's 84 pt band and a 92 pt mic over bare
+wallpaper. Now the regular iPhone does what the Duo's cover does (`MainView.rowWatching` =
+`(isCover || regularPhone) && watcher.isOpen && !showLiveWords`, replacing `coverWatching`):
+- **While a window shows:** no page row (`rowHidden: isCover || regularPhone`), no Thread, and one
+  row under the key row — `pageButton(.keyboard)` · a 64 pt mic · `pageButton(.trackpad)` (round
+  glass, labels "Keyboard" / "Trackpad"; ids `phone-page-keyboard|trackpad`, the cover keeps
+  `cover-page-…`) with the one-line status (`LandedSlot` in it) under it. Measured on an iPhone 17
+  Pro: the picture 41% → 66% of the screen's height; the SE frame 44% → 67%. A swipe beside the
+  mic still changes the page.
+- **The trackpad** gets its own row (`TrackpadBar`: keyboard · "Two fingers scroll" · close,
+  `trackpad-bar-close`) and `trackpadRoom` over the mic row: 116 on the cover (as before), 122 on
+  a compact phone, 172 on a Pro — a plate of ~206 pt on a Pro and ~156 on an SE, its edges in line
+  with the window's (`InputCarousel(trackpadInset:)`, `WatchLook.sideMargin`; the cover's 16).
+- **No jumps:** the room changes only with a page change (the pages' spring — the window follows
+  it, ends within 1 pt of where it started, `smoothHeight` on the phone too) and with `keysUp`, in
+  the keyboard's motion. Measured per frame (`docs/screens/overnight-nov7/round-5/phone-one-row-watch/window-foot-per-frame.txt`):
+  the keyboard 2045 → 1289 px in one move, back 1289 → 2045 in one (the simulator's keyboard
+  vanishes in a frame, so the first step down is 54 pt); the trackpad 2045 → 1527 → 2045, a 0.7 pt
+  settle at each end. `serve`: one `WATCH SHAPE` at open, none for the pages, typing or the mic.
+- **The zoom holds for the trackpad** as it does for the keyboard: `WindowViewer(keyboardUp:)` is
+  `input.page != .mic || input.keysUp` (logged "viewer: the keyboard or trackpad came/went …").
+- **No ghost under the keyboard's bar** (the cover and every phone): the page leaving for the
+  keyboard goes at once instead of fading in `leave` — faded, it was still drawn under the
+  keyboard's glass bar as the keys rose. For the 4–5 frames before the keys come the room is empty.
+- **The mic opening over a window** is the cover's path: the same `MicButton` grows to 92, the
+  Thread comes back after the window leaves (`.handoff`-style `Motion.afterLeave` insertion now on
+  the phone too), and Done brings the rest desktop back unchanged. `rowDimmed` only stops the swipe.
+- Tests: `InputCarouselUITests` (no row; a swipe beside the mic to the trackpad and the keyboard;
+  the buttons as every way in and out — trackpad drag, close, keyboard typing, hide — with the
+  window's foot ±0.5 pt after each), `AccessibilityTreeUITests` taps the buttons.
+- A swipe has to start off the mic's own ground (70 pt either side of the middle — `onMic`), so
+  with no Thread it starts on the keyboard's or the trackpad's button. XCUITest lists the hidden
+  pages' elements (`input-trackpad`, `trackpad-bar-close`) on the mic page too: tests tell the
+  page by the window's foot, not by existence.
+- Left: the answers row under the window blinks out for a moment as the keyboard goes
+  (WatchActions, round 1); the plate's left-edge swipe back wasn't re-proven (close is the way).
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.
@@ -1867,7 +1910,7 @@ Contact sheet (before | after, Pro and SE): `docs/screens/carousel-fixes-oct19/`
 touches by `InputCarouselUITests` (a paired `mpctl serve`): a swipe on the Thread, a drag on the
 trackpad read back off its value ("Pointer 52 percent across, 61 percent down"), hide → mic, the
 Mac Controls button and panel, Close Window → the main screen.
-- **The page row is above the Thread** ("the switcher should be above the wave form"): `InputCarousel`
+- **The page row is above the Thread** **[superseded Nov 7 2026, round 5: while a window shows, no row and no Thread on any iPhone — the keyboard and the trackpad are buttons beside a 64 pt mic]** ("the switcher should be above the wave form"): `InputCarousel`
   now holds the row, then the Thread (`thread:`), then the pages, as one band — a horizontal swipe
   anywhere on the Thread or beside the mic (never on it) slides the pages; the mic's tap and hold,
   the window's gestures and vertical scrolling are untouched. The Thread shows on the mic page only.
