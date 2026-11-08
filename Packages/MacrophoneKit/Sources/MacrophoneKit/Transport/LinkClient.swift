@@ -880,7 +880,7 @@ public final class LinkClient: @unchecked Sendable {
         case .showPermissions:
             break
         case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
-             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertWatch:
+             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertWatch, .chatAnswers:
             break
         }
     }

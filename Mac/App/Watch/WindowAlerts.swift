@@ -29,6 +29,14 @@ final class AlertCenter {
         set { UserDefaults.standard.set(newValue, forKey: "alerts.cloud.pictures") }
     }
 
+    /// The phone's "When a chat answers you" (Nov 8 2026): its hello says how it stands on every
+    /// connect, a change while connected comes at once. Nil while no phone that has the switch
+    /// has connected (a phone from before): chats don't alert by themselves (ReplyWatcher).
+    var chatAnswers: Bool? {
+        get { AppPaths.defaults.object(forKey: "alerts.chatAnswers") as? Bool }
+        set { AppPaths.defaults.set(newValue, forKey: "alerts.chatAnswers") }
+    }
+
     /// This window asked something a moment ago.
     func recentlyAsked(_ ref: TargetRef) -> Bool {
         lastAsked[MacAlert.windowKey(ref)].map { Date().timeIntervalSince($0) < Self.quietAfterAsk } ?? false

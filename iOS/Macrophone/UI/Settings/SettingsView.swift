@@ -409,18 +409,24 @@ struct SettingsView: View {
 
     private var alertsSection: some View {
         Section {
+            // The answer finds you (Nov 8 2026): a chat you wrote to from here, when it answers.
+            Toggle(isOn: $settings.chatAnswers) {
+                Label { Text("When a chat answers you") } icon: { SettingsIcon(symbol: "text.bubble.fill", color: Light.cyan) }
+            }
+            .accessibilityIdentifier("chat-answers")
+            .onChange(of: settings.chatAnswers) { _, on in model.setChatAnswers(on) }
             Toggle(isOn: $settings.agentAlerts) {
                 Label { Text("When an agent asks something") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
             }
             .onChange(of: settings.agentAlerts) { _, on in
                 Task {
                     if on { await AgentAlerts.shared.askIfNeeded() }
-                    else if model.alertWatches.isEmpty { await AgentAlerts.shared.unsubscribeInCloud() }
+                    else if !AgentAlerts.shared.wanted { await AgentAlerts.shared.unsubscribeInCloud() }
                 }
             }
             // Why an alert couldn't reach this iPhone with the app closed, and the button that
             // fixes it (Nov 7 2026) — only while something wants alerts and something's in the way.
-            if settings.agentAlerts || !model.alertWatches.isEmpty { CloudAlertsStatusRow() }
+            if settings.agentAlerts || settings.chatAnswers || !model.alertWatches.isEmpty { CloudAlertsStatusRow() }
             // Windows on watch (Nov 6 2026): each one a row; a swipe ends it.
             ForEach(model.alertWatches) { w in
                 HStack(spacing: 12) {
@@ -449,8 +455,8 @@ struct SettingsView: View {
             Text("Alerts")
         } footer: {
             Text(model.canAlert || !model.alertWatches.isEmpty
-                 ? "Put any window on watch from its Window menu, or by holding its icon. You get a notification with a picture when it finishes or needs you, even with Macrophone closed."
-                 : "When an agent on your Mac stops to ask something, you get a notification with a picture of its window. Tap it to answer.")
+                 ? "Send something to a chat and you hear when it answers, with a picture of the reply, even with Macrophone closed. Put any other window on watch from its Window menu, or by holding its icon."
+                 : "Send something to a chat and you hear when it answers. When an agent on your Mac stops to ask something, you hear that too. Tap to answer.")
         }
     }
 

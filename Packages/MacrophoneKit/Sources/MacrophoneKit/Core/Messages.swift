@@ -251,6 +251,9 @@ public enum Message: Codable, Sendable {
     /// Mac → phone (only to a phone naming FrontWindow.feature): the window in front on the Mac,
     /// or nil when there's nothing safe to offer — after the welcome and on each change.
     case frontWindow(FrontWindow?)
+    /// Phone → Mac (only to a Mac naming ChatAnswers.feature): "When a chat answers you" turned
+    /// on or off on the phone (its hello says how it stands at each connect).
+    case chatAnswers(on: Bool)
     // Either way
     case ping
     case pong

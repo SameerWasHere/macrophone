@@ -1177,6 +1177,92 @@ needs only now and then; `ReplyWatcher`'s still threshold is 0.6%, which is why 
   (which state it shows), then an alert through iCloud with the app closed; **needs the installed
   Mac build:** a Terminal command finishing and a Claude reply with the window on watch.
 
+## The answer finds you (Nov 8 2026)
+
+From his Mac's log: 47 of his last 50 dictations went to the Claude app with send, almost all from
+away (Tailscale); the loop is dictate → pocket the phone → come back for the answer. On Nov 7 the Mac
+logged "needs you: a chat answered" 25 times and not one notification reached him: answers alerted
+only windows on watch, and his phone never managed the iCloud subscription. Now **any chat the phone
+wrote to alerts when it answers**, no watch needed. Wins over "Chats that answered you" where they
+differ (the mark in Send to stays as it was). Frames: `docs/screens/answers-nov8/`.
+- **The rule** (MacrophoneKit `Core/MacAlerts.swift`: `ChatAnswers`, `AnswerFollower`, pure,
+  `ChatAnswersTests`): a chat is what `ReplyWatcher` already tracks (a dictation sent there, Return /
+  an answer from the watch view). Each new answer (`ReplyDetector.answeredAt`) is told once while the
+  chat is **followed**: two hours after the phone last wrote to it, two answers at most, 30 s apart at
+  least (an answer that flickers isn't told twice). Writing to it again re-arms it (a new follower).
+  Not while he's looking at it on the phone (the follower marks what showed as seen), not for a window
+  on watch (`WindowAlertWatcher.signal` tells it the same moment), not an agent's question
+  (`AgentHub` told it as it asked; `recentlyAsked` drops a repeat by picture). Every answer is seen by
+  the follower once, told or not, so one passed by is never told late.
+- **The alert** (`ReplyWatcher.tell`): kind `answered` ("Claude answered you" — the app's name) or
+  `asking` (the agent says waiting, or `PromptVision` reads a question off the picture: the question
+  under it, its `promptID`); the line under it is the reply's last lines (`AlertWords.reply`: the last
+  two or three as read, joined, ≤ 160 characters cut at a word — one recognised line alone is a
+  fragment), told against the window's lines read 1 s after the phone wrote (`before`: its own message
+  landed, the composer empty); a JPEG of the window; `MacAlert.chat = true`. Through the one sender
+  (`AlertCenter.send`: a connected phone, else iCloud). Chats followed keep the Mac from idle sleep
+  (`StayAwake.update(followedChats:)`, the display may sleep). Log: kinds and counts only — "chat
+  answers: a chat answered — alert 1 of 2 (5 new lines read)", "chat answers: on (the phone's switch)".
+- **The switch: Settings › Alerts › When a chat answers you** (first in the section, on by default,
+  `settings.chatAnswers`, `chat-answers`). Wire (`Messages.chatAnswers(on:)`, `ChatAnswers.feature`
+  in both hello and welcome): the phone's hello carries `chatAnswers-on|off` every connect
+  (`LinkClient.setChatAnswers` keeps the word current), and a change while connected goes at once to a
+  Mac naming the feature. The Mac keeps it (`AlertCenter.chatAnswers`, instance-safe defaults); nil —
+  no phone with the switch ever connected, an older phone — means no chat alerts, the old behaviour.
+  The phone drops a live `chat` alert with the switch off (the Mac's copy may lag a reconnect); a
+  `chat` question goes by this switch, not the agents one. No Mac-side mirror (the Mac has no alerts
+  settings; it follows the phone).
+- **The tap** opens that window live (`openAttention`) at the bottom — `Watcher.lookAtNewest` sets the
+  kept view's `bottom` (the zoom and spot across stay); already open, `showNewest`.
+- **The subscription, read again — what could fail silently, and what changed** (`AgentAlerts`):
+  1. *A remembered "ready" was trusted*: `cloudState` started `.ready` from `alerts.cloud` and
+     `retryIfNeeded` returned at `.ready`, so with the agents switch off and the watch list not yet
+     arrived at launch, the subscription was never saved again (a "ready" from an earlier build or
+     environment stood forever). Now it's confirmed once per launch (`confirmed`); a retry runs until
+     a save succeeds in this launch.
+  2. *The push registration was never heard*: the app delegate had no
+     `didRegisterForRemoteNotifications…` / `didFail…`. Now a failure is `.pushOff` (row: "Apple's
+     notification service didn't take this iPhone", Try Again) and both are logged.
+  3. *Every iCloud status but available read "no account"*: now `.noAccount` (sign in), `.iCloudOff`
+     (restricted, or iCloud off for Macrophone — Settings › your name › iCloud), `.signInAgain`
+     (temporarilyUnavailable); an unknown status tries anyway; `notAuthenticated` from the save is
+     no account. A refusal naming the schema logs what to do in the CloudKit Console (an index on
+     Ask's recordName, or deploying the Ask type) — whether Production needs that index for a
+     TRUEPREDICATE query subscription isn't documented; the log will say if it does.
+  4. *Wanted only for agents or watches*: `wanted` includes the chat switch, and **the first dictation
+     sent into a chat asks for notifications** (iOS asks once — `sentToChat`, from the landing) and
+     subscribes; the first window opened asks too, as before. One try at a time (two minutes at most).
+  The hello now also carries **`alertPush-development|production|simulator`** beside `alertState-…`
+  (from `embedded.mobileprovision`: a TestFlight / App Store build has none = production); the Mac logs
+  "phone alerts while closed: ready, push development". **Suspect first if everything says ready:**
+  `testflight.sh` installs the *dev-signed* build straight to his phone when it's reachable
+  (`aps-environment` development, CloudKit Production by `MACROPHONE_CLOUD_ENVIRONMENT`) — whether
+  CloudKit's Production pushes reach a sandbox push token is Apple's to say (as far as I know they go
+  through production APNs); the TestFlight build is production on both. Also needs: the phone and the
+  Mac on the same Apple ID (the record is in his private database).
+- **mpctl:** `serve --answer-after <s>` "answers" a dictation sent to an app that many seconds after it
+  lands (`ANSWER sent: Claude answered you · … · picture 75 KB`, or `ANSWER held: the phone's switch is
+  off`), names `chatAnswers` (`--no-chat-answers` = a Mac from before), prints `CHAT ANSWERS on|off`
+  (hello or live). Mac DEBUG: distributed notification `com.sameer.macrophone.debug.chatAnswers`
+  (object "on"/"off") stands in for a phone's switch, with `….debug.engage` (an app's front window
+  made a chat) and `MACROPHONE_ALERTS_PRINT=1`.
+- **Proven:** `ChatAnswersTests` (8) and `swift test` (278); `ChatAnswersUITests`
+  (`TEST_RUNNER_MACROPHONE_CHAT_TEST=1`, `…_CHAT_SHOTS=<dir>`, an iPhone 17 Pro sim paired with
+  `serve --answer-after 4`): a dictation into Claude with send, the banner "Claude answered you · Here's
+  the change: … the login test passes again" 4 s after the landing, a tap on it opens Claude's window;
+  the switch off in the hello → `ANSWER held`, no banner; the switch flipped in Settings while
+  connected → serve prints `CHAT ANSWERS off` / `on` at once. On this Mac, a Debug copy and a stand-in
+  chat window behind everything (an LSUIElement app streaming a reply on a distributed notification):
+  reply 1 → "alert 1 of 2", reply 2 → "alert 2 of 2", reply 3 → nothing (past the cap), written to
+  again → "alert 1 of 2" — each with the window's picture (69–122 KB) and "AnswerDemo answered you ·
+  …and added a test for the edge. The login test passes again locally and on CI."; no phone, so it went
+  to iCloud, which the Debug build isn't signed for. Seen once on the sim: an answer that arrives while
+  the first-time notifications prompt is still up isn't shown (iOS posts nothing before Allow).
+- **Needs his phone:** Settings › Alerts' row after this build (which state, and the Mac's "phone
+  alerts while closed: …, push …" line); a Claude reply with the app closed through iCloud — on the
+  TestFlight build, and on a dev-installed build to settle the push-environment question; a real
+  Claude window's answer read with `before` (the composer's placeholder shouldn't be the line).
+
 ## Overnight polish, round 1 (Nov 7 2026)
 
 Sameer, going to sleep: "make macrophone the best iPhone Mac controller period … polish and detail

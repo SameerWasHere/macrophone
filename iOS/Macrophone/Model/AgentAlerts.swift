@@ -21,11 +21,30 @@ import UserNotifications
 /// one button that fixes it. The subscription is tried again each time the app comes to the
 /// front while something wants alerts, so a one-time refusal (no network on the first try, iCloud
 /// signed in later) doesn't last.
+///
+/// **Sturdier (Nov 8 2026, "the answer finds you").** Read again with fresh eyes, it could fail
+/// without a word in four ways, each fixed here: (1) a "ready" remembered from an earlier launch
+/// (or an earlier build, another iCloud environment) was trusted — `retryIfNeeded` returned at
+/// `.ready`, so with the agents switch off and the watch list not yet arrived at launch, the
+/// subscription was never saved again; now it's confirmed once per launch (`confirmed`). (2) The
+/// push registration's answer was never heard — the app delegate had no
+/// `didRegisterForRemoteNotifications…` / `didFail…`, so a build whose `aps-environment` didn't
+/// match its profile (or no network to Apple's push service) failed silently; now a failure is
+/// `.pushOff` and logged. (3) Every iCloud account status but "available" read as "no account":
+/// iCloud turned off for Macrophone, a restricted account and a sign-in that expired each have
+/// their own words and their own fix. (4) The subscription was only tried while the agents switch
+/// was on or a window was on watch; a chat answering is the usual reason now, so the first send of
+/// a dictation into a chat asks for notifications (once) and subscribes (`sentToChat`).
+/// The push environment the build is signed for rides the hello beside the state
+/// (`alertPush-development|production|simulator`), so the Mac's log says which build is asking.
 @MainActor
 final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableObject {
     static let shared = AgentAlerts()
     private weak var model: AppModel?
     private var bag: Set<AnyCancellable> = []
+    /// The subscription was saved in this launch (a remembered "ready" isn't proof).
+    private var confirmed = false
+    private var tryingSince: Date?
 
     /// Where alerts with the app closed stand.
     enum CloudState: Equatable {
@@ -35,8 +54,14 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
         case unavailable
         /// Notifications are off for Macrophone in Settings.
         case notificationsOff
-        /// No iCloud account on this iPhone (or iCloud Drive restricted).
+        /// No iCloud account on this iPhone.
         case noAccount
+        /// iCloud is off for Macrophone, or restricted on this iPhone.
+        case iCloudOff
+        /// The iCloud account needs its password again (Settings asks).
+        case signInAgain
+        /// Apple's push service didn't take this iPhone (its words): nothing can be pushed.
+        case pushOff(String)
         /// iCloud refused the subscription: the code and its words.
         case failed(String)
         case trying
@@ -50,6 +75,7 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
     func install(_ model: AppModel) {
         self.model = model
         model.noteAlertState(cloudState.word)
+        model.noteAlertPush(Self.pushEnvironment)
         UNUserNotificationCenter.current().delegate = self
         // Back in front: Settings may have changed (notifications allowed, iCloud signed in), or
         // the network is here now — try again where it failed.
@@ -58,25 +84,39 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
             .store(in: &bag)
     }
 
-    /// `force`: a window was just put on watch (alerts are wanted whatever the agents switch says).
+    /// `force`: a window was just put on watch, or a chat written to (alerts are wanted whatever
+    /// the switches said a moment ago).
     func askIfNeeded(force: Bool = false) async {
         let center = UNUserNotificationCenter.current()
         if await center.notificationSettings().authorizationStatus == .notDetermined {
-            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            let allowed = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+            model?.log.add("alerts: notifications \(allowed ? "allowed" : "not allowed") when asked")
         }
         await subscribeInCloud(force: force)
     }
 
-    /// Something wants alerts: the agents switch, or a window on watch.
-    var wanted: Bool { model?.settings.agentAlerts == true || model?.alertWatches.isEmpty == false }
-
-    /// Tries again when the last try didn't take (the app came to the front, a watch arrived).
-    func retryIfNeeded() async {
-        guard wanted else { return }
-        switch cloudState {
-        case .ready, .trying, .unavailable: return
-        case .idle, .notificationsOff, .noAccount, .failed: await subscribeInCloud()
+    /// A dictation was just sent into a chat (Nov 8 2026): its answer comes as a notification, so
+    /// this is when to ask for them (iOS asks once) and make sure they reach a closed app.
+    func sentToChat() async {
+        guard model?.settings.chatAnswers == true else { return }
+        if await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .notDetermined {
+            await askIfNeeded(force: true)
+        } else {
+            await retryIfNeeded()
         }
+    }
+
+    /// Something wants alerts: the agents switch, a chat's answers, or a window on watch.
+    var wanted: Bool {
+        model?.settings.agentAlerts == true || model?.settings.chatAnswers == true || model?.alertWatches.isEmpty == false
+    }
+
+    /// Tries again when it isn't set up in this launch (the app came to the front, a watch
+    /// arrived, a chat was written to).
+    func retryIfNeeded() async {
+        guard wanted, !confirmed else { return }
+        if cloudState == .unavailable { return }
+        await subscribeInCloud()
     }
 
     // MARK: Through iCloud, for when the app is closed
@@ -88,29 +128,64 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
     /// The subscription is in place: the hello tells the Mac to keep looking while the app is closed.
     static var cloudReady: Bool { UserDefaults.standard.bool(forKey: "alerts.cloud") }
 
-    /// Subscribes once (saving it again is harmless). Needs notifications allowed and iCloud.
+    /// Which push service this build is signed for: a development build installed straight from
+    /// the Mac carries its profile (and says), a TestFlight or App Store build carries none and is
+    /// production. For the logs: a push from iCloud's Production environment to a development
+    /// build is the first thing to suspect when everything else says ready.
+    static let pushEnvironment: String = {
+        #if targetEnvironment(simulator)
+        return "simulator"
+        #else
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url) else { return "production" }
+        let text = String(decoding: data, as: UTF8.self)
+        guard let r = text.range(of: "<key>aps-environment</key>") else { return "none" }
+        let next = text[r.upperBound...].prefix(80)
+        return next.contains("development") ? "development" : next.contains("production") ? "production" : "unknown"
+        #endif
+    }()
+
+    /// Subscribes once a launch (saving it again is harmless). Needs notifications allowed, iCloud
+    /// and Apple's push service.
     func subscribeInCloud(force: Bool = false) async {
         guard force || wanted else { return }
+        // One at a time (the launch, the app coming to the front and a send can all ask at once);
+        // a try that never answered gives way after two minutes.
+        if cloudState == .trying, let since = tryingSince, Date().timeIntervalSince(since) < 120 { return }
         guard Self.cloudAvailable else {
             cloudState = .unavailable
             model?.log.add("alerts: this build can't get alerts while closed (not signed for iCloud)")
             return
         }
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-        guard status == .authorized || status == .provisional else {
+        guard status == .authorized || status == .provisional || status == .ephemeral else {
             cloudState = .notificationsOff
             model?.log.add("alerts: notifications aren't allowed (\(status.rawValue)), so none while the app is closed")
             return
         }
-        // No account: iCloud would refuse with "not authenticated" after a round trip; say it plainly.
-        if let account = try? await CKContainer(identifier: Self.container).accountStatus(), account != .available {
+        // Not available: iCloud would refuse after a round trip; say which way plainly.
+        switch try? await CKContainer(identifier: Self.container).accountStatus() {
+        case .available?: break
+        case .noAccount?:
             cloudState = .noAccount
-            model?.log.add("alerts: no iCloud account for alerts while the app is closed (\(account.rawValue))")
+            model?.log.add("alerts: no iCloud account on this iPhone, so none while the app is closed")
             return
+        case .restricted?:
+            cloudState = .iCloudOff
+            model?.log.add("alerts: iCloud is restricted or off for Macrophone, so none while the app is closed")
+            return
+        case .temporarilyUnavailable?:
+            cloudState = .signInAgain
+            model?.log.add("alerts: the iCloud account needs signing in again, so none while the app is closed")
+            return
+        default:
+            // Couldn't tell (no network, iCloud busy): try anyway — the save says what's wrong.
+            model?.log.add("alerts: iCloud's account status unknown; trying anyway")
         }
         cloudState = .trying
+        tryingSince = Date()
         UIApplication.shared.registerForRemoteNotifications()
-        let sub = CKQuerySubscription(recordType: "Ask", predicate: NSPredicate(value: true), subscriptionID: Self.subscriptionID,
+        let sub = CKQuerySubscription(recordType: CloudAlertRecord.recordType, predicate: NSPredicate(value: true), subscriptionID: Self.subscriptionID,
                                       options: [.firesOnRecordCreation, .firesOnRecordUpdate])
         let info = CKSubscription.NotificationInfo()
         info.titleLocalizationKey = "%1$@"
@@ -131,6 +206,10 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
                 _ = try await CKContainer(identifier: Self.container).privateCloudDatabase.save(sub)
                 if !Self.cloudReady { model?.log.add("alerts: set up through iCloud") }
                 UserDefaults.standard.set(true, forKey: "alerts.cloud")
+                confirmed = true
+                tryingSince = nil
+                // The push registration may have answered "no" meanwhile: that stands.
+                if case .pushOff = cloudState { return }
                 cloudState = .ready
                 model?.alertsReadyInCloud()
                 return
@@ -139,13 +218,48 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
                 model?.log.add("alerts: iCloud asked to wait \(Int(wait)) s")
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1e9))
             } catch {
-                let code = (error as? CKError)?.code.rawValue ?? -1
+                tryingSince = nil
+                let e = error as? CKError
+                if e?.code == .notAuthenticated {
+                    cloudState = .noAccount
+                    model?.log.add("alerts: iCloud says this iPhone isn't signed in")
+                    return
+                }
+                let code = e?.code.rawValue ?? -1
                 cloudState = .failed("\(code)")
-                model?.log.add("alerts: iCloud didn't take the subscription (\(code)): \(error.localizedDescription)")
+                model?.log.add("alerts: iCloud didn't take the subscription (\(code)): \(error.localizedDescription)" + Self.hint(error))
                 return
             }
         }
+        tryingSince = nil
         cloudState = .failed("busy")
+    }
+
+    /// What to do about a refusal that names the container's schema (the Production schema needs
+    /// the "Ask" type, and a query subscription may want its record name indexed).
+    private static func hint(_ error: Error) -> String {
+        let words = error.localizedDescription.lowercased()
+        if words.contains("queryable") || words.contains("indexable") || words.contains("index") {
+            return " — CloudKit Console › iCloud.com.sameer.macrophone › Production › Indexes: make Ask's recordName Queryable (in Development, then Deploy Schema Changes)"
+        }
+        if words.contains("record type") || words.contains("did not find") {
+            return " — the Production schema has no \"Ask\" type: deploy it from Development in the CloudKit Console"
+        }
+        return ""
+    }
+
+    /// Apple's push service took this iPhone: what it pushes can arrive.
+    func pushRegistered() {
+        model?.log.add("alerts: push registration answered (\(Self.pushEnvironment))")
+        if case .pushOff = cloudState { cloudState = confirmed ? .ready : .idle }
+    }
+
+    /// Apple's push service didn't take this iPhone: nothing from iCloud can arrive. Its words go
+    /// to the log, never anything personal.
+    func pushFailed(_ error: Error) {
+        let ns = error as NSError
+        model?.log.add("alerts: push registration failed (\(ns.domain) \(ns.code)): \(error.localizedDescription)")
+        cloudState = .pushOff("\(ns.code)")
     }
 
     #if DEBUG
@@ -172,6 +286,7 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
         guard Self.cloudAvailable else { return }
         _ = try? await CKContainer(identifier: Self.container).privateCloudDatabase.deleteSubscription(withID: Self.subscriptionID)
         UserDefaults.standard.set(false, forKey: "alerts.cloud")
+        confirmed = false
         cloudState = .idle
     }
 
@@ -214,7 +329,8 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
 }
 
 /// Settings › Alerts: one line and one button when alerts can't reach this iPhone with Macrophone
-/// closed (Nov 7 2026). Nothing while they can, or while nothing wants them.
+/// closed (Nov 7 2026), saying plainly what's in the way (Nov 8 2026). Nothing while they can, or
+/// while nothing wants them.
 struct CloudAlertsStatusRow: View {
     @ObservedObject private var alerts = AgentAlerts.shared
 
@@ -225,18 +341,26 @@ struct CloudAlertsStatusRow: View {
         case .unavailable:
             row("This build can't get alerts while Macrophone is closed", symbol: "icloud.slash", button: nil) {}
         case .notificationsOff:
-            row("Notifications are off, so alerts can't reach you", symbol: "bell.slash", button: "Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-            }
+            row("Notifications are off for Macrophone, so alerts can't reach you", symbol: "bell.slash", button: "Open Settings", action: openSettings)
         case .noAccount:
-            row("Sign in to iCloud to get alerts while Macrophone is closed", symbol: "icloud.slash", button: "Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            row("Sign in to iCloud on this iPhone to get alerts while Macrophone is closed", symbol: "icloud.slash", button: "Open Settings", action: openSettings)
+        case .iCloudOff:
+            row("iCloud is off for Macrophone. Turn it on in Settings › your name › iCloud to get alerts while it's closed", symbol: "icloud.slash", button: "Open Settings", action: openSettings)
+        case .signInAgain:
+            row("iCloud needs your password again (Settings › your name) before alerts can reach you closed", symbol: "person.crop.circle.badge.exclamationmark", button: "Open Settings", action: openSettings)
+        case .pushOff:
+            row("Apple's notification service didn't take this iPhone, so alerts can't reach it while Macrophone is closed", symbol: "bell.slash", button: "Try Again") {
+                Task { await AgentAlerts.shared.subscribeInCloud(force: true) }
             }
-        case .failed:
-            row("Alerts while Macrophone is closed aren't set up yet", symbol: "exclamationmark.icloud", button: "Try Again") {
+        case let .failed(code):
+            row("iCloud didn't set up alerts while Macrophone is closed (\(code))", symbol: "exclamationmark.icloud", button: "Try Again") {
                 Task { await AgentAlerts.shared.subscribeInCloud(force: true) }
             }
         }
+    }
+
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
     }
 
     private func row(_ words: String, symbol: String, button: String?, action: @escaping () -> Void) -> some View {
@@ -268,9 +392,23 @@ extension AgentAlerts.CloudState {
         case .unavailable: "unavailable"
         case .notificationsOff: "notificationsOff"
         case .noAccount: "noAccount"
+        case .iCloudOff: "iCloudOff"
+        case .signInAgain: "signInAgain"
+        case .pushOff(let code): "pushOff\(code)"
         case .failed(let code): "failed\(code)"
         case .trying: "trying"
         case .ready: "ready"
         }
+    }
+}
+
+/// The push registration's answer (Nov 8 2026): heard, so a refusal isn't silent.
+extension AppDelegate {
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        MainActor.assumeIsolated { AgentAlerts.shared.pushRegistered() }
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        MainActor.assumeIsolated { AgentAlerts.shared.pushFailed(error) }
     }
 }
