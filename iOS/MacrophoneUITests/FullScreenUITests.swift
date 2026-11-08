@@ -1,12 +1,59 @@
 import XCTest
 
-/// Full screen on the Duo's inner screen on its side (Nov 3 2026): a hold on the picture brings a
-/// see-through trackpad up under the finger, and the same finger moves the pointer without lifting;
-/// a tap on the pad clicks; 3 s untouched, it goes. Run on a Duo simulator opened flat on its side
-/// (`duo-sim.sh pose <udid> open`), paired with `mpctl serve` — whose log shows the moves and the
-/// click ("WATCH MOUSE click … after N moves").
+/// Full screen (Nov 3 2026 on the Duo's inner screen on its side; every screen since Nov 8 2026):
+/// a hold on the picture brings a see-through trackpad up under the finger, and the same finger
+/// moves the pointer without lifting; a tap on the pad clicks; 3 s untouched, it goes. Run on any
+/// simulator paired with `mpctl serve` — whose log shows the moves and the click ("WATCH MOUSE
+/// click … after N moves"); on a Duo, in any `duo-sim.sh` pose (`TEST_RUNNER_MACROPHONE_DUO_REAL`
+/// names it for the log).
 final class FullScreenUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
+
+    /// The window's picture on screen: the largest of the views named so (the layout under full
+    /// screen keeps its own, hidden — XCUITest lists hidden elements).
+    private func window(_ app: XCUIApplication) -> XCUIElement? {
+        let all = app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "window on your Mac")).allElementsBoundByIndex
+        return all.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+    }
+
+    /// Nov 8 2026, Sameer: "I should be able to launch full screen takeover of any app in both
+    /// landscape and portrait in the inner screen … on [the] outer screen too." On whatever screen
+    /// this runs on: Full Screen (the button beside the window's name, or the vertical bar's item —
+    /// one id) takes the window edge to edge, the screen's own frame, with the floating trio; the
+    /// way out brings the window view back with the window at all its room.
+    func testFullScreenFromTheWindowOnThisScreen() {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Terminal", "MACROPHONE_WATCH": "1"]
+        app.launch()
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
+        let button = app.descendants(matching: .any)["watch-fullscreen"]
+        XCTAssertTrue(button.waitForExistence(timeout: 25), "Full Screen is reachable from the window")
+        sleep(2)
+        let before = window(app)?.frame ?? .zero
+        let screen = app.windows.firstMatch.frame
+        print("FullScreen: pose \(ProcessInfo.processInfo.environment["MACROPHONE_DUO_REAL"] ?? "-") window \(before) screen \(screen)")
+        XCTAssertLessThan(before.height, screen.height - 100, "the window view leaves room for its controls")
+        button.tap()
+        let exit = app.buttons["watch-fullscreen-exit"]
+        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen is up")
+        sleep(2)
+        let full = window(app)?.frame ?? .zero
+        print("FullScreen: full \(full)")
+        XCTAssertEqual(full.minX, screen.minX, accuracy: 1, "edge to edge")
+        XCTAssertEqual(full.minY, screen.minY, accuracy: 1)
+        XCTAssertEqual(full.width, screen.width, accuracy: 1)
+        XCTAssertEqual(full.height, screen.height, accuracy: 1)
+        XCTAssertTrue(app.descendants(matching: .any)["watch-fullscreen-trackpad"].exists, "the trackpad toggle beside the mic")
+        XCTAssertFalse(app.buttons["watch-done"].isHittable, "no bar, no header")
+        exit.tap()
+        sleep(2)
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "the window view is back")
+        let after = window(app)?.frame ?? .zero
+        print("FullScreen: after \(after)")
+        XCTAssertEqual(after.width, before.width, accuracy: 1, "the window takes all its room again")
+        XCTAssertEqual(after.height, before.height, accuracy: 1)
+    }
 
     func testHoldBringsTheTrackpadAndDrives() {
         let app = XCUIApplication()

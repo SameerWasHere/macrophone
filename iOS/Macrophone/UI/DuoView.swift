@@ -129,8 +129,8 @@ extension MainView {
             let gap = max(0, h.deck.minX - h.mac.maxX)
             let deckHeight = typing ? max(0, min(geo.size.height, keyboardTop(in: geo))) : geo.size.height
             HStack(alignment: .top, spacing: 0) {
+                // (Full Screen is in the vertical bar here, with the window's other buttons.)
                 DuoMacHalf(main: self, vertical: true, room: CGSize(width: pageWidth, height: restHeight))
-                    .environment(\.fullScreenAvailable, true)
                     .frame(width: pageWidth, height: pageHeight)
                     .padding(.leading, inset)
                     .padding(.top, inset)
@@ -894,7 +894,7 @@ struct FloatingMic<Exit: View, Trackpad: View>: View {
             // 8 pt of touch room under it; the button's runs a little past the ring).
             VStack(spacing: -7) {
                 lip.zIndex(1)
-                main.micButton(size: Self.size)
+                main.floatingMicButton(size: Self.size)
             }
             .scaleEffect(dragging ? 1.06 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: dragging)
@@ -1212,6 +1212,9 @@ struct DuoDeck: View {
                 WatchHeaderBar(watcher: watcher, dragSwitch: true) { t, _ in
                     watcher.say(t.title, symbol: "arrow.left.and.right")
                 }
+                // Full Screen beside the name, upright (Nov 8 2026: the laptop and flat upright
+                // have no vertical bar to hold it).
+                .environment(\.fullScreenAvailable, true)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 6)
             }

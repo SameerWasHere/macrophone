@@ -159,6 +159,7 @@ struct MainView: View {
         // Full screen has the whole screen. (Upright on the inner screen the status bar stays —
         // see `hidesStatusBar`.)
         .statusBarHidden(hidesStatusBar)
+        .preference(key: StatusBarHiddenKey.self, value: hidesStatusBar)
         .persistentSystemOverlays(inFullScreen ? .hidden : .automatic)
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         // The Mac's own wallpaper behind everything; the state's light washes in from the foot —
@@ -224,8 +225,9 @@ struct MainView: View {
     var innerBarShown: Bool { barUsed && !(posture.pose.foldAcross && watcher.isShowing) }
 
     /// The pose's layout: the phone's (the cover screen, every other iPhone), or the Duo's.
-    /// The window has the whole inner screen (the Duo on its side, Full Screen).
-    var inFullScreen: Bool { watcher.fullScreen && watcher.isShowing && Watcher.allowsFullScreen(posture.pose) }
+    /// The window has the whole screen (Full Screen — every pose, the cover and every other
+    /// iPhone since Nov 8 2026).
+    var inFullScreen: Bool { watcher.fullScreen && watcher.isShowing }
 
     @ViewBuilder private var poseBody: some View {
         // Full screen lies over the pose's layout, which stays built underneath, hidden, its
@@ -427,8 +429,14 @@ struct MainView: View {
                             // without it, the picture under the flying one jumped.)
                             WatchPanel(watcher: watcher, compact: compact, cover: isCover,
                                        bare: isCover && input.keysUp || !panelShown && !zoom.leaving && !panelWarm,
-                                       dormant: panelDormant && !panelShown && windowHere)
-                                .environment(\.watchWindowHidden, !panelShown)
+                                       // Under full screen (Nov 8 2026) the panel sleeps as the
+                                       // inner screen's halves do: no viewer of its own.
+                                       dormant: panelDormant && !panelShown && windowHere || innerAsleep)
+                                // Full Screen beside the name (the cover has it in its bar).
+                                .environment(\.fullScreenAvailable, true)
+                                // Hidden under full screen too: not live, so it never measures
+                                // for the window's shape nor takes the video from the screen.
+                                .environment(\.watchWindowHidden, !panelShown || inFullScreen)
                                 .environment(\.watchRestPicture, panelShown || watcher.isOpen ? nil
                                              : WindowSnapshots.cached(WindowSnapshots.key(mac: model.pairedMac?.id, target: model.selection.target)))
                                 // Only the picture moves (`WindowZoom`): the view itself is laid
@@ -647,6 +655,14 @@ struct MainView: View {
             .landedPill(on: watcher.fullScreen, size: size, namespace: micSpace)
     }
 
+    /// Full screen's floating mic (`FloatingMic`): the same button, not matched with the layout's
+    /// own mic under it (Nov 8 2026: on the phone and the cover the layout stays built under full
+    /// screen, and two sources of one matched id put the floating one at the hidden one's place).
+    func floatingMicButton(size: CGFloat) -> some View {
+        micCore(size: size)
+            .landedPill(on: true, size: size, namespace: micSpace)
+    }
+
     /// The mic button itself, wherever a layout puts it.
     func micCore(size: CGFloat) -> MicButton {
         MicButton(recording: isRecording,
@@ -742,6 +758,16 @@ struct MainView: View {
             barItem(.done, placement: .topBarLeading) { coverDone.disabled(showLiveWords) }
             if input.pages.contains(.keyboard), !posture.pose.isInner {
                 barItem(.keyboard) { coverKeyboardItem.disabled(showLiveWords) }
+            }
+            // Full Screen (Nov 8 2026, Sameer: "on [the] outer screen too"): the window takes the
+            // whole screen — the bar, the status bar and the home indicator go.
+            barItem(.fullScreen) {
+                Button { watcher.setFullScreen(true) } label: {
+                    Label("Full Screen", systemImage: "arrow.up.backward.and.arrow.down.forward.rectangle")
+                }
+                .disabled(watcher.phase != .live || showLiveWords)
+                .accessibilityHint("Shows \(watcher.name) on the whole screen.")
+                .accessibilityIdentifier("watch-fullscreen")
             }
             // While the link comes back the bar's items hold their places, dimmed.
             if model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature) {
@@ -839,7 +865,7 @@ struct MainView: View {
     /// The cover's bar while a window shows, from the top: what the system folds into ⋯ last when
     /// the column is short (the keyboard up: two positions, Done and ⋯) comes first — Done, then
     /// the keyboard's item, then the Window menu, which holds the rest's long forms too.
-    enum BarTier: Int, CaseIterable { case done, keyboard, window, sound, controls, drag, alerts, whole }
+    enum BarTier: Int, CaseIterable { case done, keyboard, window, fullScreen, sound, controls, drag, alerts, whole }
 
     /// One item of the cover's bar in its tier (iOS 27; an older system lays them out as they come).
     @ToolbarContentBuilder

@@ -534,7 +534,7 @@ enum DebugHooks {
                         // The Window menu's Alert Me When It Changes / Stop Alerts.
                         if let t = model.watcher.target { model.setAlertWatch(t, on: a == "alert") }
                     } else if a == "fullscreen" || a == "windowed" {
-                        // The Duo on its side: Full Screen, and back.
+                        // Full Screen (every screen since Nov 8 2026), and back.
                         model.watcher.setFullScreen(a == "fullscreen")
                     } else if a.hasPrefix("fit@"), let f = WatchFit(rawValue: String(a.dropFirst(4))) {
                         model.watcher.setFit(f)
