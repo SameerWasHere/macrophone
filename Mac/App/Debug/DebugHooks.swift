@@ -26,6 +26,7 @@ import SwiftUI
 ///   MACROPHONE_FAKE_LISTENER=failed the network listener failed (Local Network blocked)
 ///   MACROPHONE_INSTALL_CLI=1        runs the CLI install at launch
 ///   MACROPHONE_CLI_DIR=path         install the CLI links there instead of /usr/local/bin
+///   MACROPHONE_QUIET_WINDOWS=1      windows open behind everything, never key, no activation (screenshots)
 ///   MACROPHONE_INSTANCE=<name>      a debug copy with its own settings, folder, pairing keys and identity (AppPaths)
 ///   Distributed notification "com.sameer.macrophone.debug.openMenu" opens the menu bar menu
 ///                                   ("….openMenu.<instance>" opens only that MACROPHONE_INSTANCE's).
@@ -49,6 +50,9 @@ import SwiftUI
 @MainActor
 enum DebugHooks {
     static let env = ProcessInfo.processInfo.environment
+    /// MACROPHONE_QUIET_WINDOWS=1: windows open behind everything, never key, no Dock icon and no
+    /// activation — for screenshots (screencapture -l <id>) while someone is using this Mac.
+    static var quietWindows: Bool { env["MACROPHONE_QUIET_WINDOWS"] == "1" }
     private static var backdrop: NSWindow?
     private static var bag: [Any] = []
 

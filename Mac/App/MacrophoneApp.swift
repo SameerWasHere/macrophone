@@ -102,9 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let pane { mainWindow?.select(pane) }
         model.setWindowOpen(true)
         becomeRegular()
-        mainWindow?.showWindow(nil)
-        mainWindow?.window?.makeKeyAndOrderFront(nil)
-        mainWindow?.window?.orderFrontRegardless()
+        if let w = mainWindow?.window { present(w) }
     }
 
     func openSetup(_ step: SetupStep) {
@@ -119,12 +117,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindow?.go(step)
         model.setWindowOpen(true)
         becomeRegular()
-        setupWindow?.showWindow(nil)
-        setupWindow?.window?.center()
-        setupWindow?.window?.makeKeyAndOrderFront(nil)
-        // macOS 14+ may refuse activation for an app that wasn't clicked (a login item, a
-        // launch from Terminal); the window still has to be seen.
-        setupWindow?.window?.orderFrontRegardless()
+        if let w = setupWindow?.window {
+            if !w.isVisible { w.center() }
+            present(w)
+        }
+    }
+
+    /// Shows a window in front. macOS 14+ may refuse activation for an app that wasn't clicked (a
+    /// login item, a launch from Terminal); the window still has to be seen.
+    private func present(_ w: NSWindow) {
+        #if DEBUG
+        // Behind everything, never key: screencapture -l still reads it.
+        if DebugHooks.quietWindows { w.orderBack(nil); return }
+        #endif
+        w.makeKeyAndOrderFront(nil)
+        w.orderFrontRegardless()
     }
 
     func closeSetup() {
@@ -135,8 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showCodeApproval() {
         if let w = setupWindow?.window {
             becomeRegular()
-            w.makeKeyAndOrderFront(nil)
-            w.orderFrontRegardless()
+            present(w)
         } else {
             openSetup(.pair)
         }
@@ -166,11 +172,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         diagnosticsWindow = w
         becomeRegular()
-        w.makeKeyAndOrderFront(nil)
+        present(w)
     }
 
     /// A Dock icon while a window is open; back to the menu bar only when the last one closes.
     private func becomeRegular() {
+        #if DEBUG
+        // Screenshots while someone uses this Mac: no Dock icon, no activation.
+        if DebugHooks.quietWindows { return }
+        #endif
         if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         NSApp.activate(ignoringOtherApps: true)
         if #available(macOS 14.0, *) { NSApp.activate() }

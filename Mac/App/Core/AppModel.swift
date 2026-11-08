@@ -217,6 +217,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         attention.update()
         pushStatus()
         // Nothing lands without Accessibility: ask at launch, which also puts Macrophone in the list.
+        #if DEBUG
+        // A screenshot run never puts macOS's prompt on someone's screen.
+        if DebugHooks.quietWindows { return }
+        #endif
         if !accessibilityGranted { _ = Paster.requestTrust() }
     }
 
