@@ -191,7 +191,7 @@ phone: the Mac app dictates by itself. Frames: `docs/screens/desk-dictation-nov7
   `AppleFnUsageType`: 0 nothing, 1 input source, 2 emoji — his Mac —, 3 dictation, `FnKeyUsage`) is
   read, never changed; anything but Do Nothing puts one ochre line and Open Keyboard Settings on
   the Dictation page.
-- **Speech** (`Desk/DeskSpeech.swift`, a copy of the phone's `ModernSpeech` for macOS 26+):
+- **Speech** (MacrophoneKit `Speech/DeskSpeech.swift` since the wake word, a copy of the phone's `ModernSpeech` for macOS 26+):
   SpeechAnalyzer + SpeechTranscriber on the Mac's language (`Locale.current` BCP-47), an analyzer
   made ahead (`DeskWarmAnalyzer`, after every dictation and when the key starts listening). The
   press opens only the mic (`Desk/DeskMic.swift`, AVAudioEngine on its own queue; what it hears is
@@ -200,8 +200,8 @@ phone: the Mac app dictates by itself. Frames: `docs/screens/desk-dictation-nov7
   is asked (SpeechAnalyzer runs without it here); `AssetInventory` says `supported` yet it
   transcribes (a model the system shares) — a fetch is started in the background anyway.
 - **Cleanup**: the shared `Cleaner` at this Mac's own level (`settings.deskCleanup`, `desk.cleanup`,
-  Medium; Off · Light · Medium · Heavy — the Mac has no custom instructions or dictionary, so no
-  Custom and no context words), prewarmed at the hold, an 8 s budget.
+  Medium; Off · Light · Medium · Heavy — the Mac has no custom instructions, so no
+  Custom; the Dictionary — the wake word section — is cleanup's list and the recognizer's context), prewarmed at the hold, an 8 s budget.
 - **The paste**: `Paster.deliver(.front, send: false)` — no countdown, never sent; the landing
   glow and the menu bar icon's cues come with it (`statusItemCue` arriving / landed / failed). A
   failure copies and says so on the pill ("Copied — nowhere to type here. Press ⌘V"). History:
@@ -247,6 +247,146 @@ phone: the Mac app dictates by itself. Frames: `docs/screens/desk-dictation-nov7
   shortcut fights the double tap); Right ⌥ / Right ⌘ on an external keyboard; the paste into
   Claude, Terminal, Notes; the microphone prompt's first appearance; Input Monitoring ever being
   needed.
+
+## The wake word (Nov 7 2026)
+
+Sameer: "the hey claude feature set in SameerOS … add that feature set to macrophone Mac app so
+that users can use [a] wake word to talk to and send clean text to their Mac", "SameerOS dies and
+this feature gets improved and moved", "go deep on how you make the wake word feature … production
+ready". Say the phrase ("Hey Mac" by default), talk, and the words land where you're typing — a
+second way into desk dictation's pipeline (same pill, speech engine, cleanup level, paste, History
+"This Mac"), not a second pipeline. Off by default. Frames: `docs/screens/wake-word-nov7/`.
+- **What moved from SameerOS** (`~/claude-projects/SameerOS-Mac/SameerOSMac/Voice/`, read, not
+  changed): the three tiers (loudness → Apple's sound classifier → a speech session only while a
+  voice is heard; its SoundGate, classifier thresholds, the 3.5 s pre-roll, the room-relative "is
+  that still a voice" rule); the *same* session carrying on as the capture (no restart, no lost
+  words); short recycled sessions (4 s without new words ends one, recycle at a pause after 10 s,
+  45 s at most); the anchored command (the hit nearest where the phrase was; revised away → drop
+  that many words); "Hey Claude"'s mis-hearings (claud, clawd, clod, claudie… — "cloud" and "Clyde" now High only: the bench woke on "Hey Clyde, wait up" and "Hey, cloud storage is full") and
+  the vocative form ("…, Claude,"); `strip(endingPhrase:)` (whole words at the very end,
+  "nevermind" = "never mind"); a noisy room still ends (no new words for the pause + 1.5 s); the
+  chimes (synthesized, no files); the 4096-frame tap; the output-rate lesson (below). **Left
+  behind:** Dispatch, inbox tasks, notes, Muse, `DispatchLane`, the wake log (it wrote overheard
+  speech to `~/Library/Logs` — Macrophone writes nothing and logs numbers only), the 10-minute
+  recognizer rebuilds (SFSpeechRecognizer's staleness; SpeechAnalyzer sessions are per scan).
+- **What improved:** any phrase, matched by spelling keys (MacrophoneKit `Core/WakeWord.swift`,
+  `WakeText.key`: "Mack"/"Mac" are one, "Max"/"Mike" stay apart) with curated hearings for the
+  presets and run-together forms ("Heymac"); three sensitivities (Low: the phrase as written and
+  it only wakes on settled words with confidence ≥ 0.5; Normal: hearings, confidence ≥ 0.3 once
+  settled; High: one letter off for long names, the vocative for any name that isn't an everyday word ("Mac, Windows and Linux…" never wakes), the recognizer's second
+  guesses); every wake re-checked when its words settle (SpeechTranscriber's
+  `transcriptionConfidence` on the name, `alternativeTranscriptions` at High) and **withdrawn** if
+  it doesn't hold — the pill fades, nothing pastes; ending words as editable lists (send · paste ·
+  cancel; a one-word ending only after a pause, so "we shouldn't cancel" stays words); **a place by
+  name** at the end ("… send to Claude", "… paste it in Notes", with the recognizer's "pasted in" /
+  "sent to") looked up fuzzily among open apps (`WakePlaces`); the Bluetooth rule; calls, lock and
+  sleep pauses; Pause Listening; the first-time sheet; the Mac's Dictionary.
+- **Files:** MacrophoneKit `Core/WakeWord.swift` (pure: `WakePhrase`, `WakeSensitivity`,
+  `WakeMatcher`, `WakeEndingWords`, `WakeEndings`, `WakePlaces`, `WakeCapture`; `WakeWordTests`),
+  `Core/DictionaryImport.swift`, `Speech/DeskSpeech.swift` (moved from the app, macOS-only: one
+  speech engine for desk and wake, two warm slots `DeskWarmAnalyzer.shared` / `.wake`, context
+  strings, confidence, alternatives), `Speech/WakeAudio.swift` (`WakeFeed` tiers, `WakeMicSource`,
+  `WakeFileSource`, `WakeAudioDevices` + `WakeAudioWatch` — Core Audio, read-only),
+  `Speech/WakeListener.swift` (scans, capture, verify, recycle, health, restart);
+  Mac `Desk/WakeWord.swift` (`WakeController`: when it listens, events → DeskDictation, places,
+  pause, the sheet's test, SameerOS, the Dictionary import), `Desk/Chime.swift`,
+  `UI/Window/WakeWordSection.swift` (the section, Ending words, Dictionary, `WakeIntroSheet`),
+  DeskDictation's `wakeBegan / wakeWords / wakeEnded / wakeLand` and a general `deliver(target:send:)`,
+  DeskKeyTap's `onEscape` / escape-only mode, StatusItemController's mark and menu.
+- **When it listens** (`WakeController.apply`): on, macOS 26+, the microphone allowed, the sheet
+  through, not paused from the menu (`wake.pausedUntil`: For 1 Hour · Until Tomorrow 8 am · Turn
+  Off), unlocked (`com.apple.screenIsLocked`, a session switched away), awake with the screen on
+  (`screensDidSleep`, `willSleep`), and **no other app using a microphone** — Core Audio's process
+  objects (`kAudioProcessPropertyIsRunningInput`, macOS 14+, per-process listeners, our own pid
+  and `com.sameer.sameeros-mac`'s always-on listener left out): a call pauses at once, its end
+  resumes 2 s later. Paused, the engine stops — the orange dot goes. The page and the menu say
+  which ("Paused — zoom.us is using the microphone").
+- **The microphone** (`WakeMicSource`): AVAudioEngine, input only, 4096-frame buffers (~12
+  wake-ups a second), mono copied off the first channel. **Not a Bluetooth input**: the default
+  input if it's wired/built-in, else the Mac's own microphone (`AUAudioUnit.setDeviceID`) — opening
+  AirPods' mic all day flips them to the call (HFP) profile: their sound drops to 16–24 kHz. That
+  was SameerOS's "output sample rate restore": its mic moved the output's rate and it set it back.
+  Macrophone never sets a device's rate; it reads the output's before and after the start and logs
+  a move. Only AirPods to hear with → it doesn't listen and says why. Follows the default input
+  without a relaunch (Core Audio's default-input listener, `AVAudioEngineConfigurationChange`, a
+  5 s health check that restarts a source quiet for 4 s).
+- **The capture** (`WakeCapture`): the pause that lands it (0.8–4 s, 2.0 default, the page's
+  slider) from the later of the last new word and the last voice above the room; ending words land
+  it after 0.8 s (0.5 alone); the phrase and nothing for 6 s = "Didn't catch that"; 3 min at most.
+  Esc (the desk key's tap, escape-only when no key is picked) or "never mind" drops it; nothing
+  pastes. **🌐 during a capture joins it** (one dictation): held, only the release lands it; a tap
+  lands it now; Esc drops it. 🌐 held with no capture: the wake word stops scanning until it's let
+  go (`suspend` / `resume`). The pill: "Listening…", the words, "Pause to paste · “send it” to send
+  · Esc to cancel"; a place not open: pasted where you're typing, the pill says "No “Notes” open —
+  pasted where you're typing". Chimes (`wake.chimes`): two notes rising on the phrase, falling on
+  landing, one low note when dropped.
+- **Privacy:** audio never leaves the Mac, nothing is written to disk (no recordings, no wake
+  log), the log has counts and seconds only ("wake: send to a place · 9 words in 4.8 s"). The menu
+  bar icon gets a small dot at its top right while it listens (`…+ear`, the template's own colour)
+  and a line + **Pause Listening** in the menu. The first time it's switched on: `WakeIntroSheet`
+  (the orange dot, what's heard, when it stops) with **Say it now** — the listener runs for the
+  phrase only and the box goes green ("Heard you"); the switch stays on only through Turn On.
+- **The Dictionary** (`settings.dictionary`): words and names, the recognizer's context and
+  cleanup's list — for desk dictation too (it passed `[]` before). Once, if
+  `~/.config/sameeros/vocabulary.txt` exists, its terms are imported (`Term: sounds like` lines
+  keep the term); silently skipped otherwise (`dictionary.sameerOSImport`).
+- **SameerOS:** open with its "Hey Claude" on (its `listeningEnabled`, read with CFPreferences,
+  never written) → one ochre line on the page: "SameerOS is also listening for “Hey Claude” — turn
+  it off there."
+- **Hooks** (DEBUG): `MACROPHONE_WAKE_AUDIO=<file|folder>[@loop]` (files as the microphone, the
+  whole app path, printed "WAKE woke / finished / LANDED → place · send / RAW / CLEANED", never
+  pasted; `MACROPHONE_WAKE_PHRASE`, `MACROPHONE_WAKE_SENSITIVITY`); `MACROPHONE_WAKE_STATE=
+  listening|paused-call|paused-user|airpods|unavailable|sameeros`; `MACROPHONE_WAKE_SHEET=listening|heard`;
+  `MACROPHONE_WAKE_PILL=<words>[|finishing:<status>|note:<words>]`. A `MACROPHONE_INSTANCE` copy
+  never opens the microphone (nor the sheet's test) unless `MACROPHONE_WAKE_LIVE=1`.
+  `mpctl wake-testset <dir>` (`say` voices, music beds, room tone → manifest.json + WAVs),
+  `mpctl wake-bench <dir> [--phrase --sensitivity --only kinds --voices N --no-classifier]`,
+  `mpctl wake-soak [--minutes --set <dir> --every s --noise dB --ungated]` — the same
+  `WakeListener` headless, CPU (this process and the speech daemons, `ps` TIME) and memory.
+- **Measured** (this Mac, macOS 27, release `mpctl`, real time; the test set is 187 clips / 16.6
+  min from `mpctl wake-testset` — ten `say` voices, kept in a scratch folder, regenerate it):
+  - *Idle* (quiet room tone, −62 dBFS, 4 min): **0.20% CPU** for the listener's process (the
+    file source's own noise synthesis included), **0.00% in the speech daemons**, 7 MB. The
+    baseline with no tiers (`--ungated`: a session whenever one can run, 3 min): 1.0–1.4% in-process
+    **plus 2.4–3.1% in Apple's `localspeechrecognition`** — the model runs out of process, so
+    in-process CPU alone undercounts any always-on transcriber. The tiers are ~20× cheaper at rest.
+  - *Soak* (32 min, room tone with a test clip every 60 s): 33 sessions, 9 wakes landed, 0
+    restarts; 0.25–0.4% CPU in-process; memory 6 MB until the first session, then 24.2 → 26.3 MB
+    over 30 min (about +2 MB: near flat, watch it over a day). Busy bench runs (a voice 70–90% of
+    the time): 1.0–1.6% in-process + 2–3.5% `localspeechrecognition`.
+  - *"Hey Mac", Normal, all 187 clips:* **0 false triggers in 107 negative clips** (40 near-misses
+    — "Hey Max / man / Mike / Mark / Matt", "I bought a new Mac", "Mac, Windows and Linux", "My
+    Mac keeps…" —, 24 talk and talk-over-music, singing, music, the other phrases' clips). Hits:
+    **40/42 on the six natural voices** (Samantha, Daniel, Karen, Moira, Rishi, Tara), 9/10 over
+    music, but **4/28 on the four robotic voices** (Fred, Reed, Flo, Eddy) — SpeechTranscriber
+    hears them as "Hey man / Max / Matt", the very near-misses that must not wake (4 wakes were
+    withdrawn at settling for that reason). Words after the phrase: 90% of the expected words;
+    ending action right 52/53; place right 11/13 (the misses were the recognizer's "pasted in
+    notes", now read).
+  - *Five voices, positives + near-misses (75 clips):* Low 31/35, 0/40 false · Normal 35/35, 0/40 ·
+    High 35/35, 0/40 (after the tuning below; before it High woke 5 times on "Mac, …" and Low
+    found 27/35 at a 0.6 bar).
+  - *"Hey Claude" 10/10, 0/12 near-misses; "Computer" 5/5, 0/9* (after dropping "cloud"/"Clyde"
+    to High and the plural "computers": before, 6 and 3 false wakes).
+  - *Context strings don't move SpeechTranscriber* ("Hey Mac" as context changed nothing on the
+    robotic voices); DictationTranscriber with context partly does (Reed → "Hey Mac", "Mac" among
+    Flo's alternatives) — a lead for High if real voices miss, weighed against it pulling "Max"
+    toward "Mac". The app path proven with `MACROPHONE_WAKE_AUDIO`: wake → capture → "send it" →
+    Return; "send to Claude" found the open Claude app; "paste it in Notes" with Notes closed fell
+    back with the note; "never mind" dropped; a near-miss nothing.
+- **Needs a real check with the real microphone** (nothing here opened it for more than a moment):
+  real voices and accents (the bench is TTS; "Mac" is short and its neighbours are near-misses —
+  try Low/Normal/High and the confidence bars); a room with a TV, a podcast, music and typing
+  (the classifier's thresholds are SameerOS's); far-field (across the room) vs at the desk; the
+  orange dot coming and going with lock, screen sleep, Pause Listening; a real Zoom / FaceTime /
+  Teams / Meet-in-Chrome call pausing it (which process Core Audio names for each) and resuming 2 s
+  after; AirPods connecting and leaving mid-listen (it should stay on the built-in mic, the
+  AirPods keeping their music quality — check the output rate in Audio MIDI Setup), a USB mic,
+  a Mac with only AirPods (it says why it can't listen); the idle CPU and energy with the real HAL
+  (Activity Monitor's Energy column over an hour; the file source stood in for coreaudiod); memory
+  over a day; 🌐 held during a capture (one dictation) and Esc swallowed only then; the Say it now
+  test with the microphone prompt's first appearance; "send to <app>" bringing a real app forward;
+  the chimes' volume next to music; SameerOS's line with its listening on (it was off here).
 
 ## The product, as it stands (Oct 18 2026)
 
@@ -3592,6 +3732,8 @@ remembered in `watch.sound.on` (`SoundSetting`: anything but a stored true is of
 cd Packages/MacrophoneKit && swift test
 swift build && .build/debug/mpctl serve --auto-approve   # then mpctl pair '<url>' / pair-code / send
 .build/debug/mpctl cleanup-eval                           # cleanup test set on the real on-device model
+.build/release/mpctl wake-testset ~/wakeset && .build/release/mpctl wake-bench ~/wakeset --quiet   # the wake word: hits, false triggers, cost (~28 min real time)
+.build/release/mpctl wake-soak --minutes 30 --set ~/wakeset --every 60                           # CPU and memory over time; --ungated is the no-tiers baseline
 .build/debug/mpctl watch --target com.anthropic.claudefordesktop --swipe 0.3 --features video   # a swipe as the phone sends it, video back
 .build/debug/mpctl watch --sound --features video,sound      # the Mac's sound: serve's tone, latency and underruns printed
 .build/debug/mpctl serve --remote --port 47899 --auto-approve   # then: mpctl pair '<url>' (at home), and

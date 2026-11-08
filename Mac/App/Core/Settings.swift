@@ -123,6 +123,26 @@ final class Settings: ObservableObject {
 
     /// General › Appearance (Nov 7 2026): Automatic follows the system; Light or Dark holds it.
     @Published var appearance: AppAppearance { didSet { d.set(appearance.rawValue, forKey: "appearance") } }
+    /// The wake word (Nov 7 2026, Desk/WakeWord.swift): say the phrase, talk, and the words land
+    /// where you're typing. Off by default — an always-on microphone is the person's choice.
+    @Published var wakeOn: Bool { didSet { d.set(wakeOn, forKey: "wake.on") } }
+    @Published var wakePhrase: String { didSet { d.set(wakePhrase, forKey: "wake.phrase") } }
+    @Published var wakeSensitivity: WakeSensitivity { didSet { d.set(wakeSensitivity.rawValue, forKey: "wake.sensitivity") } }
+    /// The pause that ends a capture, seconds (0.8–4).
+    @Published var wakeEndSilence: Double { didSet { d.set(wakeEndSilence, forKey: "wake.endSilence") } }
+    @Published var wakeEndings: WakeEndingWords { didSet { d.set(try? JSONEncoder().encode(wakeEndings), forKey: "wake.endings") } }
+    /// A soft chime when the phrase is heard and when the words land.
+    @Published var wakeChimes: Bool { didSet { d.set(wakeChimes, forKey: "wake.chimes") } }
+    /// The first-time sheet (the orange dot, what's heard, Say it now) has been through.
+    @Published var wakeIntroduced: Bool { didSet { d.set(wakeIntroduced, forKey: "wake.introduced") } }
+    /// Pause Listening (the menu): until this moment. Nil = not paused.
+    @Published var wakePausedUntil: Date? { didSet { d.set(wakePausedUntil, forKey: "wake.pausedUntil") } }
+
+    /// This Mac's Dictionary (Nov 7 2026): names and words spelled your way — the recognizer's
+    /// context and cleanup's word list, for desk dictation and the wake word.
+    @Published var dictionary: [String] { didSet { d.set(dictionary, forKey: "dictionary") } }
+    /// The one-time look for SameerOS's vocabulary file has been done.
+    @Published var dictionaryImportTried: Bool { didSet { d.set(dictionaryImportTried, forKey: "dictionary.sameerOSImport") } }
 
     init() {
         // Before live targets there was a "delivery mode": it becomes the first Send to choice
@@ -164,6 +184,18 @@ final class Settings: ObservableObject {
         let level = d.string(forKey: "desk.cleanup").flatMap(CleanupLevel.init(rawValue:)) ?? .medium
         deskCleanup = level == .custom ? .medium : level
         appearance = d.string(forKey: "appearance").flatMap(AppAppearance.init(rawValue:)) ?? .automatic
+        wakeOn = d.bool(forKey: "wake.on")
+        let phrase = d.string(forKey: "wake.phrase")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        wakePhrase = phrase.isEmpty ? WakePhrase.defaultText : phrase
+        wakeSensitivity = d.string(forKey: "wake.sensitivity").flatMap(WakeSensitivity.init(rawValue:)) ?? .normal
+        let pause = d.double(forKey: "wake.endSilence")
+        wakeEndSilence = pause >= 0.8 && pause <= 4 ? pause : 2.0
+        wakeEndings = d.data(forKey: "wake.endings").flatMap { try? JSONDecoder().decode(WakeEndingWords.self, from: $0) } ?? .default
+        wakeChimes = d.object(forKey: "wake.chimes") as? Bool ?? true
+        wakeIntroduced = d.bool(forKey: "wake.introduced")
+        wakePausedUntil = d.object(forKey: "wake.pausedUntil") as? Date
+        dictionary = d.stringArray(forKey: "dictionary") ?? []
+        dictionaryImportTried = d.bool(forKey: "dictionary.sameerOSImport")
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
         // Retired with live targets: the Return list and per-app rules (the phone's "Send after pasting"

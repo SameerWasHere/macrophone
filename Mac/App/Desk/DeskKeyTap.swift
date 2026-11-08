@@ -19,19 +19,25 @@ final class DeskKeyTap {
     private let clock = ProcessInfo.processInfo
     /// What the machine decided.
     var onEffect: (DeskHotkey.Effect) -> Void = { _ in }
+    /// Esc when no desk dictation is listening: the wake word's capture may take it (true = it
+    /// did, and Esc goes no further).
+    var onEscape: (() -> Bool)?
+    /// The last key the machine heard was Esc (a `.cancel` from Esc, not from a shortcut).
+    private(set) var lastWasEscape = false
 
     var isRunning: Bool { tap != nil }
     var isListening: Bool { machine.isListening }
 
     /// Starts (or retargets) the tap for `key`. Returns false when macOS refused it.
+    /// `escapeOnly`: no key to hold, only Esc for the wake word.
     @discardableResult
-    func start(_ key: DeskKey) -> Bool {
+    func start(_ key: DeskKey, escapeOnly: Bool = false) -> Bool {
         if key != self.key || tap == nil {
             self.key = key
             machine = DeskHotkey(key: key)
             keyDown = false
         }
-        guard key != .off else { stop(); return true }
+        guard key != .off || escapeOnly else { stop(); return true }
         if tap != nil { return true }
         let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
         let me = Unmanaged.passUnretained(self).toOpaque()
@@ -69,9 +75,13 @@ final class DeskKeyTap {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return true
         }
+        let keycode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        if type == .keyDown {
+            lastWasEscape = keycode == UInt16(kVK_Escape)
+            if lastWasEscape, !machine.isListening, let onEscape, onEscape() { return false }
+        }
         guard let code = key.keyCode else { return true }
         let now = clock.systemUptime
-        let keycode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         var r: (effects: [DeskHotkey.Effect], swallow: Bool) = ([], false)
         switch type {
         case .flagsChanged:
