@@ -225,7 +225,12 @@ final class DuoUITests: XCTestCase {
         XCTAssertTrue(places.waitForExistence(timeout: 10), "Send to is on the screen")
         XCTAssertGreaterThan(places.frame.minY, inner.midY, "Send to is under the fold")
         XCTAssertGreaterThan(mic.frame.minY, inner.midY, "and so is the mic")
-        XCTAssertGreaterThan(places.frame.width, inner.width * 0.8, "Send to spans the half")
+        // Send to is the cover's Dock (Nov 1 2026): a shelf that hugs its icons, never wider than
+        // the screen — not a grid across the half any more. Whole on the screen, and a good part
+        // of its width with the demo Mac's eight places.
+        XCTAssertGreaterThanOrEqual(places.frame.minX, inner.minX - 1, "Send to is whole on the screen: \(places.frame) in \(inner)")
+        XCTAssertLessThanOrEqual(places.frame.maxX, inner.maxX + 1, "Send to is whole on the screen: \(places.frame) in \(inner)")
+        XCTAssertGreaterThan(places.frame.width, inner.width * 0.5, "Send to reads across the half: \(places.frame.width) of \(inner.width)")
         for cell in places.buttons.allElementsBoundByIndex where cell.frame.width > 10 {
             XCTAssertFalse(cell.frame.minY < inner.midY - 4 && cell.frame.maxY > inner.midY + 4, "no place sits on the fold: \(cell.label) at \(cell.frame)")
         }
