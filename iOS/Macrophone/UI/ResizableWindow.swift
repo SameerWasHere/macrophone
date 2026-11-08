@@ -40,24 +40,37 @@ struct ResizableWindow<Content: View>: View {
     static var minWidth: CGFloat { 0.5 }
     static var minHeight: CGFloat { 0.35 }
 
-    /// A new open, or another window: all the room again.
-    private var opening: String { "\(watcher.isOpen)-\(watcher.windowSeq)-\(watcher.target.map { "\($0)" } ?? "")" }
+    /// A new open, another window, or full screen (in or out): all the room again.
+    private var opening: String { "\(watcher.isOpen)-\(watcher.windowSeq)-\(watcher.fullScreen)-\(watcher.target.map { "\($0)" } ?? "")" }
     private var shown: CGSize { enabled ? (live ?? share) : CGSize(width: 1, height: 1) }
+    /// What of the picture shows inside the frame (the viewer says): the arc sits on its corner
+    /// when the window sits smaller than its frame (one the Mac can't reshape to it).
+    @State private var picture: CGRect = .zero
 
     var body: some View {
         let f = shown
         let measured = room.width > 0 && room.height > 0
+        let frame = CGSize(width: measured ? room.width * f.width : 0, height: measured ? room.height * f.height : 0)
+        // Where the arc goes: the window's own bottom-right corner. During the drag the picture
+        // covers the frame, so that's the frame's corner — placed in the same pass as the frame,
+        // never a frame behind the finger; at rest, the picture's corner as the viewer reports it.
+        let corner = live != nil || picture == .zero ? CGPoint(x: frame.width, y: frame.height)
+            : CGPoint(x: min(picture.maxX, frame.width), y: min(picture.maxY, frame.height))
         Color.clear
             .onGeometryChange(for: CGSize.self) { $0.size } action: { room = $0 }
             .overlay(alignment: .top) {
                 content
-                    .frame(width: measured ? room.width * f.width : nil, height: measured ? room.height * f.height : nil)
-                    .overlay(alignment: .bottomTrailing) {
+                    .frame(width: measured ? frame.width : nil, height: measured ? frame.height : nil)
+                    .overlay(alignment: .topLeading) {
                         if enabled, measured, watcher.phase == .live || watcher.phase == .reconnecting {
-                            handle.transition(.opacity)
+                            // (Its 34 pt touch square centred 3 pt in from the corner: 20 in, 14 out.)
+                            handle
+                                .position(x: corner.x - 3, y: corner.y - 3)
+                                .transition(.opacity)
                         }
                     }
             }
+            .onPreferenceChange(WindowPictureKey.self) { r in picture = r }
             .environment(\.watchResizing, live != nil)
             .onChange(of: opening) { _, _ in
                 share = CGSize(width: 1, height: 1)
@@ -65,10 +78,12 @@ struct ResizableWindow<Content: View>: View {
             }
             .onChange(of: live != nil) { _, on in watcher.resizingHere = on }
             .animation(.easeOut(duration: 0.2), value: watcher.phase == .live)
+            .animation(live != nil || reduceMotion ? nil : .easeInOut(duration: 0.25), value: picture)
     }
 
     // MARK: The corner
 
+    /// The arc, its touch area centred on the window's corner: placed by its centre (`position`).
     private var handle: some View {
         CornerArc()
             .stroke(Ink.ink.opacity(live != nil ? 0.55 : 0.32), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
@@ -79,7 +94,6 @@ struct ResizableWindow<Content: View>: View {
             .offset(x: -3, y: -3)
             .frame(width: 34, height: 34, alignment: .center)
             .contentShape(Rectangle())
-            .offset(x: 14, y: 14)
             .gesture(resize)
             .simultaneousGesture(TapGesture(count: 2).onEnded { fillRoom() })
             .accessibilityElement()

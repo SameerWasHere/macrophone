@@ -326,17 +326,19 @@ final class Watcher: ObservableObject {
         fillsView = on
     }
 
-    // MARK: Full screen (the Duo's inner screen on its side)
+    // MARK: Full screen (every screen, Nov 8 2026)
 
     // Nov 3 2026, Sameer: "a full screen button … the window take up the entirety, edge to edge,
     // of the full screen. And then the window should resize to fill the screen. And then if it's
-    // the Mac display, it should just fill the screen in its entirety."
+    // the Mac display, it should just fill the screen in its entirety." Nov 8 2026: "I should be
+    // able to launch full screen takeover of any app in both landscape and portrait in the inner
+    // screen … on [the] outer screen too" — so every pose, the cover and every other iPhone.
 
-    /// The window in hand takes the whole inner screen: no deck, no bar.
+    /// The window in hand takes the whole screen: no deck, no bar, no status bar.
     @Published private(set) var fullScreen = false
 
-    /// The poses with room for it: the inner screen on its side (flat, or the book).
-    static func allowsFullScreen(_ pose: FoldPose) -> Bool { pose.isInner && !pose.foldAcross }
+    /// Every pose has room for it (it was the inner screen on its side only, Nov 3 – Nov 8 2026).
+    static func allowsFullScreen(_ pose: FoldPose) -> Bool { true }
 
     /// Into or out of full screen. A window takes the new view's shape (as on a pose change); the
     /// whole screen fills the display rather than showing whole. The pages go back to the mic
@@ -346,6 +348,9 @@ final class Watcher: ObservableObject {
         fullScreen = on
         if isDesktop { wholeWindow = on ? false : !fillsView }
         if on, input.page != .mic { input.show(.mic, quiet: true) }
+        // A window he had made smaller: all the room again, in and out (`ResizableWindow` follows).
+        shrunkHere = false
+        Haptics.arrived()
         log?.add("watching: full screen \(on ? "on" : "off")")
         poseSettled()
     }

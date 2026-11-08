@@ -204,8 +204,13 @@ final class WindowZoom: ObservableObject {
         let top = area.minY + 4 + WatchLook.header + (compact ? 6 : 8) + WatchLook.bezelWidth
         let foot = viewerPlace(in: area).map { $0.clip.maxY } ?? (area.maxY - 60)
         let clip = CGRect(x: area.minX + inset, y: top, width: max(1, area.width - 2 * inset), height: max(1, foot - top))
-        let s = ViewerScrollView.startScale(image: image, width: clip.width, visibleHeight: clip.height, focus: nil, fill: false,
-                                            maxZoom: max(1, min(clip.width / max(1, image.width), clip.height / max(1, image.height)) * 2))
+        let fitAll = min(clip.width / max(1, image.width), clip.height / max(1, image.height))
+        // A kept picture shaped unlike the view opens whole (the viewer's `keptOtherShape` rule,
+        // Nov 8 2026): the aim says so too, or the flight overshot and shrank back in its first
+        // 50 ms.
+        let otherShape = abs((image.width / max(1, image.height)) / (clip.width / max(1, clip.height)) - 1) > 0.15
+        let s = otherShape ? fitAll
+            : ViewerScrollView.startScale(image: image, width: clip.width, visibleHeight: clip.height, focus: nil, fill: false, maxZoom: max(1, fitAll * 2))
         let w = image.width * s, h = image.height * s
         // Narrower than the view: centred; taller: its foot (the newest) at the view's foot.
         let x = w < clip.width ? clip.midX - w / 2 : clip.minX
@@ -232,7 +237,9 @@ final class WindowZoom: ObservableObject {
               let content = viewer.delegate?.viewForZooming?(in: viewer) else { return nil }
         let picture = content.convert(content.bounds, to: nil)
         guard picture.width > 1, picture.height > 1 else { return nil }
-        return WindowZoomPlace(clip: clip, picture: picture, corner: WatchLook.screen)
+        // The window's own corners, at the zoom it shows at (Nov 8 2026): the flight lands on
+        // the clipped picture's shape, and the card's 12 pt corner opens into it.
+        return WindowZoomPlace(clip: clip, picture: picture, corner: viewer.pictureCorner * viewer.zoomScale)
     }
 }
 

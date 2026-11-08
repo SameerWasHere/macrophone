@@ -57,7 +57,24 @@ final class DemoWindow: @unchecked Sendable {
     /// The window's size: narrower when the phone asked for readable text (Aa), as the Mac would
     /// resize a real one; the lines wrap to the columns that fit, like a terminal's.
     private(set) var width = 1400
-    let height = 900
+    private(set) var height = 900
+    /// `mpctl serve --rounded`: the window's corners rounded (26 pt at 2× — a Tahoe window's) with
+    /// black outside the arcs, as a captured Mac window arrives (the transparent corners of a
+    /// single-window capture have no alpha once they're video or JPEG — Nov 8 2026). A phone that
+    /// clips the corners shows none of the black.
+    var cornerRadius: CGFloat = 0
+    /// `mpctl serve --reshape`: the window takes the shape the phone sends (`watchShape`), as the
+    /// Mac app gives a real window the view's shape — at the width it had, or the height, whichever
+    /// keeps it inside 1400 × 900 — and goes back on `.restore`.
+    func reshape(aspect: CGFloat?) {
+        lock.sync {
+            guard let aspect, aspect > 0 else { width = 1400; height = 900; version += 1; return }
+            if aspect >= 1400.0 / 900.0 { width = 1400; height = max(200, Int((1400 / aspect).rounded(.down)) & ~1) }
+            else { height = 900; width = max(200, Int((900 * aspect).rounded(.down)) & ~1) }
+            version += 1
+            wordsVersion += 1
+        }
+    }
     /// Bumped by every change to what the window shows (`mpctl serve` draws a frame when it moved),
     /// and by one that could change the question it asks (a scroll or a click can't).
     private(set) var version = 0
@@ -159,16 +176,15 @@ final class DemoWindow: @unchecked Sendable {
 
     /// The window as a picture (what the Mac would capture).
     func image() -> CGImage? {
-        let (shown, offset, clicked, app, title, w, drift) = lock.sync { () -> ([String], Int, CGPoint?, String, String, Int, Int) in
+        let (shown, offset, clicked, app, title, w, drift, h) = lock.sync { () -> ([String], Int, CGPoint?, String, String, Int, Int, Int) in
             var l = lines
             if asking {
                 l += answers.enumerated().map { i, a in (i == highlighted ? "❯ " : "  ") + "\(i + 1). \(a)" }
             }
             if drift > 0 { l = script + l }
-            return (l, scroll, lastClick, self.app, self.title, width, self.drift)
+            return (l, scroll, lastClick, self.app, self.title, width, self.drift, height)
         }
         let (pointer, pointerOn, dragStart, typedN, heldNames) = lock.sync { (pointerAt, pointerShown, dragFrom, typedCount, heldKeys) }
-        let h = height
         // The columns that fit (Menlo 24 is ~14.5 px a character); a longer line wraps.
         let columns = max(10, Int((Double(w) - focus.minX * Double(w) - 34) / 14.5))
         let all = shown.flatMap { line -> [String] in
@@ -259,6 +275,17 @@ final class DemoWindow: @unchecked Sendable {
             ctx.addLine(to: CGPoint(x: x + 20, y: y - 19))
             ctx.closePath()
             ctx.drawPath(using: .fillStroke)
+        }
+        if cornerRadius > 0 {
+            // Outside the window's rounded corners: black, as the capture's transparent pixels
+            // come through video or JPEG.
+            let r = cornerRadius
+            let outside = CGMutablePath()
+            outside.addRect(CGRect(x: 0, y: 0, width: w, height: h))
+            outside.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: w, height: h), cornerWidth: r, cornerHeight: r, transform: nil))
+            ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+            ctx.addPath(outside)
+            ctx.fillPath(using: .evenOdd)
         }
         return ctx.makeImage()
     }

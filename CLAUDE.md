@@ -7,6 +7,102 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+## The window is the app (Nov 8 2026, the second pass) — wins over "The Mac's window, on your iPhone" where they differ
+
+Sameer, on build 24: "the resize arrow in the corner kinda moves first and the window catches up
+later", "the corners of the window still show some black", and the bar for every decision: "This
+app lets you run any app on your Mac on your iPhone. And it should feel that way" — the window is
+the app, with its own corners and nothing that reads as a feed. Then: "I should be able to launch
+full screen takeover of any app in both landscape and portrait in the inner screen … on [the] outer
+screen too." Frames: `docs/screens/native-window-nov8/` (`before/` build 24, `after/`; the drag
+frame by frame in `slow-drag-frames-*.txt`).
+- **The window's own corners, nothing black** (`ViewerScrollView`, "The window's own corners"): a
+  Mac window's rounded corners arrive black (a single-window capture's transparent corners have no
+  alpha once they're HEVC or JPEG). The radius is **read off the picture itself** — the two top
+  corners' diagonals, counting near-black pixels from the corner (a circle's arc meets the diagonal
+  r·(1 − 1/√2) in; the title bar behind is never black, and a Terminal's black page is below it;
+  both sides must agree, a run to 40 px is a black window, not a corner) — from the video's
+  displayed frame (`displayedPixelBuffer`, luma plane) or the kept / JPEG picture (its top strip
+  drawn into a grey bitmap), once per picture, again a moment later until the pixels are there
+  (8 tries, 0.35 s apart), and the canvas is clipped to it (`canvas.layer.cornerRadius` in picture
+  pixels, so it scales with the zoom; circular, which sits inside the capture's own arc). The
+  Whole Screen reads none (`readsCorners`). Log: "viewer: the window's corners read 53 px round
+  (594×900, video)". **Nothing from the Mac**: the installed Mac app from before draws the same.
+  `mpctl serve --rounded` draws the demo with a Tahoe window's 52 px corners and black outside
+  them (it read as 53–55).
+- **The shadow and the hairline round with the window** (`ViewerHost`): both paths rounded at the
+  corners that are the window's own on screen (`shownPictureEdge`: the picture's corner, not the
+  view's edge cutting it), square elsewhere; the hairline is a `CAShapeLayer` stroke now (0.5 pt,
+  0.14 dark / 0.18 light); both set in one `CATransaction` with actions off, in the same layout
+  pass as the picture. The Dock/card flight's corner at the viewer end is the window's own
+  (`WindowZoom.viewerPlace`: `pictureCorner × zoomScale`), the card's 12 pt opening into it.
+- **The resize follows the finger, and nothing moves after it** (`ResizableWindow`,
+  `ViewerScrollView.resizing`): during the drag the picture **scales with the frame in the same
+  layout pass** — covering it (times whatever zoom it had over covering when the drag began), the
+  point under the frame's top middle kept — so the window shrinks and grows under the finger
+  (title bar 364 → 230 px as the frame went 1110 → 723 px wide: lockstep). The arc is placed by its
+  centre at the frame's corner in that pass (never a frame behind), and at rest at **the picture's
+  own corner** (`WindowPictureKey` from the viewer's `onPictureShown`), so a window smaller than
+  its frame wears the arc on itself, not on the frame. Let go: **nothing re-fits**; the picture
+  holds until the Mac's reshaped picture arrives (a new size → the viewer's usual dissolve + fit),
+  or `resizeSettle` 1.5 s with no new size (a window the Mac can't reshape, or the same aspect) →
+  one fit. Measured on a 13 fps recording of a slow drag (`drag-frames2.py`): before, the window
+  moved twice after the finger over 2.5 s (the old picture re-fitted at +0.4–1.4 s — letterboxed
+  in the frame, the arc 26–31 px off the picture —, the Mac's reshaped picture at +2.5 s); after,
+  **zero moves after the finger**, the reshaped picture a 0.22 s dissolve in place. Shapes are
+  still sent once, on release (not throttled during the drag: the Mac holds frames 0.3–0.9 s per
+  reshape, so a live stream of shapes would stutter the picture; the stand-in can't prove either
+  way — measure on a real Mac before changing it). `mpctl serve --reshape` makes the demo take the
+  shape half a second after `WATCH SHAPE` (`WATCH RESHAPED 596×900`) and go back on `restore`.
+- **Full screen on every screen** (`Watcher.allowsFullScreen` is true for every pose;
+  `MainView.inFullScreen` drops the pose check; `DuoFullScreen` as it was — the floating mic trio,
+  the hold-for-trackpad, edge to edge, no status bar or home indicator): upright inside (flat
+  portrait, the laptop) and on the cover and every other iPhone, for any window and the Whole
+  Screen. **Where it's reached:** beside the window's name wherever the header holds the window's
+  buttons (`WatchHeaderBar.fullScreenButton` — the regular iPhone's panel, the laptop's / flat
+  upright's deck header), and **the vertical bar's item** where the bar holds them (the cover, the
+  inner screen on its side: `BarTier.fullScreen`, after `.window` — it folds into ⋯ before Sound
+  does; the cover's column takes all nine at rest) — one id, `watch-fullscreen`, never both. In the
+  header the row gives way in order — dots, "Paused", zoom out into the Window menu, **Sound into
+  it** (a "Hear Your Mac" toggle; off by default, set once), then Full Screen into it
+  (`Fit.soundInMenu`, `.fullScreenInMenu`) — before the app's name shrinks: with Full Screen
+  beside the name a Pro's row (Terminal · Sound | Mac Controls · zoom out | Window · Done) was one
+  cell too many, so on a Pro Sound is the menu's and Full Screen stays a cell
+  (`WatchHeaderUITests.testTheNameReadsWhole` had "Terminal" at 62 pt). On the inner screen on its side the status bar is
+  the vertical bar: hidden for full screen, iOS 27.1 left the root 84 pt short of the camera's
+  edge with a white band there — `StatusBarRoomFix` now pulls the root out sideways too, only
+  while the app hides the status bar (`StatusBarHiddenKey` from MainView). The
+  window takes the screen's shape in and out (`poseSettled` as before; `shrunkHere` cleared and
+  `ResizableWindow`'s share reset on `watcher.fullScreen`, so a window he shrank is all the room
+  again on either side). The floating mic is `floatingMicButton` (no matched geometry: the layout's
+  own mic stays built under full screen on the phone and the cover, and two sources of one matched
+  id put the floating one at the hidden one's place). A fold while in full screen stays in full
+  screen (the layout is pose-agnostic) and re-shapes the window. In full screen the window's
+  clipped corners sit inside the display's own 55 pt corner — the screen's corners are the app's.
+  **The phone's kept panel sleeps under full screen** (`dormant` with `innerAsleep`, and
+  `watchWindowHidden` while `inFullScreen`): live, its viewer and the screen's took the one video
+  canvas from each other on every update — the first phone full screen showed the picture zoomed
+  with a black band beside it. Two rules in `ViewerScrollView.adopt` back it: a viewer that isn't
+  live never takes the canvas from a live one on screen, and one leaving the window with it hands
+  it to any other that wants it (`wanting`), not only the "newest".
+- **A kept picture shaped unlike the view opens whole** (`reset`, `keptOtherShape`): the window's
+  last picture may be from full screen or a resize (412 × 900 after a phone full screen); at its
+  own width-fit it opened zoomed onto its column, then dissolved into the live, reshaped window at
+  another zoom (seen in the flight recording). Now, when its aspect is more than 15% off the view's
+  and no view is saved, it opens at the fit — the zoom the reshaped window arrives at — so the
+  flight lands and the live picture only widens the window. (Not on a folded half, which fills.)
+- **Tests:** `ResizableWindowUITests` (the drag, the next open full, the double tap;
+  `testASlowDragForTheRecording` drives the measured drag: one `WATCH SHAPE`, sent on release),
+  `FullScreenUITests.testFullScreenFromTheWindowOnThisScreen` (any screen: the button or bar item →
+  the window the screen's frame, the trio, no Done; exit → all the room again; run on the Pro and
+  on a Duo pose with `TEST_RUNNER_MACROPHONE_DUO_REAL=<pose>` for the log).
+- **Needs a real Mac and phone:** the corner read on real windows (Tahoe's radius at 2×; a dark
+  translucent title bar reading near black — it falls back to square, never a wrong clip; a window
+  that goes full screen on the Mac → square); the reshaped picture's arrival time after a release
+  on a real Mac (the stand-in's 0.5 s stands in for the pipe's 0.3–0.9 s hold); full screen under
+  the Dynamic Island (the title bar runs under it, as a game's does — by design); the cover's bar
+  with nine items on a real cover.
+
 ## The Mac's window, on your iPhone (Nov 8 2026) — wins over every bezel described below
 
 Sameer: "remove the borders of a window … less like there is a view window that is [showing] an
@@ -902,7 +998,7 @@ differ. Frames: `docs/screens/duo/nov1/` (before | after sheets per pose and the
   it is `.unspecified` upright; the fold's region frame flat (`.includeInactive`) — the flat
   layouts split at it and fall back to the middle.
 
-## Full Screen on the Duo on its side (Nov 3 2026)
+## Full Screen on the Duo on its side (Nov 3 2026) **[superseded Nov 8 2026: every screen — upright inside, the cover, every iPhone; the button in the header or the vertical bar — see "The window is the app"]**
 
 Sameer: "a full screen button … next to the window selector … the window take up the entirety,
 edge to edge … the window should resize to fill the screen … if it's the Mac display, it should

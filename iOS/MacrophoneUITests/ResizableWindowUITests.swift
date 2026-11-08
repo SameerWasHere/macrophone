@@ -93,4 +93,34 @@ final class ResizableWindowUITests: XCTestCase {
         XCTAssertEqual(back.width, full.width, accuracy: 1, "a double tap gives it all the room")
         XCTAssertEqual(back.height, full.height, accuracy: 1)
     }
+
+    /// The window follows the finger (Nov 8 2026): a slow drag of the corner, held a moment at
+    /// the end, then let go — the window's frame, its picture and the arc move together, and
+    /// after the finger only the Mac's reshaped picture changes anything. Driven here, read frame
+    /// by frame from a recording made outside (`simctl io recordVideo`, `drag-frames.py`); the
+    /// test itself checks only the end: the window at the dragged size, and the shape sent once.
+    func testASlowDragForTheRecording() {
+        let app = launch()
+        let handle = app.descendants(matching: .any)["watch-resize"]
+        XCTAssertTrue(handle.waitForExistence(timeout: 25), "the corner arc is there once the window is live")
+        let win = window(app)
+        XCTAssertTrue(win.waitForExistence(timeout: 5))
+        handle.doubleTap()
+        sleep(3)
+        let full = settled(win)
+        let shapesBefore = serveLog.components(separatedBy: "WATCH SHAPE").count
+        print("ResizableWindow: slow drag starts \(Date().timeIntervalSince1970)")
+        let from = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // Up and in, changing the window's shape (so the Mac reshapes it), slowly, held a moment.
+        from.press(forDuration: 0.3, thenDragTo: from.withOffset(CGVector(dx: -70, dy: -200)), withVelocity: .slow, thenHoldForDuration: 1.0)
+        print("ResizableWindow: slow drag ended \(Date().timeIntervalSince1970)")
+        sleep(4)
+        let small = settled(win)
+        print("ResizableWindow: \(full) → \(small)")
+        XCTAssertEqual(small.width, full.width - 140, accuracy: 8, "the width shrank round the middle")
+        XCTAssertEqual(small.height, full.height - 200, accuracy: 8, "the height shrank from the foot")
+        if !serveLog.isEmpty {
+            XCTAssertEqual(serveLog.components(separatedBy: "WATCH SHAPE").count, shapesBefore + 1, "one shape, sent when the finger let go")
+        }
+    }
 }

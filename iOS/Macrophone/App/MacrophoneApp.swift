@@ -185,21 +185,45 @@ extension AppSheet {
 /// anywhere the root starts at the top.
 struct StatusBarRoomFix: ViewModifier {
     @State private var lag: CGFloat = 0
+    /// The same sideways (Nov 8 2026): on the inner screen on its side the status bar is the
+    /// vertical bar, and hiding it for full screen left the root 84 pt short of the camera's
+    /// edge, a white band where the column had been (the cover gives the width back by itself).
+    /// Only while the app hides the status bar (`StatusBarHiddenKey`): at rest the root stops
+    /// short of the column by design.
+    @State private var side: (leading: CGFloat, trailing: CGFloat) = (0, 0)
+    @State private var hidden = false
 
     func body(content: Content) -> some View {
         content
             .padding(.top, -lag)
+            .padding(.leading, -side.leading)
+            .padding(.trailing, -side.trailing)
+            .onPreferenceChange(StatusBarHiddenKey.self) { hidden = $0 }
             // Measured outside the padding: the room the root gives, which the pull never moves.
             .background {
                 GeometryReader { geo in
-                    Color.clear.onChange(of: geo.frame(in: .global).minY, initial: true) { _, top in
-                        let next = max(0, top.rounded())
-                        if next != lag { lag = next }
-                    }
+                    let frame = geo.frame(in: .global)
+                    Color.clear
+                        .onChange(of: frame.minY, initial: true) { _, top in
+                            let next = max(0, top.rounded())
+                            if next != lag { lag = next }
+                        }
+                        .onChange(of: [frame.minX, frame.maxX, hidden ? 1 : 0], initial: true) { _, _ in
+                            let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.width ?? UIScreen.main.bounds.width
+                            let next = hidden ? (max(0, frame.minX.rounded()), max(0, (screen - frame.maxX).rounded())) : (0, 0)
+                            if next != side { side = next }
+                        }
                 }
                 .ignoresSafeArea()
             }
     }
+}
+
+/// The app hides the status bar (full screen; the laptop with a window in hand) — read by
+/// `StatusBarRoomFix`, which then pulls the root out to the screen's edges.
+struct StatusBarHiddenKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
 /// A sheet on the iPhone Duo's inner screen. Every other iPhone's sheets are untouched.

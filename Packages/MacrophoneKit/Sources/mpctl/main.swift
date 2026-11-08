@@ -39,6 +39,7 @@ import MacrophoneKit
 //   mpctl probe [--seconds 20] [--every 0.1] [--no-lane]   # watch a busy window and time a ping's
 //              round trip the whole while: median / p95 / p99 / max, and the video frames that came
 //   mpctl serve --busy                        # the demo window changes every frame (output streaming past)
+//   mpctl serve --rounded --reshape           # a Tahoe window's rounded corners (black outside them); the window takes the shape the phone sends
 //   mpctl serve --no-lane / any phone command --no-lane   # a Mac / a phone from before the video lane
 //   mpctl serve --permissions accessibility=off,screen=off # what this "Mac" says it's allowed to do
 //   mpctl watch --double-click 0.5,0.5 | --drag 0.2,0.5,0.6,0.5 | --hover 0.5,0.5 | --type "words" | --key cmd+shift+f5
@@ -242,6 +243,8 @@ final class ServeDelegate: LinkServerDelegate {
     var watches: [UUID: Task<Void, Never>] = [:]
     var demos: [String: DemoWindow] = [:]
     var watched: [UUID: DemoWindow] = [:]
+    /// When each phone's watch began (a shape within a second of it is the shape ahead).
+    var watchStarted: [UUID: Date] = [:]
     var prompts: [UUID: WatchPrompt] = [:]
     /// A phone that named "video" gets HEVC: its encoder, and whether it asked for a keyframe.
     var encoders: [UUID: VideoEncoder] = [:]
@@ -254,6 +257,9 @@ final class ServeDelegate: LinkServerDelegate {
             if case let .app(bid, wk, _) = target { key = bid + "#" + (wk ?? "") } else { key = "front" }
             if let d = demos[key] { return d }
             let d = DemoWindow()
+            // --rounded: a Tahoe window's corners, black outside them (Nov 8 2026); --reshape:
+            // the window takes the shape the phone sends, as the Mac app reshapes a real one.
+            if has("--rounded") { d.cornerRadius = 52 }
             let name = target.displayName.components(separatedBy: " — ")
             d.app = name.first ?? "Claude"
             if name.count > 1 { d.title = name[1] } else { d.title = d.app }
@@ -280,7 +286,7 @@ final class ServeDelegate: LinkServerDelegate {
             return
         }
         let demo = self.demo(for: target)
-        lock.sync { watched[peerID] = demo }
+        lock.sync { watched[peerID] = demo; watchStarted[peerID] = Date() }
         // The app's own name, as the Mac sends it ("Terminal", not "Terminal — claude ~/app").
         let appName = target.displayName.components(separatedBy: " — ").first ?? target.displayName
         let forced = flag("--watch-state")
@@ -374,12 +380,24 @@ final class ServeDelegate: LinkServerDelegate {
     /// Fit to iPhone, or a window taking the view's shape by itself (the demo window keeps its own).
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {
         stdout("WATCH SHAPE \(String(format: "%.2f", aspect))")
+        // --reshape: the demo window takes it half a second later (about when the Mac app's
+        // reshaped frames reach a phone: its pipe holds them 0.3–0.9 s for the resize) — at once
+        // when it comes with the watch (the shape ahead: the Mac app reshapes before the first
+        // picture, so the phone never sees the old shape).
+        guard has("--reshape"), let (demo, started) = lock.sync({ watched[peerID].map { ($0, watchStarted[peerID] ?? .distantPast) } }) else { return }
+        let ahead = Date().timeIntervalSince(started) < 1
+        Task {
+            if !ahead { try? await Task.sleep(nanoseconds: 500_000_000) }
+            demo.reshape(aspect: aspect)
+            stdout("WATCH RESHAPED \(demo.width)×\(demo.height)\(ahead ? " (ahead)" : "")")
+        }
     }
 
     /// A Window menu command. Close (Oct 19 2026) closes the demo window as the Mac would: the
     /// frames stop, and a beat later the phone hears the window is closed for good.
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID) {
         stdout("WATCH WINDOW \(command.rawValue)")
+        if command == .restore, has("--reshape") { lock.sync { watched[peerID] }?.reshape(aspect: nil) }
         guard command == .close else { return }
         watches[peerID]?.cancel()
         let name = lock.sync { watched[peerID] }?.app ?? "Claude"

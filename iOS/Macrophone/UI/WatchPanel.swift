@@ -262,6 +262,8 @@ struct WatchHeaderBar: View {
                 row(.noDots)
                 row(.nameAlone)
                 row(.zoomInMenu)
+                row(.soundInMenu)
+                row(.fullScreenInMenu)
                 row(.squeezed)
             }
             .frame(minHeight: WatchLook.header)
@@ -269,17 +271,24 @@ struct WatchHeaderBar: View {
         }
     }
 
-    /// How much the one row keeps, from all of it to the least.
-    private enum Fit { case full, noDots, nameAlone, zoomInMenu, squeezed }
+    /// How much the one row keeps, from all of it to the least: the dots go first, then the
+    /// words before the name, then zoom out into the Window menu, then Sound into it (a toggle
+    /// set once, off by default), then Full Screen (Nov 8 2026: with Full Screen beside the name
+    /// a Pro's row — Terminal, Sound | Mac Controls, zoom out | Window, Done — was one cell too
+    /// many, and the app's name reads whole before anything else is kept; Full Screen is how the
+    /// app is run here, so it stays a cell longer than Sound).
+    private enum Fit { case full, noDots, nameAlone, zoomInMenu, soundInMenu, fullScreenInMenu, squeezed }
 
     private func row(_ fit: Fit) -> some View {
+        let fullScreenFolded = fit == .fullScreenInMenu || fit == .squeezed
+        let soundFolded = fit == .soundInMenu || fullScreenFolded
         // 8 between the pieces of glass (10 had a Pro's row 3 pt short of keeping zoom out).
-        HStack(spacing: narrow ? 6 : 8) {
+        return HStack(spacing: narrow ? 6 : 8) {
             name(dots: fit == .full, words: fit == .full || fit == .noDots)
                 .fixedSize(horizontal: fit != .squeezed, vertical: false)
-            fullScreenButton
+            if !fullScreenFolded { fullScreenButton }
             Spacer(minLength: narrow ? 2 : 4)
-            clusters(zoomInMenu: fit == .zoomInMenu || fit == .squeezed)
+            clusters(zoomInMenu: fit == .zoomInMenu || soundFolded, soundInMenu: soundFolded, fullScreenInMenu: fullScreenFolded)
             done
         }
     }
@@ -395,18 +404,19 @@ struct WatchHeaderBar: View {
     }
 
     /// The clusters by Done. `zoomInMenu`: zoom out is the Window menu's first item instead of a
-    /// cell of its own (a row too narrow for the name otherwise).
-    @ViewBuilder private func clusters(zoomInMenu: Bool = false) -> some View {
+    /// cell of its own (a row too narrow for the name otherwise); `fullScreenInMenu`: Full Screen
+    /// is an item there too (Nov 8 2026).
+    @ViewBuilder private func clusters(zoomInMenu: Bool = false, soundInMenu: Bool = false, fullScreenInMenu: Bool = false) -> some View {
         // The Mac's sound here, and its volume, brightness and media keys (Oct 19 2026,
         // Sameer: "Mac controls should be its own button rather than hidden in a sub menu"
         // — one tap from any window, on every page): one piece of glass.
         // While the link comes back they hold their places, dimmed (the header never re-lays).
-        let sound = model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature)
+        let soundHere = (model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature)) && !(soundInMenu && !watcher.isDesktop)
         let controls = model.canMacControls || watcher.heldFeature(MacControl.feature)
-        if sound || controls {
+        if soundHere || controls {
             HStack(spacing: 0) {
-                WatchSoundButton(player: model.macAudio, held: sound)
-                if sound, controls { WatchCellDivider() }
+                if soundHere { WatchSoundButton(player: model.macAudio, held: true) }
+                if soundHere, controls { WatchCellDivider() }
                 if controls { MacControlsButton(style: .cell).disabled(!model.canMacControls) }
             }
             .watchGlass(Capsule())
@@ -423,7 +433,9 @@ struct WatchHeaderBar: View {
                 if !folded { WatchWholeButton(watcher: watcher) }
                 if !watcher.isDesktop {
                     if !folded { WatchCellDivider() }
-                    WatchWindowMenu(watcher: watcher, zoomItem: folded)
+                    WatchWindowMenu(watcher: watcher, zoomItem: folded,
+                                    soundItem: soundInMenu && (model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature)),
+                                    fullScreenItem: fullScreenInMenu && fullScreenAvailable && !inBar && !nameOnly)
                 }
                 if attachHere {
                     WatchCellDivider()
@@ -444,9 +456,11 @@ struct WatchHeaderBar: View {
         AttachMenu(style: .cell(height: WatchLook.header), pickingPhoto: $pickingPhoto, pickingFile: $pickingFile)
     }
 
-    /// Full Screen: the window takes the whole inner screen, edge to edge (`DuoFullScreen`).
+    /// Full Screen: the window takes the whole screen, edge to edge (`DuoFullScreen`) — beside the
+    /// name wherever the header holds the window's buttons; where a vertical bar holds them (the
+    /// cover, the inner screen on its side) it's the bar's item instead (Nov 8 2026).
     @ViewBuilder private var fullScreenButton: some View {
-        if fullScreenAvailable {
+        if fullScreenAvailable, !inBar, !nameOnly {
             Button {
                 watcher.setFullScreen(true)
             } label: {
@@ -528,6 +542,10 @@ struct WatchWindowMenu: View {
     var bar = false
     /// Zoom out lives here (a header too narrow for its own cell beside the window's name).
     var zoomItem = false
+    /// Hear Your Mac as an item (the row too narrow for the Sound cell — Nov 8 2026).
+    var soundItem = false
+    /// Full Screen as an item (the header's row too narrow for its cell beside the name).
+    var fullScreenItem = false
     @State private var confirmClose = false
 
     var body: some View {
@@ -536,13 +554,28 @@ struct WatchWindowMenu: View {
             if let t = watcher.target {
                 Section { AlertWatchButton(ref: t) }
             }
-            if zoomItem {
+            if zoomItem || fullScreenItem || soundItem {
                 Section {
-                    Button { watcher.toggleWholeWindow() } label: {
-                        Label(watcher.wholeWindow ? "Zoom Back In" : "Show the Whole Window",
-                              systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                    if soundItem {
+                        Toggle(isOn: Binding(get: { model.macAudio.isOn }, set: { _ in model.macAudio.toggle() })) {
+                            Label("Hear Your Mac", systemImage: model.macAudio.isOn ? "speaker.wave.2.fill" : "speaker")
+                        }
+                        .disabled(!model.macAudio.macCanPlay)
+                        .accessibilityIdentifier("watch-sound")
                     }
-                    .accessibilityIdentifier("watch-whole")
+                    if fullScreenItem {
+                        Button { watcher.setFullScreen(true) } label: {
+                            Label("Full Screen", systemImage: "arrow.up.backward.and.arrow.down.forward.rectangle")
+                        }
+                        .accessibilityIdentifier("watch-fullscreen")
+                    }
+                    if zoomItem {
+                        Button { watcher.toggleWholeWindow() } label: {
+                            Label(watcher.wholeWindow ? "Zoom Back In" : "Show the Whole Window",
+                                  systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                        }
+                        .accessibilityIdentifier("watch-whole")
+                    }
                 }
             }
             if watcher.canFitToPhone {
@@ -770,6 +803,8 @@ struct WatchWindow: View {
     @State private var opening = false
     /// The link has been gone a moment (`WatchReconnect.quietFor`): the held picture's shade shows.
     @State private var heldShown = false
+    /// What of the picture shows, in the viewer's space (`WindowPictureKey`: the resize arc's corner).
+    @State private var shown: CGRect = .zero
     /// The pointer's sprite and the viewer that places it (the trackpad's pointer, drawn above
     /// everything over the picture).
     @StateObject private var pointer = PointerLink()
@@ -826,8 +861,16 @@ struct WatchWindow: View {
                                  input.visibleCenter = { [weak v] in v?.visibleCenter }
                              },
                              floats: !fill && !reduceTransparency,
-                             resizing: resizing)
+                             resizing: resizing,
+                             readsCorners: !watcher.isDesktop,
+                             onPictureShown: { r in
+                                 // The resize arc follows the window's own corner (never the
+                                 // frame's when the picture sits smaller than it).
+                                 guard interactive, r != shown else { return }
+                                 Task { @MainActor in shown = r }
+                             })
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill, interactive: live) }
+                    .preference(key: WindowPictureKey.self, value: interactive ? shown : .zero)
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
@@ -1052,6 +1095,16 @@ struct WatchWindow: View {
             .padding(.horizontal, 20)
             .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         }
+    }
+}
+
+/// What of the window's picture shows, in the window view's own space (zero: none) — the
+/// resize arc sits on its bottom-right corner (Nov 8 2026).
+struct WindowPictureKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let n = nextValue()
+        if n != .zero { value = n }
     }
 }
 
@@ -1738,6 +1791,11 @@ struct WindowViewer: UIViewRepresentable {
     var floats = false
     /// His finger is on the window's resize corner.
     var resizing = false
+    /// The picture is a window: its own rounded corners are read and clipped to (not the whole
+    /// screen's picture).
+    var readsCorners = true
+    /// What of the picture shows, in the view's own space, whenever it moves.
+    var onPictureShown: (CGRect) -> Void = { _ in }
 
     func makeUIView(context: Context) -> ViewerHost {
         let host = ViewerHost()
@@ -1748,8 +1806,10 @@ struct WindowViewer: UIViewRepresentable {
 
     func updateUIView(_ host: ViewerHost, context: Context) {
         host.floats = floats
+        host.onShown = onPictureShown
         let v = host.viewer
         wire(v)
+        v.readsCorners = readsCorners
         v.viewKey = viewKey
         v.canDrag = canDrag
         v.keyboardUp = keyboardUp
@@ -1789,29 +1849,34 @@ struct WindowViewer: UIViewRepresentable {
 final class ViewerHost: UIView {
     let viewer = ViewerScrollView()
     private let shade = UIView()
-    private let edge = UIView()
+    private let edge = CAShapeLayer()
     var floats = false { didSet { if floats != oldValue { placeShade() } } }
+    /// What of the picture shows, in this view's space, each time it moves (the resize arc sits
+    /// on its corner).
+    var onShown: (CGRect) -> Void = { _ in }
+    private var lastShown = CGRect.null
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = false
         backgroundColor = .clear
-        for v in [shade, edge] {
-            v.isUserInteractionEnabled = false
-            v.isAccessibilityElement = false
-            v.isHidden = true
-        }
-        // macOS's own window shadow: soft, dark, a little below.
+        shade.isUserInteractionEnabled = false
+        shade.isAccessibilityElement = false
+        shade.isHidden = true
+        // macOS's own window shadow (an active window's): soft, dark, a little below.
         shade.layer.shadowColor = UIColor.black.cgColor
         shade.layer.shadowOpacity = 0.3
         shade.layer.shadowRadius = 16
         shade.layer.shadowOffset = CGSize(width: 0, height: 8)
         // …and its hairline: a dark one in light, a light one in dark (what keeps a dark window
-        // on a dark desktop from melting into it).
-        edge.layer.borderWidth = 0.5
+        // on a dark desktop from melting into it) — a stroke, so it rounds with the window's
+        // corners where they're on screen (Nov 8 2026).
+        edge.fillColor = nil
+        edge.lineWidth = 0.5
+        edge.isHidden = true
         addSubview(shade)
         addSubview(viewer)
-        addSubview(edge)
+        layer.addSublayer(edge)
         viewer.onPictureMoved = { [weak self] in self?.placeShade() }
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: ViewerHost, _) in self.paintEdge() }
         paintEdge()
@@ -1827,19 +1892,28 @@ final class ViewerHost: UIView {
 
     private func paintEdge() {
         let dark = traitCollection.userInterfaceStyle == .dark
-        edge.layer.borderColor = UIColor(white: dark ? 1 : 0, alpha: dark ? 0.16 : 0.14).cgColor
+        edge.strokeColor = UIColor(white: dark ? 1 : 0, alpha: dark ? 0.18 : 0.14).cgColor
     }
 
-    /// The shadow and the edge round what of the picture shows; moved with the viewer's own
-    /// animation when it's animating (the zoom-out's), else at once.
+    /// The shadow and the edge round what of the picture shows — rounded at the corners that are
+    /// the window's own, square where the view's edge cuts the picture; moved with the viewer's
+    /// own animation when it's animating (the zoom-out's), else at once, in the same transaction
+    /// as the picture (never a frame behind it).
     private func placeShade() {
-        let r = floats ? viewer.shownPicture(in: self) : .zero
-        let show = r.width > 1 && r.height > 1
+        let (r, radius, corners) = viewer.shownPictureEdge(in: self)
+        let show = floats && r.width > 1 && r.height > 1
         shade.isHidden = !show
         edge.isHidden = !show
+        if r != lastShown { lastShown = r; onShown(r) }
         guard show else { return }
-        let path = UIBezierPath(rect: CGRect(origin: .zero, size: r.size)).cgPath
+        let radii = CGSize(width: radius, height: radius)
+        let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: r.size), byRoundingCorners: corners, cornerRadii: radii).cgPath
+        // The hairline sits on the window's edge: a quarter point in, the stroke's own width.
+        let inset = r.insetBy(dx: 0.25, dy: 0.25)
+        let edgeRadius = max(0, radius - 0.25)
+        let edgePath = UIBezierPath(roundedRect: inset, byRoundingCorners: corners, cornerRadii: CGSize(width: edgeRadius, height: edgeRadius)).cgPath
         let d = UIView.inheritedAnimationDuration
+        CATransaction.begin()
         if d > 0, let old = shade.layer.shadowPath {
             let a = CABasicAnimation(keyPath: "shadowPath")
             a.fromValue = old
@@ -1847,10 +1921,21 @@ final class ViewerHost: UIView {
             a.duration = d
             a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             shade.layer.add(a, forKey: "shadowPath")
+            if let oldEdge = edge.path {
+                let b = CABasicAnimation(keyPath: "path")
+                b.fromValue = oldEdge
+                b.toValue = edgePath
+                b.duration = d
+                b.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                edge.add(b, forKey: "path")
+            }
+        } else {
+            CATransaction.setDisableActions(true)
         }
         shade.frame = r
-        edge.frame = r
         shade.layer.shadowPath = path
+        edge.path = edgePath
+        CATransaction.commit()
     }
 }
 
@@ -1858,39 +1943,216 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     /// The picture moved within the view (a zoom, a scroll, a new size): the host's shadow follows.
     var onPictureMoved: () -> Void = {}
 
-    /// He's dragging the window's corner (Nov 8 2026): the picture keeps its zoom and its spot —
-    /// the window's edge moves over it, as a Mac window's does — and settles to fit the new size
-    /// when he lets go (until the Mac's window, reshaped to it, sends its first picture).
+    /// He's dragging the window's corner (Nov 8 2026, the second pass): the picture scales with
+    /// the frame in the same layout pass — covering it, its top edge and its middle across kept —
+    /// so the window shrinks and grows under the finger, nothing lagging a frame behind it. Let
+    /// go, and nothing moves: the picture holds as it is until the Mac's window, reshaped to the
+    /// new size, sends its first picture (a new size → the viewer starts that picture at its
+    /// fit); a window the Mac can't reshape settles to fit after `resizeSettle` instead. Before
+    /// this the release re-fitted the old picture at once (a letterboxed step) and the Mac's
+    /// reshaped picture re-fitted it again — two steps after the finger (Sameer, build 24: "the
+    /// resize arrow in the corner kinda moves first and the window catches up later").
     var resizing = false {
         didSet {
-            guard resizing != oldValue, !resizing, imageSize != .zero, bounds.width > 0 else { return }
-            configureZoom()
-            reset(animated: true)
+            guard resizing != oldValue else { return }
+            resizeRatio = nil
+            resizeSettleTask?.cancel()
+            guard !resizing, imageSize != .zero, bounds.width > 0 else { return }
+            let held = imageSize, g = lastGeneration
+            resizeSettleTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(ViewerScrollView.resizeSettle * 1e9))
+                guard let self, !Task.isCancelled, self.imageSize == held, self.lastGeneration == g, !self.resizing else { return }
+                self.onLog?("viewer: no reshaped picture \(Int(ViewerScrollView.resizeSettle * 1000)) ms after the resize — fitting the one it has")
+                self.configureZoom()
+                self.reset(animated: true)
+            }
         }
     }
+    /// How long a resized window waits for the Mac's reshaped picture before it fits the old one.
+    static let resizeSettle: TimeInterval = 1.5
+    private var resizeSettleTask: Task<Void, Never>?
+    /// The zoom over the covering scale when the drag began: a window zoomed in stays zoomed in
+    /// by as much as the frame changes.
+    private var resizeRatio: CGFloat?
 
-    /// A size change mid-drag: the same zoom, the bottom kept if it showed, else the same spot.
-    private func keepZoomResizing(oldHeight: CGFloat) {
-        let s = zoomScale, w = imageSize.width * s, h = imageSize.height * s
-        let left = contentOffset.x + contentInset.left, top = contentOffset.y + contentInset.top
-        let wasBottom = top >= max(0, h - max(1, oldHeight - footInset)) - 24
+    /// A size change mid-drag, in the same layout pass: the picture covers the new frame (times
+    /// the zoom it had over covering when the drag began), the point under the frame's top middle
+    /// kept — the window's top edge and its middle across stay put, as the corner is dragged.
+    private func keepZoomResizing(old: CGSize) {
+        let s0 = zoomScale, w0 = imageSize.width * s0, h0 = imageSize.height * s0
+        let oldVisible = max(1, old.height - footInset)
+        let cover0 = max(old.width / imageSize.width, oldVisible / imageSize.height)
+        if resizeRatio == nil { resizeRatio = cover0 > 0 ? max(1, s0 / cover0) : 1 }
+        // Where the frame's top middle is on the picture (fractions), before the change.
+        let midFrac = min(max((contentOffset.x + contentInset.left + old.width / 2) / max(1, w0), 0), 1)
+        let topFrac = min(max((contentOffset.y + contentInset.top) / max(1, h0), 0), 1)
+        let cover = max(bounds.width / imageSize.width, visibleHeight / imageSize.height)
+        let s = cover * (resizeRatio ?? 1)
         configureZoom()
         minimumZoomScale = min(minimumZoomScale, s)
         maximumZoomScale = max(maximumZoomScale, s)
+        setZoomScale(s, animated: false)
         centerIfSmall()
-        let bottom = max(0, h - visibleHeight)
-        let x = min(max(left, 0), max(0, w - bounds.width))
-        let y = wasBottom ? bottom : min(max(top, 0), bottom)
+        let w = imageSize.width * s, h = imageSize.height * s
+        let x = min(max(midFrac * w - bounds.width / 2, 0), max(0, w - bounds.width))
+        let y = min(max(topFrac * h, 0), max(0, h - visibleHeight))
         contentOffset = CGPoint(x: x - contentInset.left, y: y - contentInset.top)
+        placePointer()
     }
 
     /// What of the picture is on screen, in `view`'s space: the picture's frame at its zoom and
     /// scroll, cut to this view's bounds.
     func shownPicture(in view: UIView) -> CGRect {
-        guard imageSize.width > 0, imageSize.height > 0, !canvas.isHidden else { return .zero }
+        shownPictureEdge(in: view).rect
+    }
+
+    /// What of the picture shows, and which of its corners are the window's own corners (the
+    /// picture's corner is on screen there, not cut by the view's edge) with their radius on
+    /// screen — so the shadow, the hairline and the resize arc round only where the window does.
+    func shownPictureEdge(in view: UIView) -> (rect: CGRect, radius: CGFloat, corners: UIRectCorner) {
+        guard imageSize.width > 0, imageSize.height > 0, !canvas.isHidden else { return (.zero, 0, []) }
         let picture = canvas.convert(canvas.bounds, to: view)
         let shown = picture.intersection(convert(bounds, to: view))
-        return shown.isNull ? .zero : shown
+        guard !shown.isNull, shown.width > 0, shown.height > 0 else { return (.zero, 0, []) }
+        var corners: UIRectCorner = []
+        let e: CGFloat = 0.75
+        let left = abs(shown.minX - picture.minX) < e, right = abs(shown.maxX - picture.maxX) < e
+        let top = abs(shown.minY - picture.minY) < e, bottom = abs(shown.maxY - picture.maxY) < e
+        if top, left { corners.insert(.topLeft) }
+        if top, right { corners.insert(.topRight) }
+        if bottom, left { corners.insert(.bottomLeft) }
+        if bottom, right { corners.insert(.bottomRight) }
+        return (shown, pictureCorner * zoomScale, corners)
+    }
+
+    // MARK: The window's own corners (Nov 8 2026)
+
+    // A Mac window has rounded corners; a single-window capture leaves what's outside them
+    // transparent, and transparency doesn't survive the trip (HEVC's 4:2:0 planes and JPEG have
+    // no alpha) — it arrives black. Sameer, build 24: "the corners of the window still show some
+    // black." The radius is read off the picture itself — the top-left and top-right diagonals,
+    // counting black pixels from the corner (a circle's arc meets the diagonal r·(1 − 1/√2) in):
+    // the title bar behind them is never black, and a Terminal's black page is below it — and the
+    // picture is clipped to it (the canvas's own corner, so it scales with the zoom). Nothing from
+    // the Mac: an installed Mac app from before draws the same.
+
+    /// The window's corner radius, in the picture's pixels (0: square, or not known).
+    private(set) var pictureCorner: CGFloat = 0 {
+        didSet {
+            guard pictureCorner != oldValue else { return }
+            canvas.layer.cornerRadius = pictureCorner
+            canvas.layer.masksToBounds = pictureCorner > 0
+            onPictureMoved()
+        }
+    }
+    /// Whether the picture is a window at all (not the whole screen): its corners are read.
+    var readsCorners = true
+    /// The picture (size, generation, video or not) the corner was last read from, and how many
+    /// reads it had (a frame's pixels arrive a moment after it's handed over, so a read that found
+    /// nothing is tried again).
+    private var cornerRead: (size: CGSize, generation: Int, video: Bool, tries: Int) = (.zero, -1, false, 0)
+    private var cornerTask: Task<Void, Never>?
+    /// Black on the diagonal past this many pixels isn't a corner (a black window, or no picture).
+    private static let cornerLimit = 40
+    private static let cornerBlack: UInt8 = 22
+    private static let cornerTries = 8
+
+    /// Reads the corner for the picture now up, once per picture (again shortly after when its
+    /// pixels weren't there yet); the video's own frame once it flows over a kept picture.
+    private func readCornerIfNeeded() {
+        guard readsCorners else { if pictureCorner != 0 { pictureCorner = 0 }; return }
+        guard imageSize != .zero else { return }
+        let video = wantedVideo != nil && wantedVideo!.superview === canvas
+        if cornerRead.size != imageSize || cornerRead.generation != lastGeneration || cornerRead.video != video {
+            cornerRead = (imageSize, lastGeneration, video, 0)
+        }
+        guard cornerRead.tries < Self.cornerTries else { return }
+        cornerRead.tries += 1
+        let r: CGFloat?
+        if video, let v = wantedVideo, v.hasFrame, let pb = v.displayedFrame() { r = Self.cornerRadius(of: pb) }
+        else if !video, let img = imageView.image?.cgImage { r = Self.cornerRadius(of: img) }
+        else { r = nil }
+        if let r {
+            if r != pictureCorner { onLog?("viewer: the window's corners read \(Int(r)) px round (\(Int(imageSize.width))×\(Int(imageSize.height)), \(video ? "video" : "picture"))") }
+            pictureCorner = r
+            cornerRead.tries = Self.cornerTries
+        } else {
+            // Not readable yet: again in a moment (the first frame's pixels, the decoder's beat).
+            cornerTask?.cancel()
+            cornerTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.readCornerIfNeeded()
+            }
+        }
+    }
+
+    /// The corner radius a picture's black corners describe, in its pixels: the two top corners
+    /// each walked down their diagonal; both must agree (within a third) and end within the limit.
+    /// 0 for square corners; nil when the pixels couldn't be read.
+    static func cornerRadius(of pb: CVPixelBuffer) -> CGFloat? {
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
+        guard w > 8, h > 8 else { return nil }
+        let format = CVPixelBufferGetPixelFormatType(pb)
+        let planar = CVPixelBufferIsPlanar(pb)
+        let base: UnsafeMutableRawPointer?, stride: Int
+        if planar {
+            base = CVPixelBufferGetBaseAddressOfPlane(pb, 0)
+            stride = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
+        } else {
+            base = CVPixelBufferGetBaseAddress(pb)
+            stride = CVPixelBufferGetBytesPerRow(pb)
+        }
+        guard let base else { return nil }
+        let p = base.assumingMemoryBound(to: UInt8.self)
+        // Video-range luma puts black at 16; full range at 0 — read as "near black" either way.
+        let videoRange = format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange || format == kCVPixelFormatType_420YpCbCr8Planar
+        let black = cornerBlack + (videoRange ? 16 : 0)
+        func luma(_ x: Int, _ y: Int) -> UInt8 {
+            if planar { return p[y * stride + x] }
+            // 32BGRA (the decoder's other output): the green channel stands for brightness well enough.
+            let b = p[y * stride + x * 4], g = p[y * stride + x * 4 + 1], r = p[y * stride + x * 4 + 2]
+            return UInt8((Int(r) * 54 + Int(g) * 183 + Int(b) * 19) >> 8)
+        }
+        return radius(width: w, height: h, black: black, luma: luma)
+    }
+
+    static func cornerRadius(of image: CGImage) -> CGFloat? {
+        let w = image.width, h = image.height
+        guard w > 8, h > 8 else { return nil }
+        // Only the top strip is read: drawn once into a small grey bitmap.
+        let rows = min(h, cornerLimit + 2)
+        guard let ctx = CGContext(data: nil, width: w, height: rows, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        ctx.setFillColor(gray: 0, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: rows))
+        // The image's top at the context's top: the context's origin is at its bottom.
+        ctx.draw(image, in: CGRect(x: 0, y: rows - h, width: w, height: h))
+        guard let data = ctx.data else { return nil }
+        let stride = ctx.bytesPerRow
+        let p = data.assumingMemoryBound(to: UInt8.self)
+        // A bitmap context's first row in memory is its top row (the image's top, drawn there).
+        return radius(width: w, height: rows, black: cornerBlack) { x, y in p[y * stride + x] }
+    }
+
+    /// The radius from the two top diagonals' black runs.
+    private static func radius(width w: Int, height h: Int, black: UInt8, luma: (Int, Int) -> UInt8) -> CGFloat? {
+        let limit = min(cornerLimit, w / 2 - 1, h - 1)
+        func run(_ x: (Int) -> Int) -> Int {
+            var t = 0
+            while t < limit, luma(x(t), t) <= black { t += 1 }
+            return t
+        }
+        let left = run { $0 }, right = run { w - 1 - $0 }
+        // A black run to the limit on either side is a black window, not a corner.
+        guard left < limit, right < limit else { return 0 }
+        guard left >= 2, right >= 2 else { return 0 }
+        guard abs(left - right) <= max(2, max(left, right) / 3) else { return 0 }
+        let t = CGFloat(left + right) / 2
+        // The diagonal's black run is r·(1 − 1/√2); the arc's anti-aliased pixel is half in.
+        return ((t + 0.5) / (1 - 1 / 2.squareRoot())).rounded()
     }
 
     /// What zooms: the picture, with the video canvas over it while video flows.
@@ -2156,13 +2418,19 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             lastRecenter = nil
             wholeShown = false
             lastWhole = nil
+            resizeSettleTask?.cancel()
         }
         let focusChanged = focus != self.focus && !adjusted
         self.focus = focus
         imageView.image = image
         adopt(video)
         let size = video != nil ? videoSize : image?.size ?? .zero
-        defer { if size != .zero { keptShown = kept } }
+        defer {
+            if size != .zero { keptShown = kept }
+            // The window's own corners, read off this picture (again a moment later if its pixels
+            // aren't there yet).
+            if size != .zero { readCornerIfNeeded() }
+        }
         guard size != .zero else { return }
         if size != imageSize, hadPicture, bounds.width > 0, WatchReconnect.sameShape(imageSize, size) {
             // The same window at another resolution (back from a dropped link at home, or away:
@@ -2185,6 +2453,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         } else if size != imageSize {
             // A new size (first picture, another window, or the window was resized): start over —
             // under a short dissolve when a picture was already up, so the view never jumps.
+            // (The Mac's reshaped picture after a resize here lands this way: the old one held
+            // as it was until now — `resizing`.)
+            resizeSettleTask?.cancel()
             let dissolve = hadPicture && !keptShown && !UIAccessibility.isReduceMotionEnabled
             imageSize = size
             let apply = {
@@ -2216,10 +2487,15 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     private func adopt(_ video: VideoCanvas?) {
         canvas.subviews.filter { $0.tag == Self.snapshotTag }.forEach { $0.removeFromSuperview() }
         wantedVideo = video
-        guard let video else { return }
+        guard let video else { Self.wanting.remove(self); return }
+        Self.wanting.add(self)
+        guard video.superview !== canvas else { if window != nil { Self.newest = self }; return }
+        // A viewer that isn't live (the phone's panel kept under full screen, Nov 8 2026) never
+        // takes the canvas from one that is and is on screen: the two updated turn and turn
+        // about and the picture flickered between them.
+        if !isScrollEnabled, let holder = video.superview?.superview as? ViewerScrollView, holder.isScrollEnabled, holder.window != nil { return }
         // The newest viewer that wants the video: a viewer on its way out hands the canvas here.
         if window != nil { Self.newest = self }
-        guard video.superview !== canvas else { return }
         if let old = video.superview, let snap = video.snapshotView(afterScreenUpdates: false) {
             snap.frame = video.frame
             snap.tag = Self.snapshotTag
@@ -2238,6 +2514,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     /// next update — so a viewer leaving the window hands the canvas to the newest one that wants it.
     private var wantedVideo: VideoCanvas?
     private static weak var newest: ViewerScrollView?
+    /// Every viewer that wants a canvas (weakly): the one leaving the window with it hands it to
+    /// another still there when the newest is itself (Nov 8 2026).
+    private static let wanting = NSHashTable<ViewerScrollView>.weakObjects()
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -2253,7 +2532,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let old = lastBounds
         lastBounds = bounds.size
         if resizing, old != .zero {
-            keepZoomResizing(oldHeight: old.height)
+            keepZoomResizing(old: old)
             return
         }
         let forAnswers = CACurrentMediaTime() < holdZoomUntil
@@ -2370,7 +2649,13 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         guard imageSize != .zero, bounds.width > 0 else { return }
         let saved = savedView
         adjusted = saved != nil && !(saved!.bottom || toBottom)
-        let s = saved.map { min(max($0.zoom * fitWidth, minimumZoomScale), maximumZoomScale) } ?? startScale
+        // A kept picture shaped unlike the view (the window was last seen in full screen, or
+        // resized — Nov 8 2026): the Mac is about to give the window this view's shape, so it
+        // opens whole, at the zoom the reshaped window will have — not zoomed onto its column at
+        // its old width, which then dissolved into the whole window at another zoom.
+        let keptOtherShape = kept && !fill && saved == nil && abs((imageSize.width / imageSize.height) / (bounds.width / visibleHeight) - 1) > 0.15
+        let s = saved.map { min(max($0.zoom * fitWidth, minimumZoomScale), maximumZoomScale) }
+            ?? (keptOtherShape ? minimumZoomScale : startScale)
         // Filling the view past the window's width (one the Mac can't reshape to this view): it
         // starts at its top-left corner, so its title bar — close, minimize, zoom — is in view
         // (Nov 7 2026: centred, the red light was off the screen's edge, and the book lost the
@@ -2693,9 +2978,17 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
             endMomentum()
-            if let v = wantedVideo, v.superview === canvas, let other = Self.newest, other !== self, other.window != nil, other.wantedVideo === v {
-                other.adopt(v)
-                other.setNeedsLayout()
+            if let v = wantedVideo, v.superview === canvas {
+                // The newest other viewer that wants it, else any other in a window (a live one first).
+                var other = Self.newest
+                if other === self || other?.window == nil || other?.wantedVideo !== v {
+                    let others = Self.wanting.allObjects.filter { $0 !== self && $0.window != nil && $0.wantedVideo === v }
+                    other = others.first { $0.isScrollEnabled } ?? others.first
+                }
+                if let other {
+                    other.adopt(v)
+                    other.setNeedsLayout()
+                }
             }
         }
     }
