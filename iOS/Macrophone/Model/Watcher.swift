@@ -51,8 +51,29 @@ final class Watcher: ObservableObject {
     /// Counts each time the view opens from closed: one watch, however many windows it flips through.
     private(set) var watchCount = 0
     @Published private(set) var phase: Phase = .starting {
-        didSet { if phase != .reconnecting, oldValue == .reconnecting { reconnectTask?.cancel(); reconnectFallback = nil } }
+        didSet { if phase != .reconnecting, oldValue == .reconnecting { reconnectTask?.cancel(); reconnectFallback = nil; firstConnect = false } }
     }
+    /// The hold isn't a drop (Nov 7 2026): the window was opened before the link was up — a folded
+    /// Duo launching straight into the window in hand, an alert or widget tapped at launch — so the
+    /// picture held is the kept one and nothing went away. It says "Connecting to ‹Mac›…", never
+    /// "Reconnecting…" (unless the app itself has seen a drop since — `appReconnecting`).
+    @Published private(set) var firstConnect = false
+    /// The link is still being made at launch or on a return (AppModel's `settling` / `returning`):
+    /// nothing over a held picture meanwhile — no shade, no capsule. Set by AppModel.
+    @Published private(set) var linkQuiet = false
+    /// AppModel says the link dropped and is being made again (its status line's "Reconnecting").
+    @Published private(set) var appReconnecting = false
+    /// The Mac's name, for "Connecting to ‹Mac›…".
+    var macName: () -> String = { "your Mac" }
+
+    /// What AppModel knows about the link, for what's drawn over a held picture.
+    func linkLooks(quiet: Bool, reconnecting: Bool) {
+        if linkQuiet != quiet { linkQuiet = quiet }
+        if appReconnecting != reconnecting { appReconnecting = reconnecting }
+    }
+
+    /// The words over a held picture once it's been held a moment.
+    var holdWords: String { firstConnect && !appReconnecting ? "Connecting to \(macName())…" : "Reconnecting…" }
     /// The iPhone Duo's glance (Oct 25 2026, the second pass): Done on the inner screen keeps the
     /// pictures coming but puts the controls away — the picked app's window stays live and big,
     /// not a placeholder, with Show it here to take it in hand again. Never on the cover or a
@@ -380,7 +401,9 @@ final class Watcher: ObservableObject {
         phase = !hasPicture || stale ? .starting : phase == .live ? .live : holding ? .reconnecting : .starting
         guard sendWatch(target) else {
             // No link: hold on for as long as a dropped one is held.
-            if phase == .reconnecting { if reconnectFallback != .offline { holdUntil(WatchReconnect.limit, then: .offline) } } else { beginReconnecting() }
+            // Opened before the link was ever up for it (a folded launch, an alert at launch): a
+            // first connect, held the same way but never called a reconnect.
+            if phase == .reconnecting { if reconnectFallback != .offline { holdUntil(WatchReconnect.limit, then: .offline) } } else { beginReconnecting(firstConnect: true) }
             return
         }
         // The Mac's answer is due; if it never comes, the window shows it's opening, as any does.
@@ -675,6 +698,29 @@ final class Watcher: ObservableObject {
         onClosed(n, t)
     }
 
+    /// The Mac says the watched app isn't running: the view closes as Done would (the glance
+    /// too — nothing live to glance at), and the main screen hears which app (its list of open
+    /// apps corrected, the not-open state shown).
+    var onNotOpen: (String, TargetRef?) -> Void = { _, _ in }
+    /// The app was just opened from here (`AppModel.isOpening`): not running yet is no news.
+    var appOpening: (TargetRef) -> Bool = { _ in false }
+    private var askAgainTask: Task<Void, Never>?
+    private func askAgainSoon(_ t: TargetRef) {
+        askAgainTask?.cancel()
+        askAgainTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let self, !Task.isCancelled, self.isOpen, self.target == t, self.phase != .live else { return }
+            self.start()
+        }
+    }
+    private func appNotOpen() {
+        let n = name, t = target
+        log?.add("watching: the app isn't open on the Mac — back to the main screen")
+        close()
+        Haptics.caution()
+        onNotOpen(n, t)
+    }
+
     /// Apps whose window was fitted to the phone (and not sized since): they open in Scroll.
     private static func fittedKey(_ t: TargetRef) -> String? { t.bundleID.map { "watch.fitted." + $0 } }
     static func isFitted(_ t: TargetRef) -> Bool { fittedKey(t).map { UserDefaults.standard.bool(forKey: $0) } ?? false }
@@ -879,11 +925,20 @@ final class Watcher: ObservableObject {
             appName = name
             if hasPicture, !stale { phase = .live }
         case .needsPermission: phase = .needsPermission
-        case let .unavailable(why, canReveal, closed):
+        case let .unavailable(why, canReveal, closed, _):
             // The window is gone for good (the Mac waited a beat and confirmed): the window view
             // closes by itself and the main screen is back (Oct 19 2026, Sameer: "when I close a
             // window, the app should just go back to the selector screen"). Never the whole screen.
             if closed, !isDesktop { windowClosed(); return }
+            // The app isn't running on the Mac (Nov 7 2026): the phone's list of open apps was old
+            // (a folded launch, a widget or alert tapped before the list came, a tile from the last
+            // session). No dead window: the view closes as Done does and the main screen says the
+            // app isn't open, with Open ‹App›.
+            if state.saysAppNotOpen, !isDesktop, let t = target, case .app = t {
+                // Opened from here a moment ago: it's on its way up — ask again in a second.
+                if appOpening(t) { askAgainSoon(t); return }
+                appNotOpen(); return
+            }
             phase = .unavailable(why, canReveal: canReveal)
         case .stopped:
             // Stopped from the Mac's menu: the picture stays, and Resume asks again.
@@ -1078,7 +1133,7 @@ final class Watcher: ObservableObject {
     /// The next first frame is the same window coming back: no light round the rim, no haptic.
     private var resuming = false
 
-    private func beginReconnecting() {
+    private func beginReconnecting(firstConnect: Bool = false) {
         guard phase != .reconnecting else { return }
         quietUntil = nil
         keepPicture()
@@ -1086,7 +1141,9 @@ final class Watcher: ObservableObject {
         idleTask?.cancel()
         keyframeRetry?.cancel()
         phase = .reconnecting
-        log?.add("watching: the link dropped — holding the picture")
+        self.firstConnect = firstConnect
+        log?.add(firstConnect ? "watching: opened before the link is up — holding the kept picture until it connects"
+                              : "watching: the link dropped — holding the picture")
         holdUntil(WatchReconnect.limit, then: .offline)
     }
 

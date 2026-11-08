@@ -47,6 +47,28 @@ final class WatchStateWireTests: XCTestCase {
         XCTAssertEqual(String(decoding: try WireCoding.encoder.encode(WatchState.needsPermission), as: UTF8.self), #"{"needsPermission":{}}"#)
     }
 
+    /// "The app isn't running" (Nov 7 2026) rides along only when set, and a newer phone knows it
+    /// from an older Mac's words too — never a minimized or closed window, nor a running app's
+    /// window that isn't open.
+    func testNotOpenRidesAlongAndIsKnownFromAnOlderMac() throws {
+        let notOpen = WatchState.unavailable("Slack isn't open on your Mac", canReveal: false, notOpen: true)
+        let data = try WireCoding.encoder.encode(notOpen)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(#""notOpen":true"#))
+        XCTAssertEqual(try WireCoding.decoder.decode(WatchState.self, from: data), notOpen)
+        XCTAssertTrue(notOpen.saysAppNotOpen)
+        let plain = try WireCoding.encoder.encode(WatchState.unavailable("Minimized", canReveal: true))
+        XCTAssertFalse(String(decoding: plain, as: UTF8.self).contains("notOpen"))
+        // A Mac from before: its words for an app that isn't running.
+        let old = Data(#"{"unavailable":{"_0":"Slack isn't open on your Mac","canReveal":false}}"#.utf8)
+        XCTAssertTrue(try WireCoding.decoder.decode(WatchState.self, from: old).saysAppNotOpen)
+        let others: [WatchState] = [.unavailable("Claude's window is minimized or on another desktop", canReveal: true),
+                                    .unavailable("That Claude window is closed", canReveal: false, closed: true),
+                                    .unavailable("Claude's window isn't open", canReveal: false),
+                                    .unavailable("Claude has no window open", canReveal: true),
+                                    .live(appName: "Claude"), .needsPermission, .stopped]
+        for s in others { XCTAssertFalse(s.saysAppNotOpen, "\(s)") }
+    }
+
     func testFramesCarryTheMacsPointerWhenTold() throws {
         let f = WatchVideoFrame(seq: 1, data: Data(), parameterSets: nil, keyframe: false, width: 2, height: 2, appName: "Claude", bundleID: nil, focus: nil, cursor: CGPoint(x: 0.25, y: 0.75))
         let back = try WireCoding.decoder.decode(WatchVideoFrame.self, from: try WireCoding.encoder.encode(f))

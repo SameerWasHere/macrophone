@@ -674,7 +674,7 @@ struct WatchKicker: View {
     private var spoken: String {
         switch watcher.phase {
         case .live: return "Live · \(watcher.name)"
-        case .reconnecting: return "Reconnecting · \(watcher.name)"
+        case .reconnecting: return "\(watcher.firstConnect && !watcher.appReconnecting ? "Connecting" : "Reconnecting") · \(watcher.name)"
         default: return words
         }
     }
@@ -816,7 +816,7 @@ struct WatchWindow: View {
             if watcher.phase == .reconnecting, heldShown {
                 Ink.ground.opacity(0.32).transition(.opacity).allowsHitTesting(false).accessibilityHidden(true)
                 if interactive {
-                    ReconnectingCapsule()
+                    ReconnectingCapsule(words: watcher.holdWords)
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
             }
@@ -918,14 +918,17 @@ struct WatchWindow: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.2)) { opening = true }
         }
-        .task(id: watcher.phase == .reconnecting) {
-            guard watcher.phase == .reconnecting else { heldShown = false; return }
+        .task(id: [watcher.phase == .reconnecting, watcher.linkQuiet]) {
+            // While the app comes up or comes back (`Watcher.linkQuiet`: AppModel's settling, its
+            // return grace) the held picture stays bare and undimmed, whatever the link is doing —
+            // a folded Duo's launch opens the window before the link is up (Nov 7 2026).
+            guard watcher.phase == .reconnecting, !watcher.linkQuiet else { heldShown = false; return }
             // A hiccup shows nothing; neither does a return from the background while the link
             // is on its way back (`Watcher.capsuleWait`, Nov 7 2026).
             try? await Task.sleep(nanoseconds: UInt64(watcher.capsuleWait * 1_000_000_000))
-            guard !Task.isCancelled, watcher.phase == .reconnecting else { return }
+            guard !Task.isCancelled, watcher.phase == .reconnecting, !watcher.linkQuiet else { return }
             withAnimation(.easeOut(duration: 0.3)) { heldShown = true }
-            if interactive { UIAccessibility.post(notification: .announcement, argument: "Reconnecting to your Mac") }
+            if interactive { UIAccessibility.post(notification: .announcement, argument: watcher.firstConnect && !watcher.appReconnecting ? "Connecting to \(watcher.macName())" : "Reconnecting to your Mac") }
         }
         .animation(.easeInOut(duration: 0.25), value: watcher.phase)
         .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
@@ -1012,18 +1015,21 @@ struct WatchWindow: View {
 
     /// Over the held picture while the link comes back: a spinner and one word, on a capsule of
     /// glass in the middle of the window (FaceTime's frozen frame, in the app's look).
+    /// "Reconnecting…" after a drop; "Connecting to ‹Mac›…" when the window was opened before the
+    /// link was ever up (`Watcher.holdWords`).
     private struct ReconnectingCapsule: View {
+        var words: String
         var body: some View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(Ink.secondary)
-                Text("Reconnecting…").font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink)
+                Text(words).font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
             }
             .padding(.leading, 12).padding(.trailing, 14).padding(.vertical, 9)
             .watchGlass(Capsule())
             .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Reconnecting to your Mac")
+            .accessibilityLabel(words == "Reconnecting…" ? "Reconnecting to your Mac" : String(words.dropLast()))
             .accessibilityIdentifier("watch-reconnecting")
         }
     }

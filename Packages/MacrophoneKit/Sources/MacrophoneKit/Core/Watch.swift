@@ -71,17 +71,31 @@ public enum WatchState: Codable, Sendable, Equatable {
     /// "Claude's window is minimized"). `closed` (Oct 19 2026): the window the phone was looking
     /// at is gone for good — closed on the Mac or from the phone, or its app quit — confirmed a
     /// beat later (never a window that's only minimized, on another desktop, or re-created);
-    /// the phone goes back to its main screen. An older Mac never sets it.
-    case unavailable(String, canReveal: Bool, closed: Bool = false)
+    /// the phone goes back to its main screen. An older Mac never sets it. `notOpen` (Nov 7
+    /// 2026): the app itself isn't running on the Mac — what a phone holding an old list of open
+    /// apps asked for; the phone closes the view and shows the app as not open (Open ‹App›),
+    /// refreshing its list. Never set for a window that's minimized, closed or on another desktop.
+    case unavailable(String, canReveal: Bool, closed: Bool = false, notOpen: Bool = false)
     /// The Mac stopped (asked to, or the phone went away).
     case stopped
+
+    /// The words a Mac from before `notOpen` used for an app that isn't running
+    /// ("Claude isn't open on your Mac"), so a newer phone still knows it from an older Mac.
+    public static let notOpenSuffix = " isn't open on your Mac"
+
+    /// The app the phone asked to watch isn't running on the Mac: said so (`notOpen`), or in the
+    /// words an older Mac used for it.
+    public var saysAppNotOpen: Bool {
+        guard case let .unavailable(why, canReveal, _, notOpen) = self else { return false }
+        return notOpen || (!canReveal && why.hasSuffix(Self.notOpenSuffix))
+    }
 
     // Coded by hand in the synthesized shape ({"unavailable":{"_0":…,"canReveal":…}}), so a
     // phone from before reads a new Mac's state (an extra key is ignored) and a new phone reads
     // an older Mac's (no `closed` key: false).
     private enum Key: String, CodingKey { case live, needsPermission, unavailable, stopped }
     private enum LiveKey: String, CodingKey { case appName }
-    private enum UnavailableKey: String, CodingKey { case _0, canReveal, closed }
+    private enum UnavailableKey: String, CodingKey { case _0, canReveal, closed, notOpen }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
@@ -92,7 +106,8 @@ public enum WatchState: Codable, Sendable, Equatable {
             let n = try c.nestedContainer(keyedBy: UnavailableKey.self, forKey: .unavailable)
             self = .unavailable(try n.decode(String.self, forKey: ._0),
                                 canReveal: try n.decodeIfPresent(Bool.self, forKey: .canReveal) ?? false,
-                                closed: try n.decodeIfPresent(Bool.self, forKey: .closed) ?? false)
+                                closed: try n.decodeIfPresent(Bool.self, forKey: .closed) ?? false,
+                                notOpen: try n.decodeIfPresent(Bool.self, forKey: .notOpen) ?? false)
         } else if c.contains(.needsPermission) {
             self = .needsPermission
         } else if c.contains(.stopped) {
@@ -108,11 +123,12 @@ public enum WatchState: Codable, Sendable, Equatable {
         case .live(let appName):
             var n = c.nestedContainer(keyedBy: LiveKey.self, forKey: .live)
             try n.encode(appName, forKey: .appName)
-        case let .unavailable(why, canReveal, closed):
+        case let .unavailable(why, canReveal, closed, notOpen):
             var n = c.nestedContainer(keyedBy: UnavailableKey.self, forKey: .unavailable)
             try n.encode(why, forKey: ._0)
             try n.encode(canReveal, forKey: .canReveal)
             if closed { try n.encode(true, forKey: .closed) }
+            if notOpen { try n.encode(true, forKey: .notOpen) }
         case .needsPermission:
             _ = c.nestedContainer(keyedBy: LiveKey.self, forKey: .needsPermission)
         case .stopped:

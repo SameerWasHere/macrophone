@@ -219,6 +219,16 @@ final class AppModel: ObservableObject {
         watcher.input.sendKeyState = { [weak self] k, down in self?.client.watchKeyState(k, down: down) ?? false }
         watcher.input.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
         watcher.onClosed = { [weak self] name, target in self?.windowClosed(name, target) }
+        watcher.onNotOpen = { [weak self] name, target in self?.watchedAppNotOpen(name, target) }
+        watcher.appOpening = { [weak self] t in t.bundleID.map { self?.isOpening($0) ?? false } ?? false }
+        // A window held while the link is made (Nov 7 2026): nothing over it while the app comes
+        // up or comes back; then "Connecting to ‹Mac›…", or "Reconnecting…" after a real drop.
+        watcher.macName = { [weak self] in self?.macName ?? "your Mac" }
+        Publishers.CombineLatest3($settling, $returning, $reconnecting)
+            .sink { [weak self] settling, returning, reconnecting in
+                self?.watcher.linkLooks(quiet: settling || returning, reconnecting: reconnecting)
+            }
+            .store(in: &bag)
         AgentAlerts.shared.install(self)
         // The app icon's long press follows the pick, the open apps and the windows watched.
         QuickActions.install(self)
@@ -1464,6 +1474,23 @@ final class AppModel: ObservableObject {
         }
         refreshTargets()
         log.add("send to: the watched window closed")
+    }
+
+    /// The watched app isn't running on the Mac (Nov 7 2026) — the list of open apps here was old
+    /// — and the window view has gone: the app leaves the list at once (so the desktop's card, the
+    /// Duo's glance and the tiles say it isn't open, with Open ‹App›, and nothing reopens it), the
+    /// Mac is asked for the real list, and the status line says so. Send to stays as it was: a
+    /// dictation to an app that isn't open is copied, as ever.
+    private func watchedAppNotOpen(_ name: String, _ target: TargetRef?) {
+        explain("\(name) isn't open on your Mac", for: 3.2)
+        if let bid = target?.bundleID, liveTargets.contains(where: { $0.bundleID == bid }) {
+            liveTargets.removeAll { $0.bundleID == bid }
+            saveTargets(liveTargets)
+        }
+        // Not `targetsCurrent` yet (the folded launch): the list just corrected stands for the Mac's.
+        if isConnected { targetsCurrent = true }
+        refreshTargets()
+        log.add("watch: the app isn't open on the Mac — the list of open apps was old")
     }
 
     /// The Mac can quit apps (a Mac from before Oct 17 2026 can't; the button doesn't show).

@@ -1480,7 +1480,7 @@ struct DuoGlance: View {
                 switch watcher.phase {
                 case .paused: Text("Paused · Show it here to go on").foregroundStyle(Light.ochre)
                 // The link dropped: the picture holds, and says so calmly (Nov 5 2026).
-                case .reconnecting: Text("Reconnecting to \(model.macName)…").foregroundStyle(Ink.secondary)
+                case .reconnecting: Text(watcher.firstConnect && !watcher.appReconnecting ? "Connecting to \(model.macName)…" : "Reconnecting to \(model.macName)…").foregroundStyle(Ink.secondary)
                 case .offline: Text("\(model.macName) isn't connected").foregroundStyle(Light.ochre)
                 default: Text("Live on your Mac").foregroundStyle(Ink.secondary)
                 }

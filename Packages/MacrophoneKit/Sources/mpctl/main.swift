@@ -20,6 +20,7 @@ import MacrophoneKit
 //              a keyframe halfway
 //   --features attention,attention-cloud,video   what this "phone" says it understands (any phone-side command)
 //   mpctl serve --watch-state permission|unavailable   # answer every watch with that state instead of the demo window
+//   mpctl serve --quit com.apple.Notes[,…]     # those apps have quit: left out of the list, a watch of one is answered "isn't open" (notOpen)
 //   mpctl serve --remote [--port 47821]       # remote access on: a fixed port, connections from away, the addresses told to phones
 //   --dial <host[:port]>                      # phone side: keep this typed address with the pairing (as the phone's Settings does)
 //   --no-bonjour                              # phone side: never look with Bonjour — stands in for a network where it finds nothing
@@ -203,7 +204,14 @@ final class ServeDelegate: LinkServerDelegate {
         stdout("REFRESH requested")
         server.broadcastTargets(liveTargets(server))
     }
+    /// `--quit com.apple.Notes,…`: apps that have quit on this stand-in Mac — not in its list, and a
+    /// watch of one is answered as the Mac app answers an app that isn't running (`notOpen`).
+    var quitApps: Set<String> { Set((flag("--quit") ?? "").split(separator: ",").map(String.init)) }
     func liveTargets(_ server: LinkServer) -> [LiveTarget] {
+        let quit = quitApps
+        return allTargets().filter { !quit.contains($0.bundleID) }
+    }
+    func allTargets() -> [LiveTarget] {
         [LiveTarget(bundleID: "com.anthropic.claudefordesktop", appName: "Claude", icon: demoIcon("com.anthropic.claudefordesktop", 128), lastActive: Date()),
          LiveTarget(bundleID: "com.apple.MobileSMS", appName: "Messages", icon: demoIcon("com.apple.MobileSMS", 128)),
          LiveTarget(bundleID: "com.apple.Terminal", appName: "Terminal", windowTitle: "claude — ~/app", windowKey: "41", icon: demoIcon("com.apple.Terminal", 128)),
@@ -245,6 +253,14 @@ final class ServeDelegate: LinkServerDelegate {
         watches[peerID] = nil
         guard let target else { tones.set(false, for: peerID, server: server); stdout("WATCH stopped"); return }
         stdout("WATCH \(target.displayName)")
+        // An app this Mac doesn't have open (an old list on the phone asked for it): said as the
+        // Mac app says it.
+        if case let .app(bid, _, name) = target, quitApps.contains(bid) {
+            let n = name.components(separatedBy: " — ").first ?? name
+            stdout("WATCH NOT OPEN \(n)")
+            Task { await server.send(.watchState(.unavailable("\(n)\(WatchState.notOpenSuffix)", canReveal: false, notOpen: true)), to: peerID) }
+            return
+        }
         let demo = self.demo(for: target)
         lock.sync { watched[peerID] = demo }
         // The app's own name, as the Mac sends it ("Terminal", not "Terminal — claude ~/app").

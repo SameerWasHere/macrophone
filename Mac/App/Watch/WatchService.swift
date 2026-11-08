@@ -738,8 +738,11 @@ final class WatchService {
     /// Close there's no beat.
     private func resolve(_ w: Watch) async -> WatchState? {
         guard let r = await find(w) else { w.goneAt = nil; return nil }
-        guard case let .unavailable(why, canReveal, true) = r else { w.goneAt = nil; return r }
-        guard w.sawWindow else { return .unavailable(why, canReveal: canReveal) }
+        guard case let .unavailable(why, canReveal, true, notOpen) = r else { w.goneAt = nil; return r }
+        // Never seen here: not a window that went, but one that wasn't there to begin with — and
+        // when its app isn't running the phone hears so (`notOpen`, Nov 7 2026: an old list of
+        // open apps on the phone asked for it) and shows the app as not open.
+        guard w.sawWindow else { return .unavailable(why, canReveal: canReveal, notOpen: notOpen) }
         let now = Date()
         if w.goneAt == nil { w.goneAt = now }
         if now.timeIntervalSince(w.closeAskedAt) < 15 || now.timeIntervalSince(w.goneAt!) >= 1.2 {
@@ -751,7 +754,7 @@ final class WatchService {
             try? await Task.sleep(nanoseconds: 1_300_000_000)
             w?.wake()
         }
-        return w.lastState ?? .unavailable(why, canReveal: canReveal)
+        return w.lastState ?? .unavailable(why, canReveal: canReveal, notOpen: notOpen)
     }
 
     private func find(_ w: Watch) async -> WatchState? {
@@ -783,7 +786,7 @@ final class WatchService {
         case let .app(bundleID, windowKey, name):
             guard let r = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first(where: { !$0.isTerminated }) else {
                 let n = Paster.installedName(bundleID) ?? Paster.appName(fromTitle: name)
-                return .unavailable("\(n) isn't open on your Mac", canReveal: false, closed: true)
+                return .unavailable("\(n)\(WatchState.notOpenSuffix)", canReveal: false, closed: true, notOpen: true)
             }
             return await adopt(r, windowKey: windowKey, w)
         }
