@@ -18,9 +18,8 @@ struct DesktopWallpaper: View {
     var body: some View {
         ZStack {
             if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
+                // A little depth: it drifts against the phone's tilt (Delight, Nov 8 2026).
+                ParallaxImage(image: image)
                     // Glass and text read over any picture: a veil in the appearance's own ground.
                     .overlay(Ink.ground.opacity(veil))
                     .transition(.opacity)

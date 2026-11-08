@@ -41,7 +41,14 @@ final class Delight: ObservableObject {
         let words = Self.firstWords(text)
         guard !words.isEmpty else { flight = .none; return }
         flight = .flying
-        leaving = Leaving(words: words, target: target)
+        let l = Leaving(words: words, target: target)
+        leaving = l
+        // Nothing on screen to fly them (the app in the background, a sheet up): the landing is
+        // never left waiting for words that aren't in the air.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            if self.leaving?.id == l.id, self.flight == .flying { self.flightArrived() }
+        }
     }
 
     /// The flight layer couldn't fly them (no Dock on screen, Reduce Motion, another layout).
@@ -177,7 +184,7 @@ final class Delight: ObservableObject {
     static let debugPluck = Notification.Name("macrophone.debug.pluck")
 
     /// `MACROPHONE_DELIGHT` (a recording): `first`, `milestone@1000`, `pluck@0.3`, `flight@<words>`,
-    /// `catch`, `miss`, `undo` — each a second or so apart, in order, after `MACROPHONE_DELIGHT_AFTER` (3 s).
+    /// `catch`, `miss`, `undo`, `open@<bundle id>` — each a second or so apart, in order, after `MACROPHONE_DELIGHT_AFTER` (3 s).
     func runDebugHooks() {
         guard let spec = DebugHooks.env["MACROPHONE_DELIGHT"] else { return }
         let start = Double(DebugHooks.env["MACROPHONE_DELIGHT_AFTER"] ?? "") ?? 3
@@ -196,6 +203,9 @@ final class Delight: ObservableObject {
                 case "catch": landed(id: UUID(), text: "", sent: false, history: [])
                 case "miss": missed()
                 case "undo": SoundCues.play(.undo)
+                case "open":
+                    // Open an App's tap on an app that isn't open: its Dock icon bounces while it opens.
+                    AppModel.shared.openOnMac(MacApp(bundleID: arg ?? "com.apple.TextEdit", name: "TextEdit"))
                 case "wait": try? await Task.sleep(nanoseconds: UInt64((Double(arg ?? "") ?? 1) * 1e9)); continue
                 default: break
                 }

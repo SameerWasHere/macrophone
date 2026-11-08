@@ -219,6 +219,7 @@ struct PairingPanel: View {
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(.white, Light.mint)
                 .symbolEffect(.bounce, value: pairedShown)
+                .pairingCelebration()
                 .frame(height: compact ? 76 : 108)
                 .accessibilityHidden(true)
                 .onAppear { pairedShown = true }

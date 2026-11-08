@@ -245,7 +245,10 @@ struct DockCatch: ViewModifier {
             return
         }
         launching = Task { @MainActor in
-            while !Task.isCancelled {
+            // Never past the 20 s an app counts as opening (`AppModel.isOpening`), even if nothing
+            // redraws the Dock to say it's done.
+            let until = Date().addingTimeInterval(20)
+            while !Task.isCancelled, Date() < until {
                 withAnimation(.timingCurve(0.2, 0.7, 0.4, 1, duration: 0.28)) { launchHop = 14 }
                 try? await Task.sleep(nanoseconds: 280_000_000)
                 withAnimation(.timingCurve(0.6, 0, 0.8, 0.3, duration: 0.26)) { launchHop = 0 }

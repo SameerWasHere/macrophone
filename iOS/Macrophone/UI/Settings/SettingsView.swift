@@ -11,6 +11,8 @@ struct SettingsView: View {
     /// The Mac an Unpair tap is asking about.
     @State private var unpairing: PairedPeer?
     @State private var confirmClear = false
+    /// Settings › Appearance › Sounds (`SoundCues`).
+    @AppStorage(SoundCues.key) private var sounds = true
     @State private var name = ""
     @FocusState private var nameFocused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -483,12 +485,20 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("wallpaper-strength")
             }
+            // Delight (Nov 8 2026): the landing's tink, a send's breath, the Thread's note. The
+            // Ring / Silent switch silences them too.
+            Toggle(isOn: $sounds) {
+                Label { Text("Sounds") } icon: { SettingsIcon(symbol: "speaker.wave.2.fill", color: Light.rose) }
+            }
+            .accessibilityHint("Soft sounds when words land, a send goes, or you pluck the Thread. Silent mode silences them.")
+            .accessibilityIdentifier("settings-sounds")
         } header: {
             Text("Appearance")
         } footer: {
-            Text(settings.macWallpaper
+            Text((settings.macWallpaper
                  ? "Fade your Mac's wallpaper, or turn it off, if it makes things hard to read."
                  : "Automatic follows this iPhone's Light or Dark setting.")
+                 + " Sounds stay quiet when this iPhone is on silent.")
         }
     }
 
