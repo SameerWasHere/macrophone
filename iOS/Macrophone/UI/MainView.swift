@@ -167,6 +167,9 @@ struct MainView: View {
             .animation(.easeInOut(duration: 0.7), value: filamentMode))
         // Siri's signal: the screen's edge glows while the mic listens.
         .overlay(ListeningEdge(active: isRecording && look == nil || look == "holding", meter: recorder.meter))
+        // Delight (Nov 8 2026): the words fly into their Dock icon as they go; a milestone's note.
+        .overlay { WordFlightLayer(allowed: (regularPhone || isCover) && !inFullScreen, window: windowHere ? watchArea : nil, selection: model.selection.target) }
+        .overlay { MilestoneBanner(atRest: phoneSettings && !inFullScreen && model.sheet == nil) }
         .background(VerticalBarProbe(present: $verticalBar).frame(width: 0, height: 0).accessibilityHidden(true))
         // The first open's pages, built once ahead of it, unseen (`warmPanel`).
         .background(alignment: .bottom) { if panelWarm { PagesWarmup(input: input, watcher: watcher) } }
@@ -899,12 +902,19 @@ struct MainView: View {
     var timerLine: CGFloat { compact && isRecording ? 24 : 0 }
     var filamentSlot: CGFloat { compact ? 56 + timerLine : 84 }
 
+    /// The Thread takes a finger at rest (Delight, Nov 8 2026): plucked, it rings like a string.
+    /// Never while the mic is open or the words are on their way, never over a window.
+    var threadPluckable: Bool {
+        !showLiveWords && !watcher.isShowing && !micOff
+            && (filamentMode == .ready || filamentMode == .delivered || filamentMode == .queued)
+    }
+
     var threadBand: some View {
         Group {
             if compact {
                 VStack(spacing: 0) {
                     ZStack {
-                        Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
+                        Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight, pluckable: threadPluckable)
                         // The landed pill says it, under the mic — the Thread's mint is enough here
                         // (the check had said it a second time, every phone since Nov 7 2026).
                         DeliveredCheck(visible: showCheck && model.landedChip == nil, color: checkColor)
@@ -914,7 +924,7 @@ struct MainView: View {
                 }
             } else {
                 ZStack {
-                    Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight)
+                    Filament(mode: filamentMode, meter: recorder.meter, height: filamentHeight, pluckable: threadPluckable)
                         .frame(height: filamentSlot)
                     DeliveredCheck(visible: showCheck && model.landedChip == nil, color: checkColor)
                     timer.frame(maxHeight: .infinity, alignment: .bottom)
@@ -935,6 +945,8 @@ struct MainView: View {
             LiveWords(words: recorder.words, listening: isRecording, cardInline: !laysOutKeyboard)
                 .padding(.horizontal, Space.text)
                 .padding(.top, 8)
+                // Where the words were, for their flight out (`WordFlightLayer`).
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { Delight.shared.wordsFrame = $0 }
                 .frame(maxHeight: .infinity, alignment: .top)
                 .clipped()
         }
@@ -1341,11 +1353,13 @@ struct MacPill: View {
                         .overlay(alignment: .bottomTrailing) {
                             Circle().fill(dot).frame(width: 7, height: 7)
                                 .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground).opacity(0.8), lineWidth: 1.2))
+                                .modifier(ConnectRipple(connected: model.looksConnected))
                                 .offset(x: 3, y: 2)
                         }
                         .accessibilityHidden(true)
                 } else {
                     Circle().fill(dot).frame(width: 8, height: 8).shadow(color: dot.opacity(0.8), radius: 4)
+                        .modifier(ConnectRipple(connected: model.looksConnected))
                         .accessibilityHidden(true)
                 }
                 RollingName(name: title, key: model.pairedMac?.id.uuidString ?? "none", reduceMotion: reduceMotion,

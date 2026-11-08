@@ -71,14 +71,18 @@ struct Filament: View {
     var mode: FilamentMode
     var meter: LevelMeter
     var height: CGFloat = 104
+    /// A finger can pluck it (Delight, Nov 8 2026): at rest on the mic screen, never while it
+    /// listens or sends, never where a swipe on it changes pages.
+    var pluckable = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.threadPaused) private var paused
 
     var body: some View {
-        ThreadRepresentable(mode: mode, meter: meter, reduceMotion: reduceMotion, paused: paused)
+        ThreadRepresentable(mode: mode, meter: meter, reduceMotion: reduceMotion, paused: paused,
+                            pluckable: pluckable && !paused)
             .frame(height: height)
-            .allowsHitTesting(false)
+            .allowsHitTesting(pluckable && !paused)
             .accessibilityHidden(true)
     }
 }
@@ -88,12 +92,14 @@ private struct ThreadRepresentable: UIViewRepresentable {
     var meter: LevelMeter
     var reduceMotion: Bool
     var paused: Bool
+    var pluckable = false
 
     func makeUIView(context: Context) -> ThreadView { ThreadView(meter: meter) }
     func updateUIView(_ v: ThreadView, context: Context) {
         v.reduceMotion = reduceMotion
         v.paused = paused
         v.set(mode)
+        v.pluckable = pluckable
     }
     static func dismantleUIView(_ v: ThreadView, coordinator: ()) { v.stopLink() }
 }
@@ -149,6 +155,14 @@ final class ThreadView: UIView {
                                                name: .NSProcessInfoPowerStateDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(motionSettingsChanged),
                                                name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
+        #if DEBUG
+        NotificationCenter.default.addObserver(forName: Delight.debugPluck, object: nil, queue: .main) { [weak self] n in
+            MainActor.assumeIsolated {
+                guard let self, self.pluckable, self.window != nil else { return }
+                self.debugPluck(at: (n.object as? Double) ?? 0.5)
+            }
+        }
+        #endif
     }
     required init?(coder: NSCoder) { nil }
 
@@ -486,7 +500,7 @@ final class ThreadView: UIView {
     /// Whether anything is moving: the display link runs only then.
     private var moving: Bool {
         let now = CACurrentMediaTime()
-        if mode.isLive || mode == .sending || idleFlow { return true }
+        if mode.isLive || mode == .sending || idleFlow || plucking(now) { return true }
         if now - blendStart < Self.blendTime + 0.05 { return true }
         if (mode == .delivered || mode == .queued) && now - modeStart < Self.settleTime + 0.05 && !reduceMotion { return true }
         return false
@@ -517,7 +531,7 @@ final class ThreadView: UIView {
     /// Sixty while it follows a voice or settles; thirty for the slow idle flow (smooth at half the cost).
     private var wantedFPS: Float {
         let now = CACurrentMediaTime()
-        let busy = mode.isLive || mode == .sending || now - blendStart < Self.blendTime + 0.05
+        let busy = mode.isLive || mode == .sending || now - blendStart < Self.blendTime + 0.05 || plucking(now)
             || ((mode == .delivered || mode == .queued) && now - modeStart < Self.settleTime + 0.05)
         return reduceMotion ? 15 : (ProcessInfo.processInfo.isLowPowerModeEnabled || !busy ? 30 : 60)
     }
@@ -562,6 +576,15 @@ final class ThreadView: UIView {
             }
         }
         shown = lines
+        // A finger on the string, or a pluck still ringing: laid over whatever the look is.
+        if plucking(now), !reduceMotion {
+            let n = lines[0].count
+            for s in 0..<3 {
+                for i in 0..<n {
+                    lines[s][i].y += pluckOffset(u: Double(i) / Double(n - 1), strand: s, now: now)
+                }
+            }
+        }
 
         let L = mode.isLive ? driver.level : 0
         let weight: CGFloat = mode.isLive && !reduceMotion ? CGFloat(0.88 + 0.55 * driver.body + 0.2 * driver.level) : 1
@@ -635,6 +658,14 @@ final class ThreadView: UIView {
             bloom.transform = CATransform3DIdentity
         }
 
+        // A pluck lights the string for a moment (under Reduce Motion this is all it does).
+        let glint = pluckGlint(now)
+        if glint > 0.01 {
+            for c in cores { c.opacity = min(1, c.opacity + Float(0.45 * glint)) }
+            bloom.opacity = min(1, bloom.opacity + Float(0.35 * glint))
+            glowFill.opacity = min(1, glowFill.opacity + Float(0.3 * glint))
+        }
+
         // The listening sweep: a pass of light along the strand every 3.4 s.
         let sweeping = mode == .listening && !reduceMotion
         sweep.isHidden = !sweeping
@@ -658,6 +689,153 @@ final class ThreadView: UIView {
         }
         CATransaction.commit()
     }
+
+    // MARK: Plucking (Delight, Nov 8 2026)
+    //
+    // At rest the Thread is a string: a finger pulls it (it follows, a triangle with its apex under
+    // the finger, harder to pull the further it goes), and let go it rings — a real string's
+    // motion, its first seven modes, the higher ones dying faster, so the kink at the pluck point
+    // runs out along it and smooths away in about a second and a half. A tap plucks it; plucks
+    // add up, as on a string. The haptics follow the stretch and the decay (`ThreadHaptics`), and
+    // the note is where it was plucked (`SoundCues.pluck`). Reduce Motion: the light alone, and
+    // one soft tap. Nothing runs at rest: the display link only while a finger is on it or it rings.
+
+    /// The touch is the Thread's only at rest on the mic screen (`Filament.pluckable`).
+    var pluckable = false {
+        didSet {
+            guard pluckable != oldValue else { return }
+            isUserInteractionEnabled = pluckable
+            if !pluckable, grabbing { grabbing = false; grabPull = 0; ThreadHaptics.shared.release(); updateLink() }
+        }
+    }
+
+    private struct Pluck { var u0: Double; var y0: Double; var start: CFTimeInterval; var strength: Double }
+    private var plucks: [Pluck] = []
+    private var grabbing = false
+    private var grabU = 0.5
+    private var grabPull: CGFloat = 0
+    private var grabStart: CGPoint = .zero
+    private var grabTravel: CGFloat = 0
+    private var lastStretchFelt = 0.0
+
+    /// The string's fundamental, seen (about 3 Hz: a wobble the eye can follow at 60 fps), and
+    /// how fast it dies (the fundamental to ~5% in about 1.6 s; mode n dies n^1.25 times faster).
+    private static let pluckHz = 3.1
+    private static let pluckDamp = 1.9
+    private static let modes = 7
+
+    private var pullLimit: CGFloat { CGFloat(amp) * 0.85 }
+
+    private func plucking(_ now: CFTimeInterval) -> Bool {
+        if grabbing { return true }
+        if !plucks.isEmpty { plucks.removeAll { now - $0.start > 2.2 } }
+        return !plucks.isEmpty
+    }
+
+    private func pluckGlint(_ now: CFTimeInterval) -> Double {
+        var g = grabbing ? Double(abs(grabPull) / max(pullLimit, 1)) * 0.4 : 0
+        for p in plucks { g += p.strength * exp(-3.2 * (now - p.start)) }
+        return min(1, g)
+    }
+
+    /// The string's offset at `u` (0…1 along it) for one strand: the pull under the finger, and
+    /// every pluck still ringing (strands a touch out of tune with each other, so the braid shimmers).
+    private func pluckOffset(u: Double, strand s: Int, now: CFTimeInterval) -> CGFloat {
+        var y = 0.0
+        if grabbing {
+            let a = max(0.04, min(0.96, grabU))
+            let tri = u < a ? u / a : (1 - u) / (1 - a)
+            y += Double(grabPull) * tri * (1 - 0.06 * Double(abs(s - 1)))
+        }
+        let detune = 1 + 0.03 * Double(s - 1)
+        for p in plucks where p.y0 != 0 {
+            let t = now - p.start
+            let a = max(0.04, min(0.96, p.u0))
+            for n in 1...Self.modes {
+                let nn = Double(n)
+                let b = 2 * p.y0 * sin(nn * .pi * a) / (nn * nn * .pi * .pi * a * (1 - a))
+                let w = 2 * .pi * Self.pluckHz * nn * detune
+                y += b * sin(nn * .pi * u) * cos(w * t) * exp(-Self.pluckDamp * pow(nn, 1.25) * t)
+            }
+        }
+        return CGFloat(y)
+    }
+
+    private func along(_ p: CGPoint) -> Double {
+        let w = max(bounds.width * 0.96, 1)
+        return Double(min(max((p.x - bounds.width * 0.02) / w, 0.04), 0.96))
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard pluckable, !grabbing, let t = touches.first else { return }
+        let p = t.location(in: self)
+        grabbing = true
+        grabStart = p
+        grabTravel = 0
+        grabU = along(p)
+        grabPull = 0
+        lastStretchFelt = 0
+        if !reduceMotion { ThreadHaptics.shared.grab() }
+        updateLink()
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard grabbing, let t = touches.first else { return }
+        let p = t.location(in: self)
+        grabTravel = max(grabTravel, hypot(p.x - grabStart.x, p.y - grabStart.y))
+        grabU = along(p)
+        // Harder to pull the further it goes: it never leaves its band.
+        let limit = pullLimit
+        grabPull = limit * CGFloat(tanh(Double((p.y - grabStart.y) / max(limit, 1))))
+        let x = Double(abs(grabPull) / max(limit, 1))
+        if abs(x - lastStretchFelt) > 0.03 {
+            lastStretchFelt = x
+            if !reduceMotion { ThreadHaptics.shared.stretch(x) }
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard grabbing else { return }
+        grabbing = false
+        let limit = Double(pullLimit)
+        // A tap (or a pull too small to see) plucks it upward, a fair twang — a strum along it a
+        // little less; a pull lets go from where it is.
+        var y0 = Double(grabPull)
+        if abs(y0) < 5 { y0 = -limit * (grabTravel > 24 ? 0.4 : 0.55) }
+        #if DEBUG
+        // Counted for `DelightUITests` (read from the app container's preferences plist — `simctl
+        // spawn … defaults read` doesn't see it): real touches reach the string.
+        UserDefaults.standard.set(UserDefaults.standard.integer(forKey: "debug.plucks") + 1, forKey: "debug.plucks")
+        #endif
+        let strength = min(1, abs(y0) / max(limit, 1))
+        if plucks.count >= 4 { plucks.removeFirst() }
+        plucks.append(Pluck(u0: grabU, y0: reduceMotion ? 0 : y0, start: CACurrentMediaTime(), strength: 0.35 + 0.65 * strength))
+        grabPull = 0
+        if reduceMotion { Haptics.grab() } else { ThreadHaptics.shared.pluck(strength: strength, decay: 1.2) }
+        SoundCues.play(SoundCues.pluck(at: grabU))
+        updateLink()
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard grabbing else { return }
+        // Taken away (a sheet, a gesture above it): the string springs back as a small pluck, quietly.
+        grabbing = false
+        if abs(grabPull) > 4, !reduceMotion {
+            plucks.append(Pluck(u0: grabU, y0: Double(grabPull) * 0.6, start: CACurrentMediaTime(), strength: 0.3))
+        }
+        grabPull = 0
+        ThreadHaptics.shared.release()
+        updateLink()
+    }
+
+    #if DEBUG
+    /// `MACROPHONE_DELIGHT=pluck@<u>` (a recording): a pluck at `u` with no finger.
+    func debugPluck(at u: Double, pull: Double = -0.6) {
+        plucks.append(Pluck(u0: u, y0: Double(pullLimit) * pull, start: CACurrentMediaTime(), strength: 0.8))
+        SoundCues.play(SoundCues.pluck(at: u))
+        updateLink()
+    }
+    #endif
 }
 
 extension RGB {

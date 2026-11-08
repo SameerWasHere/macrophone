@@ -378,7 +378,9 @@ extension View {
 /// - `grab()` soft, lighter: something taken in hand — a drag picked up, the floating mic
 ///   lifted, the trackpad summoned.
 /// - `arrived()` soft: something settled into place — a window's first picture, a fold, a
-///   window closed on the Mac, the floating mic set down.
+///   window closed on the Mac, the floating mic set down, a milestone's note.
+/// - The Thread plucked (Delight, Nov 8 2026) is its own: a tension while it's pulled and a twang
+///   that decays with the string, a curve rather than a tap (`ThreadHaptics`, Core Haptics).
 ///
 /// Nothing on navigation — opening a sheet, Done, Show it here, full screen, opening a window
 /// (its first picture is `arrived`): what moves on screen says it. One event, one haptic: a view

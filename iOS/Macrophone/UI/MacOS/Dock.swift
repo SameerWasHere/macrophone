@@ -274,9 +274,12 @@ private struct DockIcon: View {
                     DockTile(target: place.target, icon: place.icon, size: size)
                         .saturation(place.kind == .closed ? 0 : 1)
                         .opacity(place.kind == .closed && !selected ? 0.55 : 1)
-                    if place.kind == .opening { ProgressView().controlSize(.small) }
+                    // Opening: the icon bounces as a Mac's does (`DockCatch`); the spinner under Reduce Motion.
+                    if place.kind == .opening, reduceMotion { ProgressView().controlSize(.small) }
                 }
                 .frame(width: size, height: size)
+                // The words caught as they land, a shake when they don't (Delight, Nov 8 2026).
+                .modifier(DockCatch(selected: selected, opening: place.kind == .opening))
                 .onGeometryChange(for: CGRect?.self) { [selected] g in selected ? g.frame(in: .global) : nil } action: { r in
                     if let r { DockSpot.shared.pick = r }
                 }
