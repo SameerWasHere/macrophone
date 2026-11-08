@@ -15,9 +15,11 @@ enum Ink {
     static let sunk = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .black : .systemGray5 })
     static let ink = Color(uiColor: .label)
     static let secondary = Color(uiColor: .secondaryLabel)
-    /// Quiet words that still read over a wallpaper (darker than systemGray in light).
+    /// Quiet words that still read over a wallpaper (darker than systemGray in light, lighter in
+    /// dark). Nov 8 2026: 0.42 / systemGray read ~2 : 1 over a mid-blue picture under the veil (the
+    /// recording's "To Terminal · Medium cleanup", the window row's hint); now ~3 : 1 and ~4 : 1.
     static let tertiary = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-        ? .systemGray : UIColor(red: 0.42, green: 0.42, blue: 0.44, alpha: 1) })
+        ? UIColor(red: 0.64, green: 0.64, blue: 0.67, alpha: 1) : UIColor(red: 0.33, green: 0.33, blue: 0.35, alpha: 1) })
     static let faint = ink.opacity(0.08)
     static let line = Color(uiColor: .separator)
     static let lineStrong = ink.opacity(0.22)

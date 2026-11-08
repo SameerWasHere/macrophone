@@ -498,7 +498,7 @@ struct MainView: View {
                         if watching {
                             // One line in its 18 pt: a longer one (the trackpad's how-to) ran
                             // over the mic and its buttons above (Nov 4 2026).
-                            StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2, swap: true)
+                            StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2, swap: true, legible: true)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.85)
                                 .padding(.horizontal, 12)
@@ -516,7 +516,7 @@ struct MainView: View {
                                     FixedSlot(alignment: .top) {
                                         Text("A").font(.subheadline).frame(maxWidth: .infinity)
                                     } content: {
-                                        StatusLine(recorder: recorder, holding: holding || look == "holding", font: .subheadline)
+                                        StatusLine(recorder: recorder, holding: holding || look == "holding", font: .subheadline, legible: true)
                                     }
                                     .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                                 } else {
@@ -947,7 +947,7 @@ struct MainView: View {
                     Text(timerString(ctx.date.timeIntervalSince(start)))
                         .font(.mono(.subheadline, weight: .medium))
                         .monospacedDigit()
-                        .foregroundStyle(recorder.softCapReached ? Light.ochre : Ink.secondary)
+                        .foregroundStyle(recorder.softCapReached ? Light.ochre : Ink.tertiary)
                         .accessibilityLabel("Recording time \(Int(ctx.date.timeIntervalSince(start))) seconds")
                 }
             } else {
@@ -1018,7 +1018,7 @@ struct MainView: View {
                        // The desktop's empty state says it (the cover's, too short for its
                        // sentence, only gives the fix).
                        desktopSays: regularPhone && phoneSettings && desktopTrouble != nil,
-                       desktopFixes: phoneSettings && desktopTrouble != nil)
+                       desktopFixes: phoneSettings && desktopTrouble != nil, legible: true)
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }

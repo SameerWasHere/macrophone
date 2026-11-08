@@ -410,7 +410,7 @@ struct SettingsView: View {
     private var alertsSection: some View {
         Section {
             Toggle(isOn: $settings.agentAlerts) {
-                Label { Text("When an agent asks something") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
+                Label { Text("When an agent asks you") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
             }
             .onChange(of: settings.agentAlerts) { _, on in
                 Task {
