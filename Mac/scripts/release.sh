@@ -132,12 +132,24 @@ say "Verifying signatures"
 codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -2
 CLI="$APP/Contents/Helpers/macrophone"
 [[ -x "$CLI" ]] || die "The command-line tool isn't at Contents/Helpers/macrophone."
-for f in "$APP" "$CLI" "$APP/Contents/Frameworks/Sparkle.framework"; do
+# Keep Awake's root helper (Nov 7 2026): embedded, signed as itself by the same team, with its
+# launchd plist under the release label (Mac/Helper/HelperProtocol.swift).
+HELPER="$APP/Contents/MacOS/MacrophoneHelper"
+HELPER_PLIST="$APP/Contents/Library/LaunchDaemons/com.sameer.macrophone.mac.helper.plist"
+[[ -x "$HELPER" ]] || die "Keep Awake's helper isn't at Contents/MacOS/MacrophoneHelper."
+[[ -f "$HELPER_PLIST" ]] || die "Keep Awake's launchd plist isn't at Contents/Library/LaunchDaemons (release label)."
+codesign -v -R="anchor apple generic and certificate leaf[subject.OU] = \"$TEAM_ID\" and identifier \"com.sameer.macrophone.mac.helper\"" "$HELPER" \
+  || die "The helper isn't signed as com.sameer.macrophone.mac.helper by team $TEAM_ID — the app would refuse it."
+codesign -v -R="anchor apple generic and certificate leaf[subject.OU] = \"$TEAM_ID\" and identifier \"com.sameer.macrophone.mac\"" "$APP" \
+  || die "The app doesn't meet the helper's client requirement — the helper would refuse it."
+for f in "$APP" "$CLI" "$HELPER" "$APP/Contents/Frameworks/Sparkle.framework"; do
   FLAGS=$(codesign -dv --verbose=4 "$f" 2>&1 | grep -E "^CodeDirectory" || true)
   [[ "$FLAGS" == *"runtime"* ]] || warn "No hardened runtime flag on ${f:t}"
 done
 ACTUAL=$(codesign -dv --verbose=2 "$APP" 2>&1 | grep '^Authority=' | head -1 | cut -d= -f2)
 (( DRY_RUN )) || [[ "$ACTUAL" == Developer\ ID\ Application* ]] || die "The app is signed by \"$ACTUAL\", not Developer ID."
+HELPER_SIGNER=$(codesign -dv --verbose=2 "$HELPER" 2>&1 | grep '^Authority=' | head -1 | cut -d= -f2)
+(( DRY_RUN )) || [[ "$HELPER_SIGNER" == Developer\ ID\ Application* ]] || die "Keep Awake's helper is signed by \"$HELPER_SIGNER\", not Developer ID (notarization would refuse it)."
 APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
 APP_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist")
 [[ "$APP_VERSION" == "$VERSION" && "$APP_BUILD" == "$BUILD" ]] || die "Built $APP_VERSION ($APP_BUILD), expected $VERSION ($BUILD)."

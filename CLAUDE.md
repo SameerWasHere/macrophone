@@ -1970,6 +1970,158 @@ the banner, Unpair on its page —, Pair Another Mac, This iPhone's name) · **H
 The inner screen's sidebar (`SettingsGroup`) is the same sections one for one: dictation, cleanup,
 watching, alerts, appearance, devices, history, about. Frames: `docs/screens/settings-nov7/`.
 
+## Keep Awake (Nov 7 2026)
+
+Sameer: "the other thing to move from SameerOS to macrophone Mac app is the feature sets that keep
+the Mac awake", then "more consumer grade" and "go deep on how you make … keep [the Mac] from
+sleeping production ready". SameerOS's On The Go (manual: `~/claude-projects/OnTheGo/CLAUDE.md`,
+code `SameerOS-Mac/SameerOSMac/Displays/` + `SameerOSHelper/`, read only, untouched) moved here as
+**Keep Awake**, for anyone's Mac: one switch, one sentence ("Your Mac stays on with the lid closed,
+so you can use it from your iPhone"; a desktop: "stays awake and reachable"), defaults most people
+never change, no machinery's names in the UI. Frames: `docs/screens/keep-awake-nov7/` (the page
+blocked by SameerOS, on with displays off and a timer, on before the permission at 18%, a desktop;
+the phone tile off, on, displays off, blocked) and `dry-run-proof.txt` (seven dry runs, below).
+- **What moved, mechanics kept:** sleep settings (`sleep 0 · hibernatemode 0 (laptops) ·
+  displaysleep 0 · disablesleep 1`) through a root helper, backed up first and put back; the
+  power assertions; the built-in at brightness 0 and back; displays off (BetterDisplay's virtual
+  unplug, optional, else `pmset displaysleepnow`) with BetterDisplay started in the background when
+  it has quit, one CLI process per display, failures kept and retried 3× then a notification;
+  smart auto-dim (listen-only event tap, physical input only — `eventSourceUnixProcessID == 0`, so
+  steering the Mac from the phone never keeps its displays on — 2/5/10/15 min or right away, the
+  first touch brings them back, input ignored 6 s after a dim); the screen lock via `sysadminctl`
+  with the login password in the Keychain (**opt-in, behind Advanced**, honest words about what
+  saving it means, never asked from a timer); "Back at desk in…" (30 m–8 h); the 5-minute watchdog;
+  the audio guard; resume after a quit; the "Restore Normal Sleep / Resume Keep Awake" question.
+- **What improved:** the state machine is pure and tested (MacrophoneKit `Core/KeepAwakeEngine.swift`,
+  the machine behind `KeepAwakeSystem`); one record (`keep-awake.json` in Macrophone's own folder,
+  atomic writes — no `~/.onthego-*` files), settings in UserDefaults, one log (diagnostics, states and
+  numbers only); **sleep settings backed up per power source** (`pmset -g custom`: battery and
+  charger differ; On The Go's single `-a` restore flattened them) and, with no backup, this kind of
+  Mac's own defaults (a desktop is never given hibernatemode 3); **in-process assertions**
+  (PreventSystemSleep, PreventUserIdleSystemSleep, PreventUserIdleDisplaySleep — what `caffeinate -s
+  -i -d` takes) that die with the app, so a force-quit never orphans a `caffeinate`; only the
+  **built-in** is dimmed (`CGDisplayIsBuiltin` — On The Go dimmed whatever was main, an external in
+  clamshell); DisplayServices **dlopen'd** (missing on a future macOS or an Intel Mac: brightness is
+  left alone, the displays still sleep); the audio guard runs only while on and logs device kinds,
+  never names; the helper quits after 10 quiet minutes; a phone or the API never triggers a dialog.
+- **The helper** (`Mac/Helper`, target `MacrophoneHelper`, embedded at `Contents/MacOS/MacrophoneHelper`,
+  launchd plist written by `Mac/scripts/helper-plist.sh` into `Contents/Library/LaunchDaemons/<label>.plist`
+  before signing): label `com.sameer.macrophone.mac.helper` (Debug `…mac.debug.helper`, so a debug
+  build never collides with a release), registered with `SMAppService.daemon`. It runs only changes
+  that pass `PowerChange(wire:)` — **the same file** (`Core/KeepAwakePower.swift`) is compiled into
+  the daemon and tested in MacrophoneKit: four keys, their sane values, one source each,
+  `disablesleep` only with `-a`, all checked before any runs. Code requirements both ways
+  (`PowerHelperIdentity`): the daemon takes `anchor apple generic and certificate leaf[subject.OU] =
+  "8523EX5882" and (identifier "com.sameer.macrophone.mac" or "….mac.debug")` — Developer ID and
+  Apple Development both satisfy it (checked with `codesign -v -R` against this build and the
+  installed Developer ID app); the app only talks to a daemon signed as the helper by the team.
+  **Version handshake:** `PowerHelperVersion.current` (1); an older daemon (Macrophone updated, the
+  old one still running) is asked to `stepDown` and launchd starts the new one on the next call.
+  Its states: ready · not installed · waiting for approval · needs an update — each a row on the
+  page with one button. `release.sh` now checks the helper and its plist are there, signed as
+  `com.sameer.macrophone.mac.helper` by the team, Developer ID, hardened runtime, and that the app
+  meets the daemon's requirement (the export re-signs nested code; not run — no release made).
+- **The one-time permission, guided:** "Allow Macrophone to change sleep settings" → Allow…
+  registers the helper and opens Login Items; the page looks every 2 s and turns green by itself.
+  Until then Keep Awake still turns on (assertions — awake while open) and says "keep the lid open";
+  approved later, the lid can close at once with no toggle (`helperMayHaveChanged`). A desktop needs
+  no helper (it's offered as "also stays awake if someone chooses Sleep"). The administrator dialog
+  is never the first experience — only "Or turn it on with your administrator password, just this
+  once", or a Restore Normal Sleep / turn-off he clicked when the helper is gone.
+- **Production states (each a unit test or a dry-run line):** laptop vs desktop (`MachinePower`:
+  internal battery or a clamshell key — no lid or battery wording on an iMac/mini/Studio); one
+  display, several, none (headless: no displays row); helper never approved / approved then removed
+  ("can't change sleep settings any more, so closing the lid would put your Mac to sleep" — the
+  watchdog never prompts) / outdated; **a crash or force-quit mid-toggle** (the record says
+  turningOn / turningOff before anything changes: `recover` resumes, finishes or cleans up —
+  `testRecoveryMatrix`); **a restart while on** (sleep came back → the question; displays left dark
+  are put back first); **the Mac set never to sleep with Keep Awake off** (any cause) → never silent:
+  "Restore Normal Sleep" first in the menu bar, a banner on the page, `sleepStillOff` on the phone,
+  one click; a turn-off on its own that can't restore says so the same way; one that he asked for
+  stays on, consistent. Quitting from the menu with sleep settings changed asks (Turn Off and Quit ·
+  Quit · Cancel). **Battery:** a warning under 20% on battery and after 2 h on battery; off at a
+  floor (5 · **10** · 20 % · Never) with a notification; it won't turn on at or under the floor.
+  **Heat:** `thermalState` serious → "Your Mac is hot. If it's in a bag, take it out…" (once);
+  critical → off with a notification, and won't turn on until cooler. Low Power Mode: shown, never
+  notified. **Uninstall:** Advanced › Restore normal sleep and remove permission (`prepareForRemoval`:
+  sleep back, screen lock back, password forgotten, helper unregistered). Deleting the app while on
+  can't be caught: then `sudo pmset -a disablesleep 0` (and System Settings › Battery for the rest),
+  or reinstall and use that button.
+- **SameerOS never fought** (`OtherKeeper`): `~/.onthego-active` → "SameerOS's On The Go is on —
+  turn it off there first."; SameerOS's helper still loaded (`launchctl print
+  system/com.sameer.sameeros-mac.helper`, once a minute) → "SameerOS can still change sleep settings
+  — remove its helper…". Either refuses to turn on and touches nothing of SameerOS's; a record of
+  ours while SameerOS is on stands down. **This is what his Mac shows today** (On The Go is on).
+- **Mac UI:** sidebar **Keep Awake** after Agents (`Pane.keepAwake`, `cup.and.heat.waves`,
+  `UI/Window/KeepAwakePane.swift`): the switch with the status line ("On · lid can close · displays
+  off since 3:12 · back at desk at 5:00"), Displays (Turn Off Now / Turn On), Back at desk, Battery;
+  problem / warning banners with their fix; With the lid closed (the permission); Displays (turn off
+  after…, external displays — only with BetterDisplay; without it a footer names it as an optional
+  extra); Battery (the floor); Keyboard shortcuts (⌘⇧G Keep Awake, ⌘⇧D displays — recordable, ⇧⌘
+  allowed here, off with ×; the footer says ⇧⌘G is also Finder's Go to Folder; a shortcut another
+  app holds is retried every 30 s); Advanced (the screen lock, the audio guard, remove). Menu bar
+  (`KeepAwake/KeepAwakeMenu.swift`): "Keep Awake" (checked, ⌘⇧G shown, its line as the subtitle),
+  while on "Displays off · idle 3m" (a click switches, ⌘⇧D) and "Back at desk in…"; a problem's fix.
+  `HotkeyCenter` now holds several hot keys and dispatches by id (`register(id:_:action:)`; id 1 is
+  Open Macrophone), passing on events that aren't ours.
+- **The wire** (`Core/KeepAwake.swift`, `Transport/KeepAwakeLink.swift`, feature `keepAwake`):
+  `.keepAwake(KeepAwakeStatus)` Mac → phone after the welcome and on every change (on, busy,
+  machine, lidCanClose, since, displaysOff(+Since), hasDisplays, backAt, battery, charging, onPower,
+  blocked, problem, warning, sleepStillOff — every field decodes with a default);
+  `.keepAwakeSet(KeepAwakeRequest)` phone → Mac (`action` a string: on · off · displaysOn ·
+  displaysOff · timer(minutes) · restoreSleep — an unknown one ignored, never a session's end). The
+  Mac always answers the asking phone. From the phone nothing ever prompts on the Mac. Tests:
+  `KeepAwakeTests` (46: allowlist, pmset parse/restore, words, warnings, recovery matrix, every
+  engine path above, two loopback ports 47941–47943).
+- **iPhone** (`Model/KeepAwakeModel.swift`, `UI/MacOS/KeepAwakeModule.swift`): a Control Center
+  toggle module above Sound, only with a Mac that has it — the lit cup, "Keep Awake", "Lid can close
+  · 84%" / "Keep the lid open · 50% · charging" / "Stays awake" / the blocked reason in ochre; while
+  on a Displays button ("They turn on with a key or the mouse on your Mac"); a note for a problem,
+  a warning, "Turns off at 5:00 PM", or "Your Mac is set never to sleep — Open Macrophone on your
+  Mac and choose Restore Normal Sleep". A tap shows its result at once and settles to the Mac's
+  answer (6 s without one: back, and "Your Mac didn't answer"); kept per Mac (`mac.keepAwake.<id>`),
+  "Last known ·" while not connected. Ids `cc-keep-awake`, `cc-keep-awake-displays`,
+  `cc-keep-awake-line`, `cc-keep-awake-note`. Hook `MACROPHONE_REACH=controls,awake@on|off|displaysOff|displaysOn|timer`.
+- **CLI / API:** `mp awake [status|on|off] | displays on|off [--json]` → `GET/POST /v1/awake`
+  (docs/API.md); exit 1 when `on` didn't turn it on. `mpctl serve` names it (`--no-awake`,
+  `--awake-desktop`, `--awake-blocked`, `--awake-no-helper`, `--awake-battery N`) and prints `AWAKE
+  on` / `AWAKE off` / `AWAKE displays off` / `AWAKE timer 60m`; `mpctl awake on|off|displays-on|
+  displays-off|timer N|restore|status` as the phone, printing `KEEP AWAKE …`.
+- **Dry run (every DEBUG build by default):** `KeepAwakeMacSystem` logs each change ("would run
+  pmset -a sleep 0 (through the helper)", "would set the built-in display's brightness to 0%",
+  "would unregister the helper", "would notify: …") and keeps a simulated SleepDisabled; reads are
+  real. `MACROPHONE_AWAKE_DRYRUN=0` acts for real. Hooks: `MACROPHONE_AWAKE_PRINT=1` (to stdout),
+  `MACROPHONE_AWAKE_ACTIONS=on,phoneon,off,phoneoff,displaysoff,displayson,input,timer@N,tick,idle,
+  watchdog,power,restore,keep,remove,wait@S`, `MACROPHONE_AWAKE_MINUTE=<s>` (a "minute" for
+  auto-dim and the timer), `MACROPHONE_AWAKE_HELPER=ready|missing|approval|outdated`,
+  `MACROPHONE_AWAKE_POWER=battery:18,ac:0,charging:1,thermal:3,lpm:1`, `MACROPHONE_AWAKE_MACHINE=desktop`,
+  `MACROPHONE_AWAKE_IGNORE_SAMEEROS=1`, `MACROPHONE_AWAKE_SIM_RESTART=1`,
+  `MACROPHONE_AWAKE_RESOLVE=restore|keep`, `MACROPHONE_AWAKE_ALERT=1` (a dry run shows no launch
+  alert otherwise), `MACROPHONE_SHOW=quiet-<pane>` (the window on screen without taking the
+  keyboard). Proven on this Mac with no real change (`dry-run-proof.txt`): blocked by SameerOS;
+  on → displays off → a touch inside 6 s ignored, after it the displays back → watchdog → a 3-"minute"
+  timer off with "Keep Awake is off" → on/off from the phone path → auto-dim after 5 idle "minutes";
+  a simulated restart → the question → resumed; the battery floor (refused at 9%, off at the floor);
+  critically hot → off; sleep left off → restored with the laptop defaults; removal.
+- **Needs a real check on his Mac** (after SameerOS's On The Go is off — below — with an installed
+  release build): the helper's approval in Login Items and the page turning green by itself; a real
+  lid close on battery and on power (the Mac stays reachable from the phone); `pmset -g custom`
+  after on → off matching before, per source; BetterDisplay unplug / reconnect of the U2720Q (and
+  with BetterDisplay quit); the built-in dim in clamshell with an external (only the built-in
+  dims); the screen lock opt-in (`sysadminctl` "-14" if the keybag drifted — the page explains);
+  the audio guard with the monitors' speakers; ⌘⇧G / ⌘⇧D once SameerOS no longer holds them; a
+  helper version bump stepping down; a crash mid-toggle (kill -9 while turning on); a restart while
+  on (the question at login); the quit question; Remove; a desktop Mac and an Intel Mac if one is
+  around.
+- **Switching SameerOS's On The Go off** (Sameer does it; nothing of SameerOS was touched): in
+  SameerOS choose **Back at Desk** (puts sleep, displays and the screen lock back; check
+  `~/.onthego-active` is gone and `pmset -g | grep SleepDisabled` says 0); quit SameerOS and take it
+  out of Login Items; in System Settings › General › Login Items & Extensions turn off SameerOS
+  under "Allow in the Background" (its helper `com.sameer.sameeros-mac.helper`; `launchctl print
+  system/com.sameer.sameeros-mac.helper` then fails); optionally delete `~/.onthego-*`, `~/bin/otg`
+  and the Keychain items `com.sameer.sameeros-mac` / `com.sameer.onthego` (screenlock-password).
+  Then Macrophone › Keep Awake › Allow… once.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.
@@ -2348,7 +2500,7 @@ the haptics in `AppModel` — are untouched):
 | --- | --- |
 | `Packages/MacrophoneKit` | Shared Swift package: wire format, pairing + encryption, Bonjour/peer-to-peer transport (`LinkServer` Mac side, `LinkClient` phone side), history store, diagnostics log, on-device cleanup (`Cleaner`, `CleanupPrompts`, `CleanupGuard`), pull-API item shape. `mpctl` is the command-line protocol proof. |
 | `iOS/` | iPhone app (XcodeGen `iOS/project.yml`) + `MacrophoneControls`: the Control Center / Lock Screen control and the Watch widget |
-| `Mac/` | Menu bar app (XcodeGen `Mac/project.yml`): Send to (live targets, paste and send), History, Agents, Devices, Developer, General; the `macrophone`/`mp` CLI + MCP server (+ `mp hook`); Sparkle updates, `scripts/release.sh` |
+| `Mac/` | Menu bar app (XcodeGen `Mac/project.yml`): Send to (live targets, paste and send), History, Agents, Keep Awake, Devices, Developer, General; the `macrophone`/`mp` CLI + MCP server (+ `mp hook`, `mp awake`); `Mac/Helper` = Keep Awake's root daemon (`MacrophoneHelper`); Sparkle updates, `scripts/release.sh` |
 | `docs/` | `TARGETS.md` (Send to and delivery), `API.md` (the local API / CLI / MCP contract), `DESIGN.md`, `CLEANUP.md`, `RELEASING.md`, `APP_STORE.md`, `NAME_CHECK.md` |
 
 The website lives in the sameer.us repo (`sameer-gpt`), static pages under `public/macrophone/`.

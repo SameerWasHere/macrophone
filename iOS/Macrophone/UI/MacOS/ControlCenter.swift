@@ -10,6 +10,8 @@ import SwiftUI
 struct MacControlCenter: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject private var reach = MacReach.shared
+    /// Keep Awake's answers redraw the panel (its tile appears with the first one).
+    @ObservedObject private var keepAwake = KeepAwakeModel.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var measured: CGFloat?
@@ -32,6 +34,8 @@ struct MacControlCenter: View {
             if model.watcher.isShowing, model.macAudio.macCanPlay {
                 HearYourMacModule(player: model.macAudio)
             }
+            // Keep Awake (Nov 7 2026): only with a Mac that has it.
+            if let k = model.keepAwakeShown { KeepAwakeModule(status: k) }
             soundModule
             HStack(spacing: 12) {
                 displayModule
@@ -82,7 +86,10 @@ struct MacControlCenter: View {
                 .contentTransition(.numericText())
                 .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: known)
         }
-        .onAppear { reach.forgetVolumes(except: model.pairedMacs.map(\.id)) }
+        .onAppear {
+            reach.forgetVolumes(except: model.pairedMacs.map(\.id))
+            KeepAwakeModel.shared.forget(except: model.pairedMacs.map(\.id))
+        }
     }
 
     private var displayModule: some View {

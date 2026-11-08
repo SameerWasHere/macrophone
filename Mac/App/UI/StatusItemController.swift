@@ -284,6 +284,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
+        // Keep Awake (KeepAwake/KeepAwakeMenu.swift): the toggle, and while on the displays and the timer.
+        let awake = KeepAwakeMenu.shared.items()
+        if !awake.isEmpty { awake.forEach(menu.addItem); menu.addItem(.separator()) }
+
         // 3. Send to — the choice the iPhone and this Mac share, picked in place.
         menu.addItem(NSMenuItem.sectionHeader(title: SendToWords.title))
         fillSendTo(menu)
@@ -509,7 +513,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func openHistory() { AppDelegate.shared?.openMainWindow(pane: .history) }
     @objc private func openAgents() { AppDelegate.shared?.openMainWindow(pane: .agents) }
     @objc private func checkUpdates() { updater.checkForUpdates() }
-    @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func quit() {
+        // Keep Awake's sleep settings outlive the app: ask first (KeepAwakeService.confirmQuit).
+        guard model.keepAwake.confirmQuit() else { return }
+        NSApp.terminate(nil)
+    }
 
     @objc private func forget(_ sender: NSMenuItem) {
         guard let s = sender.representedObject as? String, let id = UUID(uuidString: s),

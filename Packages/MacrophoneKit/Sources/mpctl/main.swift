@@ -49,6 +49,9 @@ import MacrophoneKit
 //   mpctl serve --no-volume                    # a Mac from before it says its volume: the phone's slider has no level, ± still work
 //   mpctl serve --volume-after 6               # the volume told 6 s after the welcome (the phone's remembered level shows meanwhile)
 //   mpctl listen --features macVolume         # prints VOLUME 56% / VOLUME muted after the welcome and on each change (Nov 7 2026)
+//   mpctl serve [--awake-desktop] [--awake-blocked] [--awake-no-helper] [--awake-battery N] [--no-awake]
+//              Keep Awake (Nov 7 2026): a made-up state; prints AWAKE on / AWAKE off / AWAKE displays off / AWAKE timer 60m
+//   mpctl awake on|off|displays-on|displays-off|timer <min>|restore|status   # as the phone asks; prints KEEP AWAKE … back
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -729,6 +732,8 @@ func run() async -> Int32 {
         // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).
         if has("--no-input") { server.macFeatures.removeAll { [WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature].contains($0) } }
         if !has("--jpeg"), !has("--no-volume") { server.macFeatures.append(MacVolume.feature) }
+        // Keep Awake (KeepAwakeDemo.swift): a made-up state, AWAKE on/off printed.
+        if !has("--jpeg"), !has("--no-awake") { server.macFeatures.append(KeepAwakeStatus.feature) }
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")
@@ -911,6 +916,30 @@ func run() async -> Int32 {
         }
         if !client.macControl(c) { stdout("this Mac doesn't name \(MacControl.feature)"); return 1 }
         try? await Task.sleep(nanoseconds: 1_000_000_000)
+        client.stop()
+        return 0
+
+    case "awake":
+        // mpctl awake on|off|displays-on|displays-off|timer <minutes>|restore — Keep Awake as the phone asks.
+        let (client, _) = makeClient()
+        if !client.features.contains(KeepAwakeStatus.feature) { client.features.append(KeepAwakeStatus.feature) }
+        client.start()
+        do { try await client.connect() } catch { stdout("CONNECT FAILED: \(error)"); return 1 }
+        let words = Array(args.dropFirst())
+        let request: KeepAwakeRequest?
+        switch words.first {
+        case "on": request = KeepAwakeRequest(.on)
+        case "off": request = KeepAwakeRequest(.off)
+        case "displays-on": request = KeepAwakeRequest(.displaysOn)
+        case "displays-off": request = KeepAwakeRequest(.displaysOff)
+        case "restore": request = KeepAwakeRequest(.restoreSleep)
+        case "timer": request = KeepAwakeRequest(.timer, minutes: words.dropFirst().first.flatMap(Int.init) ?? 60)
+        case nil, "status": request = nil
+        default: stdout("usage: mpctl awake on|off|displays-on|displays-off|timer <minutes>|restore|status"); return 2
+        }
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        if let request, !client.keepAwake(request) { stdout("this Mac doesn't name \(KeepAwakeStatus.feature)"); return 1 }
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
         client.stop()
         return 0
 

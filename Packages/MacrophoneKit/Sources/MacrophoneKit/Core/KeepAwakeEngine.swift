@@ -70,7 +70,18 @@ public enum KeepAwakeDisagreement: String, Equatable, Sendable {
 public enum KeepAwakeChoice: Sendable { case restoreSleep, keepAwake }
 
 /// What `recover` decided at launch.
-public enum KeepAwakeRecovery: Equatable, Sendable {
+public enum KeepAwakeRecovery: Equatable, Sendable, CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .nothing: return "nothing"
+        case .resume: return "resume"
+        case .finishOff: return "finish turning off"
+        case .cleanUp: return "clean up"
+        case .ask(let d): return "ask (\(d.rawValue))"
+        case .standDown: return "stand down"
+        }
+    }
+
     case nothing
     /// Keep Awake was on and still is: hold on again, quietly.
     case resume
@@ -85,7 +96,7 @@ public enum KeepAwakeRecovery: Equatable, Sendable {
 
 public enum KeepAwakeProblem: Equatable, Sendable {
     case needsHelper, helperGone, helperOutdated, powerFailed, restoreFailed
-    case lockNeedsPassword, lockRefused, displaysStuck(Int)
+    case lockNeedsPassword, lockRefused, displaysStuck(Int), batteryTooLow(Int), tooHot
 
     /// What's wrong, in a sentence.
     public var text: String {
@@ -98,6 +109,8 @@ public enum KeepAwakeProblem: Equatable, Sendable {
         case .lockNeedsPassword: return "The screen will still lock — Macrophone needs your login password to turn the lock off."
         case .lockRefused: return "macOS wouldn't turn the screen lock off. Changing your login password once in System Settings › Users & Groups usually fixes it."
         case .displaysStuck(let n): return "\(n == 1 ? "A display" : "\(n) displays") didn't turn back on."
+        case .batteryTooLow(let p): return "Your battery is at \(p)% — plug in your Mac to turn on Keep Awake."
+        case .tooHot: return "Your Mac is too hot — let it cool down, then turn on Keep Awake."
         }
     }
 
@@ -112,6 +125,7 @@ public enum KeepAwakeProblem: Equatable, Sendable {
         case .lockNeedsPassword: return "Enter Password…"
         case .lockRefused: return "Open Users & Groups"
         case .displaysStuck: return "Turn Displays On"
+        case .batteryTooLow, .tooHot: return "Try Again"
         }
     }
 }
@@ -270,6 +284,9 @@ public final class KeepAwakeEngine {
     public static let ignoreAfterDim: TimeInterval = 6
     /// Tries to plug a display back in before telling him.
     public static let reconnectTries = 3
+    /// How long a "minute" is for auto-dim and the timer — 60, except in a DEBUG proof that
+    /// shortens it (MACROPHONE_AWAKE_MINUTE).
+    public var minute: TimeInterval = 60
 
     public init(system: KeepAwakeSystem, store: KeepAwakeStore, prefs: @escaping () -> KeepAwakePrefs,
                 now: @escaping () -> Date = Date.init) {
@@ -337,7 +354,9 @@ public final class KeepAwakeEngine {
             save()
         case .ask(let d):
             disagreement = d
-            // Hold nothing while asking: the person decides.
+            // Hold nothing while asking: the person decides. Displays left dark by the run
+            // before come back (after a restart they'd be on anyway; an unplugged one may not be).
+            await putDisplaysBack()
             record.phase = .off
             save()
         case .standDown:
@@ -360,6 +379,20 @@ public final class KeepAwakeEngine {
             log("keep awake: not turned on — another app keeps the Mac awake")
             changed()
             return .blocked(b)
+        }
+        // At or under the battery floor it would turn itself straight back off: say why instead.
+        power = system.power()
+        if KeepAwakeRules.batteryTooLow(power, offAt: prefs().lowBatteryOffAt) {
+            problem = .batteryTooLow(power.battery ?? 0)
+            log("keep awake: not turned on — battery \(power.battery ?? -1)%")
+            changed()
+            return .blocked(KeepAwakeProblem.batteryTooLow(power.battery ?? 0).text)
+        }
+        if KeepAwakeRules.tooHot(power) {
+            problem = .tooHot
+            log("keep awake: not turned on — critically hot")
+            changed()
+            return .blocked(KeepAwakeProblem.tooHot.text)
         }
         busy = true
         disagreement = nil
@@ -629,7 +662,7 @@ public final class KeepAwakeEngine {
         let minutes = prefs().autoDimMinutes
         guard isOn, !busy, minutes > 0, !record.displaysOff, system.inputWatching, system.hasDisplays else { return }
         let last = system.lastPhysicalInput ?? record.since ?? now()
-        guard now().timeIntervalSince(last) >= TimeInterval(minutes * 60) else { return }
+        guard now().timeIntervalSince(last) >= TimeInterval(minutes) * minute else { return }
         await displaysOff(auto: true)
     }
 
@@ -651,7 +684,7 @@ public final class KeepAwakeEngine {
 
     public func setTimer(minutes: Int?) async {
         if let m = minutes, m > 0 {
-            record.backAt = now().addingTimeInterval(TimeInterval(m * 60))
+            record.backAt = now().addingTimeInterval(TimeInterval(m) * minute)
             save()
             log("keep awake: back at desk in \(m)m")
             if !isOn { await turnOn() } else { changed() }

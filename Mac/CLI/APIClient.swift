@@ -54,10 +54,23 @@ struct APIClient {
         return r
     }
 
+    /// POST a JSON object; returns (status, body).
+    func post(_ path: String, json: [String: Any], timeout: TimeInterval = 30) async throws -> (Int, Data) {
+        var r = request(path)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: json)
+        return try await send(r, timeout: timeout)
+    }
+
     /// GET; returns (status, body). Throws notRunning / unauthorized.
     func get(_ pathAndQuery: String, timeout: TimeInterval = 15) async throws -> (Int, Data) {
+        try await send(request(pathAndQuery), timeout: timeout)
+    }
+
+    private func send(_ req: URLRequest, timeout: TimeInterval) async throws -> (Int, Data) {
         do {
-            let (data, resp) = try await Self.session(timeout: timeout).data(for: request(pathAndQuery))
+            let (data, resp) = try await Self.session(timeout: timeout).data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if code == 401 { throw ClientError.unauthorized }
             if code >= 400 {

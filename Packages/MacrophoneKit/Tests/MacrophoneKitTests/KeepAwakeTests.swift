@@ -362,6 +362,20 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertNil(next.engine.disagreement)
     }
 
+    @MainActor func testARestartWithTheDisplaysOffBringsThemBackBeforeAsking() async {
+        let rig = EngineRig()
+        await rig.engine.turnOn()
+        await rig.engine.setDisplays(off: true)
+        rig.sys.sleepIsDisabled = false
+        let next = rig.relaunch()
+        _ = await next.engine.launch()
+        XCTAssertFalse(next.engine.record.displaysOff)
+        XCTAssertEqual(next.sys.brightnessSets.last, 0.7)
+        XCTAssertTrue(next.sys.reconnected.last == ["ext-1"])
+        await next.engine.resolve(.keepAwake)
+        XCTAssertFalse(next.engine.status().displaysOff, "on again, displays on")
+    }
+
     @MainActor func testACrashMidTurnOnLeavesNothingBehind() async {
         let rig = EngineRig()
         var rec = KeepAwakeRecord()
@@ -543,6 +557,19 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertTrue(rig.sys.notes.last?.1.contains("10%") ?? false)
     }
 
+    @MainActor func testItWontTurnOnAtTheFloorAndSaysWhy() async {
+        let rig = EngineRig()
+        rig.sys.snapshot = PowerSnapshot(hasBattery: true, battery: 9, onPower: false)
+        let r = await rig.engine.turnOn()
+        XCTAssertEqual(r, .blocked(KeepAwakeProblem.batteryTooLow(9).text))
+        XCTAssertFalse(rig.engine.isOn)
+        XCTAssertTrue(rig.sys.applied.isEmpty, "nothing changed only to be put back seconds later")
+        XCTAssertEqual(rig.engine.problem, .batteryTooLow(9))
+        rig.sys.snapshot.onPower = true
+        let plugged = await rig.engine.turnOn()
+        XCTAssertEqual(plugged, .on, "plugged in, 9% is fine")
+    }
+
     @MainActor func testNeverMeansNever() async {
         let rig = EngineRig()
         rig.prefs.lowBatteryOffAt = 0
@@ -563,6 +590,12 @@ final class KeepAwakeTests: XCTestCase {
         await rig.engine.powerCheck()
         XCTAssertFalse(rig.engine.isOn)
         XCTAssertTrue(rig.sys.notes.last?.1.contains("too hot") ?? false)
+        // And it won't turn back on until it's cooler.
+        let again = await rig.engine.turnOn()
+        XCTAssertEqual(again, .blocked(KeepAwakeProblem.tooHot.text))
+        rig.sys.snapshot.thermal = .fair
+        let cooler = await rig.engine.turnOn()
+        XCTAssertEqual(cooler, .on)
     }
 
     @MainActor func testLongOnBatteryAndLowPowerMode() async {

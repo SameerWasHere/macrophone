@@ -43,6 +43,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     @Published private(set) var alertWatches: [AlertWatch] = []
     private(set) var attachments: AttachmentInbox!
     private(set) var stayAwake: StayAwake!
+    private(set) var keepAwake: KeepAwakeService!
     /// Every window on screen, as last told to the phones (AllWindows).
     private var everyWindowSent: [LiveTarget] = []
     private var everyWindowTimer: Timer?
@@ -124,6 +125,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         Task { @MainActor [weak self] in self?.windowAlerts.restore() }
         attachments = AttachmentInbox(app: self)
         stayAwake = StayAwake(log: log)
+        // Keep Awake (Nov 7 2026, KeepAwake/): the Mac on with the lid closed, from here or the phone.
+        keepAwake = KeepAwakeService(log: log)
         watch.onChange = { [weak self] in
             guard let self else { return }
             self.stayAwake.update(phonesConnected: !self.connected.isEmpty, watching: !self.watch.watching.isEmpty)
@@ -154,6 +157,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         let watchService = watch!
         server.watchInput = { peer, input in watchService.directInput(peer, input) }
         startMacReach()
+        wireKeepAwake()
         history = historyStore.all
         peers = server.store.peers()
         lastReceived = historyStore.latest?.receivedAt
@@ -215,6 +219,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         pathMonitor = m
         if settings.apiEnabled { api.start() } else { apiState = .off }
         attention.update()
+        keepAwake.start()
         pushStatus()
         // Nothing lands without Accessibility: ask at launch, which also puts Macrophone in the list.
         if !accessibilityGranted { _ = Paster.requestTrust() }

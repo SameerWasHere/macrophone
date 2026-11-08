@@ -133,6 +133,7 @@ struct MainView: View {
         switch nav.pane ?? .history {
         case .history: HistoryPane(model: model, settings: model.settings)
         case .agents: AgentsPane(model: model, settings: model.settings)
+        case .keepAwake: KeepAwakePane(keepAwake: model.keepAwake)
         case .devices: DevicesPane(model: model)
         case .developer: DeveloperPane(model: model, settings: model.settings)
         case .general: GeneralPane(model: model, settings: model.settings, updater: updater, notifier: Notifier.shared)
