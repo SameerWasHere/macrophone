@@ -997,6 +997,8 @@ final class AppModel: ObservableObject {
         #endif
         history.add(HistoryItem(dictation: d, delivery: .sending, partialCleanup: partial ? true : nil, spokenPrefix: route.spoken))
         refreshHistory()
+        // The words leave the transcript for their place (Delight, Nov 8 2026).
+        Delight.shared.wordsLeaving(d.text, target: route.target)
         processing = false
         resolveTextWaiters(d.text)
         await deliver(d, resend: false)
@@ -1223,8 +1225,10 @@ final class AppModel: ObservableObject {
             rememberUndoable(canUndo ? Undoable(id: id, landedAt: now, appName: l.chipWords.replacingOccurrences(of: "Pasted into ", with: "")) : nil)
             showChip(LandedChip(id: id, words: l.chipWords, ok: true, canUndo: canUndo, sent: result == .sent, landedAt: now))
             pillSaidIt = true
+            Delight.shared.landed(id: id, text: it.dictation.text, sent: result == .sent, history: historyItems)
         } else {
             rememberUndoable(nil)
+            Delight.shared.missed()
         }
         bumpPulse()
         // Sent into an app: show its window, so the answer can be read (and approved) from here.
@@ -2399,6 +2403,7 @@ extension AppModel: LinkClientUndoDelegate {
         // under the mic says what was taken out, by name, in the app's own even tone once the pill
         // has said "Undone" (a caution-coloured notice read as something wrong — Nov 7 2026).
         if r.ok { updateItem(r.id) { $0.landingDetail = Self.undoneWords } }
+        if r.ok { Delight.shared.undone(id: r.id) }
         if r.ok {
             let app = item(r.id)?.dictation.target.map { Places.appName($0, in: self) } ?? "your Mac"
             // The landing's own reset to ready would drop the note (a status change clears it).

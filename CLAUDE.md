@@ -2523,6 +2523,96 @@ the phone tile off, on, displays off, blocked) and `dry-run-proof.txt` (seven dr
   and the Keychain items `com.sameer.sameeros-mac` / `com.sameer.onthego` (screenlock-password).
   Then Macrophone › Keep Awake › Allow… once.
 
+## Delight (Nov 8 2026)
+
+Sameer: "I just don't quite feel surprise and delight when using this app … Do it." Apple's way: a
+few memorable moments and many small physical ones, never slower, never in the way of a long
+prompt, nothing running at rest. All new code is in `iOS/Macrophone/UI/Delight/`; existing views
+got one-line hooks. `Delight` (Delight.swift) hears AppModel at three moments —
+`wordsLeaving` (in `finish`, as the send begins), `landed` / `missed` (`showLanding`), `undone`
+(`undoDone`) — and nothing there touches the link or logs anything but counts. Frames, GIFs and the
+rendered sounds: `docs/screens/delight-nov8/`.
+- **The words travel** (`WordFlightLayer`, WordFlight.swift; overlay on `MainView.body`): as the
+  words go out, their first few (`Delight.firstWords`, ~26 letters) lift off the transcript
+  (`Delight.wordsFrame`, from LiveWords) as a glass chip with the Thread's light round its edge
+  and drop along a curve — down first, then in, so an icon at the Dock's end never takes it off
+  screen — into the pick's Dock icon (`DockSpot.pick`), shrinking, two motes trailing (0.62 s).
+  Into a window that shows (the mic opened over it) they sink into the window instead. Only the
+  regular iPhone and the cover (`allowed`), only when the words go to the pick, never in full
+  screen; nothing is built outside a flight.
+- **The Dock catches them** (`DockCatch`, one `.modifier` on `DockIcon`'s tile; events from
+  `DockCatches`, its own object so a flight never redraws the Dock): on the landing the pick dips
+  under the words, hops 10 pt and settles, a glow of the Intelligence colours behind it; a landing
+  that failed shakes it (a Mac's login field). A landing that comes while the words are still in
+  the air waits for them (`pendingCatch`). **An app opening from here** (`PlaceOption.Kind
+  .opening`) bounces in the Dock the way a Mac's does while an app launches (the spinner only under
+  Reduce Motion), never past `AppModel.isOpening`'s 20 s.
+- **The Thread is a string** (Filament.swift, "Plucking"; `Filament(pluckable:)`, MainView's
+  `threadPluckable`: at rest, never while the mic is open or the words go out, never over a
+  window, never on the Duo's deck where a swipe changes pages): a finger pulls it into a triangle
+  with its apex under the finger (harder the further, `tanh`), let go it rings with a real string's
+  first seven modes (3.1 Hz seen, higher modes dying faster: the kink runs out and smooths away in
+  ~1.6 s), a tap plucks it, plucks add up, the cores and bloom glint. Haptics (`ThreadHaptics`,
+  Core Haptics, engine made on the first touch and auto-shut-down): a tension that firms as it
+  stretches, then a transient and a buzz decaying with the string. The note is where it was
+  plucked (`SoundCues.pluck`, G major pentatonic, low on the left). The display link only while a
+  finger is on it or it rings. `DelightUITests` plucks it with a real tap and pull and checks the mic
+  stayed closed (plucks counted in `debug.plucks`, DEBUG — read the container's prefs plist; `simctl
+  spawn defaults read` doesn't see it).
+- **Sounds** (`SoundCues`): a landing's two glass tinks (E6 · B6), a send's breath of air then a
+  tink, Undo's tinks falling, a milestone's arpeggio, pairing's two notes meeting, the Thread's
+  plucked string (Karplus–Strong). Synthesised in code (`SoundSynth`, no assets), rendered once to
+  Caches/Sounds as 16-bit WAVs 4 s after launch (`SoundCues.prepare`), played as system sounds:
+  they follow the Ring / Silent switch, mix with the app's own audio session (the Mac's sound, a
+  podcast) and are quiet by design (−13 dBFS peaks). Played at the catch (with the words' arrival),
+  else at the landing. **No listening sound**: it would land in the first syllable the recognizer
+  hears. Settings › Appearance › **Sounds** (`settings.sounds`, on by default, `@AppStorage` in
+  SettingsView, id `settings-sounds`).
+- **Firsts and milestones** (`MilestoneBanner`, Moments.swift; overlay on `MainView.body`): the
+  first dictation that ever lands ("Your first dictation landed · Hold the mic for a long prompt,
+  tap it for a quick one") and 1,000 / 10,000 / 100,000 words ("… words, said not typed · About
+  N minutes / hours of typing saved" — typing at 40 wpm, speaking at 150) — a glass banner that drops
+  in under the status bar 0.65 s after the catch, with the milestone sound and `Haptics.arrived`,
+  read out to VoiceOver, gone after 5 s or a tap (`delight-milestone`). Only at rest (never over a
+  window, the words, a sheet or full screen; one that comes meanwhile waits). Counted on this
+  iPhone (`delight.words`, an Undo takes its words back off), never sent. **Seeded from History**
+  the first time (`delight.seeded`): someone with months of dictations gets neither "first" nor a
+  mark already passed the day this arrives.
+- **Pairing: the two meet** (`View.pairingCelebration()`, one line on PairingView's check): a ring
+  of the Intelligence colours blooms out from the check, a soft wash behind it, fourteen sparks
+  fly, and the paired sound. Reduce Motion: a glow that comes and goes.
+- **The Mac pill says hello** (`ConnectRipple` on the pill's dot): when `looksConnected` turns on
+  — the first connect, a wake, back after the Mac was gone; not a return from the background, which
+  keeps looking connected — a ring spreads once from the dot.
+- **The wallpaper has depth** (`ParallaxImage`, in `DesktopWallpaper`): the Mac's wallpaper drifts
+  12 pt against the tilt like the Home Screen's — `UIInterpolatingMotionEffect`, applied by UIKit,
+  no Core Motion of ours and nothing per frame in SwiftUI; UIKit turns it off under Reduce Motion,
+  and it's off in Low Power Mode.
+- **Reduce Motion** everywhere: no flight (the catch is the glow alone), no hop or shake, no launch
+  bounce (the spinner), the Thread's pluck is light and one soft tap, the banner fades, pairing
+  glows. **At rest** nothing of this runs (no timers, no display links); the app measured 2–3% CPU
+  at rest on the simulator, the Thread's idle flow as before.
+- Hooks (DEBUG): `MACROPHONE_DELIGHT=first,milestone@10000,pluck@0.3,flight@<words>,catch,miss,undo,open@<bundle id>,wait@<s>`
+  (each ~1.4 s apart, after `MACROPHONE_DELIGHT_AFTER`, 3 s); a real dictation with
+  `MACROPHONE_SIM_RECORD` + `MACROPHONE_WATCH=rest` + `MACROPHONE_WATCH_ACTIONS=wait@1,record,wait@2,stoprecord`.
+- Seen on an iPhone 17 Pro (27.0, light and dark) and a Duo's cover (27.1) against `mpctl serve`:
+  the flight into Claude's icon and the catch on "LANDED pasted", the miss shake, TextEdit bouncing
+  while it opens, a real finger's pull and ring, the first-dictation and milestone banners, pairing.
+  The inner screen is unchanged (no flight there; the banner and the pluck on the cover's half).
+  `DelightUITests`, `StabilityUITests`, `UndoChipUITests` (7) and `InputCarouselUITests` (4) pass
+  on the Pro (`open@` leaves the pick on an app that's "opening" — pick Claude again before the
+  carousel's close test, which otherwise watches a window the stand-in doesn't have).
+- **Needs his phone:** every haptic (the simulator has none — the pluck's tension and decay above
+  all), every sound (rendered and checked as files, never heard: their loudness on a real speaker,
+  and that a system sound plays while the Mac's sound has the session), the parallax (the simulator
+  doesn't tilt), the flight and catch timing against a real Mac's landing (~0.3–0.9 s; the stand-in
+  answers ~1 s after the words arrive).
+- **Not done:** alternate app icons (Icon Composer `.icon` bundles per colourway plus
+  `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES` — a build-settings change with its own
+  verification; worth its own pass), a menu bar clock (the status bar already shows the time), the
+  pick's icon breathing while a chat answers (the ember dot says it), the Mac's wallpaper washing in
+  as they meet (the wallpaper arrives after the success page).
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

@@ -26,7 +26,11 @@ struct MacrophoneApp: App {
                 .task {
                     #if DEBUG
                     DebugHooks.apply(model)
+                    Delight.shared.runDebugHooks()
                     #endif
+                    // The sounds rendered once, well after launch has settled (Delight).
+                    try? await Task.sleep(nanoseconds: 4_000_000_000)
+                    SoundCues.prepare()
                 }
                 .onAppear { model.log.add("first frame \(LaunchClock.millisecondsSinceProcessStart) ms after launch") }
         }
