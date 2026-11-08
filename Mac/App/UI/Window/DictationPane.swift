@@ -8,6 +8,7 @@ struct DictationPane: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
     @ObservedObject var desk: DeskDictation
+    @ObservedObject var wake: WakeController
     @ObservedObject var permissions: PermissionsMonitor
     @FocusState private var tryFocused: Bool
 
@@ -18,7 +19,9 @@ struct DictationPane: View {
     var body: some View {
         PanePage {
             PaneHeader(title: "Dictation",
-                       subtitle: "Hold \(key == .off ? "a key" : key.short) on this Mac, talk, and let go — the words are cleaned up and pasted wherever you're typing. No iPhone needed.")
+                       subtitle: settings.wakeOn
+                        ? "Hold \(key == .off ? "a key" : key.short) or say “\(settings.wakePhrase)”, then talk — the words are cleaned up and pasted wherever you're typing. No iPhone needed."
+                        : "Hold \(key == .off ? "a key" : key.short) on this Mac, talk, and let go — the words are cleaned up and pasted wherever you're typing. No iPhone needed.")
 
             if !DeskDictation.engineAvailable {
                 PlateNote("Dictation on this Mac needs macOS 26 or later.", color: Light.ochre)
@@ -69,11 +72,20 @@ struct DictationPane: View {
                 .padding(.horizontal, 4)
             }
 
-            if settings.deskDictation, key != .off {
+            WakeWordSection(settings: settings, wake: wake)
+
+            if settings.wakeOn {
+                WakeEndingsSection(settings: settings)
+            }
+
+            if (settings.deskDictation && key != .off) || settings.wakeOn {
                 PaneSection("What macOS needs") {
-                    PermissionRows(monitor: permissions, desk: true, needsInputMonitoring: desk.tapRefused && permissions.accessibility)
+                    PermissionRows(monitor: permissions, desk: true, needsInputMonitoring: desk.tapRefused && permissions.accessibility,
+                                   wakePhrase: settings.wakeOn ? settings.wakePhrase : nil)
                 }
             }
+
+            DictionarySection(settings: settings)
 
             PaneSection("Try it", note: "Your Mac's language: \(languageName). What you say stays on this Mac.") {
                 Plate {

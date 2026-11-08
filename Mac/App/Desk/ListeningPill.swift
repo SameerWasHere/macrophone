@@ -169,6 +169,7 @@ private struct PillView: View {
     private var hint: String {
         switch desk.phase {
         case .listening(let handsFree):
+            if desk.way == .wake { return desk.wakeHint }
             return handsFree ? "Hands-free · tap \(keyName) to finish · Esc to cancel" : "Let go to paste · Esc to cancel"
         case .finishing(let s): return s.isEmpty ? "Finishing…" : s
         case .note: return "It's in History"

@@ -47,6 +47,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var attachments: AttachmentInbox!
     /// Dictation at the desk: hold a key on this Mac, talk, let go (Desk/DeskDictation.swift).
     private(set) var desk: DeskDictation!
+    /// The wake word: say the phrase, talk (Desk/WakeWord.swift). Nil only before launch finishes.
+    private(set) var wake: WakeController?
     private(set) var stayAwake: StayAwake!
     /// Every window on screen, as last told to the phones (AllWindows).
     private var everyWindowSent: [LiveTarget] = []
@@ -129,6 +131,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         Task { @MainActor [weak self] in self?.windowAlerts.restore() }
         attachments = AttachmentInbox(app: self)
         desk = DeskDictation(app: self)
+        wake = WakeController(app: self)
         stayAwake = StayAwake(log: log)
         watch.onChange = { [weak self] in
             guard let self else { return }
@@ -224,6 +227,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         tailscale.refresh()
         attention.update()
         desk.start()
+        wake?.start()
         pushStatus()
         // Nothing lands without Accessibility: ask at launch, which also puts Macrophone in the list.
         #if DEBUG

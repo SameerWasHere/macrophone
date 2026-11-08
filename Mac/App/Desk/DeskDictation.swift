@@ -24,7 +24,11 @@ final class DeskDictation: ObservableObject {
     /// The source a desk dictation carries in History.
     static let source = "This Mac"
 
+    /// How this dictation started: the key held, or the wake word said (WakeController).
+    enum Way: Equatable { case key, wake }
+
     @Published private(set) var phase: Phase = .idle
+    @Published private(set) var way: Way = .key
     @Published private(set) var settled = ""
     @Published private(set) var pending = ""
     @Published private(set) var level: Float = 0
@@ -62,7 +66,11 @@ final class DeskDictation: ObservableObject {
     init(app: AppModel) {
         self.app = app
         tap.onEffect = { [weak self] in self?.effect($0) }
+        // Esc while the wake word is capturing (no key held): it cancels, and goes no further.
+        tap.onEscape = { [weak self] in self?.app.wake?.escape() ?? false }
     }
+
+    private var wake: WakeController? { app.wake }
 
     private var settings: Settings { app.settings }
     private var log: DiagnosticLog { app.log }
@@ -99,7 +107,7 @@ final class DeskDictation: ObservableObject {
             return
         }
         #endif
-        Publishers.CombineLatest3(settings.$deskDictation, settings.$deskKey, app.permissions.$microphone)
+        Publishers.CombineLatest4(settings.$deskDictation, settings.$deskKey, app.permissions.$microphone, settings.$wakeOn)
             .combineLatest(app.permissions.$accessibility, app.permissions.$inputMonitoring)
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.apply() }
@@ -118,9 +126,17 @@ final class DeskDictation: ObservableObject {
         let s = settings
         let mic = app.permissions.microphone
         let wanted = s.deskDictation && s.deskKey != .off && Self.engineAvailable && mic != .denied && mic != .restricted
-        guard wanted else {
+        // The wake word wants the tap too, for Esc (and the key, when there is one).
+        let escapeOnly = !wanted && s.wakeOn && Self.engineAvailable
+        guard wanted || escapeOnly else {
             if tap.isRunning { tap.stop(); log.add("desk: key off") }
-            if isListening { cancel(quietly: true) }
+            if session != nil { cancel(quietly: true) }
+            tapRefused = false
+            return
+        }
+        if escapeOnly {
+            if session != nil { cancel(quietly: true) }
+            tap.start(.off, escapeOnly: true)
             tapRefused = false
             return
         }
@@ -144,12 +160,27 @@ final class DeskDictation: ObservableObject {
     private func warm() {
         guard #available(macOS 26.0, *) else { return }
         let language = Self.language
-        Task.detached(priority: .utility) { await DeskSpeech.warm(language: language) }
+        let words = settings.dictionary
+        Task.detached(priority: .utility) { await DeskSpeech.warm(language: language, contextual: words) }
     }
 
     // MARK: The key
 
     private func effect(_ e: DeskHotkey.Effect) {
+        // The wake word is capturing: the key joins that capture — one dictation, never two.
+        // Held, only its release ends it; a tap lands it now; Esc drops it.
+        if let wake, wake.isCapturing, session == nil {
+            switch e {
+            case .openMic: wake.keyHeld(true)
+            case .showPill, .handsFree: break
+            case .finish: wake.keyHeld(false); wake.finishNow()
+            case .cancel(let quiet):
+                if tap.lastWasEscape { _ = wake.escape() }
+                else if quiet { wake.keyHeld(false); wake.finishNow() }   // a quick tap
+                else { wake.keyHeld(false) }                               // a shortcut: the capture goes on
+            }
+            return
+        }
         switch e {
         case .openMic: openMic()
         case .showPill: showPill(handsFree: false)
@@ -167,8 +198,10 @@ final class DeskDictation: ObservableObject {
         let s = Session()
         session = s
         liveID = s.id
+        way = .key
         settled = ""
         pending = ""
+        wake?.deskBegan()
         let pressed = s.pressedAt
         let log = self.log
         mic.open { ms in
@@ -184,8 +217,9 @@ final class DeskDictation: ObservableObject {
         let language = Self.language
         let id = s.id
         let pressed = s.pressedAt
+        let words = settings.dictionary
         s.starting = Task { [weak self] in
-            let r = await DeskSpeech.start(language: language) { settled, pending in
+            let r = await DeskSpeech.start(language: language, contextual: words) { settled, pending in
                 Task { @MainActor [weak self] in
                     guard let self, self.liveID == id else { return }
                     self.settled = settled
@@ -205,7 +239,7 @@ final class DeskDictation: ObservableObject {
             return speech
         }
         let level = settings.deskCleanup
-        if level != .off, Cleaner.availability(language: language).isAvailable { Cleaner.prewarm(level: level, dictionary: []) }
+        if level != .off, Cleaner.availability(language: language).isAvailable { Cleaner.prewarm(level: level, dictionary: settings.dictionary) }
     }
 
     private func showPill(handsFree: Bool) {
@@ -241,6 +275,7 @@ final class DeskDictation: ObservableObject {
         liveID = nil
         stopLevel()
         mic.close()
+        wake?.deskEnded()
         if #available(macOS 26.0, *) {
             if let sp = s.speech as? DeskSpeech { sp.cancel() }
             else if let starting = s.starting { Task { (await starting.value as? DeskSpeech)?.cancel() } }
@@ -275,6 +310,7 @@ final class DeskDictation: ObservableObject {
         // A release the tick never saw as a hold: the recognizer starts now, on the held audio.
         startSpeech(s)
         mic.close(keepHeld: true)
+        wake?.deskEnded()
         let level = settings.deskCleanup
         let language = Self.language
         Task { @MainActor in
@@ -315,43 +351,57 @@ final class DeskDictation: ObservableObject {
         }
         status("Cleaning up…", for: id)
         let t0 = Date()
-        let r = await Cleaner.clean(raw, level: level, dictionary: [], language: language, deadline: Date().addingTimeInterval(8))
+        let r = await Cleaner.clean(raw, level: level, dictionary: settings.dictionary, language: language, deadline: Date().addingTimeInterval(8))
         log.add("desk: cleanup \(Int(Date().timeIntervalSince(t0) * 1000)) ms (\(level.rawValue)\(r.skipped.map { ", \($0)" } ?? ""))")
         return r.cleaned
     }
 
     // MARK: The paste
 
-    private func deliver(raw: String, cleaned: String?, level: CleanupLevel, language: String, id: UUID, duration: TimeInterval) {
+    /// Lands a finished dictation: History, the menu bar's cues, the paste. Where I'm typing and
+    /// never sent for a held key; the wake word may name an app (`target`) and say "send it".
+    /// `afterNote`: a word for the pill once it's in (a place that wasn't found). `landed`: called
+    /// when the paste went in (the wake word's chime).
+    private func deliver(raw: String, cleaned: String?, level: CleanupLevel, language: String, id: UUID, duration: TimeInterval,
+                         target: Paster.Target = .front, send: Bool = false, afterNote: String? = nil,
+                         landed: (() -> Void)? = nil) {
+        let ref: TargetRef
+        switch target {
+        case .front: ref = .frontApp
+        case let .app(bundleID, windowKey, name): ref = .app(bundleID: bundleID, windowKey: windowKey, name: name)
+        }
         let d = Dictation(id: id, raw: raw, cleaned: cleaned, cleanupLevel: level, language: language,
-                          profileName: TargetRef.frontApp.displayName, target: .frontApp, send: false,
+                          profileName: ref.displayName, target: ref, send: send,
                           duration: duration, sourceDevice: Self.source)
         let text = d.text
         #if DEBUG
         if let dryRun { dryRun(raw, cleaned); done(for: id); return }
+        if let wakeDryRun, way == .wake { wakeDryRun(ref.displayName, send, raw, cleaned, afterNote); done(for: id); return }
         #endif
         // The page's Try it box, with Macrophone in front: straight into it.
-        if tryBoxFocused, NSApp.isActive {
+        if tryBoxFocused, NSApp.isActive, target == .front {
             tryText += (tryText.isEmpty || tryText.hasSuffix(" ") || tryText.hasSuffix("\n") ? "" : " ") + text
             app.record(HistoryItem(dictation: d, receivedAt: Date(), delayed: false, profileName: "Try it", outcome: .pasted, detail: "Typed into Try it"))
             log.add("desk: into Try it")
+            landed?()
             done(for: id)
             return
         }
-        app.record(HistoryItem(dictation: d, receivedAt: Date(), delayed: false, profileName: TargetRef.frontApp.displayName, outcome: .pending, detail: ""))
+        app.record(HistoryItem(dictation: d, receivedAt: Date(), delayed: false, profileName: ref.displayName, outcome: .pending, detail: ""))
         app.statusItemCue(.arriving(id))
-        status("Pasting…", for: id)
+        status(send ? "Sending…" : "Pasting…", for: id)
         let previous = pasteChain
         let scanner = app.scanner
         pasteChain = Task { @MainActor in
             await previous?.value
             if StayAwake.isLocked { self.failed(.macLocked, text: text, id: id); return }
             do {
-                let r = try await Paster.deliver(Paster.Request(text: text, target: .front, send: false), scanner: scanner)
-                self.app.updateOutcome(id, .pasted, "Pasted into \(r.appName)")
+                let r = try await Paster.deliver(Paster.Request(text: text, target: target, send: send), scanner: scanner)
+                self.app.updateOutcome(id, .pasted, "\(r.pressedSend ? "Sent in" : "Pasted into") \(r.appName)")
                 self.app.statusItemCue(.landed(id))
-                self.log.add("desk: pasted\(r.landed == true ? ", landed" : (r.landed == nil ? ", not readable" : ""))")
-                self.done(for: id)
+                self.log.add("desk: \(r.pressedSend ? "sent" : "pasted")\(r.landed == true ? ", landed" : (r.landed == nil ? ", not readable" : ""))")
+                landed?()
+                if let afterNote { self.note(afterNote, for: id) } else { self.done(for: id) }
             } catch let f as PasteFailure {
                 self.failed(f, text: text, id: id)
             } catch {
@@ -405,6 +455,66 @@ final class DeskDictation: ObservableObject {
         }
     }
 
+    // MARK: The wake word (WakeController) — the same pill, cleanup, paste and History
+
+    /// The wake word's capture, while it's the one on the pill.
+    private var wakeID: UUID?
+
+    /// The pill's faint line while the wake word listens.
+    var wakeHint: String {
+        let send = settings.wakeEndings.send.first ?? "send it"
+        return "Pause to paste · “\(send)” to send · Esc to cancel"
+    }
+
+    /// The phrase was heard: the pill, listening.
+    func wakeBegan(_ id: UUID) {
+        guard session == nil else { return }   // a held key's dictation has the pill
+        noteTask?.cancel()
+        wakeID = id
+        liveID = id
+        way = .wake
+        settled = ""
+        pending = ""
+        phase = .listening(handsFree: true)
+        startLevel()
+        pill.show()
+        let level = settings.deskCleanup
+        if level != .off, Cleaner.availability(language: Self.language).isAvailable { Cleaner.prewarm(level: level, dictionary: settings.dictionary) }
+    }
+
+    func wakeWords(_ id: UUID, settled s: String, pending p: String) {
+        guard wakeID == id, liveID == id else { return }
+        settled = s
+        pending = p
+    }
+
+    /// It ended without landing: withdrawn (no note — a false start fades), cancelled, nothing said.
+    func wakeEnded(_ id: UUID, note words: String?) {
+        guard wakeID == id else { return }
+        wakeID = nil
+        stopLevel()
+        if let words { note(words, for: id) } else { done(for: id) }
+    }
+
+    /// Done: this Mac's cleanup, then the paste — where you're typing or the app named, sent when asked.
+    func wakeLand(_ id: UUID, text: String, target: Paster.Target, send: Bool, missedPlace: String?,
+                  seconds: TimeInterval, landed: @escaping () -> Void) {
+        guard wakeID == id, liveID == id else { return }
+        wakeID = nil
+        stopLevel()
+        settled = text
+        pending = ""
+        phase = .finishing("")
+        let level = settings.deskCleanup
+        let language = Self.language
+        let after = missedPlace.map { "No “\($0)” open — pasted where you're typing" }
+        Task { @MainActor in
+            let cleaned = await self.clean(text, level: level, language: language, id: id)
+            self.deliver(raw: text, cleaned: cleaned, level: level, language: language, id: id, duration: seconds,
+                         target: target, send: send, afterNote: after, landed: landed)
+        }
+    }
+
     // MARK: The level
 
     private func startLevel() {
@@ -412,7 +522,7 @@ final class DeskDictation: ObservableObject {
         let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let v = self.mic.currentLevel
+                let v = self.way == .wake ? (self.wake?.level ?? 0) : self.mic.currentLevel
                 if abs(v - self.level) > 0.01 { self.level = v }
             }
         }
@@ -442,6 +552,16 @@ final class DeskDictation: ObservableObject {
 
     /// Set: a finished dictation goes here instead of History and the paste.
     var dryRun: ((_ raw: String, _ cleaned: String?) -> Void)?
+    /// The wake word's (MACROPHONE_WAKE_AUDIO): where it would go, sent or not, the words.
+    var wakeDryRun: ((_ place: String, _ send: Bool, _ raw: String, _ cleaned: String?, _ note: String?) -> Void)?
+
+    func debugNote(_ words: String) { way = .wake; note(words) }
+
+    /// Shows the pill as the wake word's capture looks (screenshots).
+    func debugStageWake(_ words: String, finishing: String? = nil) {
+        way = .wake
+        debugStage(words, handsFree: true, finishing: finishing)
+    }
 
     /// MACROPHONE_DESK_SIMULATE: the whole path — the key's presses through the state machine,
     /// the mic (an audio file in its place), held audio, the recognizer joining at the hold,

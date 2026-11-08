@@ -41,6 +41,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.menu = menu
         model.$connected.combineLatest(model.$peers, model.$watching).receive(on: RunLoop.main)
             .sink { [weak self] _, _, _ in self?.refreshIcon() }.store(in: &bag)
+        model.wake?.$state.receive(on: RunLoop.main).sink { [weak self] _ in self?.refreshIcon() }.store(in: &bag)
         // A scan finishing, or the phone changing Send to, while the menu is open shows up in
         // its rows straight away.
         model.$targets.map { _ in () }.merge(with: model.settings.$selection.map { _ in () })
@@ -84,6 +85,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private static func image(_ name: String) -> NSImage? {
+        // "…+ear": the wake word is listening — a small mark at the top right of the icon, the
+        // template's own colour, so the menu bar says this Mac is listening for its phrase
+        // (macOS's orange dot says the microphone is open; this says why).
+        if name.hasSuffix("+ear") {
+            guard let base = NSImage(named: String(name.dropLast(4))) else { return nil }
+            let size = base.size
+            let i = NSImage(size: size, flipped: false) { rect in
+                base.draw(in: rect)
+                let d: CGFloat = 4
+                NSColor.black.setFill()
+                NSBezierPath(ovalIn: NSRect(x: rect.maxX - d - 0.5, y: rect.maxY - d - 1.5, width: d, height: d)).fill()
+                return true
+            }
+            i.isTemplate = true
+            return i
+        }
         let i = NSImage(named: name)
         i?.isTemplate = true
         return i
@@ -98,9 +115,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         #if DEBUG
         if demoWatching { watched = watched ?? "Demo" }
         #endif
-        show(watched != nil ? "MenuBarIconWatching" : on ? "MenuBarIconConnected" : "MenuBarIcon")
-        let line = watched.map { "\(model.statusLine) · watching \($0)" } ?? model.statusLine
-        b.setAccessibilityLabel(on ? "Macrophone — \(line)" : "Macrophone")
+        let listening = model.wake?.isListening == true
+        show((watched != nil ? "MenuBarIconWatching" : on ? "MenuBarIconConnected" : "MenuBarIcon") + (listening ? "+ear" : ""))
+        var line = watched.map { "\(model.statusLine) · watching \($0)" } ?? model.statusLine
+        if listening, let w = model.wake?.statusLine { line += " · \(w)" }
+        b.setAccessibilityLabel(on || listening ? "Macrophone — \(line)" : "Macrophone")
         b.toolTip = line
     }
 
@@ -241,6 +260,30 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             mi.isEnabled = false
             menu.addItem(mi)
         }
+        // The wake word: what it's doing, and Pause Listening (Desk/WakeWord.swift).
+        if let wake = model.wake, model.settings.wakeOn {
+            if let line = wake.statusLine {
+                let mi = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+                mi.image = symbolImage(wake.isListening ? "waveform" : "pause.circle")
+                mi.isEnabled = false
+                menu.addItem(mi)
+            }
+            if wake.pausedByUser {
+                menu.addItem(action("Resume Listening", #selector(resumeListening), symbol: "play.circle"))
+            } else if case .unavailable = wake.state {
+                // Nothing to pause.
+            } else {
+                let pause = NSMenuItem(title: "Pause Listening", action: nil, keyEquivalent: "")
+                pause.image = symbolImage("pause.circle")
+                let sub = NSMenu()
+                sub.addItem(action("For 1 Hour", #selector(pauseHour)))
+                sub.addItem(action("Until Tomorrow", #selector(pauseTomorrow)))
+                sub.addItem(.separator())
+                sub.addItem(action("Turn Off the Wake Word", #selector(wakeOff)))
+                pause.submenu = sub
+                menu.addItem(pause)
+            }
+        }
         for (peerID, appName) in watchingNow.sorted(by: { $0.value < $1.value }) {
             let who = model.peers.first { $0.id == peerID }.map(model.displayName) ?? "Your iPhone"
             let w = MenuWords.stopWatching(app: appName, phone: who)
@@ -374,6 +417,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         return mi
     }
+
+    @objc private func pauseHour() { model.wake?.pause(for: 3600) }
+    @objc private func pauseTomorrow() { model.wake?.pauseUntilTomorrow() }
+    @objc private func resumeListening() { model.wake?.resumeNow() }
+    @objc private func wakeOff() { model.settings.wakeOn = false }
 
     @objc private func stopWatching(_ sender: NSMenuItem) {
         guard let s = sender.representedObject as? String, let id = UUID(uuidString: s) else { return }

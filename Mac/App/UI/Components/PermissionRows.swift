@@ -12,6 +12,8 @@ struct PermissionRows: View {
     /// macOS refused the key without it). Nov 7 2026.
     var desk = false
     var needsInputMonitoring = false
+    /// The wake word is on: the microphone row says it listens for this phrase too.
+    var wakePhrase: String?
 
     var body: some View {
         Plate {
@@ -28,7 +30,8 @@ struct PermissionRows: View {
             PlateDivider()
             if desk {
                 PermissionRow(title: "Microphone",
-                              unlocks: "To hear you while you hold the key — only then. What you say stays on this Mac.",
+                              unlocks: wakePhrase.map { "To hear you while you hold the key, and to listen for “\($0)”. What you say stays on this Mac." }
+                                ?? "To hear you while you hold the key — only then. What you say stays on this Mac.",
                               missing: monitor.microphone == .notDetermined
                                 ? "macOS asks once."
                                 : "Until it's on, holding the key does nothing.",

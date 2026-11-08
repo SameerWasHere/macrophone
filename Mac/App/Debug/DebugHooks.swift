@@ -173,7 +173,34 @@ enum DebugHooks {
                                       finishing: extra.hasPrefix("finishing") ? String(extra.dropFirst(10)) : nil)
             }
         }
-        guard let show = env["MACROPHONE_SHOW"] else { return env["MACROPHONE_DESK_PILL"] != nil }
+        if let spec = env["MACROPHONE_WAKE_AUDIO"] { runWakeAudio(spec, model: model) }
+        if let st = env["MACROPHONE_WAKE_STATE"] { stageWakeState(st, model: model) }
+        if let spec = env["MACROPHONE_WAKE_PILL"] {
+            let parts = spec.components(separatedBy: "|")
+            let extra = parts.dropFirst().first ?? ""
+            if env["MACROPHONE_BACKDROP"] == "1", backdrop == nil {
+                let f = ListeningPill.place().insetBy(dx: -60, dy: -40)
+                let w = NSWindow(contentRect: f, styleMask: [.borderless], backing: .buffered, defer: false)
+                w.level = .floating
+                w.collectionBehavior = [.canJoinAllSpaces, .stationary]
+                w.ignoresMouseEvents = true
+                w.contentView = NSHostingView(rootView: Backdrop())
+                w.orderFrontRegardless()
+                backdrop = w
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if extra.hasPrefix("note:") {
+                    model.desk.debugNote(String(extra.dropFirst(5)))
+                } else {
+                    model.desk.debugStageWake(parts[0], finishing: extra.hasPrefix("finishing") ? String(extra.dropFirst(10)) : nil)
+                }
+            }
+        }
+        if let s = env["MACROPHONE_WAKE_SHEET"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { model.wake?.debugTest(heard: s == "heard") }
+        }
+        let wakeStaged = env["MACROPHONE_WAKE_AUDIO"] != nil || env["MACROPHONE_WAKE_PILL"] != nil
+        guard let show = env["MACROPHONE_SHOW"] else { return env["MACROPHONE_DESK_PILL"] != nil || wakeStaged }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 
         if show.hasPrefix("window-"), let pane = Pane(rawValue: String(show.dropFirst(7))) {
@@ -285,6 +312,68 @@ enum DebugHooks {
         }
         model.desk.debugSimulate(file: url, hold: hold, handsFree: handsFree)
         DispatchQueue.main.asyncAfter(deadline: .now() + hold + 20) { print("DESK SIM: no result"); exit(1) }
+    }
+
+    // MARK: The wake word from files
+
+    /// MACROPHONE_WAKE_AUDIO=<file or folder>[@loop]: the wake word's whole path — the listener's
+    /// tiers, the phrase, the capture, this Mac's cleanup, the place by name — with audio files as
+    /// the microphone. What would be pasted is printed ("WAKE LANDED …"), never pasted.
+    /// MACROPHONE_WAKE_PHRASE / MACROPHONE_WAKE_SENSITIVITY set those; the pill shows unless
+    /// MACROPHONE_DESK_NO_PILL=1. Quits after the last file (not with @loop).
+    private static func runWakeAudio(_ spec: String, model: AppModel) {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        guard #available(macOS 26.0, *), let wake = model.wake else { print("WAKE needs macOS 26"); exit(2) }
+        let parts = spec.components(separatedBy: "@")
+        let loop = parts.contains("loop")
+        let url = URL(fileURLWithPath: (parts[0] as NSString).expandingTildeInPath)
+        var files: [URL] = []
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            files = ((try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? [])
+                .filter { ["wav", "aiff", "aif", "m4a", "caf"].contains($0.pathExtension.lowercased()) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        } else {
+            files = [url]
+        }
+        let s = model.settings
+        if let p = env["MACROPHONE_WAKE_PHRASE"] { s.wakePhrase = p }
+        if let v = env["MACROPHONE_WAKE_SENSITIVITY"].flatMap(WakeSensitivity.init(rawValue:)) { s.wakeSensitivity = v }
+        s.wakeIntroduced = true
+        s.wakeOn = true
+        let source = WakeFileSource(files: files, loop: loop, gap: 3.5)
+        source.onFile = { _, u in DispatchQueue.main.async { print("WAKE FILE \(u.lastPathComponent)") } }
+        source.onEnd = {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { print("WAKE END"); exit(0) }
+        }
+        wake.debugSource = source
+        wake.debugEvent = { print("WAKE \($0)") }
+        model.desk.wakeDryRun = { place, send, raw, cleaned, note in
+            print("WAKE LANDED → \(place)\(send ? " · send" : "")\(note.map { " · \($0)" } ?? "")")
+            print("WAKE RAW: \(raw)")
+            print("WAKE CLEANED: \(cleaned ?? "(none)")")
+        }
+        print("WAKE \(files.count) file(s) · “\(s.wakePhrase)” · \(s.wakeSensitivity.rawValue)\(loop ? " · looping" : "")")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { wake.apply() }
+    }
+
+    /// MACROPHONE_WAKE_STATE=listening|paused-call|paused-user|airpods|unavailable|sameeros — the
+    /// Dictation page's wake word as it reads in each (screenshots).
+    private static func stageWakeState(_ st: String, model: AppModel) {
+        guard let wake = model.wake else { return }
+        let s = model.settings
+        s.wakeIntroduced = true
+        s.wakeOn = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            switch st {
+            case "paused-call": wake.debugState(.paused(.micInUse("zoom.us")))
+            case "paused-user": wake.debugState(.paused(.user(until: Date().addingTimeInterval(3600))))
+            case "airpods": wake.debugState(.listening); wake.debugAvoid(device: "MacBook Pro Microphone", avoided: "AirPods Pro")
+            case "unavailable": wake.debugState(.unavailable("Only AirPods Pro can hear you — listening on it all day would switch it to call quality. Plug in or pick another microphone."))
+            case "sameeros": wake.debugState(.listening); wake.debugSameerOS()
+            default: wake.debugState(.listening)
+            }
+        }
     }
 
     // MARK: Popup staging

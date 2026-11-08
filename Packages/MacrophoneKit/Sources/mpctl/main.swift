@@ -1114,6 +1114,17 @@ func run() async -> Int32 {
     case "cleanup-eval":
         return await CleanupEval.run(file: flag("--file"), level: flag("--level"), only: flag("--only"))
 
+    case "wake-testset":
+        return await WakeBench.generate(dir: args.count > 1 ? args[1] : "wake-testset")
+    case "wake-bench":
+        if #available(macOS 26.0, *) { return await WakeBench.bench(dir: args.count > 1 ? args[1] : "wake-testset") }
+        stdout("needs macOS 26")
+        return 2
+    case "wake-soak":
+        if #available(macOS 26.0, *) { return await WakeBench.soak() }
+        stdout("needs macOS 26")
+        return 2
+
     default:
         stdout("unknown command \(command)")
         return 2

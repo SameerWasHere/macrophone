@@ -132,7 +132,7 @@ struct MainView: View {
     @ViewBuilder private var detail: some View {
         switch nav.pane ?? .history {
         case .history: HistoryPane(model: model, settings: model.settings)
-        case .dictation: DictationPane(model: model, settings: model.settings, desk: model.desk, permissions: model.permissions)
+        case .dictation: DictationPane(model: model, settings: model.settings, desk: model.desk, wake: model.wake!, permissions: model.permissions)
         case .agents: AgentsPane(model: model, settings: model.settings)
         case .devices: DevicesPane(model: model)
         case .developer: DeveloperPane(model: model, settings: model.settings)
