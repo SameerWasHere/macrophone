@@ -59,8 +59,8 @@ final class MenuHeaderView: NSView {
 
 /// The menu's meaning colours (NSColor; the SwiftUI tokens are in Theme.swift).
 enum MenuTone {
-    /// A connected phone — the same cyan as the window's.
-    static let connected = NSColor(srgbRed: 0.345, green: 0.725, blue: 0.871, alpha: 1)
+    /// A connected phone — the accent, as in the window (Nov 7 2026; it was the old cyan).
+    static var connected: NSColor { selection }
     static let warning = NSColor.systemOrange
     /// The highlight a native row gets: the person's accent colour.
     /// Under the default "multicolor" setting an app's own accent (ours is teal) stands in for

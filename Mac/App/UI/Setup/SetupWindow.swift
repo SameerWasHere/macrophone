@@ -35,7 +35,6 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     var onClose: () -> Void = {}
     private let model: AppModel
     private var bag: Set<AnyCancellable> = []
-    private var themeObserver: NSObjectProtocol?
 
     static let size = NSSize(width: 620, height: 680)
 
@@ -46,8 +45,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         w.title = "Set Up Macrophone"
         w.titlebarAppearsTransparent = true
         w.titleVisibility = .hidden
-        // Like Setup Assistant: the system's light or dark (the app's other windows stay dark).
-        w.appearance = SystemAppearance.appearance
+        // Like Setup Assistant: light or dark as the app is (General › Appearance, else the system's).
         w.backgroundColor = .windowBackgroundColor
         w.isMovableByWindowBackground = true
         w.isReleasedWhenClosed = false
@@ -55,7 +53,6 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
         AppMenu.installIfNeeded()
         w.contentView = NSHostingView(rootView: SetupView(model: model, nav: nav, settings: model.settings, controller: self))
         w.delegate = self
-        themeObserver = SystemAppearance.observe { [weak w] in w?.appearance = SystemAppearance.appearance }
         // The code is open only while it's on screen.
         nav.$step.removeDuplicates().dropFirst().sink { [weak self] step in
             guard let self else { return }
@@ -65,7 +62,6 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    deinit { if let themeObserver { DistributedNotificationCenter.default().removeObserver(themeObserver) } }
 
     /// Starts the window over for `mode`, on its first page that still needs doing.
     func start(_ mode: SetupMode) {

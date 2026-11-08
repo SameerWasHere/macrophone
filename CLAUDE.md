@@ -75,6 +75,102 @@ focus should still be the mic." The plan and the token map are `docs/DESIGN.md`'
   view under it — `accessibilityHidden(false)` there made two blank full-screen nodes. Frames:
   `docs/screens/redesign-nov1/part2/` (before light | after light | before dark | after dark).
 
+## The Mac app as Apple would make it (Nov 7 2026) — wins over every older Mac look below
+
+Sameer: "The Mac app's own redesign … make it look like macOS Settings in light and dark, with
+glass in the sidebar. It's the app people see first." The iPhone's Nov 1 redesign, translated to
+the Mac. Frames: `docs/screens/mac-redesign-nov7/` (`before/` — dark only, the old window forced
+it —, `after/` light and dark, `sheet-*.png`). Shot with quiet windows, so every window is drawn
+inactive (grey switches and toolbar); key, they wear the accent.
+- **Light and dark, following the system** — no more forced dark (`NSApp.appearance` was
+  `darkAqua`, the window `darkAqua` + `Ink.groundNS`, the views `.preferredColorScheme(.dark)`).
+  **General › Appearance** (Automatic · Light · Dark, `settings.appearance`, `AppAppearance`
+  in `UI/Components/MacLook.swift`) sets `NSApp.appearance` (nil = the system's), live, for every
+  window — the setup too (it inherits; `SystemAppearance` is gone). The popup stays a dark HUD
+  (`PopupController`, `VisualEffect`); the listening pill follows the system as before.
+  `MACROPHONE_APPEARANCE=light|dark` (DEBUG) now forces every window.
+- **The token map** (`UI/Components/Theme.swift` — the old names, Apple's colours, as the phone
+  did): `Ink.ground` windowBackgroundColor, `Ink.raised` controlBackgroundColor, `Ink.sunk`
+  textBackgroundColor, `Ink.ink` labelColor, `Ink.secondary` secondaryLabelColor, `Ink.tertiary`
+  45% label (secondaryLabel under Increase Contrast), `Ink.line` separatorColor, `Ink.lineStrong`
+  gridColor, `Ink.focus` keyboardFocusIndicatorColor; `Light.cyan` = **the accent**
+  (`Color.accentColor`; the AccentColor asset is Apple's blue #007AFF / #0A84FF now — it was teal),
+  teal/mint/gold/ember/violet/rose = systemTeal/Green/Yellow/Orange/Purple/Red, `Light.ochre` yellow
+  in dark and amber in light; `Light.spectrum` = Apple Intelligence's four (the landing glow's).
+  `Typeface.serif` is SF Pro (the New York serif is retired), `Typeface.mono` SF Mono for code,
+  `Typeface.digits` monospaced digits; `Kicker` sentence case, semibold, secondary — no uppercase
+  tracked labels anywhere. `PillButtonStyle` is a `PrimitiveButtonStyle` that draws the system's
+  own buttons (`filled` = bordered prominent, else bordered, a rose tint = destructive). Radii:
+  plates 10, controls 6. The menu's `MenuTone.connected` is the accent.
+- **The window** (`UI/Window/MainWindow.swift`): `NavigationSplitView`, the system's sidebar
+  (`.listStyle(.sidebar)` — Liquid Glass on macOS 26) and a unified toolbar
+  (`NSHostingController.sceneBridgingOptions = [.toolbars, .title]`, `sizingOptions = []`: the
+  pane's name is the window's title). **The sidebar** is System Settings': at its top **the
+  connected iPhone as the account card** (`PhoneCard`: a round phone glyph, blue with a green dot
+  while connected; its name; "Connected · last received 2 min ago" / "Not connected" / "Pair your
+  iPhone"; a click opens Devices — it replaces the serif "Macrophone" header and the status box at
+  the foot), then each pane with **a coloured icon tile** (`SettingsIcon`: History indigo,
+  Dictation orange, Agents purple, Devices blue, Developer graphite, General grey). ⌘1–6 kept. The
+  sidebar's width comes from its content (`.frame(minWidth: 220)` — `navigationSplitViewColumnWidth`
+  alone left it at 144 pt on macOS 27) and it holds the keyboard on opening (`defaultFocus`).
+- **Send to is in the toolbar** (`SendToToolbar`, `UI/Components/SendTo.swift`; the heavy
+  `SendToCard` above every pane is gone): the pick's own icon and **"Send to Claude ⌄"** as a menu —
+  every place (`SendToPicker`, a check on the current) and Send after pasting — beside **a paper
+  plane** that turns Send after pasting on (filled) and off, disabled where the pick can't send.
+  What will happen ("Pasted into Claude's message box after a 2.5-second countdown…") is the help.
+- **Notices above the pane** (`PaneNotices`, `PaneBanner`): the menu bar hiding the icon (once,
+  Got It) and **"Pasting needs Accessibility"** (moved out of the card) with Open System Settings.
+- **The pieces every pane is built from** (`UI/Components/MacLook.swift`, a header comment says
+  it all): `PanePage { }` is a grouped `Form` (`.formStyle(.grouped)`; it sets `\.inPaneForm`);
+  `PaneHeader(title:subtitle:)` the **hero** at the top — the pane's tile at 48 pt (found by the
+  title in `Pane`, or `symbol:` / `tint:`), its name bold, one sentence, room for one button;
+  `PaneSection("Title", note:)` a `Section` with a header and a **footer of a sentence**; `Plate { }`
+  inside a form is just its rows (`Group` — each child a row, the separators the form's), outside
+  one a grouped box of its own; `PlateRow(title:subtitle:icon:iconColor:) { control }` a System
+  Settings row — `iconColor` is **the tile's colour** (a label colour reads as grey; use `MacTint.*`),
+  the title 13 pt, the description 11 pt secondary, the control on the right; `PlateDivider()`
+  draws nothing inside a form; `PlateNote` a quiet row; `SectionFooter`; `AllowedMark` ("✓ Allowed",
+  "✓ Connected", "✓ Installed"); `EmptyState` (ContentUnavailableView's look); `MacTint` (the
+  tiles' system colours). **So a pane written against the old dark plates comes out native with
+  no change** — that's how Dictation, Permissions and the Away guide were carried over.
+  `PanePage(opensAtTop: true)` for a pane with a text view (its caret scrolled the form to the foot
+  as it was made — Dictation's Try it).
+- **A new pane adopts the look** in four steps: its case in `Pane` (MacrophoneApp.swift — title,
+  symbol; the sidebar and ⌘ number follow `allCases`), its tint in `Pane.tint` (MacLook.swift;
+  grey by default), its line in MainView's `detail` switch, and a body of
+  `PanePage { PaneHeader(title:subtitle:); PaneSection("…", note: "…") { PlateRow(…) { Toggle("", isOn: …).toggleStyle(.switch).labelsHidden() } } }`.
+  Native controls only: switches, `Picker` (`.menu` / `.segmented`), buttons with no style (bordered)
+  or `.borderedProminent` for the one thing to do.
+- **Per pane:** *History* is Mail's message list (`HistoryPane`, a `List(.inset)` by day — Today ·
+  Yesterday · the date): a row = the place's own icon (`HistoryPlace`: a live target's, a running
+  app's, `/Applications`, else a symbol tile), the app in bold, the time, a paper plane / failure
+  mark, the window's title as the subject, two lines of the words; a click opens the row in place
+  (every word, where and how it went, Cleaned | Raw, Copy); right click Copy · Copy Raw · Delete,
+  swipe left Delete / right Copy, ⌫ deletes the selected; **search in the toolbar** (`.searchable`,
+  ⌘F on macOS 15+); a status bar at the foot (Keep history · "7 dictations · kept on this Mac" ·
+  Clear All…); empty states are `ContentUnavailableView` (No dictations yet · History is off with
+  Turn On History · the search's own). *Dictation*: the same rows as tiles (logic untouched), the
+  🌐 conflict a row of its own, Try it a text box in the form with Clear inside it. *Agents*: Claude
+  Code (orange) and Codex (graphite) rows, "✓ Connected" + Disconnect, Connect prominent.
+  *Devices*: the hero's Pair Another iPhone…, each iPhone a row (a blue tile with the green dot while
+  connected, Rename… / Forget…), This Mac, the Away guide as rows, **Without Tailscale** a native
+  disclosure row with the addresses and the port. *Developer*: Local API, Token (Show ·
+  Regenerate… · the masked well with copy), the command-line tool, Hook it up (the snippets, Read
+  the API Docs). *General*: open at login, the shortcut (a recorder drawn as a field), the copy
+  notification; **Appearance**; Permissions (Accessibility · Screen Recording · Notifications, each
+  green tile + ✓ Allowed or orange + the button); Updates (automatic · Check Now); Help (Share
+  diagnostics · Set up again · the web · **Quit** — and the privacy sentence as the footer).
+  *Share Diagnostics*: the window's own title, a tile and the sentence, the log in a text well,
+  Copy · Close · Save… · Share… as large system buttons.
+- **The menu bar menu** was already native NSMenu with SF Symbols and Apple's title case for
+  commands; the recent rows' words are SF Pro now (were New York), the header's connected glyph the
+  accent.
+- Hooks: `MACROPHONE_EMPTY_HISTORY=1` (History's empty state), `MACROPHONE_HISTORY_OPEN=1` (the
+  newest row open). `window-<pane>`, `MACROPHONE_FAKE_PEERS`, `MACROPHONE_SEED_HISTORY` as before.
+- **Not seen yet:** the window key and in front (every frame is the inactive look), the menu bar
+  menu in light (opening it in a test takes the pointer from him), the sidebar's glass over a real
+  desktop, VoiceOver through the toolbar's Send to menu.
+
 ## Dictation at the desk (Nov 7 2026)
 
 Sameer: "hold a key on the Mac, talk, and the same cleanup pastes wherever you're typing." No
@@ -114,7 +210,7 @@ phone: the Mac app dictates by itself. Frames: `docs/screens/desk-dictation-nov7
 - **The pill** (`Desk/ListeningPill.swift`): a borderless non-activating `NSPanel` (status-bar
   level, every Space, takes no clicks) at the bottom middle of the screen with the pointer; Liquid
   Glass (`glassEffect`, a material before macOS 26) in the system's light or dark (the window
-  stays dark); Apple Intelligence's colours (`MacOSIntelligence`) as a ring round the mic that
+  stays dark **[Nov 7 2026: the window follows General › Appearance now; the pill still follows the system]**); Apple Intelligence's colours (`MacOSIntelligence`) as a ring round the mic that
   swells with the level and turns while listening (still under Reduce Motion); the newest words
   in two lines (cut at a word with "…" in front — `PillView.newest`), the undecided ones dimmer;
   "Let go to paste · Esc to cancel" / "Hands-free · tap 🌐 to finish · Esc to cancel" faint. Fades
@@ -161,7 +257,7 @@ replaces are marked **superseded**); the sections below keep the mechanics and t
 
 | Feature | iPhone | Mac |
 | --- | --- | --- |
-| **Send to** (the shared choice, "Send to" everywhere — never "Send To") | The controls panel by the mic: `SEND TO` kicker, the pick's name, a row of app icons only (a long press lists an app's windows), **+** at the end = Open an App (the only way to open one that isn't open), **⋯** = Send a Photo… · Send a File… · Copy Mac's Clipboard · Send Clipboard to Mac · Refresh Open Apps **[superseded Nov 7 2026, round 2: one paperclip, `AttachMenu`; Refresh in Open an App]**. Settings › Send to is the full list. `UI/QuickControls.swift`, `UI/SendTo.swift`, `UI/SendToMac.swift` | The menu bar menu's Send to section (a check on the current, the first six apps, More Apps, Send after pasting as its own toggle); the `SendToCard` above every window pane; the first-run step. `UI/StatusItemController.swift`, `UI/Components/SendTo.swift` |
+| **Send to** (the shared choice, "Send to" everywhere — never "Send To") | The controls panel by the mic: `SEND TO` kicker, the pick's name, a row of app icons only (a long press lists an app's windows), **+** at the end = Open an App (the only way to open one that isn't open), **⋯** = Send a Photo… · Send a File… · Copy Mac's Clipboard · Send Clipboard to Mac · Refresh Open Apps **[superseded Nov 7 2026, round 2: one paperclip, `AttachMenu`; Refresh in Open an App]**. Settings › Send to is the full list. `UI/QuickControls.swift`, `UI/SendTo.swift`, `UI/SendToMac.swift` | The menu bar menu's Send to section (a check on the current, the first six apps, More Apps, Send after pasting as its own toggle); the `SendToCard` above every window pane **[superseded Nov 7 2026: `SendToToolbar` in the window's toolbar]**; the first-run step. `UI/StatusItemController.swift`, `UI/Components/SendTo.swift` |
 | **Watch** (the window, live, as video) | **Watch** beside the Send to name, or by itself after a send (Settings › Show the app after sending), or the Watch widget; Done ends it. The name at the top is the window menu (page dots, a swipe in from a side edge flips); tap = click, tap twice = double-click, tap then hold-and-move = drag, hold / two fingers = right-click, pinch = zoom; **Pan \| Scroll** under the thumb (Scroll picks itself when the whole window is on screen, and when a window was fitted to the phone); Esc · ↑ · ↓ · ⏎ · **···** (More keys, by section) or the question's answers as buttons; the **KEYBOARD · MIC · TRACKPAD** row above the Thread (Oct 19 2026 — the pages slide under it; the trackpad takes the Thread's room) **[superseded Nov 7 2026, round 5: on every iPhone, while a window shows, one row — Keyboard · a 64 pt mic · Trackpad — no page row, no Thread]**; **Mac Controls** beside Sound in the header (the carousel fixes). `UI/WatchPanel.swift`, `Model/Watcher.swift`, `UI/InputCarousel.swift` | Streams the one window (`Watch/WatchService.swift`, `VideoPipe`, `WindowStream`), posts clicks, drags, the pointer, typing, keys and trackpad-style scrolls (`InputService.swift`, `ScrollPoster.swift`); the menu bar icon becomes a ring and the menu gets **Stop Showing ‹app›** while a phone watches |
 | **The header cluster** by Done: **zoom out** (`arrow.down.right.and.arrow.up.left`, the whole window and back), **Window** (`macwindow`) | One piece of glass; each only when the connected Mac names its feature. `UI/WatchReader.swift` is Text: your text size, selectable, Copy All, follows the newest line, asked every 2.5 s | Reader: a terminal's own text, else recognition over the column you type in (`WindowReader.swift`); `mpctl reader` |
 | **The Window menu** (in order of use) | Fit to iPhone · Text size on this iPhone (Normal · Larger · Largest, per app) · Size on your Mac (Fill the Screen `rectangle.inset.filled` · Left Half · Right Half · Middle · Back to How It Was) · Minimize · Close Window (asked first) · the photo / file / clipboard items (the same as Send to's ⋯, here because the panel is away) **[superseded Nov 7 2026, round 2: gone — the paperclip leads the key row]** · Show Tips Again | `WindowFit.swift` resizes through Accessibility and restores on Done / Quit |
@@ -173,7 +269,7 @@ replaces are marked **superseded**); the sections below keep the mechanics and t
 | **The Watch widget** (`iOS/MacrophoneControls/WatchWidget.swift`) | Up to four of the Mac's open apps with their icons and the ember mark; small 2 × 2, medium a row with names; a tap = `macrophone://watch?target=…` (watches, and picks it in Send to); fed through `Shared/WatchWidgetData.swift` | — |
 | **How it's connected** (`LinkRoute`) | The Mac pill's glyph (Wi-Fi, direct link, Tailscale shield, globe); the status line "Ready · ‹Mac› · Tailscale"; Settings › Connected now | The menu header "Connected · Tailscale · away from home" (`MenuWords.via` — the route's `short`, the same words as the status line and the phone); Devices › Away from home |
 | **Open / quit an app** | **+** at the end of the Send to row → Open an App (search, Quit beside an open one) | `AppCatalog` opens / quits; the menu's More Apps lists only open ones |
-| **The Mac window** | — | Sidebar: History · Dictation · Agents · Devices · Developer · General (⌘1–6); the Send to card above every pane; the menu bar menu is `StatusItemController` + `MenuBar/` (header · Stop Showing · Open Macrophone · Send to · Recent · the rare ones · Quit) |
+| **The Mac window** | — | Sidebar: History · Dictation · Agents · Devices · Developer · General (⌘1–6); the Send to card above every pane **[superseded Nov 7 2026: Send to in the toolbar, the panes System Settings' grouped forms — "The Mac app as Apple would make it"]**; the menu bar menu is `StatusItemController` + `MenuBar/` (header · Stop Showing · Open Macrophone · Send to · Recent · the rare ones · Quit) |
 
 Glyphs that mean one thing: `eye` = Watch (the button, Settings, the widget's kicker; `eye.slash` =
 Stop Showing), `macwindow` = the Window menu (Fill the Screen is
@@ -2051,11 +2147,11 @@ Wins over the older setup and Away-from-home words below. Frames: `docs/screens/
   **Don't Pair / Pair** (`CodeApproval`, was an overlay with They Match).
 - **Looks like Setup Assistant** (`UI/Setup/SetupLook.swift`): the window follows the system's
   light or dark (`SystemAppearance`, read from `AppleInterfaceStyle` and followed live — the app
-  forces dark everywhere else, so `window.appearance = nil` would stay dark), the system's window
+  forces dark everywhere else, so `window.appearance = nil` would stay dark) **[superseded Nov 7 2026: the app follows General › Appearance; the setup inherits it — `SystemAppearance` is gone]**, the system's window
   background, `SetupPage` (a 50 pt symbol, a 26 pt bold title, one sentence, the content, the
   buttons along the foot: Back left, the one thing to do right, large controls), system buttons,
   the app's accent. No step dots, no serif, no uppercase kicker. `CheckList` / `CheckRow` /
-  `CheckDivider` / `GuideButton` draw a checklist natively, or as the window's plates and pills
+  `CheckDivider` / `GuideButton` draw a checklist natively, or as the window's plates and pills **[Nov 7 2026: in a pane each step is a row of the grouped form]**
   under `.environment(\.guideLook, .pane)`.
 - **Tailscale, guided** (`Core/Tailscale.swift`, `UI/Components/AwayGuide.swift`):
   `TailscaleMonitor` (`model.tailscale`) sees installed (`io.tailscale.ipn.macsys` /

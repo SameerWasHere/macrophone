@@ -72,18 +72,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                          backing: .buffered, defer: false)
         w.title = "Macrophone"
-        w.titlebarAppearsTransparent = true
-        w.titleVisibility = .hidden
-        w.appearance = NSAppearance(named: .darkAqua)
-        w.backgroundColor = Ink.groundNS
         w.minSize = NSSize(width: 780, height: 520)
         w.isReleasedWhenClosed = false
         w.setFrameAutosaveName("MacrophoneMainWindow")
+        // System Settings' window: one unified toolbar over the sidebar and the pane (Nov 7 2026).
         w.toolbarStyle = .unified
         super.init(window: w)
         AppMenu.installIfNeeded()
         let root = MainView(model: model, updater: updater, nav: nav)
-        w.contentViewController = NSHostingController(rootView: root)
+        let host = NSHostingController(rootView: root)
+        // The pane's title and Send to live in the window's own toolbar.
+        host.sceneBridgingOptions = [.toolbars, .title]
+        // The window keeps the size it's given (and remembered); SwiftUI doesn't resize it to its content.
+        host.sizingOptions = []
+        w.contentViewController = host
+        // The keyboard starts in SwiftUI's own default focus (the sidebar), not AppKit's first text view.
+        w.initialFirstResponder = host.view
         w.setContentSize(NSSize(width: 940, height: 660))
         if !w.setFrameUsingName("MacrophoneMainWindow") { w.center() }
         w.delegate = self
@@ -96,6 +100,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) { onClose() }
 }
 
+/// The window as macOS Settings draws one (Nov 7 2026): a glass sidebar of coloured icon tiles,
+/// the pane as a grouped form, and Send to — the choice the iPhone and this Mac share — in the
+/// toolbar above every pane.
 struct MainView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var updater: Updater
@@ -104,28 +111,22 @@ struct MainView: View {
     var body: some View {
         NavigationSplitView {
             Sidebar(model: model, nav: nav)
-                .navigationSplitViewColumnWidth(220)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 230, max: 320)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            ZStack {
-                Ink.ground.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    HiddenIconSlot(model: model, settings: model.settings)
-                    // Where dictations go — the choice the iPhone and this Mac share — above
-                    // every pane.
-                    SendToCard(model: model, settings: model.settings)
-                        .padding(.horizontal, 32)
-                        .padding(.top, 4)
-                        .padding(.bottom, 18)
-                        .frame(maxWidth: 760, alignment: .leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    detail
+            VStack(spacing: 0) {
+                PaneNotices(model: model, settings: model.settings)
+                detail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .navigationTitle((nav.pane ?? .history).title)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    SendToToolbar(model: model, settings: model.settings)
                 }
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .preferredColorScheme(.dark)
-        .tint(Light.teal)
         .frame(minWidth: 780, minHeight: 520)
     }
 
@@ -141,22 +142,33 @@ struct MainView: View {
     }
 }
 
-/// The notice's place above every pane (empty unless the icon is hidden and it hasn't been seen).
-struct HiddenIconSlot: View {
+/// The notices above every pane, each only while it matters: the menu bar is hiding the icon
+/// (once), or pasting can't happen because Accessibility is off.
+struct PaneNotices: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
 
-    private var showing: Bool { model.menuBarIconHidden && !settings.toldAboutHiddenIcon }
+    private var hiddenIcon: Bool { model.menuBarIconHidden && !settings.toldAboutHiddenIcon }
+    private var noAccessibility: Bool { !model.accessibilityGranted && settings.selection.target.canSend }
 
     var body: some View {
-        if showing {
-            HiddenIconNotice(settings: settings)
-                .padding(.horizontal, 32)
-                .padding(.top, 2)
-                .padding(.bottom, 14)
-                .frame(maxWidth: 760, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
+        if hiddenIcon || noAccessibility {
+            VStack(spacing: 8) {
+                if hiddenIcon { HiddenIconNotice(settings: settings) }
+                if noAccessibility {
+                    PaneBanner(symbol: "hand.raised.fill", title: "Pasting needs Accessibility",
+                               detail: "Until it's on, dictations are copied instead of pasted.") {
+                        Button("Open System Settings") {
+                            Paster.requestTrust()
+                            NSWorkspace.shared.open(Paster.accessibilitySettingsURL)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .frame(maxWidth: .infinity)
+            .layoutPriority(1)
         }
     }
 }
@@ -166,32 +178,13 @@ struct HiddenIconNotice: View {
     @ObservedObject var settings: Settings
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "menubar.dock.rectangle")
-                .font(.system(size: 17, weight: .regular))
-                .foregroundStyle(Light.cyan)
-                .frame(width: 24)
-                .padding(.top, 1)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Your menu bar is hiding Macrophone's icon")
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Ink.ink)
-                // No fixedSize here: outside the pane's scroll view, a fixed-height text makes
-                // the window's minimum size enormous and SwiftUI draws nothing at all.
-                Text(body1)
-                    .font(.system(size: 12)).foregroundStyle(Ink.secondary)
-            }
-            Spacer(minLength: 12)
+        PaneBanner(symbol: "menubar.dock.rectangle", tint: Light.cyan,
+                   title: "Your menu bar is hiding Macrophone's icon", detail: detail) {
             Button("Got It") { settings.toldAboutHiddenIcon = true }
-                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Light.cyan.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Light.cyan.opacity(0.28), lineWidth: 1))
-        .accessibilityElement(children: .combine)
     }
 
-    private var body1: String {
+    private var detail: String {
         let how = settings.hotkey.enabled
             ? "To open Macrophone, press \(settings.hotkey.display) anywhere, or open it from Spotlight or Finder."
             : "To open Macrophone, open it from Spotlight or Finder — or set a shortcut in General."
@@ -199,42 +192,43 @@ struct HiddenIconNotice: View {
     }
 }
 
+/// System Settings' sidebar: the connected iPhone at the top like the account card, then every
+/// section with its coloured tile. Built from `Pane.allCases`, so a new pane is a new case.
 struct Sidebar: View {
     @ObservedObject var model: AppModel
     @ObservedObject var nav: MainNav
+    /// The sidebar has the keyboard when the window opens, as System Settings' does (a pane's first
+    /// text box — Dictation's Try it — took it and scrolled the form down to it).
+    @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            List(selection: $nav.pane) {
+        List(selection: $nav.pane) {
+            Section {
+                PhoneCard(model: model)
+                    .contentShape(Rectangle())
+                    .onTapGesture { nav.pane = .devices }
+                    .listRowSeparator(.hidden)
+            }
+            Section {
                 ForEach(Pane.allCases) { p in
-                    Label(p.title, systemImage: p.symbol)
-                        .tag(p)
-                        .padding(.vertical, 2)
-                        .help("\(p.title)  ⌘\(p.ordinal)")
-                        .accessibilityLabel(p.title)
+                    Label {
+                        Text(p.title)
+                    } icon: {
+                        SettingsIcon(p.symbol, color: p.tint, size: 20)
+                    }
+                    .tag(p)
+                    .help("\(p.title)  ⌘\(p.ordinal)")
+                    .accessibilityLabel(p.title)
                 }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .accessibilityLabel("Sections")
-
-            connection
-                .padding(.horizontal, 14)
-                .padding(.bottom, 14)
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack(spacing: 9) {
-                FilamentView(peak: 1, thick: 1.8, glow: 0.6)
-                    .frame(width: 30, height: 18)
-                Text("Macrophone").font(Typeface.serif(17, .medium)).foregroundStyle(Ink.ink).lineLimit(1).fixedSize()
-                Spacer()
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 6)
-            .padding(.bottom, 10)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-        }
+        .listStyle(.sidebar)
+        // The column takes the width its content asks for on macOS 26+ (navigationSplitViewColumnWidth
+        // alone left it 144 pt and the phone's name cut short).
+        .frame(minWidth: 220, idealWidth: 230)
+        .focused($focused)
+        .defaultFocus($focused, true)
+        .accessibilityLabel("Sections")
         // ⌘1 … ⌘6 pick a section, as in Mail and Xcode. The buttons draw nothing.
         .background(
             ForEach(Pane.allCases) { p in
@@ -246,63 +240,62 @@ struct Sidebar: View {
             .accessibilityHidden(true)
         )
     }
+}
 
-    /// The link's state, at the sidebar's foot: a lit dot while a phone is connected.
-    private var connection: some View {
-        let on = model.connectedPeer != nil
-        return HStack(alignment: .top, spacing: 9) {
-            Circle().fill(on ? Light.cyan : Ink.tertiary.opacity(0.55)).frame(width: 7, height: 7)
-                .shadow(color: on ? Light.cyan.opacity(0.8) : .clear, radius: 3)
-                .padding(.top, 4)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.statusLine).font(.system(size: 11.5, weight: .medium)).foregroundStyle(Ink.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let last = model.lastReceived {
-                    Text("Last received \(last.relativeShort)").font(.system(size: 10.5)).foregroundStyle(Ink.tertiary)
-                }
-            }
+/// The sidebar's top: who's connected, as System Settings shows your account — a round glyph,
+/// the phone's name, and how it stands. A click opens Devices.
+struct PhoneCard: View {
+    @ObservedObject var model: AppModel
+
+    private var on: PairedPeer? { model.connectedPeer }
+
+    private var title: String {
+        if let on { return model.displayName(on) }
+        if let first = model.peers.first, model.peers.count == 1 { return model.displayName(first) }
+        if model.peers.isEmpty { return "Pair your iPhone" }
+        return "Your iPhones"
+    }
+
+    private var line: String {
+        if on != nil {
+            if let last = model.lastReceived { return "Connected · last received \(last.relativeShort)" }
+            let s = model.statusLine
+            if let r = s.range(of: " · ") { return "Connected · " + s[r.upperBound...] }
+            return "Connected"
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Ink.ink.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+        if model.peers.isEmpty { return "To dictate from it" }
+        return "Not connected"
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: "iphone.gen3")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill((on != nil ? MacTint.blue : MacTint.gray).gradient))
+                Circle().fill(on != nil ? Light.mint : Color.clear)
+                    .frame(width: 10, height: 10)
+                    .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: on != nil ? 2 : 0))
+                    .offset(x: 2, y: 2)
+            }
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(line).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(on ? "Connected. \(model.statusLine)" : model.statusLine)
+        .accessibilityLabel(on != nil ? "\(title), connected" : "\(title). \(model.statusLine)")
+        .accessibilityHint("Opens Devices")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
 extension Pane {
     /// Its ⌘ number in the sidebar's order.
     var ordinal: Int { (Pane.allCases.firstIndex(of: self) ?? 0) + 1 }
-}
-
-/// The scrolling page every pane sits on.
-struct PanePage<Content: View>: View {
-    @ViewBuilder var content: Content
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: Space.section) {
-                    content
-                    Color.clear.frame(height: 0).id("pane-bottom")
-                }
-                .padding(.horizontal, Space.margin)
-                .padding(.top, 4)
-                .padding(.bottom, 40)
-                .frame(maxWidth: 760, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .scrollContentBackground(.hidden)
-            .background(Ink.ground)
-            .onAppear {
-                #if DEBUG
-                // Screenshots of a pane's foot.
-                if ProcessInfo.processInfo.environment["MACROPHONE_SCROLL_BOTTOM"] == "1" {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { proxy.scrollTo("pane-bottom", anchor: .bottom) }
-                }
-                #endif
-            }
-        }
-    }
 }

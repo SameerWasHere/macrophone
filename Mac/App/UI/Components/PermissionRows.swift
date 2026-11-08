@@ -77,18 +77,14 @@ private struct PermissionRow: View {
     var body: some View {
         PlateRow(title: title,
                  subtitle: granted ? unlocks : "\(unlocks) \(missing)",
-                 subtitleColor: granted ? Ink.tertiary : Light.ochre,
-                 icon: granted ? "checkmark.circle.fill" : symbol,
-                 iconColor: granted ? Light.mint : Light.ochre) {
+                 subtitleColor: granted ? Ink.secondary : Light.ochre,
+                 icon: symbol,
+                 iconColor: granted ? MacTint.green : MacTint.orange) {
             if granted {
-                Label("Allowed", systemImage: "checkmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Light.mint)
-                    .labelStyle(.titleAndIcon)
-                    .accessibilityLabel("\(title) is allowed")
+                AllowedMark(name: title)
             } else {
                 Button(button, action: open)
-                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                    .buttonStyle(.borderedProminent)
                     .accessibilityHint("Opens Privacy & Security › \(title). Turn on Macrophone there.")
             }
         }

@@ -16,45 +16,36 @@ struct DevicesPane: View {
 
     var body: some View {
         PanePage {
-            PaneHeader(title: "Devices", subtitle: "iPhones paired with this Mac. They talk directly over your network — no account, no server.") {
+            PaneHeader(title: "Devices", subtitle: "The iPhones paired with this Mac. They talk to it directly — no account, no server.") {
                 if !model.peers.isEmpty {
-                    Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair Another iPhone…", systemImage: "qrcode") }
-                        .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                    Button("Pair Another iPhone…") { AppDelegate.shared?.openSetup(.pair) }
                         .help("Show a code to scan with another iPhone")
                 }
             }
 
             if model.peers.isEmpty {
-                Plate {
+                Section {
                     EmptyState(title: "No iPhone paired yet",
                                detail: "Get Macrophone for iPhone from the App Store, then scan the code this Mac shows.") {
-                        Image(systemName: "iphone.gen3").font(.system(size: 34, weight: .light)).foregroundStyle(Ink.tertiary)
+                        Image(systemName: "iphone.gen3").font(.system(size: 36, weight: .light))
                             .accessibilityHidden(true)
                     } action: {
-                        Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair Your iPhone…", systemImage: "qrcode") }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                        Button("Pair Your iPhone…") { AppDelegate.shared?.openSetup(.pair) }
+                            .buttonStyle(.borderedProminent)
                             .keyboardShortcut(.defaultAction)
                     }
                 }
             } else {
-                PaneSection(note: "Names you give a phone here show in the menu, the popup, History and the API. The phone keeps its own name.") {
-                    Plate {
-                        ForEach(Array(model.peers.enumerated()), id: \.element.id) { i, p in
-                            if i > 0 { PlateDivider(inset: Space.inset + 32 + 14) }
-                            phoneRow(p)
-                        }
-                    }
+                PaneSection("iPhones", note: "A name you give a phone here shows in the menu, the popup, History and the API. The phone keeps its own.") {
+                    ForEach(model.peers, id: \.id) { p in phoneRow(p) }
                 }
             }
 
             PaneSection("This Mac", note: "Your iPhone sees this name. Change it in System Settings › General › Sharing.") {
-                Plate {
-                    PlateRow(title: AppPaths.computerName, subtitle: listenerLine, subtitleColor: listenerOK ? Ink.tertiary : Light.ochre,
-                             icon: "laptopcomputer", iconColor: listenerOK ? Light.cyan : Light.ochre) {
-                        if case .failed = model.listenerState {
-                            Button("Open System Settings") { NSWorkspace.shared.open(Self.localNetworkSettings) }
-                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
-                        }
+                PlateRow(title: AppPaths.computerName, subtitle: listenerLine, subtitleColor: listenerOK ? Ink.secondary : Light.ochre,
+                         icon: "laptopcomputer", iconColor: listenerOK ? MacTint.blue : MacTint.orange) {
+                    if case .failed = model.listenerState {
+                        Button("Open System Settings") { NSWorkspace.shared.open(Self.localNetworkSettings) }
                     }
                 }
             }
@@ -97,51 +88,46 @@ struct DevicesPane: View {
                     note: "Tailscale is free. Your iPhone and this Mac find each other through your own Tailscale account — Macrophone still has no server, and only iPhones paired here can connect.") {
             AwayGuide(model: model).environment(\.guideLook, .pane)
         }
-        VStack(alignment: .leading, spacing: Space.label) {
+        // The way without Tailscale, folded away as a disclosure row of the form's.
+        Section {
             DisclosureGroup(isExpanded: $withoutTailscale) {
-                VStack(alignment: .leading, spacing: Space.label) {
-                    Plate {
-                        if model.settings.remoteAccess {
-                            ForEach(model.localAddresses, id: \.self) { a in
-                                addressRow(title: "On this network", address: a, icon: "wifi", tint: Ink.secondary,
-                                           note: "Reachable from outside only if your router forwards port \(a.port) to this Mac.")
-                                PlateDivider()
-                            }
-                        }
-                        PlateRow(title: "Port", subtitle: "Change it only if something else on this Mac uses it.", icon: "number") {
-                            TextField("Port", text: $portDraft)
-                                .textFieldStyle(.roundedBorder)
-                                .font(Typeface.mono(12.5, .medium))
-                                .frame(width: 76)
-                                .multilineTextAlignment(.trailing)
-                                .focused($portFocused)
-                                .onSubmit { commitPort() }
-                                .onChange(of: portFocused) { _, f in if !f { commitPort() } }
-                                .accessibilityLabel("Remote access port")
-                        }
+                if model.settings.remoteAccess {
+                    ForEach(model.localAddresses, id: \.self) { a in
+                        addressRow(title: "On this network", address: a, icon: "wifi", tint: MacTint.blue,
+                                   note: "Reachable from outside only if your router forwards port \(a.port) to this Mac.")
                     }
-                    .padding(.top, 6)
-                    PlateNote("Turn on Remote access, forward port \(model.settings.remotePort) on your router to this Mac, then type your home's address into Macrophone on your iPhone (Settings › your Mac › Away from home).")
+                }
+                PlateRow(title: "Port", subtitle: "Change it only if something else on this Mac uses it.", icon: "number") {
+                    TextField("Port", text: $portDraft)
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .font(Typeface.digits(13))
+                        .frame(width: 76)
+                        .multilineTextAlignment(.trailing)
+                        .focused($portFocused)
+                        .onSubmit { commitPort() }
+                        .onChange(of: portFocused) { _, f in if !f { commitPort() } }
+                        .accessibilityLabel("Remote access port")
                 }
             } label: {
                 Text("Without Tailscale")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.secondary)
             }
-            .tint(Ink.secondary)
-            .padding(.horizontal, 4)
+        } footer: {
+            if withoutTailscale {
+                SectionFooter("Turn on Remote access, forward port \(model.settings.remotePort) on your router to this Mac, then type your home's address into Macrophone on your iPhone (Settings › your Mac › Away from home).")
+            }
         }
     }
 
     private func addressRow(title: String, address: RemoteAddress, icon: String, tint: Color, note: String) -> some View {
         PlateRow(title: title, subtitle: note, icon: icon, iconColor: tint) {
-            HStack(spacing: 10) {
-                Text(address.display).font(Typeface.mono(12.5, .medium)).foregroundStyle(Ink.ink).textSelection(.enabled)
+            HStack(spacing: 8) {
+                Text(address.display).font(Typeface.mono(12, .regular)).foregroundStyle(Ink.ink).textSelection(.enabled)
                 Button(copied == address.display ? "Copied" : "Copy") {
                     Clipboard.copyPlain(address.display)
                     copied = address.display
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { if copied == address.display { copied = nil } }
                 }
-                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                 .accessibilityLabel("Copy \(address.display)")
             }
         }
@@ -160,20 +146,18 @@ struct DevicesPane: View {
         let isEditing = editing == p.id
         let named = model.customName(p)
         let generic = named == nil && AppModel.isGenericName(p.name)
-        return HStack(spacing: 14) {
+        return HStack(spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
-                Image(systemName: "iphone.gen3")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Ink.secondary)
-                    .frame(width: 32, height: 32)
-                Circle().fill(on ? Light.cyan : Ink.tertiary.opacity(0.5)).frame(width: 8, height: 8)
-                    .overlay(Circle().strokeBorder(Ink.raised, lineWidth: 1.5))
-                    .shadow(color: on ? Light.cyan.opacity(0.9) : .clear, radius: 3)
+                SettingsIcon("iphone", color: on ? MacTint.blue : MacTint.gray, size: 32)
+                Circle().fill(on ? Light.mint : Color.clear).frame(width: 9, height: 9)
+                    .overlay(Circle().strokeBorder(Ink.raised, lineWidth: on ? 1.5 : 0))
+                    .offset(x: 2, y: 2)
             }
             .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 if isEditing {
                     TextField("Name", text: $draft, prompt: Text(p.name))
+                        .labelsHidden()
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 13))
                         .frame(maxWidth: 280)
@@ -182,11 +166,11 @@ struct DevicesPane: View {
                         .onExitCommand { editing = nil }
                         .accessibilityLabel("Name for this iPhone")
                 } else {
-                    Text(model.displayName(p)).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Ink.ink)
+                    Text(model.displayName(p)).font(.system(size: 13, weight: .semibold)).foregroundStyle(Ink.ink)
                 }
-                Text(line(p, on: on)).font(.system(size: 11.5)).foregroundStyle(on ? Light.cyan : Ink.tertiary)
+                Text(line(p, on: on)).font(.system(size: 11)).foregroundStyle(Ink.secondary)
                 if let named, named != p.name, !isEditing {
-                    Text("Calls itself “\(p.name)”").font(.system(size: 11)).foregroundStyle(Ink.tertiary)
+                    Text("Calls itself “\(p.name)”").font(.system(size: 11)).foregroundStyle(Ink.secondary)
                 } else if generic && !isEditing {
                     Text("iOS only shares “\(p.name)” — give it a name so you can tell it apart.")
                         .font(.system(size: 11)).foregroundStyle(Light.ochre)
@@ -197,25 +181,23 @@ struct DevicesPane: View {
             Spacer(minLength: 12)
             if isEditing {
                 Button("Cancel") { editing = nil }
-                    .buttonStyle(.borderless).foregroundStyle(Ink.secondary)
                     .keyboardShortcut(.cancelAction)
                 Button("Save") { save(p) }
-                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                    .buttonStyle(.borderedProminent)
             } else {
                 Button(generic ? "Name It…" : "Rename…") {
                     draft = model.customName(p) ?? (generic ? AppModel.suggestedPhoneName : p.name)
                     editing = p.id
                     DispatchQueue.main.async { nameFocused = true }
                 }
-                .buttonStyle(PillButtonStyle(tint: generic ? Light.teal : Ink.ink, filled: false))
+                .buttonStyle(.bordered)
                 .accessibilityLabel("Rename \(model.displayName(p))")
-                Button("Forget…") { forgetting = p }
-                    .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
+                Button("Forget…", role: .destructive) { forgetting = p }
+                    .buttonStyle(.bordered)
                     .accessibilityLabel("Forget \(model.displayName(p))")
             }
         }
-        .padding(.horizontal, Space.inset).padding(.vertical, 12)
-        .frame(minHeight: 56)
+        .padding(.vertical, 3)
         .animation(Motion.reduceMotion ? nil : .easeOut(duration: 0.15), value: isEditing)
     }
 
@@ -242,94 +224,80 @@ struct GeneralPane: View {
 
     var body: some View {
         PanePage {
-            PaneHeader(title: "General", subtitle: "Macrophone \(AppPaths.appVersion) (\(AppPaths.buildNumber))")
+            PaneHeader(title: "General", subtitle: "Macrophone \(AppPaths.appVersion) (\(AppPaths.buildNumber)) — how it opens, how it looks, what it's allowed to do.")
 
-            Plate {
-                PlateRow(title: "Open at login", subtitle: "Macrophone can only receive while it's running.", icon: "power") {
+            PaneSection {
+                PlateRow(title: "Open at login", subtitle: "Macrophone can only receive while it's running.", icon: "power", iconColor: MacTint.graphite) {
                     Toggle("", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                         .toggleStyle(.switch).labelsHidden()
                         .accessibilityLabel("Open at login")
                 }
-                PlateDivider()
                 HotkeyRow(settings: settings)
-                PlateDivider()
                 PlateRow(title: "Show a notification when copying",
                          subtitle: settings.clipboardNotification
                             ? "When Send to is Clipboard, a popup shows what arrived. If you're away, it waits in Notification Center."
                             : "Off: it's copied quietly and the menu bar icon ticks.",
-                         icon: "bell.badge") {
+                         icon: "bell.badge", iconColor: MacTint.red) {
                     Toggle("", isOn: $settings.clipboardNotification).toggleStyle(.switch).labelsHidden()
                         .accessibilityLabel("Show a notification when copying")
                 }
             }
 
-            PaneSection("Permissions") {
+            PaneSection("Appearance", note: "Automatic follows your Mac's light or dark appearance.") {
+                PlateRow(title: "Appearance", icon: "circle.lefthalf.filled", iconColor: MacTint.graphite) {
+                    Picker("Appearance", selection: $settings.appearance) {
+                        ForEach(AppAppearance.allCases) { a in Text(a.title).tag(a) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+
+            PaneSection("Permissions", note: "Each button opens the right place in System Settings. Turn on Macrophone there.") {
                 // Accessibility and Screen Recording, live (PermissionRows.swift).
                 PermissionRows(monitor: model.permissions)
-                Plate {
-                    PlateRow(title: "Notifications", subtitle: notificationLine,
-                             icon: notificationsOn ? "checkmark.circle.fill" : "bell",
-                             iconColor: notificationsOn ? Light.mint : Ink.tertiary) {
-                        if notifier.status == .denied {
-                            Button("Open System Settings") { NSWorkspace.shared.open(Paster.notificationSettingsURL) }
-                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                        } else if notifier.status == .notDetermined {
-                            Button("Allow…") { notifier.requestIfNeeded() }
-                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                        }
+                PlateRow(title: "Notifications", subtitle: notificationLine,
+                         icon: "bell", iconColor: notificationsOn ? MacTint.green : MacTint.red) {
+                    if notifier.status == .denied {
+                        Button("Open System Settings") { NSWorkspace.shared.open(Paster.notificationSettingsURL) }
+                    } else if notifier.status == .notDetermined {
+                        Button("Allow…") { notifier.requestIfNeeded() }
+                    } else if notificationsOn {
+                        AllowedMark(name: "Notifications")
                     }
                 }
             }
 
             PaneSection("Updates") {
-                Plate {
-                    PlateRow(title: "Check for updates automatically", subtitle: updateLine, icon: "arrow.triangle.2.circlepath") {
-                        HStack(spacing: Space.gap) {
-                            Button("Check Now") { updater.checkForUpdates() }
-                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                                .disabled(!updater.canCheck)
-                            Toggle("", isOn: $updater.automaticallyChecks).toggleStyle(.switch).labelsHidden()
-                                .accessibilityLabel("Check for updates automatically")
-                        }
-                    }
+                PlateRow(title: "Check for updates automatically", subtitle: updateLine, icon: "arrow.triangle.2.circlepath", iconColor: MacTint.blue) {
+                    Toggle("", isOn: $updater.automaticallyChecks).toggleStyle(.switch).labelsHidden()
+                        .accessibilityLabel("Check for updates automatically")
+                }
+                PlateRow(title: "Check now", subtitle: "Signed updates from sameer.us.", icon: "arrow.down.circle", iconColor: MacTint.blue) {
+                    Button("Check Now") { updater.checkForUpdates() }
+                        .disabled(!updater.canCheck)
                 }
             }
 
-            PaneSection("Help") {
-                Plate {
-                    PlateRow(title: "Share diagnostics", subtitle: "A plain-text log of connections and deliveries for a bug report. Never what you dictated.", icon: "stethoscope") {
-                        Button("Share…") { AppDelegate.shared?.showDiagnostics() }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                    }
-                    PlateDivider()
-                    PlateRow(title: "Set up again", subtitle: "Permissions, away from home and open at login — whatever is done already is skipped. To pair another iPhone, use Devices.", icon: "sparkle") {
-                        Button("Set Up…") { AppDelegate.shared?.openSetup(.firstRun) }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                    }
-                    PlateDivider()
-                    PlateRow(title: "Macrophone on the web", subtitle: Product.macDownloadDisplay, icon: "safari") {
-                        Link("Open", destination: Product.website)
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                            .accessibilityLabel("Open the Macrophone website")
-                    }
+            PaneSection("Help", note: "Speech is transcribed and cleaned up on your iPhone (or on this Mac when you dictate here). No audio is kept, there's no account, and what you dictate travels only between your iPhone and this Mac — at home or, with Remote access, from away. Macrophone collects no analytics.") {
+                PlateRow(title: "Share diagnostics", subtitle: "A plain-text log of connections and deliveries for a bug report. Never what you dictated.",
+                         icon: "stethoscope", iconColor: MacTint.teal) {
+                    Button("Share…") { AppDelegate.shared?.showDiagnostics() }
+                }
+                PlateRow(title: "Set up again", subtitle: "Permissions, away from home and open at login — whatever is done already is skipped. To pair another iPhone, use Devices.",
+                         icon: "sparkles", iconColor: MacTint.purple) {
+                    Button("Set Up…") { AppDelegate.shared?.openSetup(.firstRun) }
+                }
+                PlateRow(title: "Macrophone on the web", subtitle: Product.macDownloadDisplay, icon: "safari", iconColor: MacTint.blue) {
+                    Link("Open", destination: Product.website)
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Open the Macrophone website")
+                }
+                PlateRow(title: "Quit Macrophone", subtitle: "Dictations can't arrive while it isn't running.", icon: "power.circle", iconColor: MacTint.gray) {
+                    Button("Quit") { NSApp.terminate(nil) }
                 }
             }
-
-            PaneSection("Privacy") {
-                Text("Speech is transcribed and cleaned up on your iPhone. No audio is kept, there's no account, and what you dictate travels only between your iPhone and this Mac — at home or, with Remote access, from away. Macrophone collects no analytics.")
-                    .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
-            }
-
-            HStack {
-                Spacer()
-                Button("Quit Macrophone") { NSApp.terminate(nil) }
-                    .buttonStyle(PillButtonStyle(tint: Ink.secondary, filled: false))
-                    .help("Dictations can't arrive while Macrophone isn't running")
-            }
-            .padding(.top, 4)
         }
     }
 
@@ -347,8 +315,8 @@ struct GeneralPane: View {
     }
 
     private var updateLine: String {
-        if let d = updater.lastCheck { return "Signed updates from sameer.us. Last checked \(d.relativeShort)." }
-        return "Signed updates from sameer.us, checked once a day."
+        if let d = updater.lastCheck { return "Once a day. Last checked \(d.relativeShort)." }
+        return "Once a day."
     }
 }
 
@@ -365,7 +333,7 @@ struct HotkeyRow: View {
 
     var body: some View {
         PlateRow(title: "Open Macrophone from anywhere", subtitle: subtitle,
-                 subtitleColor: problem == nil ? Ink.tertiary : Light.ochre, icon: "keyboard") {
+                 subtitleColor: problem == nil ? Ink.secondary : Light.ochre, icon: "keyboard", iconColor: MacTint.graphite) {
             HStack(spacing: 10) {
                 if !recording && key.enabled && (key.keyCode != Hotkey.default.keyCode || key.modifiers != Hotkey.default.modifiers) {
                     Button("Use \(Hotkey.default.display)") { set(Hotkey.default) }
@@ -394,14 +362,14 @@ struct HotkeyRow: View {
         HStack(spacing: 6) {
             Button { recording ? stop() : start() } label: {
                 Text(recording ? (live.isEmpty ? "Type Shortcut" : live) : (key.enabled ? key.display : "Record Shortcut"))
-                    .font(recording || !key.enabled ? .system(size: 12, weight: .medium) : Typeface.mono(12.5, .semibold))
-                    .foregroundStyle(recording ? Light.teal : (key.enabled ? Ink.ink : Ink.secondary))
+                    .font(.system(size: 12.5, weight: recording || !key.enabled ? .regular : .medium))
+                    .foregroundStyle(recording ? Color.accentColor : (key.enabled ? Ink.ink : Ink.secondary))
                     .frame(minWidth: 104)
-                    .padding(.vertical, 5)
+                    .padding(.vertical, 4)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .contentShape(.focusEffect, Capsule())
+            .contentShape(.focusEffect, RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .accessibilityLabel("Shortcut to open Macrophone")
             .accessibilityValue(recording ? "Recording. Press the new shortcut" : (key.enabled ? key.words : "None"))
             .accessibilityHint(recording ? "Escape cancels" : "Click to record a new shortcut")
@@ -410,16 +378,17 @@ struct HotkeyRow: View {
                 Button { clear() } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(Ink.tertiary)
+                        .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
                 .help("Remove the shortcut")
                 .accessibilityLabel("Remove the shortcut")
             }
         }
-        .padding(.leading, 10).padding(.trailing, key.enabled && !recording ? 7 : 10)
-        .background(Capsule().fill(recording ? Light.teal.opacity(0.10) : Ink.sunk))
-        .overlay(Capsule().strokeBorder(recording ? Light.teal.opacity(0.7) : Ink.lineHeavy, lineWidth: 1))
+        .padding(.leading, 8).padding(.trailing, key.enabled && !recording ? 6 : 8)
+        .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Ink.sunk))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+            .strokeBorder(recording ? Color.accentColor : Ink.lineStrong, lineWidth: recording ? 2 : 0.5))
         .animation(Motion.reduceMotion ? nil : Motion.snap, value: recording)
     }
 
@@ -505,12 +474,12 @@ struct AgentsSection: View {
     var body: some View {
         PaneSection(labeled ? "Agents" : nil, note: note) {
             Plate {
-                row(name: "Claude Code", status: claude, icon: "sparkles") {
+                row(name: "Claude Code", status: claude, icon: "sparkles", tint: MacTint.orange) {
                     problem = AgentSetup.setClaude(claude != .connected)
                     claude = AgentSetup.claude
                 }
                 PlateDivider()
-                row(name: "Codex", status: codex, icon: "chevron.left.forwardslash.chevron.right") {
+                row(name: "Codex", status: codex, icon: "chevron.left.forwardslash.chevron.right", tint: MacTint.graphite) {
                     problem = AgentSetup.setCodex(codex != .connected)
                     codex = AgentSetup.codex
                 }
@@ -525,15 +494,17 @@ struct AgentsSection: View {
     }
 
     @ViewBuilder
-    private func row(name: String, status: AgentSetup.Status, icon: String, toggle: @escaping () -> Void) -> some View {
-        PlateRow(title: name, subtitle: line(name, status),
-                 icon: status == .connected ? "checkmark.circle.fill" : icon,
-                 iconColor: status == .connected ? Light.mint : Ink.tertiary) {
+    private func row(name: String, status: AgentSetup.Status, icon: String, tint: Color, toggle: @escaping () -> Void) -> some View {
+        PlateRow(title: name, subtitle: line(name, status), icon: icon,
+                 iconColor: status == .missing || status == .taken ? MacTint.gray : tint) {
             switch status {
             case .connected:
-                Button("Disconnect", action: toggle).buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                HStack(spacing: 10) {
+                    AllowedMark(name: name, word: "Connected")
+                    Button("Disconnect", action: toggle)
+                }
             case .notConnected:
-                Button("Connect", action: toggle).buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                Button("Connect", action: toggle).buttonStyle(.borderedProminent)
             case .missing, .taken:
                 EmptyView()
             }
