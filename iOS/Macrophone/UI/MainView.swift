@@ -1799,14 +1799,23 @@ struct LandedPill: View {
                 ProgressView().controlSize(.small)
             } else if c.canUndo {
                 Rectangle().fill(Ink.line).frame(width: 1, height: 16)
-                Button { model.undo(id: c.id) } label: { Text("Undo").font(.footnote.weight(.semibold)) }
-                    .tint(Light.cyan)
-                    .accessibilityHint("Takes the paste back on your Mac.")
-                    .accessibilityIdentifier("landed-undo")
+                // The word in ink (Nov 8 2026): systemBlue on the glass over a wallpaper read at
+                // 1.5 : 1 in dark. Its touch is the pill's whole end, 44 pt tall — it was the
+                // word's own 16 pt.
+                Button { model.undo(id: c.id) } label: {
+                    Text("Undo").font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink)
+                        .padding(.leading, 2).padding(.trailing, 14)
+                        .frame(height: 36)
+                        .contentShape(Rectangle())
+                        .watchTouch(4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Takes the paste back on your Mac.")
+                .accessibilityIdentifier("landed-undo")
             }
         }
         .padding(.leading, c.thumbnail == nil ? 14 : 8)
-        .padding(.trailing, 14)
+        .padding(.trailing, c.canUndo && !c.undoing ? 0 : 14)
         .frame(height: 36)
         .watchGlass(Capsule())
         .fixedSize()
@@ -1859,12 +1868,15 @@ struct UndoChip: View {
                     UndoRing(until: c.undoUntil)
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Light.cyan)
                 }
                 .frame(width: 20, height: 20)
+                // Ink, the accent kept for the ring and its arrow (Nov 8 2026): blue words on the
+                // glass over a wallpaper read at ~1.5 : 1 in dark, ~2.5 : 1 in light.
                 Text("Undo Paste")
                     .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Ink.ink)
             }
-            .foregroundStyle(Light.cyan)
             .padding(.leading, 8)
             .padding(.trailing, 12)
             .frame(height: 32)

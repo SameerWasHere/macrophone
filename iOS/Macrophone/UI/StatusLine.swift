@@ -146,6 +146,13 @@ struct StatusLine: View {
             case .connected, _ where model.returning:
                 // The pick closed on the Mac: say so before he talks, not after.
                 if model.isNotOpen(model.selection.target) {
+                    // A window gone from an app that's still open: the app's name, not the window's
+                    // whole title — "Terminal — claude — ~/Projects/…/MacrophoneKit — 120×40 isn't
+                    // open" ran to three shrunken lines under the cover's mic (Nov 8 2026).
+                    if case let .app(bid, key?, _) = model.selection.target, !key.isEmpty,
+                       let app = model.liveTargets.first(where: { $0.bundleID == bid })?.appName {
+                        return ("That \(app) window isn't open on your Mac — it'll be copied instead", Light.ochre)
+                    }
                     return ("\(model.selection.target.displayName) isn't open on your Mac — it'll be copied instead", Light.ochre)
                 }
                 // Ready and connected: nothing to say (Oct 19 2026, Sameer: "the subtext under the
