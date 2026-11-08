@@ -68,6 +68,7 @@ extension Pane {
         case .history: return MacTint.indigo
         case .dictation: return MacTint.orange
         case .agents: return MacTint.purple
+        case .keepAwake: return MacTint.green
         case .devices: return MacTint.blue
         case .developer: return MacTint.graphite
         case .general: return MacTint.gray
