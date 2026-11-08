@@ -189,7 +189,7 @@ struct PairingPanel: View {
     private func codeDisplay(_ code: String, mac: String) -> some View {
         let spaced = code.count == 6 ? "\(code.prefix(3))\u{00A0}\(code.suffix(3))" : code
         return SetupPage(title: "Compare with your Mac",
-                         message: "Check that \(mac) shows \(spaced), then click They Match on your Mac.",
+                         message: "Check that \(mac) shows \(spaced), then click Pair on your Mac.",
                          compact: compact) {
             SetupSymbol(name: "lock.laptopcomputer", style: Light.cyan, compact: compact)
         } content: {

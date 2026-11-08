@@ -2031,7 +2031,7 @@ Wins over the older setup and away-from-home sections where they differ. Frames:
 - **Needs a real phone:** whether Tailscale's iOS app takes `tailscale://` (if not, step 2 waits
   for step 3 and Open Tailscale goes to the App Store); Test it over cellular and on home Wi-Fi
   with Tailscale on; the Mac's guide and this one side by side (the Mac stream's words — "Away
-  from home", "Devices", "They Match" — are quoted here as they were in the Mac code tonight).
+  from home", "Devices", "Pair" (the Mac's code sheet is Don't Pair / Pair since the Mac setup pass) — are quoted as in the Mac code).
 
 ## The fix-up pass (Nov 7 2026, evening)
 
