@@ -140,7 +140,13 @@ struct DesktopEmptyState: View {
                           : "Turn it on in Settings so Macrophone can hear you."
         case .unpaired: return "What you say goes into any app on your Mac — until then, it's copied on this iPhone."
         case .localNetwork: return "Turn it on in Settings so Macrophone can find \(model.macName) on this Wi-Fi."
-        case .notFound: return "Make sure it's awake with Macrophone open — what you say waits for it."
+        case .notFound:
+            switch model.awayHelp {
+            case .setUp?: return "Away from home? Set up Tailscale once and your iPhone reaches it from anywhere. What you say waits for it."
+            case .turnOnTailscale?: return "Turn on Tailscale on this iPhone to reach it from here. What you say waits for it."
+            case .check?: return "Make sure it's awake, with Tailscale and Macrophone open. What you say waits for it."
+            case nil: return "Make sure it's awake with Macrophone open — what you say waits for it."
+            }
         }
     }
 
@@ -155,6 +161,31 @@ struct DesktopEmptyState: View {
                 .emptyStateButton()
                 .accessibilityIdentifier("empty-pair")
         case .notFound:
+            MacNotFoundAction()
+        }
+    }
+}
+
+/// "Can't find ‹Mac›"'s one button (the phone's desktop, the Duo's glance): Wake Your Mac on its
+/// own Wi-Fi; away from it, the Tailscale step that's missing (Nov 7 2026).
+struct MacNotFoundAction: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        switch model.awayHelp {
+        case .setUp?:
+            Button { model.openAwayGuide() } label: { Label("Set Up Away from Home", systemImage: "network.badge.shield.half.filled") }
+                .emptyStateButton()
+                .accessibilityIdentifier("empty-away-setup")
+        case .turnOnTailscale?:
+            Button { TailscaleHere.open() } label: { Label("Turn On Tailscale", systemImage: "network.badge.shield.half.filled") }
+                .emptyStateButton()
+                .accessibilityIdentifier("empty-turn-on-tailscale")
+        case .check?:
+            Button { model.openAwayGuide() } label: { Label("Test the Connection", systemImage: "checkmark.shield") }
+                .emptyStateButton()
+                .accessibilityIdentifier("empty-away-test")
+        case nil:
             WakeMacAction()
         }
     }

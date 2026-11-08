@@ -56,7 +56,8 @@ focus should still be the mic." The plan and the token map are `docs/DESIGN.md`'
   on a blue disc — `MacGlyph` picks laptop / iMac / mini / Studio / Pro from the name — the name,
   its standing and the route's glyph, `RouteGlyph`); a tap opens the Mac's page
   (`MacConnectionView`: Connected now, Tailscale on this iPhone, the address, and Away from home
-  with its steps — moved off the main list). Every row leads with a Settings icon (`SettingsIcon`,
+  with its steps — moved off the main list **[superseded Nov 7 2026: Connected now and one Away from
+  Home row; the rest is in the guide — see "Setup on the iPhone, and Tailscale guided"]**). Every row leads with a Settings icon (`SettingsIcon`,
   `UI/Settings/SettingsLook.swift`; `PlaceIcon` for a place), explanations sit in section footers,
   switches are green (`.toggleStyle(.settings)`), Cleanup comes right after Send to, and
   Appearance (Automatic · Light · Dark) is bound to `settings.appearance`. History is Mail: 
@@ -939,7 +940,8 @@ through the hooks and real taps recorded frame by frame (`SettingsWalkUITests`).
   except as the inner screen's group page — `popsOnUnpair`); its name moves into the bar once the
   header's has scrolled under it (`ScrolledPast`, iOS 18+), never twice on screen. Away from
   home's fourteen-line footer is **Set Up Away from Home** (`AwaySetupView`, `SettingsRoute
-  .awaySetup`, `away-setup`): five numbered steps, then Without Tailscale.
+  .awaySetup`, `away-setup`): five numbered steps, then Without Tailscale **[superseded Nov 7 2026:
+  `AwayGuideView`, a checklist that checks itself — see "Setup on the iPhone, and Tailscale guided"]**.
 - **Custom Cleanup's editor grows with its words** (`TextField(axis: .vertical)`, 8 lines at
   least; Return is a new line): a fixed 340 pt editor was a scroll inside the page's scroll, its
   last line cut. Reset to Default is down the page. "Use Custom" stacks under its words at the
@@ -1888,6 +1890,73 @@ the rise frame by frame). Measured on a Duo simulator's cover (the UI test print
   are two) or the system giving the column the keyboard's bar height back — Apple's call. Dark mode
   and the rest set were shot, not changed.
 
+## Setup on the iPhone, and Tailscale guided (Nov 7 2026)
+
+Sameer: "a round of polish on the iOS and Mac app to make setup simple and clean and not confusing
+… we need to stick with Tailscale … the Mac app and iOS app should guide users through the setup
+clearly to get it all to work." The iPhone's half (the Mac's own guide was a parallel stream).
+Wins over the older setup and away-from-home sections where they differ. Frames:
+`docs/screens/setup-nov7/iphone/` (`before/`, `after/`, `after-dark/`, `after-se/` — a real SE simulator —, `after-ax/` — accessibility-large —, `after-duo-cover/`).
+- **Setup is five steps, not seven** (`OnboardingView`, `OnboardingStep`): welcome · **voice**
+  (the microphone and speech recognition on one page — one Continue, iOS's two questions back to
+  back, what's off said with Open Settings) · **get the Mac app** (sameer.us/macrophone, Send the
+  Link to Yourself, and a line saying iOS asks next about the local network — its Continue starts
+  the link, so the pre-ask page went) · pair · test. The "Looking for your Mac…" page went too:
+  the scanner says what to open on the Mac, and the code picker says after 10 s what to check
+  ("Can't see it? … same Wi-Fi. No Mac app yet? …"). The raw values are kept (0, 1, 3, 5, 6): a
+  stored 2 opens voice, a stored 4 pairing (`OnboardingStep(stored:)`); a Mac already in sight
+  skips the get-the-app page. Welcome is one sentence.
+- **Pairing:** Local Network off says so on the scanner and the code picker (ochre, in place of
+  "talk directly over this network") with Open Settings as the button; the code page says "click
+  They Match" (the Mac's button — it said Match); "Looking for Macs on this Wi-Fi…".
+- **The away guide** (`UI/Settings/AwayGuide.swift`, `AwayGuideView`, still `SettingsRoute
+  .awaySetup` / `away-setup`): a header ("Use it anywhere"), four steps each with one button and a
+  green check once done, re-read on every return to the front and every 2 s while open —
+  1 **Your Mac** (done when it has shared a Tailscale address: `AppModel.macAway` = ready /
+  noTailscale / off from `macToldAddresses`; the Mac broadcasts an empty list with Away from home
+  off; noTailscale offers "Send Tailscale to Your Mac", a share of tailscale.com/download/mac; the
+  address is shown, selectable, never logged) · 2 **Get Tailscale on this iPhone** (done when
+  Tailscale's app answers `tailscale://` — `LSApplicationQueriesSchemes` in project.yml — or the
+  phone is on Tailscale; a no is never claimed, the App Store button shows) · 3 **Sign in and turn
+  it on** (done when `TailscaleHere.isOn`: a 100.64/10 address on any interface; Open Tailscale) ·
+  4 **Test it** (`AppModel.testAway` → `LinkClient.probeAway`). Without Tailscale is a folded
+  disclosure with the port-forwarding sentence and the typed address (moved off the Mac's page).
+  The Mac's page is now Connected now (only while connected) and one row, Away from Home ·
+  Ready / Set Up, over Unpair; its jargon footer ("Remote access … (Devices)") is gone.
+- **Test it** (MacrophoneKit `Transport/AwayProbe.swift`, `AwayProbeResult`, `AwayProbeTests`):
+  dials the active Mac's Tailscale address and name on the away path (`LinkServer.awayParameters`),
+  sends the hello, checks the Mac's proof, closes — no session, the link untouched, **no wire
+  change** (the Mac sees a hello that never finishes). works · remoteOff (a refused connection or
+  one cut before the hello: Away from home off on the Mac) · unreachable (nothing answered —
+  phrased "Tailscale is off on this iPhone" when it is) · notThisMac (another device has the
+  address) · noAddress · notPaired. Logged as words, never an address. At home it still goes over
+  Tailscale (100.x routes through its tunnel), so it proves the away path from the couch.
+- **Where people meet it:** once, after the first pairing — setup's Finish, or the pairing
+  sheet's Start Dictating — `AwayOfferSheet` (`AppSheet.awayOffer`, medium detent: "Use it away
+  from home" · Set Up / Not Now; `away.offered`, set by either answer or by dismissing; skipped
+  silently when both ends are already ready; only with nothing else on screen). Settings: the
+  Mac's page. **"Can't find ‹Mac›"** (the desktop and the Duo's glance, `MacNotFoundAction`): on
+  a network the Mac was on, Wake Your Mac as before; elsewhere (`AppModel.awayHelp`) "Set Up Away
+  from Home" (no Tailscale address from the Mac), "Turn On Tailscale" (the Mac's ready, this
+  iPhone isn't) or "Test the Connection", each with its own sentence. `AppModel.openAwayGuide()`
+  opens Settings at the guide (`settingsOpenPath`), after any sheet that's up.
+- **Hooks:** `MACROPHONE_FAKE_TAILSCALE=on|off`, `MACROPHONE_FAKE_TAILSCALE_APP=1|0`,
+  `MACROPHONE_FAKE_AWAY=tailscale|remote|off`, `MACROPHONE_FAKE_AWAY_TEST=works|remoteOff|
+  unreachable|notThisMac|noAddress`, `MACROPHONE_AWAY_OFFER=1|again`; `MACROPHONE_RESET` clears
+  `away.*`. `AwayGuideUITests` (`TEST_RUNNER_MACROPHONE_AWAY=1`: every step's state, each test
+  outcome's words, the offer once — Set Up and Not Now —, the empty state's two buttons);
+  `TEST_RUNNER_MACROPHONE_AWAY_LIVE=1` (+ `…_AWAY_PORT=<serve's --port>`) with the simulator paired
+  to `mpctl serve --remote` on a Mac that's on Tailscale: the Mac's real 100.x address arrives and
+  step 1 checks itself, and the simulator shares the Mac's interfaces, so step 3 reads done. **A Mac
+  can't connect to its own Tailscale address** (`nc -z` to it times out; the app's real Test it
+  said "didn't answer over Tailscale", correctly), so the live test dials serve's away door on
+  loopback (`MACROPHONE_AWAY_TEST_ADDRESS=host:port`, DEBUG): the button, the dial, the hello and
+  the Mac's proof → "Works away from home."
+- **Needs a real phone:** whether Tailscale's iOS app takes `tailscale://` (if not, step 2 waits
+  for step 3 and Open Tailscale goes to the App Store); Test it over cellular and on home Wi-Fi
+  with Tailscale on; the Mac's guide and this one side by side (the Mac stream's words — "Away
+  from home", "Devices", "They Match" — are quoted here as they were in the Mac code tonight).
+
 ## The fix-up pass (Nov 7 2026, evening)
 
 Sameer: "Do all the improvements" — three agents, merged together, smoke-tested on an iPhone 18 Pro
@@ -1987,7 +2056,7 @@ When the link blips while a window shows (Wi-Fi, the app away, the Mac's session
 One vocabulary, named by meaning, in `Haptics` (Theme.swift, the list as its doc comment): `micOpen` rigid (prepared ahead by `readyMic()` from `refreshAvailability` and after each `micClose` — the mic starts on touch-down, so there's no earlier moment), `micClose` soft, `landed` success, `caution` warning, `failed` error, `pick` selection (a place, a page, a switch, a level, a Mac, a window, a size, a slider's detent), `press` light (a key, a click, a command to the Mac, Copy, Send Again), `rightClick` medium, `grab` (a drag picked up, the floating mic lifted, the hold's trackpad), `arrived` soft (a window's first picture, a fold, a window closed on the Mac). Generators are made once. One event, one haptic: a view calling a model method that already speaks stays quiet. A held key's repeats go through `Haptics.quietly`. Nothing on navigation: Done, a sheet, Show it here, full screen, opening a window (its first picture is `arrived`). Symbol effects only when a glyph changes meaning or an action lands, never at rest: `LandedGlyph` (MainView: the check `drawOn` on iOS 26, else a bounce; `LandedChip.sent` → `paperplane.circle.fill` bouncing up; Undo's arrow replaces), `DockOptions`' paper plane flies on turning Send on and on a sent landing (`flights`), History rows' mark replaces and the plane hops on landing (`landings`), the widget's status replaces and Copy → Copied for 1.5 s, Sound / Pan|Scroll / the display glyph replace, Control Center's keys bounce on a tap (`taps`, not the slider's steps), the eye on a watch tap (`PlaceButton.watches`), the wand on a cleanup level. `MacControlsPanel` is unused (MacControlCenter replaced it).
 
 ### Empty and error states (Nov 5 2026)
-Every one is `EmptyState` (`UI/EmptyState.swift`, a `ContentUnavailableView`): a symbol, a sentence-case title with no full stop, one sentence, at most one button that fixes it (`emptyStateButton()`; Wake Your Mac is `WakeMacAction`, the menu bar's rule). The phone's desktop and the Duo's cover say what stands between the mic and the Mac in the desktop's empty room (`DesktopTrouble`, `DesktopEmptyState`, an overlay under the menu bar that never moves the mic), in order: the mic or speech recognition off (Open Settings, also found at launch by `Recorder.permissionOff`), unpaired (Pair a Mac), Local Network off (Open Settings), not found (Wake Your Mac; never while `settling` or `reconnecting`). On the regular iPhone the status line says nothing about it meanwhile (`StatusLine(desktopSays:)`) and the menu bar's Wake steps aside; on the cover the line keeps its words and drops its "Open Settings" link (`desktopFixes`). In a short room the state sheds its sentence, then its symbol. The Duo glance: Pair your Mac · Can't find ‹Mac› (Wake) · Local Network · ‹App› isn't open (Open ‹App›, `openOnMac`); still looking is "Connecting to ‹Mac›". History off has Turn On History; Open an App offline has Wake, no apps has Try Again; Your Macs, Dictionary and Language have their own. The Dock has no divider with no open apps. Hooks: `MACROPHONE_FAKE_PAIRED=none | <name>@offline`. Frames: `docs/screens/empty-states-nov5/`.
+Every one is `EmptyState` (`UI/EmptyState.swift`, a `ContentUnavailableView`): a symbol, a sentence-case title with no full stop, one sentence, at most one button that fixes it (`emptyStateButton()`; Wake Your Mac is `WakeMacAction`, the menu bar's rule). The phone's desktop and the Duo's cover say what stands between the mic and the Mac in the desktop's empty room (`DesktopTrouble`, `DesktopEmptyState`, an overlay under the menu bar that never moves the mic), in order: the mic or speech recognition off (Open Settings, also found at launch by `Recorder.permissionOff`), unpaired (Pair a Mac), Local Network off (Open Settings), not found (Wake Your Mac; never while `settling` or `reconnecting` — **[Nov 7 2026: away from the Mac's network, the missing Tailscale step instead, `MacNotFoundAction`]**). On the regular iPhone the status line says nothing about it meanwhile (`StatusLine(desktopSays:)`) and the menu bar's Wake steps aside; on the cover the line keeps its words and drops its "Open Settings" link (`desktopFixes`). In a short room the state sheds its sentence, then its symbol. The Duo glance: Pair your Mac · Can't find ‹Mac› (Wake) · Local Network · ‹App› isn't open (Open ‹App›, `openOnMac`); still looking is "Connecting to ‹Mac›". History off has Turn On History; Open an App offline has Wake, no apps has Try Again; Your Macs, Dictionary and Language have their own. The Dock has no divider with no open apps. Hooks: `MACROPHONE_FAKE_PAIRED=none | <name>@offline`. Frames: `docs/screens/empty-states-nov5/`.
 
 ### The Dock's window previews (Nov 5 2026)
 A long press on a Dock icon (`DockIcon`'s simultaneous `LongPressGesture`, 0.42 s, 10 pt reach — a drag fails it, so the scrub never opens it; `swallowTap` keeps the lift from being a tap; `Haptics.grab`) opens `DockWindowsPopover` (`UI/MacOS/DockWindows.swift`) — a glass popover over the icon (`.popover` + `presentationCompactAdaptation(.popover)`; a context menu's preview takes no taps and doesn't scroll): the app's name and "N windows", a sideways strip of `DockWindowCard`s — the window's kept picture (`WindowSnapshots.small(_:maxPixel:)`, decoded small off the main thread and cached apart from `cached`; the card's width from `pictureSize`, read off the file's header, so the popover never changes width), or the app's icon on a plate, its title, the pick ringed in the accent, the ember mark and "Answered you" / "Asking you" — then Show Window (`dock-show-window`; the pick or the newest, picked then watched 0.32 s later so it grows out of its icon). A card tap picks that window. A picked Clipboard / Where I'm typing gets Show Window alone. VoiceOver: each card a button named by its title, selected for the pick, with a Show Window action; the icon has "Show Windows". No wire: the pictures are the ones kept last time each window showed. Tests: `DockPreviewsUITests` (a paired `mpctl serve`; `TEST_RUNNER_MACROPHONE_DOCK_SHOTS=<dir>`). Frames: `docs/screens/dock-previews-nov5/`. XCUITest's synthetic drag doesn't drive the Dock's scrub (on main before too); it needs a real finger.
@@ -2605,7 +2674,8 @@ lookup — no Tailscale CLI). Unit tests in `RemoteAccessTests`.
   while `isRemote` → `moveHome` (a `replacing` dial: the state never leaves `.connected`, the
   Mac's close of the old session is quiet, `pathChanged` tells the app). `AppModel.isRemote`:
   "Ready · Mac · away from home"; Settings › Away from home shows what the Mac said and takes one
-  typed address (`setTypedAddress`); diagnostics count the addresses, never print them.
+  typed address (`setTypedAddress`) **[Nov 7 2026: inside the away guide; the typed address under
+  its Without Tailscale]**; diagnostics count the addresses, never print them.
 - **mpctl:** `serve --remote [--port N]`; phone side `--dial host[:port]`, `--no-bonjour` (stands
   in for a network where Bonjour finds nothing), `--away-after`; `mpctl roam [--bonjour-after N]
   [--expect remote|home]` prints `PATH remote (away from home)` / `PATH local (back home)`.

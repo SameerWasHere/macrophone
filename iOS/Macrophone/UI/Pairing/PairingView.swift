@@ -49,7 +49,8 @@ struct PairingView: View {
     private var title: String { hadMac ?? model.isPaired ? "Pair Another Mac" : "Pair Your Mac" }
 
     private var content: some View {
-        PairingPanel(onDone: { dismiss() })
+        // Done from the sheet: once ever, "Use it away from home?" rises after it (Nov 7 2026).
+        PairingPanel(onDone: { dismiss(); if !embedded { model.offerAwayIfDue(after: 0.8) } })
             .navigationTitle(title)
             .onAppear { if hadMac == nil { hadMac = model.isPaired } }
             .navigationBarTitleDisplayMode(.inline)
@@ -73,6 +74,8 @@ struct PairingPanel: View {
     @State private var useCode = false
     @State private var deviceName = ""
     @State private var pairedShown = false
+    /// The code picker has looked for a while and seen no Mac: say what to check.
+    @State private var lookingLong = false
     @FocusState private var nameFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -103,7 +106,7 @@ struct PairingPanel: View {
 
     private var scanner: some View {
         SetupPage(title: "Scan the code on your Mac",
-                  message: "On your Mac, open Macrophone and choose Pair iPhone, then point this camera at the code it shows. The camera is used only for this.",
+                  message: "On your Mac, open Macrophone and choose Pair iPhone, then point the camera at the code. The camera is used only for this.",
                   compact: compact) {
             EmptyView()
         } content: {
@@ -114,9 +117,10 @@ struct PairingPanel: View {
                 }
                 .frame(height: compact ? 250 : 300)
                 networkNote
-                macAppNote
+                if !model.localNetworkDenied { macAppNote }
             }
         } buttons: {
+            if model.localNetworkDenied { openSettingsButton }
             Button("Use a Code Instead") { useCode = true }
                 .setupSecondary()
         }
@@ -135,11 +139,15 @@ struct PairingPanel: View {
                     if model.discoveredMacs.isEmpty {
                         HStack(spacing: 12) {
                             ProgressView()
-                            Text("Looking for Macs on this network…").foregroundStyle(Ink.secondary)
+                            Text("Looking for Macs on this Wi-Fi…").foregroundStyle(Ink.secondary)
                             Spacer()
                         }
                         .padding(.horizontal, 16)
                         .frame(minHeight: 52)
+                        .task {
+                            try? await Task.sleep(for: .seconds(10))
+                            withAnimation { lookingLong = true }
+                        }
                     } else {
                         ForEach(Array(model.discoveredMacs.enumerated()), id: \.element.id) { i, mac in
                             if i > 0 { Divider().padding(.leading, 59) }
@@ -162,9 +170,17 @@ struct PairingPanel: View {
                     }
                 }
                 .background(RoundedRectangle(cornerRadius: Radius.large, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
-                networkNote
+                if model.discoveredMacs.isEmpty, lookingLong, !model.localNetworkDenied {
+                    Text("Can't see it? Open Macrophone on your Mac and keep both on the same Wi-Fi. No Mac app yet? It's free at \(Product.macDownloadDisplay).")
+                        .font(.footnote).foregroundStyle(Light.ochre).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                } else {
+                    networkNote
+                }
             }
         } buttons: {
+            if model.localNetworkDenied { openSettingsButton }
             Button("Scan the QR Code Instead") { useCode = false }
                 .setupSecondary()
         }
@@ -173,7 +189,7 @@ struct PairingPanel: View {
     private func codeDisplay(_ code: String, mac: String) -> some View {
         let spaced = code.count == 6 ? "\(code.prefix(3))\u{00A0}\(code.suffix(3))" : code
         return SetupPage(title: "Compare with your Mac",
-                         message: "Check that \(mac) shows \(spaced), then click Match on the Mac.",
+                         message: "Check that \(mac) shows \(spaced), then click They Match on your Mac.",
                          compact: compact) {
             SetupSymbol(name: "lock.laptopcomputer", style: Light.cyan, compact: compact)
         } content: {
@@ -296,6 +312,11 @@ struct PairingPanel: View {
         }
     }
 
+    private var openSettingsButton: some View {
+        SetupButton("Open Settings") { openAppSettings() }
+            .accessibilityIdentifier("pairing-open-settings")
+    }
+
     private var macAppNote: some View {
         Link(destination: Product.website) {
             (Text("No Mac app yet? It's free at ") + Text(Product.macDownloadDisplay).foregroundColor(Light.cyan))
@@ -309,10 +330,13 @@ struct PairingPanel: View {
         .accessibilityLabel("No Mac app yet? Get Macrophone for Mac, free, on the website")
     }
 
+    /// What the network is for — or, with Local Network off, the one thing in the way.
     private var networkNote: some View {
-        Text("Your iPhone and Mac talk directly over this network. Nothing goes to the internet.")
+        Text(model.localNetworkDenied
+             ? "Local Network is off for Macrophone, so it can't see your Mac. Turn it on in Settings."
+             : "Your iPhone and Mac talk directly over this network. Nothing goes to the internet.")
             .font(.footnote)
-            .foregroundStyle(Ink.secondary)
+            .foregroundStyle(model.localNetworkDenied ? Light.ochre : Ink.secondary)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
     }

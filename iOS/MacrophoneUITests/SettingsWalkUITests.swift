@@ -36,8 +36,7 @@ final class SettingsWalkUITests: XCTestCase {
         beat()
         // The Mac's page, its steps, and back.
         banner.tap(); beat()
-        XCTAssertTrue(app.staticTexts["Connection"].waitForExistence(timeout: 3))
-        app.swipeUp(); beat()
+        // Away from home is one row now (the guide, Nov 7 2026); Connection shows only while connected.
         let steps = any(app, "away-setup")
         XCTAssertTrue(steps.waitForExistence(timeout: 3))
         steps.tap(); beat()
@@ -108,19 +107,22 @@ final class SettingsWalkUITests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 10))
         beat()
         start.tap(); beat(1.6)   // a granted permission's step passes by itself; else allow it
-        let have = app.buttons["I Have It"]
+        // Five steps since Nov 7 2026: the voice page (both permissions), then getting the Mac app
+        // (its Continue makes iOS ask about the local network), then the scanner.
+        let getMac = app.buttons["Send the Link to Yourself"]
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        for _ in 0..<4 where !have.exists {
+        for _ in 0..<4 where !getMac.exists {
             let next = app.buttons["Continue"]
             guard next.waitForExistence(timeout: 2) else { break }
             next.tap(); beat()
-            for label in ["Allow", "OK"] where springboard.buttons[label].waitForExistence(timeout: 2) {
-                springboard.buttons[label].tap(); beat(1.6); break
+            for _ in 0..<2 {
+                for label in ["Allow", "OK"] where springboard.buttons[label].waitForExistence(timeout: 2) {
+                    springboard.buttons[label].tap(); beat(1.6); break
+                }
             }
         }
-        XCTAssertTrue(have.waitForExistence(timeout: 5))
-        have.tap(); beat(1.6)
-        app.buttons["Skip"].tap(); beat(1.6)
+        XCTAssertTrue(getMac.waitForExistence(timeout: 5))
+        app.buttons["Continue"].tap(); beat(1.6)
         app.buttons["Use a Code Instead"].tap(); beat(1.6)
         app.buttons["Skip"].tap(); beat(1.6)
         XCTAssertTrue(app.buttons["Finish"].waitForExistence(timeout: 3))

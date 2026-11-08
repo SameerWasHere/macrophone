@@ -94,7 +94,7 @@ struct SettingsView: View {
         case .sendTo: SendToList(settings: settings).navigationTitle("Send to").navigationBarTitleDisplayMode(.inline)
         case .customCleanup: CustomCleanupView(settings: settings)
         case .connection: MacConnectionView()
-        case .awaySetup: AwaySetupView()
+        case .awaySetup: AwayGuideView()
         }
     }
 
@@ -710,9 +710,6 @@ struct MacConnectionView: View {
     /// Pushed from the banner it goes back once its Mac is unpaired; as the inner screen's
     /// group page there's nothing to go back to, so it shows the next Mac (or pairing).
     var popsOnUnpair = true
-    @State private var address = ""
-    @State private var addressProblem = false
-    @FocusState private var addressFocused: Bool
     @State private var confirmUnpair = false
     /// The header's name has scrolled under the bar: the bar says it instead (as Settings'
     /// Apple Account page) — never the same name twice on screen.
@@ -746,81 +743,40 @@ struct MacConnectionView: View {
                     .accessibilityHidden(!(model.pairedMac == nil || headerGone))
             }
         }
-        .onAppear { address = model.typedAddress?.display ?? "" }
-        .onChange(of: addressFocused) { _, focused in if !focused { commitAddress() } }
     }
 
-    private var connectionSection: some View {
-        Section {
-            if let route = model.linkRoute {
+    @ViewBuilder private var connectionSection: some View {
+        if let route = model.linkRoute {
+            Section {
                 LabeledContent { Text(route.short) } label: {
                     Label { Text("Connected now") } icon: { SettingsIcon(symbol: RouteGlyph.symbol(route), color: Light.cyan) }
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Connected now: \(route.words)")
-            }
-            // Whether this iPhone is on a Tailscale network right now: it has a Tailscale address.
-            LabeledContent {
-                Text(TailscaleHere.isOn ? "On" : "Not on").foregroundStyle(TailscaleHere.isOn ? Ink.secondary : Light.ochre)
-            } label: {
-                Label { Text("Tailscale on this iPhone") } icon: {
-                    SettingsIcon(symbol: "network.badge.shield.half.filled", color: TailscaleHere.isOn ? Light.mint : Color(uiColor: .systemGray))
-                }
-            }
-            if let ts = model.macToldAddresses.first(where: \.isTailscale) {
-                addressRow("Over Tailscale", ts.display)
-            } else if let a = model.macToldAddresses.first {
-                addressRow("From your Mac", a.display)
-            }
-        } header: {
-            Text("Connection")
-        } footer: {
-            if model.macToldAddresses.isEmpty {
-                Text("Your Mac hasn't shared an address yet. Turn on Remote access in Macrophone on your Mac (Devices), then connect here at home once.")
+            } header: {
+                Text("Connection")
             }
         }
     }
 
-    private func addressRow(_ title: String, _ value: String) -> some View {
-        LabeledContent {
-            Text(value).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7).textSelection(.enabled)
-        } label: {
-            Label { Text(title) } icon: { SettingsIcon(symbol: "laptopcomputer", color: Light.cyan) }
-        }
-    }
-
+    /// Away from home is one row now (Nov 7 2026): the guide behind it checks every step itself;
+    /// the Tailscale state, the Mac's addresses and the typed address (jargon on the Mac's own
+    /// page) moved into it.
     private var awaySection: some View {
         Section {
-            let field = TextField("name or address:port", text: $address)
-                .foregroundStyle(Ink.secondary)
-                .focused($addressFocused)
-                .submitLabel(.done)
-                .onSubmit(commitAddress)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityLabel("Your Mac's address from away")
-            // Typed here, it's dialled beside the ones your Mac told (the footer says how).
-            let label = Label { Text("Address") } icon: { SettingsIcon(symbol: "keyboard.fill", color: Light.violet) }
-            if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 6) { label; field }
-            } else {
-                HStack { label; Spacer(); field.multilineTextAlignment(.trailing) }
-            }
-            if addressProblem {
-                Text("That doesn't look like an address. Try something like 100.101.2.3 or home.example.com:47821.")
-                    .font(.footnote).foregroundStyle(Light.ochre)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            // The steps on a page of their own (they were a fourteen-line footer, Nov 4 2026).
             NavigationLink(value: SettingsRoute.awaySetup) {
-                Label { Text("Set Up Away from Home") } icon: { SettingsIcon(symbol: "list.number", color: Light.cyan) }
+                LabeledContent {
+                    Text(model.awayReady ? "Ready" : "Set Up")
+                        .foregroundStyle(model.awayReady ? Light.mint : Ink.secondary)
+                } label: {
+                    Label { Text("Away from Home") } icon: {
+                        SettingsIcon(symbol: "network.badge.shield.half.filled", color: model.awayReady ? Light.mint : Light.cyan)
+                    }
+                }
             }
             .accessibilityIdentifier("away-setup")
-        } header: {
-            Text("Away from home")
         } footer: {
-            Text("When your Mac isn't nearby, this iPhone reaches it through Tailscale — free, and still no server of ours. No Tailscale? Forward the port on your router and type your home's address above.")
+            Text("Reach your Mac from anywhere with Tailscale — free and private.")
         }
     }
 
@@ -845,12 +801,6 @@ struct MacConnectionView: View {
         }
     }
 
-    private func commitAddress() {
-        let t = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t == (model.typedAddress?.display ?? "") || t == (model.typedAddress?.host ?? "") { addressProblem = false; return }
-        addressProblem = !model.setTypedAddress(t)
-        if !addressProblem { address = model.typedAddress?.display ?? "" }
-    }
 }
 
 /// Whether a list has scrolled more than `distance` down (iOS 18+; before, it never has — the
