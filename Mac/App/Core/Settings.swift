@@ -98,6 +98,13 @@ final class Settings: ObservableObject {
     @Published var remoteAccess: Bool { didSet { d.set(remoteAccess, forKey: "remoteAccess") } }
     /// The fixed port remote access listens on (shown next to the addresses).
     @Published var remotePort: Int { didSet { d.set(remotePort, forKey: "remotePort") } }
+    /// Dictation at the desk (Nov 7 2026): hold a key on this Mac, talk, let go — pasted where
+    /// you're typing. On by default; the key only listens once the microphone is allowed.
+    @Published var deskDictation: Bool { didSet { d.set(deskDictation, forKey: "desk.on") } }
+    /// The key held to talk (Fn by default).
+    @Published var deskKey: DeskKey { didSet { d.set(deskKey.rawValue, forKey: "desk.key") } }
+    /// This Mac's own cleanup level for desk dictations (the phone keeps its own). Medium.
+    @Published var deskCleanup: CleanupLevel { didSet { d.set(deskCleanup.rawValue, forKey: "desk.cleanup") } }
 
     init() {
         // Before live targets there was a "delivery mode": it becomes the first Send to choice
@@ -130,6 +137,11 @@ final class Settings: ObservableObject {
         remoteAccess = d.bool(forKey: "remoteAccess")
         let port = d.integer(forKey: "remotePort")
         remotePort = (1024...65_535).contains(port) ? port : Int(RemoteAddressRule.defaultPort)
+        deskDictation = d.object(forKey: "desk.on") as? Bool ?? true
+        deskKey = d.string(forKey: "desk.key").flatMap(DeskKey.init(rawValue:)) ?? .fn
+        // The Mac has no custom instructions of its own: Custom isn't offered here.
+        let level = d.string(forKey: "desk.cleanup").flatMap(CleanupLevel.init(rawValue:)) ?? .medium
+        deskCleanup = level == .custom ? .medium : level
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
         // Retired with live targets: the Return list and per-app rules (the phone's "Send after pasting"

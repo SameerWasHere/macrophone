@@ -6,6 +6,8 @@
 	     (alerts that reach a closed iPhone app; Mac/App/Watch/CloudAlerts.swift). -->
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.com.sameer.macrophone</string>

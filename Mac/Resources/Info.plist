@@ -40,6 +40,8 @@
 	<array>
 		<string>_macrophone._tcp</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Macrophone listens only while you hold the dictation key, turns what you say into text on this Mac and pastes it where you're typing. Nothing is recorded or sent anywhere.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Macrophone uses this only to install its command-line tool (macrophone and mp), when you choose Install in Developer.</string>
 	<key>SUFeedURL</key>

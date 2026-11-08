@@ -75,6 +75,82 @@ focus should still be the mic." The plan and the token map are `docs/DESIGN.md`'
   view under it — `accessibilityHidden(false)` there made two blank full-screen nodes. Frames:
   `docs/screens/redesign-nov1/part2/` (before light | after light | before dark | after dark).
 
+## Dictation at the desk (Nov 7 2026)
+
+Sameer: "hold a key on the Mac, talk, and the same cleanup pastes wherever you're typing." No
+phone: the Mac app dictates by itself. Frames: `docs/screens/desk-dictation-nov7/`.
+- **The key** (MacrophoneKit `Core/DeskHotkey.swift`, pure, `DeskHotkeyTests`): `DeskKey` — 🌐 Fn
+  (default), Right ⌥, Right ⌘, Off (`settings.deskKey`, `desk.key`). `DeskHotkey` is the state
+  machine: hold → the mic opens (at the press for Fn; after `armDelay` 0.18 s for the right keys,
+  so ⌘C never lights the mic), the pill after `pillDelay` 0.15 s, let go past `tapLimit` 0.3 s =
+  paste; a quick tap = nothing (the mic let go quietly); two taps within `doubleTapGap` 0.35 s =
+  hands-free until the next tap (`handsFreeLimit` 10 min); another key while held = a shortcut,
+  dropped quietly; Esc while listening = cancel, and that Esc goes no further (the one event
+  ever swallowed — modifiers always pass). `Mac/App/Desk/DeskKeyTap.swift`: a session
+  `CGEventTap` (keyDown + flagsChanged, the side's device bit — NX_DEVICERALTKEYMASK etc.) on the
+  main run loop, feeding the machine and ticking it at `nextDeadline`. An active tap needs
+  Accessibility; refused anyway, the page shows an Input Monitoring row.
+- **Never a system Fn action from us:** macOS's "Press 🌐 key to" (`com.apple.HIToolbox`
+  `AppleFnUsageType`: 0 nothing, 1 input source, 2 emoji — his Mac —, 3 dictation, `FnKeyUsage`) is
+  read, never changed; anything but Do Nothing puts one ochre line and Open Keyboard Settings on
+  the Dictation page.
+- **Speech** (`Desk/DeskSpeech.swift`, a copy of the phone's `ModernSpeech` for macOS 26+):
+  SpeechAnalyzer + SpeechTranscriber on the Mac's language (`Locale.current` BCP-47), an analyzer
+  made ahead (`DeskWarmAnalyzer`, after every dictation and when the key starts listening). The
+  press opens only the mic (`Desk/DeskMic.swift`, AVAudioEngine on its own queue; what it hears is
+  held, ≤ 12 s); the recognizer joins once it's a hold (`startSpeech`) and the held audio goes in
+  first — a quick tap or a shortcut never spends the analyzer. No speech-recognition permission
+  is asked (SpeechAnalyzer runs without it here); `AssetInventory` says `supported` yet it
+  transcribes (a model the system shares) — a fetch is started in the background anyway.
+- **Cleanup**: the shared `Cleaner` at this Mac's own level (`settings.deskCleanup`, `desk.cleanup`,
+  Medium; Off · Light · Medium · Heavy — the Mac has no custom instructions or dictionary, so no
+  Custom and no context words), prewarmed at the hold, an 8 s budget.
+- **The paste**: `Paster.deliver(.front, send: false)` — no countdown, never sent; the landing
+  glow and the menu bar icon's cues come with it (`statusItemCue` arriving / landed / failed). A
+  failure copies and says so on the pill ("Copied — nowhere to type here. Press ⌘V"). History:
+  a `Dictation` with `sourceDevice` "This Mac" (`DeskDictation.source`, always shown on its row),
+  profile "Where I'm typing". The page's Try it box, focused with Macrophone in front, takes the
+  words itself (Paster never pastes into Macrophone).
+- **The pill** (`Desk/ListeningPill.swift`): a borderless non-activating `NSPanel` (status-bar
+  level, every Space, takes no clicks) at the bottom middle of the screen with the pointer; Liquid
+  Glass (`glassEffect`, a material before macOS 26) in the system's light or dark (the window
+  stays dark); Apple Intelligence's colours (`MacOSIntelligence`) as a ring round the mic that
+  swells with the level and turns while listening (still under Reduce Motion); the newest words
+  in two lines (cut at a word with "…" in front — `PillView.newest`), the undecided ones dimmer;
+  "Let go to paste · Esc to cancel" / "Hands-free · tap 🌐 to finish · Esc to cancel" faint. Fades
+  in 0.16 s, out 0.25 s.
+- **The window**: sidebar **Dictation** between History and Agents (⌘2; the rest moved down one,
+  ⌘1–6) — `UI/Window/DictationPane.swift`: Dictate on this Mac (`settings.deskDictation`, on by
+  default), Hold to talk (the key), Cleanup (segmented, its summary or why it can't run), the how
+  line, the Fn line, What macOS needs (`PermissionRows(desk: true)`: Accessibility, Microphone,
+  Input Monitoring only if the tap was refused), Try it. Menu bar: one disabled line "Hold 🌐 to
+  dictate" under the header while the key listens.
+- **Permissions**: `NSMicrophoneUsageDescription`, `com.apple.security.device.audio-input` in both
+  entitlements files (the hardened runtime blocks the mic without it). `PermissionsMonitor` reads
+  `microphone` and `inputMonitoring` too (never told to phones). The key listens while on, a key
+  is picked and the mic isn't refused; not yet asked, the first real hold asks (a quick tap never
+  does) and the pill says "Allow the microphone, then hold 🌐 again".
+- **Diagnostics** (numbers only): "desk: mic open N ms after the press (engine N ms)",
+  "SpeechAnalyzer made ahead | made now, listening N ms after the press, N s held for it",
+  "N words in N s, settled in N ms", "cleanup N ms (medium)", "pasted, landed" / "paste failed".
+- **Hooks** (DEBUG): `MACROPHONE_DESK_AUDIO=<file>` (speech → cleanup on a file, twice — made now,
+  then made ahead —, printed, quits; `MACROPHONE_DESK_LEVEL`); `MACROPHONE_DESK_SIMULATE=<file>[@hold
+  s][@handsfree]` (the whole controller: the machine's presses, the file as the mic in real time,
+  held audio, the recognizer joining at the hold, cleanup; printed instead of pasted);
+  `MACROPHONE_DESK_PILL=<words>[|handsfree|finishing:<status>]` + `MACROPHONE_DESK_APPEARANCE`,
+  `MACROPHONE_BACKDROP=1`, `MACROPHONE_PILL_RECT_FILE`; `MACROPHONE_DESK_TRY`; `MACROPHONE_DESK_NO_PILL`;
+  `MACROPHONE_NO_ACTIVATE=1` (a window shown without taking the keyboard). A `MACROPHONE_INSTANCE`
+  copy never listens for the key unless `MACROPHONE_DESK_LIVE=1` (it would dictate beside the real
+  app). `say -o x.aiff "…"` makes a test file.
+- **Measured** (this Mac, `say`'s voice, 31 words / 8.3 s): speech settles 243 ms after the end on
+  an analyzer made ahead (434–513 ms made now); Medium cleanup 1.35 s warm (2.5 s cold).
+- **Needs a real check:** a real Fn hold with the real mic (the tap, the mic light, the first
+  syllable, the pill over a full-screen app); whether macOS's emoji picker still opens beside a
+  hold with "Press 🌐 key to" left on Show Emoji (and whether Apple's "press 🌐 twice" dictation
+  shortcut fights the double tap); Right ⌥ / Right ⌘ on an external keyboard; the paste into
+  Claude, Terminal, Notes; the microphone prompt's first appearance; Input Monitoring ever being
+  needed.
+
 ## The product, as it stands (Oct 18 2026)
 
 Reader (the window's words as text) was cut the same evening — Sameer: "not that great … focus on making the window view really good". The speed pass (same night): no paste countdown when nobody's at the Mac, no fixed settle waits, the result before the clipboard's restore; the Mac gets the place ready while you speak (`prepare`, feature "prepare" — Paster.prepare); cleanup runs during your pauses (AppModel.cleanAhead); video sends every real change (WatchPacing `live`), 60 fps at home, Retina up to 2,560 px.
@@ -97,7 +173,7 @@ replaces are marked **superseded**); the sections below keep the mechanics and t
 | **The Watch widget** (`iOS/MacrophoneControls/WatchWidget.swift`) | Up to four of the Mac's open apps with their icons and the ember mark; small 2 × 2, medium a row with names; a tap = `macrophone://watch?target=…` (watches, and picks it in Send to); fed through `Shared/WatchWidgetData.swift` | — |
 | **How it's connected** (`LinkRoute`) | The Mac pill's glyph (Wi-Fi, direct link, Tailscale shield, globe); the status line "Ready · ‹Mac› · Tailscale"; Settings › Connected now | The menu header "Connected · Tailscale · away from home" (`MenuWords.via` — the route's `short`, the same words as the status line and the phone); Devices › Away from home |
 | **Open / quit an app** | **+** at the end of the Send to row → Open an App (search, Quit beside an open one) | `AppCatalog` opens / quits; the menu's More Apps lists only open ones |
-| **The Mac window** | — | Sidebar: History · Agents · Devices · Developer · General (⌘1–5); the Send to card above every pane; the menu bar menu is `StatusItemController` + `MenuBar/` (header · Stop Showing · Open Macrophone · Send to · Recent · the rare ones · Quit) |
+| **The Mac window** | — | Sidebar: History · Dictation · Agents · Devices · Developer · General (⌘1–6); the Send to card above every pane; the menu bar menu is `StatusItemController` + `MenuBar/` (header · Stop Showing · Open Macrophone · Send to · Recent · the rare ones · Quit) |
 
 Glyphs that mean one thing: `eye` = Watch (the button, Settings, the widget's kicker; `eye.slash` =
 Stop Showing), `macwindow` = the Window menu (Fill the Screen is
@@ -2348,7 +2424,7 @@ the haptics in `AppModel` — are untouched):
 | --- | --- |
 | `Packages/MacrophoneKit` | Shared Swift package: wire format, pairing + encryption, Bonjour/peer-to-peer transport (`LinkServer` Mac side, `LinkClient` phone side), history store, diagnostics log, on-device cleanup (`Cleaner`, `CleanupPrompts`, `CleanupGuard`), pull-API item shape. `mpctl` is the command-line protocol proof. |
 | `iOS/` | iPhone app (XcodeGen `iOS/project.yml`) + `MacrophoneControls`: the Control Center / Lock Screen control and the Watch widget |
-| `Mac/` | Menu bar app (XcodeGen `Mac/project.yml`): Send to (live targets, paste and send), History, Agents, Devices, Developer, General; the `macrophone`/`mp` CLI + MCP server (+ `mp hook`); Sparkle updates, `scripts/release.sh` |
+| `Mac/` | Menu bar app (XcodeGen `Mac/project.yml`): Send to (live targets, paste and send), History, Dictation (hold 🌐 at the desk — `App/Desk/`), Agents, Devices, Developer, General; the `macrophone`/`mp` CLI + MCP server (+ `mp hook`); Sparkle updates, `scripts/release.sh` |
 | `docs/` | `TARGETS.md` (Send to and delivery), `API.md` (the local API / CLI / MCP contract), `DESIGN.md`, `CLEANUP.md`, `RELEASING.md`, `APP_STORE.md`, `NAME_CHECK.md` |
 
 The website lives in the sameer.us repo (`sameer-gpt`), static pages under `public/macrophone/`.

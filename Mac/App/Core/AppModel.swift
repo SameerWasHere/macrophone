@@ -42,6 +42,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     /// The windows on watch, for the menu.
     @Published private(set) var alertWatches: [AlertWatch] = []
     private(set) var attachments: AttachmentInbox!
+    /// Dictation at the desk: hold a key on this Mac, talk, let go (Desk/DeskDictation.swift).
+    private(set) var desk: DeskDictation!
     private(set) var stayAwake: StayAwake!
     /// Every window on screen, as last told to the phones (AllWindows).
     private var everyWindowSent: [LiveTarget] = []
@@ -123,6 +125,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         // of open apps and the phones' delegate are in place.
         Task { @MainActor [weak self] in self?.windowAlerts.restore() }
         attachments = AttachmentInbox(app: self)
+        desk = DeskDictation(app: self)
         stayAwake = StayAwake(log: log)
         watch.onChange = { [weak self] in
             guard let self else { return }
@@ -215,6 +218,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         pathMonitor = m
         if settings.apiEnabled { api.start() } else { apiState = .off }
         attention.update()
+        desk.start()
         pushStatus()
         // Nothing lands without Accessibility: ask at launch, which also puts Macrophone in the list.
         if !accessibilityGranted { _ = Paster.requestTrust() }
