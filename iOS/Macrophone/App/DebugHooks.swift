@@ -98,6 +98,7 @@ import UIKit
 ///                                            holds one of the mic button's looks (the Thread and the sky follow; holding
 ///                                            pairs with MACROPHONE_FAKE_RECORDING for "let go to send")
 /// MACROPHONE_HITCH=1                         time each action to the next frame (`HitchProbe`), marked in recordings
+/// MACROPHONE_NO_WARMUP=1                     skip the first open's warm-up after launch (`MainView.warmPanel`), to compare
 /// MACROPHONE_A11Y=motion,transparency,contrast  the mic button as under Reduce Motion / Reduce Transparency / Increase
 ///                                            Contrast (the simulator can't flip those live; the button alone honours this)
 /// MACROPHONE_TYPE=xxxLarge|accessibility1…5  the whole app at that Dynamic Type size

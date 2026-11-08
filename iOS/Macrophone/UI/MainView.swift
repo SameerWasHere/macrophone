@@ -51,6 +51,8 @@ struct MainView: View {
     /// The phone layout's window panel is built and kept (Nov 7 2026): under the words it gives up
     /// its viewer (the strip has the video then).
     @State var panelDormant = true
+    /// The first open's pages and header, built unseen once after launch has settled (`warmPanel`).
+    @State var panelWarm = false
     @State var panelUp = false
     @State var panelTask: Task<Void, Never>?
     /// The pose's layout lies under full screen: its windows have no viewer (`poseBody`).
@@ -166,6 +168,8 @@ struct MainView: View {
         // Siri's signal: the screen's edge glows while the mic listens.
         .overlay(ListeningEdge(active: isRecording && look == nil || look == "holding", meter: recorder.meter))
         .background(VerticalBarProbe(present: $verticalBar).frame(width: 0, height: 0).accessibilityHidden(true))
+        // The first open's pages, built once ahead of it, unseen (`warmPanel`).
+        .background(alignment: .bottom) { if panelWarm { PagesWarmup(input: input, watcher: watcher) } }
         #if DEBUG
         .overlay(alignment: .topLeading) {
             if DebugHooks.env["MACROPHONE_ROUTE_PROBE"] == "1" {
@@ -177,6 +181,7 @@ struct MainView: View {
         .onChange(of: model.isConnected ? [watcher.canWatchDesktop, model.canMacControls] : []) { _, had in
             if had.count == 2 { barHadWholeScreen = had[0]; barHadControls = had[1] }
         }
+        .onChange(of: model.isConnected, initial: true) { _, on in warmPanel(connected: on) }
         .onChange(of: model.pulse) { _, _ in react() }
         .onChange(of: recorder.phase) { _, _ in react() }
         .onChange(of: recorder.hasWords) { _, _ in react() }
@@ -400,7 +405,7 @@ struct MainView: View {
                             // (Done's flight keeps the header while the view fades: laid out
                             // without it, the picture under the flying one jumped.)
                             WatchPanel(watcher: watcher, compact: compact, cover: isCover,
-                                       bare: isCover && input.keysUp || !panelShown && !zoom.leaving,
+                                       bare: isCover && input.keysUp || !panelShown && !zoom.leaving && !panelWarm,
                                        dormant: panelDormant && !panelShown && windowHere)
                                 .environment(\.watchWindowHidden, !panelShown)
                                 .environment(\.watchRestPicture, panelShown || watcher.isOpen ? nil
@@ -1599,6 +1604,31 @@ extension MainView {
     /// paired, a place with a window (the Clipboard has none).
     var showsDesktopWindow: Bool { model.isPaired && !posture.pose.isInner && model.selection.target != .clipboard }
 
+    /// The first open after launch, warmed ahead (Nov 7 2026): it held the main thread ~200 ms to
+    /// its first frame on the simulator, later opens ~75 — the difference SwiftUI building and
+    /// measuring, for the first time in the process, what only a window shows: the carousel's
+    /// keyboard and trackpad pages (the keyboard's field is the text system's first text view) and
+    /// the window's header. Once per launch, 0.7 s after the Mac first connects (past launch's own
+    /// frames and the connect's updates), those are built unseen for a quarter of a second — the
+    /// pages in `PagesWarmup`, the hidden panel's header (`bare` off) — then let go. Nothing shows,
+    /// takes a touch or is sent; a window already open, or the words up, skips it.
+    func warmPanel(connected: Bool) {
+        guard connected, !PanelWarmup.done, keepsPanel else { return }
+        PanelWarmup.done = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !panelShown, !showLiveWords else { return }
+            #if DEBUG
+            // MACROPHONE_NO_WARMUP=1: without it, to compare.
+            guard DebugHooks.env["MACROPHONE_NO_WARMUP"] != "1" else { return }
+            NSLog("WARM the first open's pages and header")
+            #endif
+            panelWarm = true
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            panelWarm = false
+        }
+    }
+
     /// The card's tap: what the Dock's second tap does. The card's picture lifts off at once, and
     /// flies to the window as it opens on the next turn of the run loop (`WindowZoom`).
     func watchFromCard() {
@@ -1669,6 +1699,9 @@ extension MainView {
         return .easeOut(duration: 0.1)
     }
 }
+
+/// The first open's warm-up has run in this process (`MainView.warmPanel`): once per launch.
+@MainActor enum PanelWarmup { static var done = false }
 
 /// The window view's fade, kept drawn while hidden.
 struct DockZoom: ViewModifier {
