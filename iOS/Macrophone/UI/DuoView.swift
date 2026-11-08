@@ -293,7 +293,7 @@ extension MainView {
                     FixedSlot(alignment: .top) {
                         Text("A").font(rowHidden ? .body : .subheadline).frame(maxWidth: .infinity)
                     } content: {
-                        StatusLine(recorder: recorder, holding: holding || look == "holding", font: rowHidden ? .body : .subheadline)
+                        StatusLine(recorder: recorder, holding: holding || look == "holding", font: rowHidden ? .body : .subheadline, legible: true)
                     }
                     .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                     .padding(.bottom, deck ? 2 : 6)

@@ -33,7 +33,9 @@ struct MenuExtraStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: MacOSLook.extraGlyph, weight: .semibold))
-            .symbolRenderingMode(.hierarchical)
+            // One ink, as a Mac's template extras are (Nov 8 2026): hierarchical drew the clock's
+            // face grey beside a solid display and gear.
+            .symbolRenderingMode(.monochrome)
             .foregroundStyle(on ? Light.cyan : Ink.ink)
             .opacity(enabled ? 1 : 0.35)
             .animation(.easeOut(duration: 0.2), value: enabled)

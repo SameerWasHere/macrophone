@@ -519,7 +519,7 @@ struct MainView: View {
                         if watching {
                             // One line in its 18 pt: a longer one (the trackpad's how-to) ran
                             // over the mic and its buttons above (Nov 4 2026).
-                            StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2, swap: true)
+                            StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2, swap: true, legible: true)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.85)
                                 .padding(.horizontal, 12)
@@ -537,7 +537,7 @@ struct MainView: View {
                                     FixedSlot(alignment: .top) {
                                         Text("A").font(.subheadline).frame(maxWidth: .infinity)
                                     } content: {
-                                        StatusLine(recorder: recorder, holding: holding || look == "holding", font: .subheadline)
+                                        StatusLine(recorder: recorder, holding: holding || look == "holding", font: .subheadline, legible: true)
                                     }
                                     .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                                 } else {
@@ -829,8 +829,10 @@ struct MainView: View {
 
     /// The bar's lower group at rest: Whole Screen and Mac Controls, each when the Mac offers it (or
     /// did when last connected, while it connects again).
-    var barWholeScreen: Bool { model.isConnected ? watcher.canWatchDesktop : barHadWholeScreen }
-    var barMacControls: Bool { model.isConnected ? model.canMacControls : barHadControls }
+    // With no Mac paired there's nothing to hold a place for (Nov 8 2026: after an unpair the
+    // bar kept a dimmed Whole Screen and Control Center beside "Pair your Mac").
+    var barWholeScreen: Bool { model.isConnected ? watcher.canWatchDesktop : (model.isPaired && barHadWholeScreen) }
+    var barMacControls: Bool { model.isConnected ? model.canMacControls : (model.isPaired && barHadControls) }
     /// Upright on the inner screen at rest, the system lays those out in a bar at the foot.
     var uprightFootBar: Bool { posture.pose.foldAcross && innerBarShown && (barWholeScreen || barMacControls) }
 
@@ -977,7 +979,7 @@ struct MainView: View {
                     Text(timerString(ctx.date.timeIntervalSince(start)))
                         .font(.mono(.subheadline, weight: .medium))
                         .monospacedDigit()
-                        .foregroundStyle(recorder.softCapReached ? Light.ochre : Ink.secondary)
+                        .foregroundStyle(recorder.softCapReached ? Light.ochre : Ink.tertiary)
                         .accessibilityLabel("Recording time \(Int(ctx.date.timeIntervalSince(start))) seconds")
                 }
             } else {
@@ -1048,7 +1050,7 @@ struct MainView: View {
                        // The desktop's empty state says it (the cover's, too short for its
                        // sentence, only gives the fix).
                        desktopSays: regularPhone && phoneSettings && desktopTrouble != nil,
-                       desktopFixes: phoneSettings && desktopTrouble != nil)
+                       desktopFixes: phoneSettings && desktopTrouble != nil, legible: true)
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
@@ -1831,14 +1833,23 @@ struct LandedPill: View {
                 ProgressView().controlSize(.small)
             } else if c.canUndo {
                 Rectangle().fill(Ink.line).frame(width: 1, height: 16)
-                Button { model.undo(id: c.id) } label: { Text("Undo").font(.footnote.weight(.semibold)) }
-                    .tint(Light.cyan)
-                    .accessibilityHint("Takes the paste back on your Mac.")
-                    .accessibilityIdentifier("landed-undo")
+                // The word in ink (Nov 8 2026): systemBlue on the glass over a wallpaper read at
+                // 1.5 : 1 in dark. Its touch is the pill's whole end, 44 pt tall — it was the
+                // word's own 16 pt.
+                Button { model.undo(id: c.id) } label: {
+                    Text("Undo").font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink)
+                        .padding(.leading, 2).padding(.trailing, 14)
+                        .frame(height: 36)
+                        .contentShape(Rectangle())
+                        .watchTouch(4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Takes the paste back on your Mac.")
+                .accessibilityIdentifier("landed-undo")
             }
         }
         .padding(.leading, c.thumbnail == nil ? 14 : 8)
-        .padding(.trailing, 14)
+        .padding(.trailing, c.canUndo && !c.undoing ? 0 : 14)
         .frame(height: 36)
         .watchGlass(Capsule())
         .fixedSize()
@@ -1891,12 +1902,15 @@ struct UndoChip: View {
                     UndoRing(until: c.undoUntil)
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Light.cyan)
                 }
                 .frame(width: 20, height: 20)
+                // Ink, the accent kept for the ring and its arrow (Nov 8 2026): blue words on the
+                // glass over a wallpaper read at ~1.5 : 1 in dark, ~2.5 : 1 in light.
                 Text("Undo Paste")
                     .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Ink.ink)
             }
-            .foregroundStyle(Light.cyan)
             .padding(.leading, 8)
             .padding(.trailing, 12)
             .frame(height: 32)

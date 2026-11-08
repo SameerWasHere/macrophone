@@ -40,6 +40,10 @@ struct CustomCleanupView: View {
                 Spacer()
                 Button("Done") { focused = false }.fontWeight(.semibold)
             }
+            // Centred on the Duo's cover too (it lays an inline title at the leading edge).
+            if VerticalBarProbe.edge != nil {
+                ToolbarItem(placement: .principal) { Text("Custom Cleanup").font(.headline) }
+            }
         }
         .onAppear {
             text = settings.customInstructions.isEmpty ? CleanupPrompts.defaultCustomInstructions : settings.customInstructions

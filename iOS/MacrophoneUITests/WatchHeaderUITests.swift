@@ -37,6 +37,10 @@ final class WatchHeaderUITests: XCTestCase {
                     // The window live (its Mac connected, its features known), then a moment for
                     // the alert watch to reach the Mac and the bell to come (the actions are 2 s apart).
                     let windowMenu = app.buttons["watch-window"]
+                    // A fresh simulator asks about notifications at the first alert watch; the
+                    // prompt takes the app out of the front and its window view waits under it.
+                    let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
+                    if alert, allow.waitForExistence(timeout: 6) { allow.tap() }
                     expectation(for: NSPredicate(format: "exists == true AND enabled == true"), evaluatedWith: windowMenu)
                     waitForExpectations(timeout: 25)
                     sleep(4)

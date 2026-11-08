@@ -2373,7 +2373,7 @@ heading and a footer of a sentence or two, in the order of use: the Mac banner �
 **Cleanup** (the level with what it does right under it in the same row — ochre when unavailable —,
 Custom instructions, Dictionary; one section, no footer between) · **Watching** (Show the app after
 sending, Trackpad speed — Reset beside the value off Normal, `trackpad-speed-reset`, no extra row)
-· **Alerts** (When an agent asks something, the iCloud status row, the windows on watch with a red
+· **Alerts** (When an agent asks you — Nov 8: "…asks something" wrapped on a Pro —, the iCloud status row, the windows on watch with a red
 Stop capsule) · **Appearance** · **Devices** (the Macs listed only with two or more — one Mac is
 the banner, Unpair on its page —, Pair Another Mac, This iPhone's name) · **History** · **About**.
 The inner screen's sidebar (`SettingsGroup`) is the same sections one for one: dictation, cleanup,
@@ -2698,6 +2698,56 @@ rendered sounds: `docs/screens/delight-nov8/`.
   verification; worth its own pass), a menu bar clock (the status bar already shows the time), the
   pick's icon breathing while a chat answers (the ember dot says it), the Mac's wallpaper washing in
   as they meet (the wallpaper arrives after the success page).
+
+## Design polish (Nov 8 2026)
+
+Sameer, going to sleep: "another round of design polish on the iOS app. Clean up any rough edges
+you find." Walked on an iPhone 17 Pro (27.0; the SE frame; light, dark, accessibility-large) and a
+Duo (27.1: the cover, flat on its side, the book, flat upright, the laptop, full screen) against
+`mpctl serve`, every sheet and Settings page, frames and recordings. Most of the app held up; what
+was rough was mostly **words over the wallpaper**. Frames: `docs/screens/polish-nov8/` (before |
+after per area; `walk-pro.png` / `walk-duo.png` the states walked).
+- **The status line reads over any wallpaper** (`StatusLine(legible:)`, true everywhere but setup's
+  white page, which keeps its look): secondaryLabel straight on the Mac's picture under the veil
+  measured ~2 : 1 over the demo's blue, and a miss set in red ~1.6 : 1 ("Didn't land in Claude…"
+  all but vanished). Now the words are the label colour on a soft halo of the ground, and the
+  meaning is in the mark — the coloured dot, the ✓, and for a miss `exclamationmark.circle.fill` in
+  its colour (rose, or ochre for "copied instead"); "Open Settings" is semibold ink.
+- **`Ink.tertiary` does what its comment says**: 0.42 grey / systemGray read ~2 : 1 over a
+  mid-blue picture (the recording's "To Terminal · Medium cleanup", the window row's hints); now
+  0.33 in light and 0.64 in dark (~3 : 1 / ~4 : 1). The recording clock uses it (was secondaryLabel).
+- **Undo you can read and hit:** the landed pill's Undo was systemBlue on its glass (1.45 : 1
+  measured in dark) and its touch the word's own 16 pt — now ink, its touch the pill's whole
+  trailing end, 44 pt tall (`watchTouch(4)` on a 36 pt row). The Undo Paste chip keeps the accent on
+  its draining ring and arrow, its words in ink. Ids unchanged (`landed-undo`, `landed-undo-chip`).
+- **A picked window that's gone is named by its app:** "That Terminal window isn't open on your Mac
+  — it'll be copied instead", not the window's whole title (it ran to three shrunken lines under the
+  cover's mic). An app that isn't open still says its own name.
+- **Menu bar extras in one ink** (`MenuExtraStyle`: `.monochrome`, was `.hierarchical`, which drew
+  the clock's face grey beside a solid display and gear) — as a Mac's template extras.
+- **Nothing held for a Mac that isn't paired:** after an unpair the phone's menu bar (and the
+  cover's bar) kept a dimmed Whole Screen and Control Center beside "Pair your Mac" — `bar.had.*`
+  counts only while a Mac is paired.
+- **Settings › Alerts:** "When an agent asks something" wrapped to two lines on a Pro; it's "When an
+  agent asks you".
+- **The cover's sheets centre their titles** (Open an App, Custom Cleanup — a `.principal` title
+  where `VerticalBarProbe.edge` is set, as pairing does); the cover had laid them at the leading edge.
+- **Tests:** `UndoChipUITests`, `InputCarouselUITests` (4), `StabilityUITests`, `WatchHeaderUITests`,
+  `DesktopWindowUITests` pass. `WatchHeaderUITests.testTheNameReadsWhole` failed on a fresh
+  simulator — the first alert watch raises the notifications prompt and the window view waits
+  under it (header bare, "Connecting…"); the test now taps Allow as the others do (not a UI bug).
+  The cover's keyboard-bar test skips on a Pro, as before.
+- **Seen and left:** `mpctl serve` takes one new pairing per run (a second phone gets "Open Macrophone
+  on your Mac and choose Pair iPhone" until serve restarts) — a stand-in limit, noted for whoever
+  pairs two simulators. `MACROPHONE_TYPE` doesn't reach sheets (use `simctl ui content_size`). The
+  bright mic disc shows through medium-detent glass sheets (Your Macs, Control Center) as a soft
+  white spot — the system's glass. Control Center's slider fill is black in light (a choice, not a
+  bug); its two brightness glyphs (sun.min / sun.max) read nearly alike. The unpaired panel still
+  says "Cleanup: Off" (the Dock's bar says "Off" — round 4 kept the long form off the Dock). The
+  cover shows "Pair your Mac" three ways at once unpaired (pill, empty state, status line — designed,
+  Nov 5). The desktop card's "Show the Terminal window here" runs into its eye badge at accessibility
+  sizes, and the card said "Terminal isn't open" for a stale window of an open Terminal — the card is
+  another stream's (left alone). The demo window letterboxes in every pose (it can't reshape).
 
 ## The ten polish ideas (Nov 5 2026)
 

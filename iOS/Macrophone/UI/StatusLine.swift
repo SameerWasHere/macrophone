@@ -22,9 +22,14 @@ struct StatusLine: View {
     /// The desktop's empty state has the Open Settings button (the Duo's cover, where it's too
     /// short to say the rest): the line keeps its words without a link of its own.
     var desktopFixes = false
+    /// Over the Mac's wallpaper (every place but setup's white page — Nov 8 2026): the words in
+    /// the label colour on a halo of the ground, the meaning in the mark alone. Grey and red words
+    /// read at 1.6–2 : 1 over the demo's blue and lilac — "Didn't land in Claude" all but vanished.
+    var legible = false
     @ScaledMetric(relativeTo: .subheadline) private var dotSize: CGFloat = 7
 
-    init(recorder: Recorder, holding: Bool, font: Font = .subheadline, swap: Bool = false, desktopSays: Bool = false, desktopFixes: Bool = false) {
+    init(recorder: Recorder, holding: Bool, font: Font = .subheadline, swap: Bool = false, desktopSays: Bool = false, desktopFixes: Bool = false, legible: Bool = false) {
+        self.legible = legible
         self.recorder = recorder
         self.words = recorder.words
         self.holding = holding
@@ -79,18 +84,25 @@ struct StatusLine: View {
     private func line(_ text: String, _ color: Color, link: Bool, check: Bool, miss: Bool = false) -> some View {
         // The dot rides in the sentence, so it stays beside the first word however the line wraps.
         // Landed where it was meant to go: a ✓ in its place.
-        let mark = check
-            ? Text(Image(systemName: "checkmark")).font(.subheadline.weight(.bold)).foregroundColor(color)
-            : Text(Image(systemName: "circle.fill")).font(.system(size: dotSize)).foregroundColor(color).baselineOffset(dotSize * 0.2)
-        // A landing that missed is set in its own colour too, so it can't be read as a success.
-        var t = mark + Text("\u{2002}") + (miss ? Text(text).foregroundColor(color) : Text(text))
-        if link { t = t + Text("  Open Settings").foregroundColor(Light.cyan).fontWeight(.semibold) }
+        let mark: Text
+        if check {
+            mark = Text(Image(systemName: "checkmark")).font(.subheadline.weight(.bold)).foregroundColor(color)
+        } else if miss, legible {
+            // Over a wallpaper the words are ink, so a miss says itself in its mark.
+            mark = Text(Image(systemName: "exclamationmark.circle.fill")).font(.subheadline.weight(.semibold)).foregroundColor(color)
+        } else {
+            mark = Text(Image(systemName: "circle.fill")).font(.system(size: dotSize)).foregroundColor(color).baselineOffset(dotSize * 0.2)
+        }
+        // A landing that missed is set in its own colour too, so it can't be read as a success
+        // (on a page; over a wallpaper its mark does that).
+        var t = mark + Text("\u{2002}") + (miss && !legible ? Text(text).foregroundColor(color) : Text(text))
+        if link { t = t + Text("  Open Settings").foregroundColor(legible ? Ink.ink : Light.cyan).fontWeight(.semibold) }
         return t
             .font(font)
-            .foregroundStyle(Ink.secondary)
+            .foregroundStyle(legible ? Ink.ink : Ink.secondary)
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.6)
-            .shadow(color: color.opacity(0.25), radius: 6)
+            .shadow(color: legible ? Ink.ground.opacity(0.7) : color.opacity(0.25), radius: legible ? 5 : 6)
     }
 
     private var landedWell: Bool {
@@ -134,6 +146,13 @@ struct StatusLine: View {
             case .connected, _ where model.returning:
                 // The pick closed on the Mac: say so before he talks, not after.
                 if model.isNotOpen(model.selection.target) {
+                    // A window gone from an app that's still open: the app's name, not the window's
+                    // whole title — "Terminal — claude — ~/Projects/…/MacrophoneKit — 120×40 isn't
+                    // open" ran to three shrunken lines under the cover's mic (Nov 8 2026).
+                    if case let .app(bid, key?, _) = model.selection.target, !key.isEmpty,
+                       let app = model.liveTargets.first(where: { $0.bundleID == bid })?.appName {
+                        return ("That \(app) window isn't open on your Mac — it'll be copied instead", Light.ochre)
+                    }
                     return ("\(model.selection.target.displayName) isn't open on your Mac — it'll be copied instead", Light.ochre)
                 }
                 // Ready and connected: nothing to say (Oct 19 2026, Sameer: "the subtext under the

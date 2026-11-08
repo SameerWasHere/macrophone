@@ -418,7 +418,7 @@ struct SettingsView: View {
             .accessibilityIdentifier("chat-answers")
             .onChange(of: settings.chatAnswers) { _, on in model.setChatAnswers(on) }
             Toggle(isOn: $settings.agentAlerts) {
-                Label { Text("When an agent asks something") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
+                Label { Text("When an agent asks you") } icon: { SettingsIcon(symbol: "bell.badge.fill", color: Light.rose) }
             }
             .onChange(of: settings.agentAlerts) { _, on in
                 Task {
