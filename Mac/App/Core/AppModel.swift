@@ -26,6 +26,9 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     let popup = PopupController()
     /// Accessibility and Screen Recording, read live (Permissions.swift).
     let permissions = PermissionsMonitor()
+    /// This Mac's Tailscale, read live (Tailscale.swift): the Away guide's checks, and Remote
+    /// access turning itself on once it's connected.
+    let tailscale = TailscaleMonitor()
     let api: LocalAPIServer
     private(set) var delivery: DeliveryEngine!
     /// A phone watching the window it sends to (WatchService).
@@ -202,6 +205,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
             .store(in: &bag)
 
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        tailscale.onChange = { [weak self] s in self?.tailscaleChanged(s) }
     }
 
     func start() {
@@ -210,10 +214,11 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.start()
         // The addresses follow the network: Tailscale starting or stopping, a new Wi-Fi.
         let m = NWPathMonitor()
-        m.pathUpdateHandler = { [weak self] _ in Task { @MainActor in self?.refreshRemoteAddresses() } }
+        m.pathUpdateHandler = { [weak self] _ in Task { @MainActor in self?.tailscale.refresh(); self?.refreshRemoteAddresses() } }
         m.start(queue: DispatchQueue(label: "macrophone.path", qos: .utility))
         pathMonitor = m
         if settings.apiEnabled { api.start() } else { apiState = .off }
+        tailscale.refresh()
         attention.update()
         pushStatus()
         // Nothing lands without Accessibility: ask at launch, which also puts Macrophone in the list.
@@ -262,6 +267,26 @@ final class AppModel: ObservableObject, LinkServerDelegate {
             self.log.add("remote addresses: \(list.count) (Tailscale \(list.contains { $0.isTailscale } ? "yes" : "no"))")
             self.server.broadcastRemoteAddresses(list)
         }
+    }
+
+    /// Tailscale connected on this Mac: Remote access comes on by itself, unless the person has
+    /// switched it themselves (then their choice stands). The addresses follow either way.
+    private func tailscaleChanged(_ s: TailscaleState) {
+        log.add("tailscale: \(s.connected ? "connected" : s.running ? "open, not connected" : s.installed ? "installed, not open" : "not installed")")
+        if s.connected, !settings.remoteAccess, !settings.remoteAccessChosen {
+            settings.remoteAccess = true
+            log.add("remote access turned on by itself: Tailscale is connected")
+        }
+        refreshRemoteAddresses()
+    }
+
+    /// When a paired phone last reached this Mac from away (the Away guide's last check).
+    var lastReachedAway: Date? {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["MACROPHONE_FAKE_AWAY"] == "1" { return Date().addingTimeInterval(-7200) }
+        #endif
+        let ids = Set(peers.map(\.id.uuidString))
+        return settings.reachedAway.filter { ids.contains($0.key) }.values.max().map { Date(timeIntervalSince1970: $0) }
     }
 
     /// The Tailscale address among them, if Tailscale is running here.
@@ -473,6 +498,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func forget(_ peer: PairedPeer) {
         settings.deviceNames[peer.id.uuidString] = nil
+        settings.reachedAway[peer.id.uuidString] = nil
         Task {
             await server.forget(peer.id)
             peers = server.store.peers()
@@ -605,6 +631,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     }
 
     func linkServer(_ server: LinkServer, didUnpair peerID: UUID) {
+        settings.reachedAway[peerID.uuidString] = nil
         peers = server.store.peers()
         connected.remove(peerID)
         pushStatus()
@@ -614,6 +641,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         connected.insert(peer.id)
         if server.isRemote(peer.id) { remotePeers.insert(peer.id) } else { remotePeers.remove(peer.id) }
         peerRoutes[peer.id] = server.route(peer.id)
+        if peerRoutes[peer.id]?.isAway == true { settings.reachedAway[peer.id.uuidString] = Date().timeIntervalSince1970 }
         phoneVersions[peer.id] = "\(appVersion) · \(os)"
         // A phone renamed on the iPhone brings its new name in its hello; the store has it and
         // so does `peer`. (A name given on this Mac still wins — displayName.)

@@ -82,6 +82,8 @@ final class Settings: ObservableObject {
     @Published var clipboardNotification: Bool { didSet { d.set(clipboardNotification, forKey: "clipboardNotification") } }
     @Published var historyEnabled: Bool { didSet { d.set(historyEnabled, forKey: "historyEnabled") } }
     @Published var apiEnabled: Bool { didSet { d.set(apiEnabled, forKey: "apiEnabled") } }
+    /// The first-run window has been seen and closed (finished, skipped or closed — it never
+    /// opens by itself again; Pair Another iPhone… and General › Set Up Again open it by hand).
     @Published var hasCompletedSetup: Bool { didSet { d.set(hasCompletedSetup, forKey: "hasCompletedSetup") } }
     @Published var askedForNotifications: Bool { didSet { d.set(askedForNotifications, forKey: "askedForNotifications") } }
 
@@ -98,6 +100,18 @@ final class Settings: ObservableObject {
     @Published var remoteAccess: Bool { didSet { d.set(remoteAccess, forKey: "remoteAccess") } }
     /// The fixed port remote access listens on (shown next to the addresses).
     @Published var remotePort: Int { didSet { d.set(remotePort, forKey: "remotePort") } }
+    /// The person flipped Remote access themselves (Nov 7 2026). Until they do, Macrophone turns
+    /// it on by itself the moment Tailscale is connected on this Mac; after, their choice stands.
+    @Published var remoteAccessChosen: Bool { didSet { d.set(remoteAccessChosen, forKey: "remoteAccessChosen") } }
+    /// Paired phones that have reached this Mac from away (peer id → when, seconds since 1970):
+    /// the Away guide's last step stays green after the phone goes.
+    @Published var reachedAway: [String: Double] { didSet { d.set(reachedAway, forKey: "reachedAway") } }
+
+    /// Remote access switched by hand (Devices, the setup's Away page).
+    func chooseRemoteAccess(_ on: Bool) {
+        remoteAccessChosen = true
+        if remoteAccess != on { remoteAccess = on }
+    }
 
     init() {
         // Before live targets there was a "delivery mode": it becomes the first Send to choice
@@ -130,6 +144,8 @@ final class Settings: ObservableObject {
         remoteAccess = d.bool(forKey: "remoteAccess")
         let port = d.integer(forKey: "remotePort")
         remotePort = (1024...65_535).contains(port) ? port : Int(RemoteAddressRule.defaultPort)
+        remoteAccessChosen = d.bool(forKey: "remoteAccessChosen")
+        reachedAway = d.dictionary(forKey: "reachedAway") as? [String: Double] ?? [:]
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
         // Retired with live targets: the Return list and per-app rules (the phone's "Send after pasting"

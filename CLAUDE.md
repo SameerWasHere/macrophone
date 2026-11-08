@@ -1943,6 +1943,88 @@ Dock, as wide as its icons. serve's `stdout()` flushes each line. `DesktopWindow
 very first time on a fresh simulator (no kept picture: the card's plate becomes the picture after the
 first open); it passes after.
 
+## Setup on the Mac, and Tailscale guided (Nov 7 2026)
+
+Sameer: "the QR code pops up on the Mac even when a phone is paired and that is a bit confusing …
+we need to stick with Tailscale … make setting up with Tailscale easy and the Mac app and iOS app
+should guide users through the setup clearly". The Mac side (the iPhone's was another agent's).
+Wins over the older setup and Away-from-home words below. Frames: `docs/screens/setup-nov7/mac/`
+(`before/`, `after/` light and dark, `sheet-*.png`).
+- **Why the code showed with a phone paired:** the launch opened the pairing page whenever
+  `hasCompletedSetup` was false — and only Done on the last page set it. Closing the window after
+  pairing, quitting mid-run, or a reinstall that kept its pairings (keychain + the support folder,
+  not the defaults) brought the QR back on every launch. General's "Show the welcome again" also
+  opened on the code. Now (`AppDelegate.firstLaunch`): nothing paired → the first run; a phone
+  paired and setup not done → the first run *after* pairing (only what's missing), or no window
+  at all when the grants are on and it opens at login (log: "setup: a phone was already paired
+  …"). **Any close of the setup window ends the first run** (`windowWillClose` sets
+  `hasCompletedSetup` — Done, Set Up Later, the close button); it never opens by itself again.
+  Pairing another phone is only ever asked for: **Pair Another iPhone…** in Devices and the menu
+  (Pair Your iPhone… with none).
+- **Modes and pages** (`UI/Setup/SetupWindow.swift`): `SetupMode` `.firstRun` (pair · permissions
+  · away · all set, each skipped when it's done — `SetupWindowController.isDone`: a phone paired,
+  both grants, Remote access on with Tailscale connected) · `.pair` (the code, then Paired, Done)
+  · `.permissions` (a phone's "Open Macrophone on my Mac") · `.away` (the guide alone).
+  `start(mode)` resets; `next()` / `back()` walk a first run (`nav.history`; pairing is never
+  behind Back). The code is open only while its page shows (leaving it calls `endPairing`). Five
+  pages became four: **login and "Where dictations go" folded into one "You're all set" page**
+  (`AllSetPage`: "Open Macrophone when I log in" as a checkbox, the menu bar / shortcut line; Send
+  to is picked on the phone, and the main window has the card). Words: "Pair another iPhone" when
+  one's paired, "Paired" no longer promises the clipboard (a fresh phone picks Where I'm typing),
+  the permissions page is "Allow Macrophone to work your Mac", the code check is a sheet with
+  **Don't Pair / Pair** (`CodeApproval`, was an overlay with They Match).
+- **Looks like Setup Assistant** (`UI/Setup/SetupLook.swift`): the window follows the system's
+  light or dark (`SystemAppearance`, read from `AppleInterfaceStyle` and followed live — the app
+  forces dark everywhere else, so `window.appearance = nil` would stay dark), the system's window
+  background, `SetupPage` (a 50 pt symbol, a 26 pt bold title, one sentence, the content, the
+  buttons along the foot: Back left, the one thing to do right, large controls), system buttons,
+  the app's accent. No step dots, no serif, no uppercase kicker. `CheckList` / `CheckRow` /
+  `CheckDivider` / `GuideButton` draw a checklist natively, or as the window's plates and pills
+  under `.environment(\.guideLook, .pane)`.
+- **Tailscale, guided** (`Core/Tailscale.swift`, `UI/Components/AwayGuide.swift`):
+  `TailscaleMonitor` (`model.tailscale`) sees installed (`io.tailscale.ipn.macsys` /
+  `.macos`, or `/Applications/Tailscale.app`), running, connected (a 100.64.0.0/10 address on an
+  interface — `NetworkAddresses`, no CLI) and the MagicDNS name (reverse lookup, cached per
+  address); every 2 s while a guide shows, and on every path change and at launch otherwise. It
+  only looks. `AwayGuide`, five steps, each a green check when done, the next one's number lit:
+  1 **Get Tailscale** (the Mac App Store, id1475387142) · 2 **Sign in** (Open Tailscale; "open
+  but not connected" said) · 3 **Turn on Remote access** (a switch) · 4 **Tailscale on your
+  iPhone** (a QR code to the iOS App Store, id1470499037) · 5 **Your iPhone can reach this Mac
+  away from home** — green once a paired phone has connected over an away route
+  (`settings.reachedAway`, per peer, kept after it disconnects, dropped on forget/unpair;
+  `AppModel.lastReachedAway`; step 4 counts as done then too); before that it says what to do
+  ("turn off Wi-Fi on your iPhone and open Macrophone" while one is connected here).
+  **Remote access turns itself on once Tailscale is connected** (`AppModel.tailscaleChanged`,
+  log "remote access turned on by itself") unless he switched it himself
+  (`settings.remoteAccessChosen`, set by `chooseRemoteAccess` — the guide's and Devices' switch);
+  it never turns itself off. The first run offers it as its last optional step ("Use it away from
+  home": three lines — from anywhere · private · free — **Not Now / Set Up**; straight to the
+  steps when Tailscale is already installed); Devices › Away from home is the same guide on
+  plates, with the port-forwarding way folded into a **Without Tailscale** disclosure (the local
+  addresses with Copy, the port, one sentence). No wire change: the phone already gets
+  `.remoteAddresses` when Remote access is on (a 100.x address in it = the Mac is ready).
+- **General › Set up again** (was "Show the welcome again") opens the first run, skipping what's
+  done; it never shows the code (pairing another phone is Devices').
+- Hooks (DEBUG): `MACROPHONE_QUIET_WINDOWS=1` (windows open behind everything, never key, no Dock
+  icon, no activation, no Accessibility prompt — `screencapture -l <id>` still reads them; the
+  setup's shots were taken that way while he used this Mac), `MACROPHONE_APPEARANCE=light|dark`,
+  `MACROPHONE_SHOW=setup | setup-pair | setup-paired | setup-paired-generic | setup-permissions |
+  setup-away | setup-away-intro | setup-done | code-approval`, `MACROPHONE_FAKE_TAILSCALE=missing|
+  installed|running|connected`, `MACROPHONE_FAKE_AWAY=1`, `MACROPHONE_FAKE_GRANTS=both|none|
+  accessibility|screen`, `MACROPHONE_FAKE_LOGIN=1`, `MACROPHONE_WITHOUT_TAILSCALE=1` (the
+  disclosure open). `MACROPHONE_FAKE_PEERS` now stages at once too (the first launch decides from it).
+- **Proven** with a Debug copy (`MACROPHONE_INSTANCE`, fresh state, quiet windows): fresh launch →
+  the code; a real pairing with `mpctl pair` → Paired (name it); killed, `hasCompletedSetup` set
+  back to NO, relaunched → the permissions page, not the code (log "setup: a phone was already
+  paired — the setup starts after pairing"); paired + grants + login item → no window; relaunch
+  after that → no window. `swift test` passes (242).
+- **Needs a real check:** Get Tailscale / Open Tailscale on a Mac without it (the App Store page,
+  the app opening); the MagicDNS name's reverse lookup on his tailnet; Remote access switching
+  itself on when his Tailscale connects (log line); step 5 turning green after his phone connects
+  over Tailscale from cellular; the window's light / dark following a switch in System Settings
+  while it's open; the default button's accent tint (the shots are of a window that isn't key, so
+  every button reads grey).
+
 ## Trackpad speed (Nov 7 2026)
 
 Sameer: "a trackpads sensitivity toggle in setting". Settings › (under Show the app after sending)
@@ -2587,14 +2669,14 @@ names, `isLocal` — private, link-local, loopback —, `parse("host[:port]")`, 
 Tailscale → MagicDNS name → typed → local, `merge`: the Mac's list replaces its own, the typed one
 stays), `NetworkAddresses` (this Mac's addresses off `getifaddrs`, the MagicDNS name by a reverse
 lookup — no Tailscale CLI). Unit tests in `RemoteAccessTests`.
-- **Mac:** Devices › Away from home — Remote access (off by default; `Settings.remoteAccess`,
+- **Mac:** Devices › Away from home — Remote access (off by default **[Nov 7 2026: on by itself once Tailscale is connected, unless switched by hand]**; `Settings.remoteAccess`,
   `remotePort`, default 47821). On, `LinkServer.setRemote` listens on the fixed port and takes
   connections from beyond the network; off, a connection from away (`!isLocal(source)`) is closed
   before any handshake. `AppModel.refreshRemoteAddresses` (on listener ready, the setting, an
   `NWPathMonitor` change) publishes the list and `broadcastRemoteAddresses` to phones whose hello
   named `"remote"` (`RemoteAccess.feature`); the pane shows the Tailscale address and name (or Get
   Tailscale), the local addresses with Copy, the port, and two sentences on Tailscale / port
-  forwarding. `SecureSession.isRemote`, `LinkServer.isRemote(peer)`, `AppModel.remotePeers` —
+  forwarding **[superseded Nov 7 2026: the five-step `AwayGuide`, the rest under Without Tailscale — "Setup on the Mac, and Tailscale guided"]**. `SecureSession.isRemote`, `LinkServer.isRemote(peer)`, `AppModel.remotePeers` —
   the status line says "· away from home"; `WatchService` sends a remote phone narrower pictures
   (1000 px, quality 0.45, 400 KB ceiling: the only touch in the watch code).
 - **Phone:** `.remoteAddresses` lands in `PairedPeer.remoteAddresses` (`PairingStore.update`; a
@@ -2615,7 +2697,7 @@ lookup — no Tailscale CLI). Unit tests in `RemoteAccessTests`.
 
 ## Permissions on the Mac, and the video lane away from home (Oct 19 2026)
 
-**Permissions.** The Mac's setup is pair · paired · login · **permissions** · modes (four dots).
+**Permissions.** The Mac's setup is pair · paired · login · **permissions** · modes (four dots) **[superseded Nov 7 2026: pair · permissions · away · all set, each skipped when done, no dots; the setup's rows are `CheckRow`s, General keeps `PermissionRows`]**.
 `Mac/App/Core/Permissions.swift` (`PermissionsMonitor`, on `AppModel.permissions`) reads
 `AXIsProcessTrusted` / `CGPreflightScreenCaptureAccess` every second while a page showing them is
 open, every ten otherwise, and on app activation — it only reads; each row's "Open System

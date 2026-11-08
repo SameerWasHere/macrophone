@@ -71,8 +71,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if DebugHooks.run(self) { return }
         #endif
 
-        if !model.settings.hasCompletedSetup {
-            openSetup(.pair)
+        firstLaunch()
+    }
+
+    /// The first launch shows the setup — but never the pairing code once a phone is paired (a
+    /// reinstall that kept its pairings, a first run closed after pairing): then only what's
+    /// still missing, and nothing at all when it's all there already (Nov 7 2026).
+    func firstLaunch() {
+        let settings = model.settings
+        guard !settings.hasCompletedSetup else { return }
+        if model.peers.isEmpty {
+            openSetup(.firstRun)
+            return
+        }
+        let granted = model.permissions.accessibility && model.permissions.screenRecording
+        if granted && model.launchAtLogin {
+            settings.hasCompletedSetup = true
+            model.log.add("setup: a phone was already paired and nothing's missing — no setup window")
+        } else {
+            model.log.add("setup: a phone was already paired — the setup starts after pairing")
+            openSetup(.firstRun)
         }
     }
 
@@ -105,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let w = mainWindow?.window { present(w) }
     }
 
-    func openSetup(_ step: SetupStep) {
+    func openSetup(_ mode: SetupMode) {
         if setupWindow == nil {
             setupWindow = SetupWindowController(model: model)
             setupWindow?.onClose = { [weak self] in
@@ -114,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.windowClosed()
             }
         }
-        setupWindow?.go(step)
+        setupWindow?.start(mode)
         model.setWindowOpen(true)
         becomeRegular()
         if let w = setupWindow?.window {
@@ -144,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             becomeRegular()
             present(w)
         } else {
-            openSetup(.pair)
+            openSetup(model.peers.isEmpty && !model.settings.hasCompletedSetup ? .firstRun : .pair)
         }
         NSApp.requestUserAttention(.criticalRequest)
     }

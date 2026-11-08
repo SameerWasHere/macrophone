@@ -12,12 +12,13 @@ struct DevicesPane: View {
     @State private var portDraft = ""
     @FocusState private var portFocused: Bool
     @State private var copied: String?
+    @State private var withoutTailscale = false
 
     var body: some View {
         PanePage {
             PaneHeader(title: "Devices", subtitle: "iPhones paired with this Mac. They talk directly over your network — no account, no server.") {
                 if !model.peers.isEmpty {
-                    Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair iPhone…", systemImage: "qrcode") }
+                    Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair Another iPhone…", systemImage: "qrcode") }
                         .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                         .help("Show a code to scan with another iPhone")
                 }
@@ -26,11 +27,11 @@ struct DevicesPane: View {
             if model.peers.isEmpty {
                 Plate {
                     EmptyState(title: "No iPhone paired yet",
-                               detail: "Get Macrophone for iPhone from the App Store, then pair it with a code this Mac shows.") {
+                               detail: "Get Macrophone for iPhone from the App Store, then scan the code this Mac shows.") {
                         Image(systemName: "iphone.gen3").font(.system(size: 34, weight: .light)).foregroundStyle(Ink.tertiary)
                             .accessibilityHidden(true)
                     } action: {
-                        Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair iPhone…", systemImage: "qrcode") }
+                        Button { AppDelegate.shared?.openSetup(.pair) } label: { Label("Pair Your iPhone…", systemImage: "qrcode") }
                             .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
                             .keyboardShortcut(.defaultAction)
                     }
@@ -61,7 +62,12 @@ struct DevicesPane: View {
             awayFromHome
             WakeForNetworkNote()
         }
-        .onAppear { portDraft = String(model.settings.remotePort) }
+        .onAppear {
+            portDraft = String(model.settings.remotePort)
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["MACROPHONE_WITHOUT_TAILSCALE"] == "1" { withoutTailscale = true }
+            #endif
+        }
         .confirmationDialog("Forget \(forgetting.map(model.displayName) ?? "this iPhone")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })) {
             Button("Forget", role: .destructive) { if let p = forgetting { model.forget(p) }; forgetting = nil }
         } message: {
@@ -85,82 +91,46 @@ struct DevicesPane: View {
 
     // MARK: Away from home (remote access)
 
+    /// Tailscale, step by step (AwayGuide), then the way without it, folded away.
     @ViewBuilder private var awayFromHome: some View {
-        let settings = model.settings
-        PaneSection("Away from home") {
-            Plate {
-                PlateRow(title: "Remote access",
-                         subtitle: settings.remoteAccess
-                            ? "Your paired iPhone can reach this Mac from anywhere it can reach this address — only iPhones paired here, and the link is encrypted the same way as at home."
-                            : "Off: your iPhone reaches this Mac only on this network and nearby.",
-                         icon: "globe") {
-                    Toggle("", isOn: Binding(get: { settings.remoteAccess }, set: { settings.remoteAccess = $0 }))
-                        .toggleStyle(.switch).labelsHidden()
-                        .accessibilityLabel("Remote access")
-                }
-                if settings.remoteAccess {
-                    PlateDivider()
-                    if let ts = model.tailscaleAddress {
-                        addressRow(title: "Over Tailscale", address: ts, icon: "point.3.connected.trianglepath.dotted", tint: Light.cyan,
-                                   note: model.tailscaleName.map { "Also \($0.display)" } ?? "Works from anywhere, as long as Tailscale is on for both.")
-                    } else {
-                        PlateRow(title: "Over Tailscale", subtitle: "Tailscale isn't running on this Mac. Install it (free), sign in, and this Mac's Tailscale address appears here.",
-                                 subtitleColor: Light.ochre, icon: "point.3.connected.trianglepath.dotted", iconColor: Light.ochre) {
-                            Link("Get Tailscale", destination: URL(string: "https://tailscale.com/download")!)
-                                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                                .accessibilityLabel("Get Tailscale on the web")
+        PaneSection("Away from home",
+                    note: "Tailscale is free. Your iPhone and this Mac find each other through your own Tailscale account — Macrophone still has no server, and only iPhones paired here can connect.") {
+            AwayGuide(model: model).environment(\.guideLook, .pane)
+        }
+        VStack(alignment: .leading, spacing: Space.label) {
+            DisclosureGroup(isExpanded: $withoutTailscale) {
+                VStack(alignment: .leading, spacing: Space.label) {
+                    Plate {
+                        if model.settings.remoteAccess {
+                            ForEach(model.localAddresses, id: \.self) { a in
+                                addressRow(title: "On this network", address: a, icon: "wifi", tint: Ink.secondary,
+                                           note: "Reachable from outside only if your router forwards port \(a.port) to this Mac.")
+                                PlateDivider()
+                            }
+                        }
+                        PlateRow(title: "Port", subtitle: "Change it only if something else on this Mac uses it.", icon: "number") {
+                            TextField("Port", text: $portDraft)
+                                .textFieldStyle(.roundedBorder)
+                                .font(Typeface.mono(12.5, .medium))
+                                .frame(width: 76)
+                                .multilineTextAlignment(.trailing)
+                                .focused($portFocused)
+                                .onSubmit { commitPort() }
+                                .onChange(of: portFocused) { _, f in if !f { commitPort() } }
+                                .accessibilityLabel("Remote access port")
                         }
                     }
-                    ForEach(model.localAddresses, id: \.self) { a in
-                        PlateDivider()
-                        addressRow(title: "On this network", address: a, icon: "wifi", tint: Ink.secondary,
-                                   note: "From outside, only if you forward port \(a.port) to this Mac on your router.")
-                    }
-                    PlateDivider()
-                    PlateRow(title: "Port", subtitle: "The port in the addresses above. Change it only if something else on this Mac uses it.", icon: "number") {
-                        TextField("Port", text: $portDraft)
-                            .textFieldStyle(.roundedBorder)
-                            .font(Typeface.mono(12.5, .medium))
-                            .frame(width: 76)
-                            .multilineTextAlignment(.trailing)
-                            .focused($portFocused)
-                            .onSubmit { commitPort() }
-                            .onChange(of: portFocused) { _, f in if !f { commitPort() } }
-                            .accessibilityLabel("Remote access port")
-                    }
+                    .padding(.top, 6)
+                    PlateNote("Turn on Remote access, forward port \(model.settings.remotePort) on your router to this Mac, then type your home's address into Macrophone on your iPhone (Settings › your Mac › Away from home).")
                 }
+            } label: {
+                Text("Without Tailscale")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.secondary)
             }
-            howToSetUpRemote
+            .tint(Ink.secondary)
+            .padding(.horizontal, 4)
         }
     }
-
-    /// The one-time setup, as numbered steps (a wall of text read as one paragraph).
-    private var howToSetUpRemote: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Set up once, with Tailscale (free, and still no server of ours):")
-                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Ink.secondary)
-            ForEach(Array(Self.remoteSteps.enumerated()), id: \.offset) { i, step in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(i + 1).").font(Typeface.mono(11, .medium)).foregroundStyle(Ink.tertiary).frame(width: 14, alignment: .trailing)
-                    Text(step).font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Text("No Tailscale? Forward the port to this Mac on your router and type your home's address into Macrophone on the iPhone (Settings › Away from home).")
-                .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 3)
-        }
-        .padding(.horizontal, 4)
-        .padding(.top, 2)
-    }
-
-    private static let remoteSteps = [
-        "Install Tailscale on this Mac and on your iPhone.",
-        "Sign in to both with the same account. On the iPhone, the Tailscale app should list this Mac.",
-        "Turn on Remote access here.",
-        "Open Macrophone on your iPhone once at home — it learns this Mac's address and reaches it from anywhere after that. Its Settings say “Tailscale on this iPhone: On” when it's ready.",
-    ]
 
     private func addressRow(title: String, address: RemoteAddress, icon: String, tint: Color, note: String) -> some View {
         PlateRow(title: title, subtitle: note, icon: icon, iconColor: tint) {
@@ -332,8 +302,8 @@ struct GeneralPane: View {
                             .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                     }
                     PlateDivider()
-                    PlateRow(title: "Show the welcome again", subtitle: "Pairing, open at login, and where dictations go.", icon: "sparkle") {
-                        Button("Show") { AppDelegate.shared?.openSetup(.pair) }
+                    PlateRow(title: "Set up again", subtitle: "Permissions, away from home and open at login — whatever is done already is skipped. To pair another iPhone, use Devices.", icon: "sparkle") {
+                        Button("Set Up…") { AppDelegate.shared?.openSetup(.firstRun) }
                             .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                     }
                     PlateDivider()

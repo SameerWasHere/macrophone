@@ -33,6 +33,9 @@ final class PermissionsMonitor: ObservableObject {
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &bag)
         schedule()
+        #if DEBUG
+        refresh()
+        #endif
     }
 
     /// A page showing the grants appeared (or went): poll every second while any is up.
@@ -52,7 +55,14 @@ final class PermissionsMonitor: ObservableObject {
     }
 
     func refresh() {
-        let ax = AXIsProcessTrusted(), screen = CGPreflightScreenCaptureAccess()
+        var ax = AXIsProcessTrusted(), screen = CGPreflightScreenCaptureAccess()
+        #if DEBUG
+        // MACROPHONE_FAKE_GRANTS=both | none | accessibility | screen — what's allowed, for screenshots.
+        if let g = ProcessInfo.processInfo.environment["MACROPHONE_FAKE_GRANTS"] {
+            ax = g == "both" || g == "accessibility"
+            screen = g == "both" || g == "screen"
+        }
+        #endif
         guard ax != accessibility || screen != screenRecording else { return }
         accessibility = ax
         screenRecording = screen

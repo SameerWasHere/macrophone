@@ -10,8 +10,14 @@ import SwiftUI
 ///   MACROPHONE_SHOW=<what>          popup-toast | popup-countdown | popup-error | popup-secure | popup-stack |
 ///                                   popup-delayed | popup-rtl | popup-sent | popup-not-sent | popup-not-open |
 ///                                   popup-window-gone | popup-nowhere | popup-composer | popup-prefix |
-///                                   window-<pane> | setup | setup-paired | setup-paired-generic | setup-login |
-///                                   setup-permissions | setup-modes | code-approval | diagnostics | menu
+///                                   window-<pane> | setup | setup-pair | setup-paired | setup-paired-generic |
+///                                   setup-permissions | setup-away | setup-away-intro | setup-done | code-approval |
+///                                   diagnostics | menu
+///   MACROPHONE_APPEARANCE=light|dark the setup window in either (it follows the system's otherwise)
+///   MACROPHONE_FAKE_TAILSCALE=missing|installed|running|connected  this Mac's Tailscale, for the Away guide
+///   MACROPHONE_FAKE_AWAY=1          a paired phone reached this Mac from away two hours ago (the guide's last check)
+///   MACROPHONE_FAKE_GRANTS=both|none|accessibility|screen  what's allowed (Permissions)
+///   MACROPHONE_FAKE_LOGIN=1         Macrophone already opens at login
 ///   MACROPHONE_WINDOW_SIZE=WxH      the main window's content size (window-<pane> only)
 ///   MACROPHONE_POPUP_ON_ICON=1      the popup hangs under the icon on its own display (not the display in use)
 ///   MACROPHONE_BACKDROP=1           a neutral backdrop under the popup (screenshots never show a real desktop)
@@ -117,6 +123,10 @@ enum DebugHooks {
             fflush(stdout)
         }
         if env["MACROPHONE_HIDE_ICON"] == "1" { app.debugStatusItem.debugHide() }
+        // A screenshot run never shows the hidden-icon notice the hidden icon would bring.
+        if quietWindows { model.settings.toldAboutHiddenIcon = true }
+        // MACROPHONE_FAKE_LOGIN=1: Macrophone already opens at login (the first launch's check).
+        if env["MACROPHONE_FAKE_LOGIN"] == "1" { model.launchAtLogin = true }
         if let spec = env["MACROPHONE_FAKE_PEERS"] { stagePeers(spec, model: model) }
         if env["MACROPHONE_FAKE_LISTENER"] == "failed" { model.debugListenerFailed() }
         // Pair a stand-in phone (mpctl) without opening any window: the URL goes to
@@ -141,33 +151,11 @@ enum DebugHooks {
             }
             return true
         }
+        if show.hasPrefix("setup") || show == "code-approval" {
+            stageSetup(show, app: app)
+            return true
+        }
         switch show {
-        case "setup": app.openSetup(.pair)
-        case "setup-paired":
-            app.openSetup(.pair)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { app.setupNavForDebug?.step = .paired }
-        case "setup-paired-generic":
-            app.openSetup(.pair)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                app.setupNavForDebug?.firstRun = true
-                model.debugJustPaired(PairedPeer(id: UUID(), name: "iPhone"))
-            }
-        case "setup-login":
-            app.openSetup(.pair)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { app.setupNavForDebug?.step = .login }
-        case "setup-modes":
-            app.openSetup(.pair)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { app.setupNavForDebug?.step = .modes }
-        case "setup-permissions":
-            // The Permissions step as a first run shows it (the dots, Continue Without Them).
-            app.openSetup(.pair)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                app.setupNavForDebug?.firstRun = true
-                app.setupNavForDebug?.step = .permissions
-            }
-        case "code-approval":
-            app.openSetup(.pair)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.codeRequest = CodeRequest(code: "482 913", phoneName: "Sameer's iPhone") }
         case "diagnostics": app.showDiagnostics()
         case "menu":
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { app.debugStatusItem.openMenu() }
@@ -175,6 +163,46 @@ enum DebugHooks {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { stagePopup(show, model: model) }
         }
         return true
+    }
+
+    // MARK: Setup staging
+
+    /// setup (a first run's first page) · setup-pair (Pair Another iPhone…, with stand-in phones) ·
+    /// setup-paired · setup-paired-generic · setup-permissions · setup-away (the steps) ·
+    /// setup-away-intro (a first run's Not Now / Set Up) · setup-done · code-approval.
+    private static func stageSetup(_ show: String, app: AppDelegate) {
+        let model = app.model
+        switch show {
+        case "setup": app.openSetup(.firstRun)
+        case "setup-pair": app.openSetup(.pair)
+        case "setup-paired", "setup-paired-generic":
+            app.openSetup(.firstRun)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                model.debugJustPaired(PairedPeer(id: UUID(), name: show == "setup-paired" ? "Sameer's iPhone" : "iPhone"))
+            }
+        case "setup-permissions":
+            app.openSetup(.firstRun)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                app.setupNavForDebug?.history = [.done]  // shows Back, as a first run's later page does
+                app.setupNavForDebug?.step = .permissions
+            }
+        case "setup-away", "setup-away-intro":
+            app.openSetup(show == "setup-away" ? .away : .firstRun)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if show == "setup-away-intro" { app.setupNavForDebug?.history = [.permissions] }
+                app.setupNavForDebug?.step = .away
+            }
+        case "setup-done":
+            app.openSetup(.firstRun)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                app.setupNavForDebug?.history = [.away]
+                app.setupNavForDebug?.step = .done
+            }
+        case "code-approval":
+            app.openSetup(.pair)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.codeRequest = CodeRequest(code: "482 913", phoneName: "Sameer's iPhone") }
+        default: app.openSetup(.firstRun)
+        }
     }
 
     // MARK: Popup staging
@@ -278,7 +306,9 @@ enum DebugHooks {
             if on { connected.insert(id) }
             model.settings.deviceNames[id.uuidString] = rename
         }
-        // Wait for the real link server's first peer read, then stand in.
+        // Now (the first launch decides from them), and again after the real link server's first
+        // peer read.
+        model.debugStage(peers: peers, connected: connected)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { model.debugStage(peers: peers, connected: connected) }
     }
 

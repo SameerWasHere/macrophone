@@ -1,16 +1,32 @@
 import AppKit
+import Combine
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import MacrophoneKit
 import SwiftUI
 
-enum SetupStep: Equatable { case pair, paired, login, permissions, modes }
+/// What the setup window was opened for (Nov 7 2026).
+enum SetupMode: Equatable {
+    /// The first launch: pair · permissions · away from home · all set — each skipped when it's
+    /// already done (a phone paired before, the grants already on), so it never asks twice.
+    case firstRun
+    /// Pair Your iPhone… / Pair Another iPhone… (the menu, Devices): just the code, then Done.
+    case pair
+    /// A phone asked to see the Mac's permissions ("Open Macrophone on my Mac").
+    case permissions
+    /// Devices or the setup's own page: Tailscale, step by step.
+    case away
+}
+
+/// The pages. "Paired" follows "pair" when a phone pairs; "done" ends a first run.
+enum SetupStep: Equatable { case pair, paired, permissions, away, done }
 
 final class SetupNav: ObservableObject {
+    @Published var mode: SetupMode = .firstRun
     @Published var step: SetupStep = .pair
-    /// First run walks through login, permissions and modes after pairing; "Pair iPhone…" just
-    /// pairs, and a phone asking to see the permissions opens just that step.
-    @Published var firstRun = false
+    /// The pages behind this one, for Back (pairing is never one of them — it's done or skipped).
+    @Published var history: [SetupStep] = []
+    var firstRun: Bool { mode == .firstRun }
 }
 
 @MainActor
@@ -18,188 +34,196 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     let nav = SetupNav()
     var onClose: () -> Void = {}
     private let model: AppModel
+    private var bag: Set<AnyCancellable> = []
+    private var themeObserver: NSObjectProtocol?
+
+    static let size = NSSize(width: 620, height: 680)
 
     init(model: AppModel) {
         self.model = model
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 660),
+        let w = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
                          styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         w.title = "Set Up Macrophone"
         w.titlebarAppearsTransparent = true
         w.titleVisibility = .hidden
-        w.appearance = NSAppearance(named: .darkAqua)
-        w.backgroundColor = Ink.groundNS
+        // Like Setup Assistant: the system's light or dark (the app's other windows stay dark).
+        w.appearance = SystemAppearance.appearance
+        w.backgroundColor = .windowBackgroundColor
         w.isMovableByWindowBackground = true
         w.isReleasedWhenClosed = false
         super.init(window: w)
         AppMenu.installIfNeeded()
-        nav.firstRun = !model.settings.hasCompletedSetup
-        w.contentView = NSHostingView(rootView: SetupView(model: model, nav: nav, settings: model.settings,
-                                                          finish: { [weak self] in self?.finish() }))
+        w.contentView = NSHostingView(rootView: SetupView(model: model, nav: nav, settings: model.settings, controller: self))
         w.delegate = self
+        themeObserver = SystemAppearance.observe { [weak w] in w?.appearance = SystemAppearance.appearance }
+        // The code is open only while it's on screen.
+        nav.$step.removeDuplicates().dropFirst().sink { [weak self] step in
+            guard let self else { return }
+            if step != .pair, step != .paired { self.model.endPairing() }
+        }.store(in: &bag)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func go(_ step: SetupStep) {
+    deinit { if let themeObserver { DistributedNotificationCenter.default().removeObserver(themeObserver) } }
+
+    /// Starts the window over for `mode`, on its first page that still needs doing.
+    func start(_ mode: SetupMode) {
+        nav.mode = mode
+        nav.history = []
+        let first: SetupStep
+        switch mode {
+        case .firstRun: first = model.peers.isEmpty ? .pair : nextStep(after: .pair)
+        case .pair: first = .pair
+        case .permissions: first = .permissions
+        case .away: first = .away
+        }
+        show(first)
+    }
+
+    private func show(_ step: SetupStep) {
         nav.step = step
         if step == .pair { model.beginPairing() }
     }
 
-    private func finish() {
-        model.settings.hasCompletedSetup = true
-        close()
+    /// The first-run order, skipping what's already done. "done" is always the last page.
+    private func nextStep(after step: SetupStep) -> SetupStep {
+        let order: [SetupStep] = [.pair, .permissions, .away, .done]
+        let from = step == .paired ? .pair : step
+        guard let i = order.firstIndex(of: from) else { return .done }
+        return order.dropFirst(i + 1).first { !isDone($0) } ?? .done
     }
 
-    func windowWillClose(_ notification: Notification) { onClose() }
+    private func isDone(_ step: SetupStep) -> Bool {
+        switch step {
+        case .pair, .paired: return !model.peers.isEmpty
+        case .permissions: return model.permissions.accessibility && model.permissions.screenRecording
+        case .away: return model.settings.remoteAccess && model.tailscale.state.connected
+        case .done: return false
+        }
+    }
+
+    /// Continue: the next page of a first run; any other run ends here.
+    func next() {
+        guard nav.firstRun, nav.step != .done else { return finish() }
+        if nav.step != .pair, nav.step != .paired { nav.history.append(nav.step) }
+        show(nextStep(after: nav.step))
+    }
+
+    func back() {
+        guard let previous = nav.history.popLast() else { return }
+        show(previous)
+    }
+
+    func finish() { close() }
+
+    /// Done, Set Up Later or the close button: the first run is over either way — the window
+    /// never opens by itself again (the menu and Devices pair another phone; General sets up again).
+    func windowWillClose(_ notification: Notification) {
+        model.settings.hasCompletedSetup = true
+        onClose()
+    }
 }
 
 struct SetupView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var nav: SetupNav
     @ObservedObject var settings: Settings
-    var finish: () -> Void
-    @State private var openAtLogin = true
+    let controller: SetupWindowController
 
     var body: some View {
         ZStack {
-            Ink.ground.ignoresSafeArea()
-            // A low glow behind the page, like the light a filament throws.
-            RadialGradient(colors: [Light.teal.opacity(0.10), .clear], center: .init(x: 0.5, y: 0.18), startRadius: 0, endRadius: 360)
-                .ignoresSafeArea()
             Group {
                 switch nav.step {
-                case .pair: PairStep(model: model, skip: skip)
-                case .paired: PairedStep(model: model, next: { nav.firstRun ? (nav.step = .login) : finish() }, firstRun: nav.firstRun)
-                case .login: LoginStep(openAtLogin: $openAtLogin, next: {
-                    model.setLaunchAtLogin(openAtLogin)
-                    nav.step = .permissions
-                })
-                case .permissions: PermissionsStep(monitor: model.permissions, firstRun: nav.firstRun,
-                                                   next: { nav.firstRun ? (nav.step = .modes) : finish() })
-                case .modes: ModesStep(model: model, settings: settings, done: finish)
+                case .pair: PairPage(model: model, nav: nav, controller: controller)
+                case .paired: PairedPage(model: model, nav: nav, controller: controller)
+                case .permissions: PermissionsPage(monitor: model.permissions, nav: nav, controller: controller)
+                case .away: AwayPage(model: model, tailscale: model.tailscale, settings: settings, nav: nav, controller: controller)
+                case .done: AllSetPage(model: model, settings: settings, nav: nav, controller: controller)
                 }
             }
-            .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
-
-            // First run walks four screens: say where you are.
-            if nav.firstRun {
-                StepDots(current: stepIndex, count: 4)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 14)
-            }
-
-            if let req = model.codeRequest {
-                Color.black.opacity(0.55).ignoresSafeArea().transition(.opacity)
-                CodeApproval(request: req, answer: { model.answerCode($0) })
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
-            }
+            .transition(Motion.reduceMotion ? .opacity
+                        : .asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
         }
-        .frame(width: 560, height: 660)
-        .preferredColorScheme(.dark)
+        .frame(width: SetupWindowController.size.width, height: SetupWindowController.size.height)
         .animation(Motion.reduceMotion ? .easeInOut(duration: 0.2) : Motion.settle, value: nav.step)
-        .animation(Motion.reduceMotion ? .easeInOut(duration: 0.2) : Motion.snap, value: model.codeRequest)
         .onChange(of: model.justPaired) { _, p in
             if p != nil { nav.step = .paired }
         }
-    }
-
-    private func skip() {
-        if nav.firstRun { nav.step = .login } else { finish() }
-    }
-
-    private var stepIndex: Int {
-        switch nav.step {
-        case .pair, .paired: return 0
-        case .login: return 1
-        case .permissions: return 2
-        case .modes: return 3
+        .sheet(item: Binding(get: { model.codeRequest }, set: { if $0 == nil, model.codeRequest != nil { model.answerCode(false) } })) { req in
+            CodeApproval(request: req, answer: { model.answerCode($0) })
         }
     }
 }
 
-/// Three quiet dots at the top of a first run; the current one is lit.
-struct StepDots: View {
-    let current: Int
-    let count: Int
+/// Back, when there's a page behind this one.
+private struct BackButton: View {
+    @ObservedObject var nav: SetupNav
+    let controller: SetupWindowController
     var body: some View {
-        HStack(spacing: 7) {
-            ForEach(0..<count, id: \.self) { i in
-                Capsule()
-                    .fill(i == current ? Light.cyan : Ink.ink.opacity(i < current ? 0.45 : 0.18))
-                    .frame(width: i == current ? 18 : 6, height: 6)
-            }
+        if !nav.history.isEmpty {
+            Button("Back") { controller.back() }
+                .keyboardShortcut(.cancelAction)
         }
-        .animation(Motion.reduceMotion ? nil : Motion.settle, value: current)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Step \(current + 1) of \(count)")
     }
 }
 
-// MARK: Steps
+// MARK: Pair
 
-struct PairStep: View {
+struct PairPage: View {
     @ObservedObject var model: AppModel
-    var skip: () -> Void
+    @ObservedObject var nav: SetupNav
+    let controller: SetupWindowController
+
+    /// Another phone, or the first one: the words say which.
+    private var another: Bool { !model.peers.isEmpty }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 40)
-            Text("Pair your iPhone").font(Typeface.serif(30)).foregroundStyle(Ink.ink)
-            Text("Open Macrophone on your iPhone and scan this code.")
-                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
-                .padding(.top, 8)
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Ink.ink)
-                    .shadow(color: Light.teal.opacity(0.25), radius: 30)
-                if let invite = model.invite {
-                    QRCodeView(text: invite.url.absoluteString)
-                        .padding(18)
-                        .accessibilityLabel("Pairing code. Scan it with Macrophone on your iPhone.")
-                } else {
+        SetupPage(title: another ? "Pair another iPhone" : "Pair your iPhone",
+                  subtitle: "Open Macrophone on your iPhone and scan this code.") {
+            VStack(spacing: 18) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.12), radius: 14, y: 4)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
+                    if let invite = model.invite {
+                        QRCodeView(text: invite.url.absoluteString)
+                            .padding(16)
+                            .accessibilityLabel("Pairing code. Scan it with Macrophone on your iPhone.")
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .frame(width: 236, height: 236)
+                HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
+                    Text("Waiting for your iPhone…").font(.system(size: 13)).foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .combine)
+                SetupFootnote("No camera? On your iPhone, tap “Use a code instead” and compare the numbers this Mac shows.")
+                    .padding(.top, 4)
             }
-            .frame(width: 252, height: 252)
-            .padding(.top, 30)
-
-            VStack(spacing: 12) {
-                FilamentView(peak: 0.32, thick: 1.6, glow: 0.55)
-                    .frame(width: 180, height: 22)
-                HStack(spacing: 6) {
-                    PulseDot(color: NSColor(srgbRed: 0.345, green: 0.725, blue: 0.871, alpha: 1))
-                        .frame(width: 21, height: 21)
-                    Kicker("Waiting for your iPhone", color: Light.cyan, size: 11)
-                }
+        } footer: {
+            if !another {
+                Text("Macrophone for iPhone is free on the App Store.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            .padding(.top, 26)
-
-            Text("No camera handy? On your iPhone, tap “Use a code instead” — this Mac will show a code to compare.")
-                .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 380)
-                .padding(.top, 22)
-
-            Spacer(minLength: 20)
-            HStack {
-                Text("Need the iPhone app? It's free on the App Store — search for Macrophone.")
-                    .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                Spacer()
-                Button("Set Up Later", action: skip).buttonStyle(.borderless).foregroundStyle(Ink.secondary)
+            Spacer()
+            if nav.firstRun {
+                Button("Set Up Later") { controller.next() }
+            } else {
+                Button("Cancel") { controller.finish() }.keyboardShortcut(.cancelAction)
             }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 22)
         }
     }
 }
 
-struct PairedStep: View {
+struct PairedPage: View {
     @ObservedObject var model: AppModel
-    var next: () -> Void
-    var firstRun: Bool
-    @State private var tick = false
+    @ObservedObject var nav: SetupNav
+    let controller: SetupWindowController
     @State private var name = ""
     @FocusState private var nameFocused: Bool
 
@@ -207,220 +231,259 @@ struct PairedStep: View {
     private var askForName: Bool { model.justPaired.map { AppModel.isGenericName($0.name) } ?? false }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            ZStack {
-                Circle().fill(Light.mint.opacity(0.14)).frame(width: 92, height: 92)
-                Circle().strokeBorder(Light.mint.opacity(0.5), lineWidth: 1.5).frame(width: 92, height: 92)
-                Image(systemName: "checkmark").font(.system(size: 36, weight: .semibold)).foregroundStyle(Light.mint)
-                    .scaleEffect(tick ? 1 : 0.2).opacity(tick ? 1 : 0)
-            }
-            .accessibilityHidden(true)
-            .onAppear { withAnimation(Motion.reduceMotion ? .easeOut(duration: 0.2) : Motion.pop.delay(0.1)) { tick = true } }
-            Text("Paired").font(Typeface.serif(30)).foregroundStyle(Ink.ink).padding(.top, 26)
-            Text(askForName ? "Your iPhone can now send to this Mac. Try a dictation — it'll land on your clipboard."
-                            : "\(model.justPaired.map(model.displayName) ?? "Your iPhone") can now send to this Mac. Try a dictation — it'll land on your clipboard.")
-                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 380)
-                .padding(.top, 8)
+        SetupPage(symbol: "checkmark.circle.fill", symbolColor: .green, title: "Paired",
+                  subtitle: askForName ? "Your iPhone can now send to this Mac."
+                                       : "\(model.justPaired.map(model.displayName) ?? "Your iPhone") can now send to this Mac.") {
             if askForName {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Name this iPhone").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Ink.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Name this iPhone").font(.system(size: 13, weight: .semibold))
                     TextField("Name", text: $name, prompt: Text(AppModel.suggestedPhoneName))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 13))
+                        .controlSize(.large)
                         .focused($nameFocused)
                         .onSubmit(done)
                         .accessibilityLabel("Name this iPhone")
-                    Text("iOS only tells this Mac “iPhone”. The name shows in the menu, the popup and History.")
-                        .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                    Text("iOS only tells this Mac “iPhone”. The name shows in the menu and in History.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(width: 320)
-                .padding(.top, 26)
+                .frame(width: 340)
                 .onAppear {
                     name = AppModel.suggestedPhoneName
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { nameFocused = true }
                 }
             }
+        } footer: {
             Spacer()
-            Button(firstRun ? "Continue" : "Done", action: done)
-                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+            Button(nav.firstRun ? "Continue" : "Done", action: done)
                 .keyboardShortcut(.defaultAction)
-                .padding(.bottom, 32)
         }
     }
 
     private func done() {
         if askForName, let p = model.justPaired { model.rename(p, to: name) }
-        next()
+        controller.next()
     }
 }
 
-struct LoginStep: View {
-    @Binding var openAtLogin: Bool
-    var next: () -> Void
+// MARK: Permissions
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            Image(systemName: "power").font(.system(size: 34, weight: .light)).foregroundStyle(Light.cyan)
-            Text("Open at login?").font(Typeface.serif(30)).foregroundStyle(Ink.ink).padding(.top, 22)
-            Text("Macrophone lives in your menu bar and can only receive while it's running.")
-                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
-                .multilineTextAlignment(.center).frame(maxWidth: 380).padding(.top, 8)
-            Toggle("Open Macrophone when I log in", isOn: $openAtLogin)
-                .toggleStyle(.switch)
-                .font(.system(size: 13, weight: .medium))
-                .padding(.horizontal, 18).padding(.vertical, 12)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Ink.raised))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
-                .padding(.top, 28)
-            Spacer()
-            Button("Continue", action: next)
-                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
-                .keyboardShortcut(.defaultAction)
-                .padding(.bottom, 32)
-        }
-    }
-}
-
-/// What Macrophone needs to be allowed to do, live: each grant's check lands the moment it's
-/// switched on in System Settings (PermissionRows polls every second while this is up).
-struct PermissionsStep: View {
+/// What Macrophone needs to be allowed to do, live: each check lands the moment it's switched on
+/// in System Settings (the monitor looks every second while this is up).
+struct PermissionsPage: View {
     @ObservedObject var monitor: PermissionsMonitor
-    var firstRun: Bool
-    var next: () -> Void
+    @ObservedObject var nav: SetupNav
+    let controller: SetupWindowController
+
+    private var both: Bool { monitor.accessibility && monitor.screenRecording }
 
     var body: some View {
-        VStack(spacing: 0) {
+        SetupPage(symbol: both ? "checkmark.shield.fill" : "lock.shield", symbolColor: both ? .green : .accentColor,
+                  title: "Allow Macrophone to work your Mac",
+                  subtitle: "Your iPhone clicks, types and shows windows here, so macOS asks you to allow it. Each button opens the right place in System Settings.") {
+            VStack(spacing: 14) {
+                CheckList {
+                    CheckRow(symbol: "hand.raised", title: "Accessibility",
+                             detail: monitor.accessibility ? "Allowed. Dictations paste into the app you pick, and your taps and keys reach this Mac."
+                                                           : "To paste dictations into the app you pick, and to pass on your taps and keys.",
+                             done: monitor.accessibility, next: !monitor.accessibility) {
+                        if !monitor.accessibility {
+                            GuideButton("Open Settings", prominent: true, help: "Opens Privacy & Security › Accessibility. Turn on Macrophone there.",
+                                        action: monitor.openAccessibility)
+                        }
+                    }
+                    CheckDivider()
+                    CheckRow(symbol: "rectangle.dashed.badge.record", title: "Screen Recording",
+                             detail: screenDetail, detailIsWarning: monitor.screenRecordingAsked && !monitor.screenRecording,
+                             done: monitor.screenRecording, next: monitor.accessibility && !monitor.screenRecording) {
+                        if !monitor.screenRecording {
+                            GuideButton("Open Settings", prominent: monitor.accessibility, help: "Opens Privacy & Security › Screen Recording. Turn on Macrophone there.",
+                                        action: monitor.openScreenRecording)
+                        }
+                    }
+                }
+                .onAppear { monitor.viewerAppeared() }
+                .onDisappear { monitor.viewerGone() }
+                SetupFootnote(both ? "You can change these any time in General › Permissions."
+                                   : "You can do this later in General › Permissions. Until then, dictations are copied to the clipboard.")
+            }
+        } footer: {
+            BackButton(nav: nav, controller: controller)
             Spacer()
-            Image(systemName: monitor.accessibility && monitor.screenRecording ? "checkmark.shield" : "lock.shield")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(monitor.accessibility && monitor.screenRecording ? Light.mint : Light.cyan)
-                .accessibilityHidden(true)
-            Text("Two permissions").font(Typeface.serif(30)).foregroundStyle(Ink.ink).padding(.top, 22)
-            Text("Your iPhone works this Mac for you. macOS asks you to allow it — you turn each one on in System Settings.")
-                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 400).padding(.top, 8)
-            PermissionRows(monitor: monitor)
-                .padding(.horizontal, 32)
-                .padding(.top, 26)
-            Text(monitor.accessibility && monitor.screenRecording
-                 ? "All set. You can change these any time in General › Permissions."
-                 : "You can do this later — General › Permissions has the same switches. Dictations still land on the clipboard without them.")
-                .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 420).padding(.top, 16)
-            Spacer()
-            Button(firstRun ? (monitor.accessibility && monitor.screenRecording ? "Continue" : "Continue Without Them") : "Done", action: next)
-                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+            Button(nav.firstRun ? "Continue" : "Done") { controller.next() }
                 .keyboardShortcut(.defaultAction)
-                .padding(.bottom, 32)
         }
+    }
+
+    private var screenDetail: String {
+        if monitor.screenRecording { return "Allowed. Your iPhone can show the window you pick, only while you watch it." }
+        if monitor.screenRecordingAsked { return "Turned it on and it still says off? Quit Macrophone and open it again — macOS needs that once." }
+        return "To show a window on your iPhone — only the one you pick, only while you watch it."
     }
 }
 
-struct ModesStep: View {
+// MARK: Away from home
+
+struct AwayPage: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var tailscale: TailscaleMonitor
+    @ObservedObject var settings: Settings
+    @ObservedObject var nav: SetupNav
+    let controller: SetupWindowController
+    /// Set Up was pressed (or something's already under way): the steps show.
+    @State private var settingUp = false
+
+    private var showSteps: Bool { settingUp || !nav.firstRun || tailscale.state.installed || settings.remoteAccess }
+
+    var body: some View {
+        SetupPage(symbol: "globe", title: "Use it away from home",
+                  subtitle: showSteps ? "With Tailscale, your iPhone reaches this Mac from anywhere. Each step checks itself."
+                                      : "Tailscale links your iPhone and this Mac wherever you are, not just on your Wi-Fi.") {
+            if showSteps {
+                AwayGuide(model: model)
+                    .transition(.opacity)
+            } else {
+                VStack(alignment: .leading, spacing: 16) {
+                    feature("antenna.radiowaves.left.and.right", "From anywhere",
+                            "Dictate and see your Mac on cellular, at work or on any Wi-Fi.")
+                    feature("lock", "Private",
+                            "Through your own Tailscale account. Macrophone has no server, and only iPhones paired here can connect.")
+                    feature("checkmark.seal", "Free",
+                            "Tailscale is free for personal use. This page walks you through it, one step at a time.")
+                }
+                .frame(width: 400, alignment: .leading)
+                .padding(.top, 6)
+            }
+        } footer: {
+            BackButton(nav: nav, controller: controller)
+            Spacer()
+            if showSteps {
+                Button(nav.firstRun ? "Continue" : "Done") { controller.next() }
+                    .keyboardShortcut(.defaultAction)
+            } else {
+                Button("Not Now") { controller.next() }
+                Button("Set Up") { withAnimation(Motion.reduceMotion ? nil : Motion.settle) { settingUp = true } }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .onAppear { tailscale.refresh() }
+    }
+
+    private func feature(_ symbol: String, _ title: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 20))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(text).font(.system(size: 12)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: All set
+
+struct AllSetPage: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
-    var done: () -> Void
+    @ObservedObject var nav: SetupNav
+    let controller: SetupWindowController
+    @State private var openAtLogin = true
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            Text("Where dictations go").font(Typeface.serif(30)).foregroundStyle(Ink.ink)
-            Text("Pick it on your iPhone under Send to — or here. It's one choice, shared.")
-                .font(.system(size: 13.5)).foregroundStyle(Ink.secondary).padding(.top, 8)
-            SendToCard(model: model, settings: settings, compact: true)
-                .padding(.horizontal, 32)
-                .padding(.top, 26)
-            Text("Every app open on this Mac with somewhere to type — Claude, Messages, a Terminal window — shows up on its own. Turn on Send after pasting and Macrophone presses send for you, after a countdown you can cancel.")
-                .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
-                .multilineTextAlignment(.center).frame(maxWidth: 440)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 18)
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: model.menuBarIconHidden ? "menubar.dock.rectangle" : "keyboard")
-                    .foregroundStyle(Light.cyan)
-                    .frame(width: 18)
-                    .accessibilityHidden(true)
-                Text(hotkeyLine)
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Ink.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
+        SetupPage(symbol: "checkmark.circle.fill", symbolColor: .green, title: "You're all set",
+                  subtitle: "Dictate on your iPhone and the words land on this Mac. Pick where they go on your iPhone, under Send to.") {
+            VStack(alignment: .leading, spacing: 16) {
+                Toggle(isOn: $openAtLogin) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Open Macrophone when I log in").font(.system(size: 13))
+                        Text("It can only receive while it's running.").font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: model.menuBarIconHidden ? "menubar.dock.rectangle" : "menubar.arrow.up.rectangle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 18)
+                        .accessibilityHidden(true)
+                    Text(menuBarLine)
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Light.cyan.opacity(0.07)))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Light.cyan.opacity(0.2), lineWidth: 1))
-            .padding(.horizontal, 32)
-            .padding(.top, 14)
+            .frame(width: 380, alignment: .leading)
+            .onAppear { openAtLogin = settings.hasCompletedSetup ? model.launchAtLogin : true }
             .onDisappear { if model.menuBarIconHidden { settings.toldAboutHiddenIcon = true } }
+        } footer: {
+            BackButton(nav: nav, controller: controller)
             Spacer()
-            Button("Done", action: done)
-                .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
-                .keyboardShortcut(.defaultAction)
-                .padding(.bottom, 32)
+            Button("Done") {
+                if openAtLogin != model.launchAtLogin { model.setLaunchAtLogin(openAtLogin) }
+                controller.finish()
+            }
+            .keyboardShortcut(.defaultAction)
         }
     }
-}
 
-extension ModesStep {
-    private var hotkeyLine: String {
+    private var menuBarLine: String {
         let key = settings.hotkey
         if model.menuBarIconHidden {
             return key.enabled
-                ? "Your menu bar is full, so Macrophone's icon is hidden. Press \(key.display) anywhere to open Macrophone, or open it from Spotlight."
-                : "Your menu bar is full, so Macrophone's icon is hidden. Open Macrophone from Spotlight or Finder."
+                ? "Your menu bar is full, so Macrophone's icon is hidden. Press \(key.display) anywhere to open it, or open it from Spotlight."
+                : "Your menu bar is full, so Macrophone's icon is hidden. Open it from Spotlight or Finder."
         }
         return key.enabled
-            ? "Macrophone lives in your menu bar. If the icon is ever hidden, press \(key.display) anywhere to open it."
-            : "Macrophone lives in your menu bar. If the icon is ever hidden, open it from Spotlight or Finder."
+            ? "Macrophone lives in your menu bar. Press \(key.display) anywhere to open its window."
+            : "Macrophone lives in your menu bar. Click its icon for Send to, Recent and Settings."
     }
 }
 
-/// "Does your iPhone show 482 913?"
+// MARK: Pairing by code
+
+/// "Does your iPhone show 482 913?" — a sheet over the setup window.
 struct CodeApproval: View {
     let request: CodeRequest
     var answer: (Bool) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            Kicker("Pairing request", color: Light.cyan, size: 11)
+            Image(systemName: "iphone.gen3.radiowaves.left.and.right")
+                .font(.system(size: 36))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.accentColor)
+                .accessibilityHidden(true)
             Text(AppModel.isGenericName(request.phoneName) ? "Does your iPhone show this code?" : "Does “\(request.phoneName)” show this code?")
-                .font(Typeface.serif(22)).foregroundStyle(Ink.ink)
+                .font(.system(size: 17, weight: .bold))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 14)
+                .padding(.top, 12)
             Text(request.code)
-                .font(.system(size: 46, weight: .semibold, design: .monospaced))
-                .tracking(4)
-                .foregroundStyle(Ink.ink)
-                .padding(.top, 14)
+                .font(.system(size: 44, weight: .semibold, design: .rounded).monospacedDigit())
+                .tracking(3)
+                .padding(.top, 12)
                 .accessibilityLabel(request.code.map { String($0) }.joined(separator: " "))
-            Text("Only approve if the numbers are exactly the same.")
-                .font(.system(size: 12)).foregroundStyle(Ink.tertiary)
-                .padding(.top, 10)
-            HStack(spacing: 12) {
-                Button("Don't Match") { answer(false) }
-                    .buttonStyle(PillButtonStyle(tint: Light.rose, filled: false))
+            Text("Only pair if the numbers are exactly the same.")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .padding(.top, 8)
+            HStack(spacing: 10) {
+                Button("Don't Pair") { answer(false) }
                     .keyboardShortcut(.cancelAction)
-                Button("They Match") { answer(true) }
-                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+                    .frame(maxWidth: .infinity)
+                Button("Pair") { answer(true) }
                     .keyboardShortcut(.defaultAction)
+                    .frame(maxWidth: .infinity)
             }
-            .padding(.top, 24)
+            .controlSize(.large)
+            .padding(.top, 22)
         }
-        .padding(.horizontal, 34).padding(.vertical, 30)
-        .frame(width: 400)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Ink.raised))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Ink.lineStrong, lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+        .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 20)
+        .frame(width: 340)
     }
 }
 
@@ -444,7 +507,7 @@ struct QRCodeView: View {
         // Dark modules on the light plate (phone cameras read this way best).
         let tinted = out.applyingFilter("CIFalseColor", parameters: [
             "inputColor0": CIColor(red: 0.02, green: 0.024, blue: 0.051),
-            "inputColor1": CIColor(red: 0.957, green: 0.949, blue: 0.98),
+            "inputColor1": CIColor(red: 1, green: 1, blue: 1),
         ])
         return CIContext().createCGImage(tinted, from: tinted.extent)
     }
