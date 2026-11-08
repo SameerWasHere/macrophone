@@ -653,6 +653,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         if let i = list.firstIndex(where: { $0.id == peer.id }) { list[i].name = peer.name }
         peers = list
         log.add("phone connected (app \(appVersion)), \(peerRoutes[peer.id]?.rawValue ?? "route unknown")")
+        // Where the phone's alerts-while-closed stand (its hello says, Nov 7 2026).
+        if let state = server.phoneFeatures(peer.id).first(where: { $0.hasPrefix("alertState-") }) {
+            log.add("phone alerts while closed: \(state.dropFirst("alertState-".count))")
+        }
         pushStatus()
         attention.update()
         stayAwake.update(phonesConnected: true, watching: !watch.watching.isEmpty)

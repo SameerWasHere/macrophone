@@ -43,10 +43,13 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
         case ready
     }
 
-    @Published private(set) var cloudState: CloudState = AgentAlerts.cloudReady ? .ready : .idle
+    @Published private(set) var cloudState: CloudState = AgentAlerts.cloudReady ? .ready : .idle {
+        didSet { if cloudState != oldValue { model?.noteAlertState(cloudState.word) } }
+    }
 
     func install(_ model: AppModel) {
         self.model = model
+        model.noteAlertState(cloudState.word)
         UNUserNotificationCenter.current().delegate = self
         // Back in front: Settings may have changed (notifications allowed, iCloud signed in), or
         // the network is here now — try again where it failed.
@@ -253,5 +256,21 @@ struct CloudAlertsStatusRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("alerts-cloud-status")
+    }
+}
+
+extension AgentAlerts.CloudState {
+    /// One word for the Mac's log (Nov 7 2026): the phone's hello carries it as
+    /// "alertState-<word>", so "the phone hasn't said it subscribed" comes with the reason.
+    var word: String {
+        switch self {
+        case .idle: "idle"
+        case .unavailable: "unavailable"
+        case .notificationsOff: "notificationsOff"
+        case .noAccount: "noAccount"
+        case .failed(let code): "failed\(code)"
+        case .trying: "trying"
+        case .ready: "ready"
+        }
     }
 }

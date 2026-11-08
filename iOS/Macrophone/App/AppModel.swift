@@ -2288,6 +2288,13 @@ extension AppModel: LinkClientDelegate {
 
     /// Alerts through iCloud are set up: say so in the next hello (the Mac then keeps looking
     /// while this app is closed).
+    /// Where alerts with the app closed stand, carried in the next hello for the Mac's log
+    /// (a word, never anything personal).
+    func noteAlertState(_ word: String) {
+        client.features.removeAll { $0.hasPrefix("alertState-") }
+        client.features.append("alertState-" + word)
+    }
+
     func alertsReadyInCloud() {
         guard !client.features.contains(Attention.cloudFeature) else { return }
         client.features.append(Attention.cloudFeature)

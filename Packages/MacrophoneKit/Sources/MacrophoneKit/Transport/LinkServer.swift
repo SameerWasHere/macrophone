@@ -205,7 +205,7 @@ public final class LinkServer: @unchecked Sendable {
     public func hasLane(_ peerID: UUID) -> Bool { lock.sync { sessions[peerID]?.hasLane ?? false } }
     /// That phone's open session, and what its hello named (for the video lane).
     func openSession(_ peerID: UUID) -> SecureSession? { lock.sync { sessions[peerID] } }
-    func phoneFeatures(_ peerID: UUID) -> Set<String> { lock.sync { features[peerID] ?? [] } }
+    public func phoneFeatures(_ peerID: UUID) -> Set<String> { lock.sync { features[peerID] ?? [] } }
 
     public func start() {
         let (old, oldAway) = lock.sync { () -> (NWListener?, NWListener?) in
