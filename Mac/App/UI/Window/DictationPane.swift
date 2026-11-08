@@ -16,7 +16,7 @@ struct DictationPane: View {
     private var cleanupLevels: [CleanupLevel] { [.off, .light, .medium, .heavy] }
 
     var body: some View {
-        PanePage {
+        PanePage(opensAtTop: true) {
             PaneHeader(title: "Dictation",
                        subtitle: "Hold \(key == .off ? "a key" : key.short) on this Mac, talk, and let go — the words are cleaned up and pasted wherever you're typing. No iPhone needed.")
 
@@ -28,12 +28,12 @@ struct DictationPane: View {
                 Plate {
                     PlateRow(title: "Dictate on this Mac",
                              subtitle: settings.deskDictation ? hintLine : "Off — only your iPhone dictates.",
-                             icon: "mic", iconColor: settings.deskDictation ? Light.teal : Ink.tertiary) {
+                             icon: "mic", iconColor: settings.deskDictation ? MacTint.orange : MacTint.gray) {
                         Toggle("", isOn: $settings.deskDictation).toggleStyle(.switch).labelsHidden()
                             .accessibilityLabel("Dictate on this Mac")
                     }
                     PlateDivider()
-                    PlateRow(title: "Hold to talk", subtitle: "Two quick taps keep it listening until you tap again.", icon: "keyboard") {
+                    PlateRow(title: "Hold to talk", subtitle: "Two quick taps keep it listening until you tap again.", icon: "keyboard", iconColor: MacTint.graphite) {
                         Picker("", selection: $settings.deskKey) {
                             ForEach(DeskKey.allCases) { k in Text(k.title).tag(k) }
                         }
@@ -43,8 +43,8 @@ struct DictationPane: View {
                         .accessibilityLabel("Key to hold")
                     }
                     PlateDivider()
-                    PlateRow(title: "Cleanup", subtitle: cleanupLine, subtitleColor: cleanupAvailable ? Ink.tertiary : Light.ochre,
-                             icon: "wand.and.stars") {
+                    PlateRow(title: "Cleanup", subtitle: cleanupLine, subtitleColor: cleanupAvailable ? Ink.secondary : Light.ochre,
+                             icon: "wand.and.stars", iconColor: MacTint.purple) {
                         Picker("", selection: $settings.deskCleanup) {
                             ForEach(cleanupLevels) { l in Text(l.title).tag(l) }
                         }
@@ -58,15 +58,12 @@ struct DictationPane: View {
             }
 
             if key == .fn, settings.deskDictation, let conflict = desk.fnUsage.conflict {
-                HStack(alignment: .center, spacing: Space.gap) {
-                    Image(systemName: "globe").foregroundStyle(Light.ochre).accessibilityHidden(true)
-                    Text(conflict).font(.system(size: 12)).foregroundStyle(Light.ochre)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: Space.gap)
-                    Button("Open Keyboard Settings") { NSWorkspace.shared.open(DeskDictation.keyboardSettingsURL) }
-                        .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                PaneSection {
+                    PlateRow(title: "The 🌐 key does something else too", subtitle: conflict, subtitleColor: Light.ochre,
+                             icon: "globe", iconColor: MacTint.orange) {
+                        Button("Open Keyboard Settings") { NSWorkspace.shared.open(DeskDictation.keyboardSettingsURL) }
+                    }
                 }
-                .padding(.horizontal, 4)
             }
 
             if settings.deskDictation, key != .off {
@@ -79,7 +76,7 @@ struct DictationPane: View {
                 Plate {
                     ZStack(alignment: .topLeading) {
                         TextEditor(text: $desk.tryText)
-                            .font(.system(size: 13.5))
+                            .font(.system(size: 13))
                             .scrollContentBackground(.hidden)
                             .focused($tryFocused)
                             .frame(minHeight: 96, maxHeight: 180)
@@ -88,17 +85,19 @@ struct DictationPane: View {
                             Text(settings.deskDictation && key != .off
                                  ? "Click here, then hold \(keyName) and say something."
                                  : "Turn on Dictate on this Mac to try it here.")
-                                .font(.system(size: 13.5)).foregroundStyle(Ink.tertiary)
+                                .font(.system(size: 13)).foregroundStyle(.tertiary)
                                 .padding(.leading, 5).padding(.top, 1)
                                 .allowsHitTesting(false)
                         }
                     }
-                    .padding(12)
-                    .fieldFocusRing(tryFocused, radius: Radius.plate)
-                }
-                if !desk.tryText.isEmpty {
-                    Button("Clear") { desk.tryText = "" }
-                        .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
+                    .padding(.vertical, 4)
+                    .overlay(alignment: .bottomTrailing) {
+                        if !desk.tryText.isEmpty {
+                            Button("Clear") { desk.tryText = "" }
+                                .controlSize(.small)
+                                .padding(4)
+                        }
+                    }
                 }
             }
         }

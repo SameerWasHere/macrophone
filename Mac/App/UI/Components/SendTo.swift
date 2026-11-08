@@ -69,64 +69,59 @@ enum SendToWords {
     }
 }
 
-/// "Send to [Claude ▾]   Send after pasting [on]" — the shared choice, on this Mac.
-struct SendToCard: View {
+/// Send to in the window's toolbar, above every pane (Nov 7 2026; the card above each pane is
+/// gone): the pick's icon and "Send to Claude" as a menu — the places, a check on the current one,
+/// and Send after pasting — beside a paper plane that turns Send after pasting on and off. The
+/// line that says what will happen is each control's help.
+struct SendToToolbar: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: Settings
-    /// Setup: no "shared with your iPhone" line (the page says so).
-    /// No vertical fixedSize on the lines: the card sits outside the panes' scroll view, where a
-    /// fixed-height text makes the window's minimum size enormous and SwiftUI draws nothing.
-    var compact = false
+
+    private var sel: SendSelection { settings.selection }
+    private var canSend: Bool { sel.target.canSend }
+    private var sending: Bool { sel.send && canSend }
+    private var name: String { SendToWords.name(sel.target, in: model) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                Image(systemName: "paperplane")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Light.cyan)
-                    .frame(width: 20)
-                    .accessibilityHidden(true)
-                Text(SendToWords.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.ink)
-                    .fixedSize()
-                SendToPicker(model: model, settings: settings)
-                    .frame(maxWidth: 300, alignment: .leading)
-                Spacer(minLength: 12)
-                Toggle(SendToWords.sendAfterPasting, isOn: Binding(get: { settings.selection.send && settings.selection.target.canSend },
-                                                                  set: { model.setSend($0) }))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(settings.selection.target.canSend ? Ink.ink : Ink.tertiary)
-                    .fixedSize()
-                    .disabled(!settings.selection.target.canSend)
-                    .help(settings.selection.target.canSend ? "Presses the app's send key after pasting, after a 2.5-second countdown you can cancel."
-                          : "Pick an app or Where I'm typing to send after pasting.")
+        Menu {
+            SendToPicker(model: model, settings: settings)
+                .pickerStyle(.inline)
+            Divider()
+            Toggle(SendToWords.sendAfterPasting, isOn: Binding(get: { sending }, set: { model.setSend($0) }))
+                .disabled(!canSend)
+        } label: {
+            Label {
+                Text("\(SendToWords.title) \(name)")
+            } icon: {
+                icon
             }
-            Text(SendToWords.line(settings.selection, model: model))
-                .font(.system(size: 12)).foregroundStyle(Ink.secondary)
-                .padding(.leading, 32)
-            if !compact {
-                Text("Shared with your iPhone — change it on either and the other follows.")
-                    .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                        .padding(.leading, 32)
-            }
-            if !model.accessibilityGranted && settings.selection.target.canSend {
-                HStack(spacing: 10) {
-                    Label("Pasting needs Accessibility. Until it's on, dictations are copied.", systemImage: "hand.raised")
-                        .font(.system(size: 11.5)).foregroundStyle(Light.ochre)
-                            Spacer(minLength: 8)
-                    Button("Open System Settings") {
-                        Paster.requestTrust()
-                        NSWorkspace.shared.open(Paster.accessibilitySettingsURL)
-                    }
-                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                }
-                .padding(.leading, 32)
-            }
+            .labelStyle(.titleAndIcon)
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Light.cyan.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Light.cyan.opacity(0.24), lineWidth: 1))
+        .menuIndicator(.visible)
+        .fixedSize()
+        .frame(maxWidth: 300)
+        .help("\(SendToWords.title) — shared with your iPhone. \(SendToWords.line(sel, model: model))")
+        .accessibilityLabel(SendToWords.title)
+        .accessibilityValue(name)
+
+        Toggle(isOn: Binding(get: { sending }, set: { model.setSend($0) })) {
+            Label(SendToWords.sendAfterPasting, systemImage: sending ? "paperplane.fill" : "paperplane")
+        }
+        .toggleStyle(.button)
+        .labelStyle(.iconOnly)
+        .disabled(!canSend)
+        .help(canSend ? (sending ? "Send after pasting is on: the app's send key is pressed after a 2.5-second countdown you can cancel."
+                                 : "Send after pasting is off: the words are pasted and you press send.")
+                      : "Pick an app or Where I'm typing to send after pasting.")
+        .accessibilityLabel(SendToWords.sendAfterPasting)
+    }
+
+    @ViewBuilder private var icon: some View {
+        if case let .app(bid, _, _) = sel.target, let i = TargetIcons.image(bundleID: bid) {
+            Image(nsImage: i)
+        } else {
+            Image(systemName: TargetIcons.symbol(for: sel.target))
+        }
     }
 }
 

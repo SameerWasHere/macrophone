@@ -7,13 +7,15 @@ import SwiftUI
 ///
 ///   MACROPHONE_FRESH=1              start as a first launch (setup not done)
 ///   MACROPHONE_SEED_HISTORY=1       sample history (English, Arabic, Hebrew, Japanese, delayed, failed)
+///   MACROPHONE_EMPTY_HISTORY=1      clears History first (its empty state)
+///   MACROPHONE_HISTORY_OPEN=1       History opens with its newest row selected (open in place)
 ///   MACROPHONE_SHOW=<what>          popup-toast | popup-countdown | popup-error | popup-secure | popup-stack |
 ///                                   popup-delayed | popup-rtl | popup-sent | popup-not-sent | popup-not-open |
 ///                                   popup-window-gone | popup-nowhere | popup-composer | popup-prefix |
 ///                                   window-<pane> | setup | setup-pair | setup-paired | setup-paired-generic |
 ///                                   setup-permissions | setup-away | setup-away-intro | setup-done | code-approval |
 ///                                   diagnostics | menu
-///   MACROPHONE_APPEARANCE=light|dark the setup window in either (it follows the system's otherwise)
+///   MACROPHONE_APPEARANCE=light|dark every window in either, whatever this Mac or General › Appearance says
 ///   MACROPHONE_FAKE_TAILSCALE=missing|installed|running|connected  this Mac's Tailscale, for the Away guide
 ///   MACROPHONE_FAKE_AWAY=1          a paired phone reached this Mac from away two hours ago (the guide's last check)
 ///   MACROPHONE_FAKE_GRANTS=both|none|accessibility|screen  what's allowed (Permissions)
@@ -108,6 +110,7 @@ enum DebugHooks {
             })
         }
         if env["MACROPHONE_FRESH"] == "1" { model.settings.hasCompletedSetup = false }
+        if env["MACROPHONE_EMPTY_HISTORY"] == "1" { model.clearHistory() }
         if env["MACROPHONE_SEED_HISTORY"] == "1" { seed(model) }
         if let name = env["MACROPHONE_FORGET"] {
             // The same call the Devices pane's Forget button makes.

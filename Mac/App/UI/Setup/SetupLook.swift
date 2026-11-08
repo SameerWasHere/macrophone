@@ -6,7 +6,7 @@ import SwiftUI
 // content, and the buttons along the foot — Back on the left, the one thing to do on the right.
 
 /// Which look a checklist wears: the setup's native one (system colours and buttons, light or
-/// dark), or the main window's dark plates (Devices › Away from home).
+/// dark), or a pane's grouped form (Devices › Away from home: each step a row of the form's).
 enum GuideLook { case native, pane }
 
 private struct GuideLookKey: EnvironmentKey { static let defaultValue = GuideLook.native }
@@ -15,29 +15,6 @@ extension EnvironmentValues {
     var guideLook: GuideLook {
         get { self[GuideLookKey.self] }
         set { self[GuideLookKey.self] = newValue }
-    }
-}
-
-/// The system's light or dark (the app forces dark on its other windows, so the setup reads the
-/// setting itself and follows it as it changes).
-@MainActor
-enum SystemAppearance {
-    static var isDark: Bool {
-        #if DEBUG
-        // MACROPHONE_APPEARANCE=light | dark: the setup in either, whatever this Mac is set to.
-        if let a = ProcessInfo.processInfo.environment["MACROPHONE_APPEARANCE"] { return a == "dark" }
-        #endif
-        return UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
-    }
-
-    static var appearance: NSAppearance? { NSAppearance(named: isDark ? .darkAqua : .aqua) }
-
-    /// Calls `changed` whenever the person switches between light and dark.
-    static func observe(_ changed: @escaping @MainActor () -> Void) -> NSObjectProtocol {
-        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
-                                                            object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { changed() }
-        }
     }
 }
 
@@ -127,7 +104,13 @@ struct CheckList<Content: View>: View {
 /// The hairline between checklist rows, lined up with the words.
 struct CheckDivider: View {
     @Environment(\.guideLook) private var look
+    @Environment(\.inPaneForm) private var inForm
     var body: some View {
+        // In a pane's form each step is a row of its own and the form draws the line.
+        if !(look == .pane && inForm) { line }
+    }
+
+    private var line: some View {
         Rectangle()
             .fill(look == .pane ? Ink.line : Color(nsColor: .separatorColor))
             .frame(height: look == .pane ? 1 : 0.5)
@@ -140,6 +123,7 @@ struct CheckDivider: View {
 /// title and one or two lines, and what to do on the right.
 struct CheckRow<Trailing: View>: View {
     @Environment(\.guideLook) private var look
+    @Environment(\.inPaneForm) private var inForm
     var number: Int?
     var symbol: String?
     let title: String
@@ -159,13 +143,13 @@ struct CheckRow<Trailing: View>: View {
             badge.frame(width: 24, height: 24).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(look == .pane ? Ink.ink : Color.primary)
+                    .font(.system(size: 13, weight: look == .pane ? .regular : .semibold))
+                    .foregroundStyle(Color.primary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail, !detail.isEmpty {
                     Text(detail)
-                        .font(.system(size: 12))
-                        .foregroundStyle(detailIsWarning ? warning : (look == .pane ? Ink.tertiary : Color.secondary))
+                        .font(.system(size: look == .pane ? 11 : 12))
+                        .foregroundStyle(detailIsWarning ? warning : Color.secondary)
                         .lineSpacing(1.5)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -173,9 +157,9 @@ struct CheckRow<Trailing: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .frame(minHeight: 52)
+        .padding(.horizontal, inForm ? 0 : 14)
+        .padding(.vertical, inForm ? 3 : 11)
+        .frame(minHeight: inForm ? 30 : 52)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(done ? "\(title), done" : title)
         .animation(Motion.reduceMotion ? .easeInOut(duration: 0.2) : Motion.settle, value: done)

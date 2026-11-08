@@ -121,6 +121,9 @@ final class Settings: ObservableObject {
     /// This Mac's own cleanup level for desk dictations (the phone keeps its own). Medium.
     @Published var deskCleanup: CleanupLevel { didSet { d.set(deskCleanup.rawValue, forKey: "desk.cleanup") } }
 
+    /// General › Appearance (Nov 7 2026): Automatic follows the system; Light or Dark holds it.
+    @Published var appearance: AppAppearance { didSet { d.set(appearance.rawValue, forKey: "appearance") } }
+
     init() {
         // Before live targets there was a "delivery mode": it becomes the first Send to choice
         // (a phone that connects with its own choice wins anyway) and the notification option.
@@ -160,6 +163,7 @@ final class Settings: ObservableObject {
         // The Mac has no custom instructions of its own: Custom isn't offered here.
         let level = d.string(forKey: "desk.cleanup").flatMap(CleanupLevel.init(rawValue:)) ?? .medium
         deskCleanup = level == .custom ? .medium : level
+        appearance = d.string(forKey: "appearance").flatMap(AppAppearance.init(rawValue:)) ?? .automatic
         hasCompletedSetup = d.bool(forKey: "hasCompletedSetup")
         askedForNotifications = d.bool(forKey: "askedForNotifications")
         // Retired with live targets: the Return list and per-app rules (the phone's "Send after pasting"

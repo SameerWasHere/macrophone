@@ -54,48 +54,45 @@ struct DiagnosticsView: View {
     @State private var copied = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Share Diagnostics").font(Typeface.serif(24)).foregroundStyle(Ink.ink)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                SettingsIcon("stethoscope", color: MacTint.teal, size: 32)
                 Text("This is everything that will be shared. It never includes what you dictated, your pairing keys or your API token.")
-                    .font(.system(size: 12.5)).foregroundStyle(Ink.secondary)
+                    .font(.system(size: 13)).foregroundStyle(Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.top, 18)
+            .padding(.top, 16)
             ScrollView {
                 Text(text)
                     .font(Typeface.mono(11, .regular))
-                    .foregroundStyle(Ink.secondary)
+                    .foregroundStyle(Ink.ink)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                    .padding(10)
             }
-            .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Ink.sunk))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.line, lineWidth: 1))
+            .background(Ink.sunk)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.lineStrong, lineWidth: 0.5))
             .accessibilityLabel("The diagnostics log")
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Button(copied ? "Copied" : "Copy") {
                     Clipboard.copyPlain(text); copied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
                 }
-                .buttonStyle(PillButtonStyle(tint: copied ? Light.mint : Ink.ink, filled: false))
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 .help("Copy the whole log  ⇧⌘C")
                 Spacer()
                 Button("Close", action: close)
-                    .buttonStyle(PillButtonStyle(tint: Ink.secondary, filled: false))
                     .keyboardShortcut(.cancelAction)
                 Button("Save…") { save() }
-                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                     .keyboardShortcut("s", modifiers: .command)
                     .help("Save the log as a text file  ⌘S")
                 ShareButton(text: text, fileName: fileName)
             }
+            .controlSize(.large)
         }
-        .padding(.horizontal, 24).padding(.bottom, 20)
+        .padding(.horizontal, 20).padding(.bottom, 20)
         .frame(minWidth: 560, minHeight: 480)
-        .background(Ink.ground)
-        .preferredColorScheme(.dark)
         .onAppear { text = model.log.export(header: Diagnostics.header(model)) }
     }
 
@@ -121,7 +118,7 @@ struct ShareButton: View {
 
     var body: some View {
         Button { share() } label: { Label("Share…", systemImage: "square.and.arrow.up") }
-            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: true))
+            .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
             .background(ViewAnchorHost(anchor: anchor))
             .help("Send the log by Mail, Messages, AirDrop…")

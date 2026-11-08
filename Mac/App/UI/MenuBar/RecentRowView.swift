@@ -1,7 +1,7 @@
 import AppKit
 import MacrophoneKit
 
-/// A recent dictation in the menu: the words in the serif (a fade instead of "…" when they run
+/// A recent dictation in the menu: the words in SF Pro, as every menu row (a fade instead of "…" when they run
 /// long), when and where under them. Highlighted — by the pointer or the arrow keys — the row
 /// lights the way a native row does and says what a click does: Copy. The click runs the menu
 /// item's own action, so Return does the same.
@@ -75,7 +75,7 @@ final class RecentRowView: NSView {
             para.baseWritingDirection = rtl ? .rightToLeft : .natural
             para.alignment = rtl ? .right : .natural
             let base = NSFont.systemFont(ofSize: 13)
-            let font = NSFont(descriptor: base.fontDescriptor.withDesign(.serif) ?? base.fontDescriptor, size: 13) ?? base
+            let font = base
             let textRect = NSRect(x: inset, y: 20, width: width, height: 18)
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(rect: textRect).addClip()

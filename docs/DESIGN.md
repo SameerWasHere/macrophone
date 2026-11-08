@@ -90,6 +90,18 @@ the left. The laptop: the top half is the Mac's screen, edge to edge, its menu b
 top of the deck; the deck is the keyboard (keycaps), the trackpad (the Force Touch surface) or
 the mic, one at a time, each the whole half.
 
+### The Mac app (Nov 7 2026)
+The same language on the Mac, as System Settings on macOS 26/27: light and dark following the
+system (General › Appearance holds one), a Liquid Glass sidebar of coloured icon tiles with the
+connected iPhone at its top like the account card, a unified toolbar carrying the pane's name and
+**Send to** ("Send to Claude ⌄" + the Send after pasting paper plane), and every pane a grouped
+form — a hero (tile, bold name, one sentence), sections with a header and a footer of a sentence,
+rows of tile · title · description · native control. History reads as Mail's message list.
+Tokens map to AppKit's semantic colours (`Ink.*` = windowBackground / controlBackground / label /
+secondaryLabel / separator; `Light.cyan` = the accent, Apple's blue; the rest the system colours).
+The pieces are `Mac/App/UI/Components/MacLook.swift`; CLAUDE.md › "The Mac app as Apple would make
+it" has the map and how a new pane adopts it. The popup stays a dark HUD.
+
 ---
 
 ## The earlier look (Oct 2026) — superseded by the section above

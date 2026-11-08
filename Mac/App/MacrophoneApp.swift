@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import MacrophoneKit
 import SwiftUI
 
@@ -50,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: MainWindowController?
     private var setupWindow: SetupWindowController?
     private var diagnosticsWindow: NSWindow?
+    private var appearanceWatch: AnyCancellable?
 
     override init() {
         super.init()
@@ -57,7 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        // Light and dark, following the system unless General › Appearance holds one (Nov 7 2026;
+        // the app forced dark before). The popup and the listening pill keep their own looks.
+        appearanceWatch = model.settings.$appearance.sink { AppAppearance.apply($0) }
         Notifier.shared.setUp()
         statusItem = StatusItemController(model: model, updater: updater)
         model.popup.statusItemFrame = { [weak self] in self?.statusItem.visibleFrame }
@@ -175,14 +179,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let w = diagnosticsWindow { becomeRegular(); w.makeKeyAndOrderFront(nil); return }
         let view = DiagnosticsView(model: model, close: { [weak self] in self?.diagnosticsWindow?.close() })
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 560),
-                         styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+                         styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         w.title = "Share Diagnostics"
-        w.titlebarAppearsTransparent = true
-        // The page carries its own serif title; don't say it twice.
-        w.titleVisibility = .hidden
         w.minSize = NSSize(width: 520, height: 420)
-        w.appearance = NSAppearance(named: .darkAqua)
-        w.backgroundColor = Ink.groundNS
         w.contentView = NSHostingView(rootView: view)
         w.isReleasedWhenClosed = false
         w.center()

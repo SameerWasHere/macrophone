@@ -75,24 +75,20 @@ struct DeveloperPane: View {
         PanePage {
             PaneHeader(title: "Developer", subtitle: "Let scripts and agents read what you dictate — through a local API, the mp command and an MCP server. Only this Mac can reach it.")
 
-            Plate {
-                PlateRow(title: "Local API", subtitle: apiLine, subtitleColor: apiColor,
-                         icon: "network", iconColor: apiColor == Light.mint ? Light.mint : Ink.secondary) {
+            PaneSection {
+                PlateRow(title: "Local API", subtitle: apiLine, subtitleColor: apiColor == Light.rose ? Light.rose : Ink.secondary,
+                         icon: "network", iconColor: apiColor == Light.mint ? MacTint.blue : MacTint.gray) {
                     Toggle("", isOn: $settings.apiEnabled).toggleStyle(.switch).labelsHidden()
                         .accessibilityLabel("Local API")
                 }
-                PlateDivider()
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: Space.gap) {
-                        Image(systemName: "key").font(.system(size: 14, weight: .medium)).foregroundStyle(Ink.secondary)
-                            .frame(width: 22).accessibilityHidden(true)
-                        Text("Token").font(.system(size: 13, weight: .medium)).foregroundStyle(Ink.ink)
+                    HStack(spacing: 10) {
+                        SettingsIcon("key", color: MacTint.gray, size: 22)
+                        Text("Token").font(.system(size: 13)).foregroundStyle(Ink.ink)
                         Spacer()
                         Button(reveal ? "Hide" : "Show") { reveal.toggle() }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                             .help(reveal ? "Mask the token" : "Show the whole token")
                         Button("Regenerate…") { confirmRegenerate = true }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
                             .help("Make a new token; the old one stops working")
                             .confirmationDialog("Make a new token?", isPresented: $confirmRegenerate) {
                                 Button("Regenerate", role: .destructive) { model.regenerateToken() }
@@ -100,57 +96,51 @@ struct DeveloperPane: View {
                                 Text("Anything using the old token stops working. The mp command and the MCP server pick up the new one by themselves.")
                             }
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        CodePlate(text: reveal ? model.apiToken : masked, copyText: model.apiToken, copyLabel: "Copy")
+                    VStack(alignment: .leading, spacing: 6) {
+                        CodePlate(text: reveal ? model.apiToken : masked, copyText: model.apiToken, copyLabel: "Copy the token")
                             .accessibilityLabel(reveal ? "API token" : "API token, masked")
                         Text("The mp command and the MCP server read it from ~/Library/Application Support/Macrophone/api.json, which only you can open.")
-                            .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
+                            .font(.system(size: 11)).foregroundStyle(Ink.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.leading, 22 + Space.gap)
+                    .padding(.leading, 22 + 10)
                 }
-                .padding(.horizontal, Space.inset).padding(.vertical, 13)
-                PlateDivider()
+                .padding(.vertical, 2)
                 PlateRow(title: "Command-line tool", subtitle: cliLine,
-                         subtitleColor: cliStatus == .installed ? Light.mint : Ink.tertiary,
-                         icon: "terminal", iconColor: cliStatus == .installed ? Light.mint : Ink.secondary) {
-                    Button(cliStatus == .installed ? "Reinstall" : "Install…") {
-                        cliMessage = CLIInstaller.install()
-                        cliStatus = CLIInstaller.status
+                         icon: "terminal", iconColor: cliStatus == .installed ? MacTint.graphite : MacTint.gray) {
+                    HStack(spacing: 10) {
+                        if cliStatus == .installed { AllowedMark(name: "Command-line tool", word: "Installed") }
+                        Button(cliStatus == .installed ? "Reinstall" : "Install…") {
+                            cliMessage = CLIInstaller.install()
+                            cliStatus = CLIInstaller.status
+                        }
+                        .buttonStyle(PillButtonStyle(filled: cliStatus != .installed))
                     }
-                    .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: cliStatus != .installed))
                 }
                 if let cliMessage {
-                    Text(cliMessage).font(.system(size: 11.5)).foregroundStyle(Light.rose)
-                        .padding(.leading, PlateDivider.rowInset).padding(.trailing, Space.inset).padding(.bottom, 12)
-                        .fixedSize(horizontal: false, vertical: true)
+                    PlateNote(cliMessage, color: Light.rose)
                 }
             }
 
-            PaneSection("Hook it up") {
-                Plate {
-                    VStack(alignment: .leading, spacing: 16) {
-                        snippet("curl — the latest dictation", CodePlate(text: curl(reveal ? model.apiToken : masked), copyText: curl(model.apiToken)))
-                        snippet("Claude Code", CodePlate(text: "claude mcp add macrophone -- macrophone mcp"))
-                        snippet("Claude Desktop — claude_desktop_config.json", CodePlate(text: """
-                        {
-                          "mcpServers": {
-                            "macrophone": {
-                              "command": "/usr/local/bin/macrophone",
-                              "args": ["mcp"]
-                            }
-                          }
-                        }
-                        """))
-                        Text("In a terminal: mp prints the latest, mp wait waits for the next, mp list shows recent ones. Agents get two MCP tools: get_latest_dictation and wait_for_dictation.")
-                            .font(.system(size: 11.5)).foregroundStyle(Ink.tertiary)
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Link(destination: Product.docs) { Label("Read the API docs", systemImage: "book") }
-                            .buttonStyle(PillButtonStyle(tint: Ink.ink, filled: false))
-                            .accessibilityLabel("Read the API docs on the web")
+            PaneSection("Hook it up", note: "In a terminal: mp prints the latest, mp wait waits for the next, mp list shows recent ones. Agents get two MCP tools: get_latest_dictation and wait_for_dictation.") {
+                snippet("curl — the latest dictation", CodePlate(text: curl(reveal ? model.apiToken : masked), copyText: curl(model.apiToken)))
+                snippet("Claude Code", CodePlate(text: "claude mcp add macrophone -- macrophone mcp"))
+                snippet("Claude Desktop — claude_desktop_config.json", CodePlate(text: """
+                {
+                  "mcpServers": {
+                    "macrophone": {
+                      "command": "/usr/local/bin/macrophone",
+                      "args": ["mcp"]
                     }
-                    .padding(Space.inset)
+                  }
+                }
+                """))
+                HStack {
+                    Text("Every route, its answers and its errors.").font(.system(size: 13))
+                    Spacer()
+                    Link(destination: Product.docs) { Label("Read the API Docs", systemImage: "book") }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Read the API docs on the web")
                 }
             }
         }
@@ -163,9 +153,10 @@ struct DeveloperPane: View {
 
     private func snippet(_ title: String, _ plate: CodePlate) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Ink.secondary)
+            Text(title).font(.system(size: 13)).foregroundStyle(Ink.ink)
             plate
         }
+        .padding(.vertical, 3)
     }
 
     private var apiLine: String {
