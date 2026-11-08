@@ -248,6 +248,12 @@ public enum Message: Codable, Sendable {
     /// Mac → phone (only to a phone naming MacAlerts.feature): something happened in a window on
     /// watch, or an agent is asking — with a picture of the window.
     case macAlert(MacAlert)
+    /// Mac → phone (only to a phone naming KeepAwakeStatus.feature): Keep Awake as it is — after
+    /// the welcome and on every change.
+    case keepAwake(KeepAwakeStatus)
+    /// Phone → Mac (only to a Mac naming KeepAwakeStatus.feature): turn it on or off, the
+    /// displays, the timer.
+    case keepAwakeSet(KeepAwakeRequest)
     // Either way
     case ping
     case pong

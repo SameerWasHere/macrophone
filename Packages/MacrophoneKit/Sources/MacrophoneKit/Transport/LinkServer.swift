@@ -607,6 +607,10 @@ public final class LinkServer: @unchecked Sendable {
                 if phoneFeatures?.contains(MacVolume.feature) == true, macFeatures.contains(MacVolume.feature) {
                     sendVolumeAfterWelcome(to: phoneID, on: session)
                 }
+                if phoneFeatures?.contains(KeepAwakeStatus.feature) == true, macFeatures.contains(KeepAwakeStatus.feature),
+                   let k = await keepAwakeOnMain() {
+                    try await session.send(.keepAwake(k))
+                }
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
                 if seen.contains(d.id) {
@@ -735,9 +739,13 @@ public final class LinkServer: @unchecked Sendable {
                 handleUndo(id, from: phoneID, on: session)
             case let .alertWatch(request):
                 handleAlertWatch(request, from: phoneID)
+            case let .keepAwakeSet(request):
+                // An action this Mac doesn't know (a newer phone) is ignored, never a session's end.
+                guard request.isValid else { break }
+                handleKeepAwake(request, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .undoDone, .alertWatches, .macAlert:
+            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .undoDone, .alertWatches, .macAlert, .keepAwake:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break
