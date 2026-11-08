@@ -57,9 +57,9 @@ enum DuoLook {
         let mic: CGFloat = room >= deckThreadTop + 36 + micGroup(80) ? 80 : 64
         return (mic, max(28, min(56, room - deckThreadTop - micGroup(mic))))
     }
-    /// A folded half's screen: a hair of bezel, the corner tight to the half's (the book's page;
-    /// the laptop's screen has none — `DuoMacHalf.edge`).
-    static let halfBezel: CGFloat = 2
+    /// A folded half's screen: no bezel, as on every screen since Nov 8 2026 (the Mac's window,
+    /// not a screen showing it).
+    static let halfBezel: CGFloat = 0
     static let halfCorner: CGFloat = 0
     /// Open flat and upright (Nov 1 2026, Sameer: "fully open in portrait mode it should have a
     /// different view with an even bigger window. The half view rule should only be of the laptop
@@ -1411,14 +1411,10 @@ struct DuoGlance: View {
         }
     }
 
-    /// The empty screen: a plate of the window's bezel.
+    /// The empty screen: a quiet pane of glass where the window will be (no bezel — Nov 8 2026).
     private var plate: some View {
-        let bezel = RoundedRectangle(cornerRadius: corner, style: .continuous)
-        return bezel.fill(Ink.sunk)
-            .overlay(bezel.strokeBorder(Color.black.opacity(0.55), lineWidth: 1))
+        Rectangle().fill(.ultraThinMaterial)
             .padding(bezelWidth)
-            .background { bezel.fill(Ink.raised).shadow(color: .black.opacity(reduceTransparency ? 0 : 0.5), radius: 16, y: 10) }
-            .overlay(SpecularEdge(shape: bezel))
     }
 
     /// The bar under the picture: one height whatever it says, so nothing above or below it moves.
@@ -1487,10 +1483,8 @@ struct DuoGlance: View {
         let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
         return Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
             .opacity(0.6)
-            .background(Ink.sunk)
             .clipShape(shape)
             .padding(bezelWidth)
-            .background(Ink.raised, in: shape)
             .accessibilityHidden(true)
     }
 

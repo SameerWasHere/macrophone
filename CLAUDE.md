@@ -7,6 +7,46 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+## The Mac's window, on your iPhone (Nov 8 2026) — wins over every bezel described below
+
+Sameer: "remove the borders of a window … less like there is a view window that is [showing] an
+app or display and more that that window is just viewable on my iPhone and ready to interact
+with", then "when an app is opened … [its] window is resized on the Mac to be as big as possible on
+the current iPhone display. But the user should have the ability to resize the window as they want
+to", and "still be able to zoom in to parts of the window". Frames: `docs/screens/borderless-nov8/`.
+- **No bezel anywhere** (`WatchLook.bezelWidth` 0, `screen` 0, `DuoLook.halfBezel` 0): no raised
+  plate, no specular rim, no recess line, no state-coloured glow, no cyan ring on coming alive or on
+  each key (`cameAlive` keeps its haptic; the key's own press and the click's ring answer input). No
+  grey plate under the picture either: round a window smaller than its room is **the Mac's
+  wallpaper**; a pane of `.ultraThinMaterial` only while there's no picture at all. `WatchWindow` no
+  longer clips (the viewer clips its own picture).
+- **A window's shadow and hairline** (`ViewerHost`, WatchPanel.swift — `WindowViewer` returns it,
+  the `ViewerScrollView` inside): macOS's soft shadow under, a 0.5 pt edge over (dark in light, light
+  in dark), both round *what of the picture shows* (`ViewerScrollView.shownPicture`, moved on every
+  zoom / scroll / layout via `onPictureMoved`, the shadow path animated with the viewer's own
+  animations). Only where the window floats (`floats: !fill`): a folded Duo half fills edge to edge
+  and has none. Off under Reduce Transparency.
+- **The header names the app with its icon** (`WatchKicker(icon:)`, from `liveTargets`), not the
+  breathing "live" dot; faded while not live; the dot stays for an ochre problem and when no icon came.
+- **Every window opens as big as the room** (auto-fit, as before) **and resizes from its corner**
+  (`UI/ResizableWindow.swift`): Stage Manager's arc 5 pt outside the bottom-right corner
+  (`watch-resize`; touch 20 pt in, 14 pt out); the width round the middle, the height from the top,
+  at least 50% × 35% of the room, snapping (a tick) to all of it within 14 pt. While the finger is on
+  it the viewer keeps its zoom (`\.watchResizing` → `ViewerScrollView.resizing`); on release
+  `Watcher.resizedHere` gives the Mac's window that shape (as auto-fit does: it goes back on Done)
+  and the picture settles to fit. Double tap = all the room. **A size lasts while the window is open,
+  never into the next open** (`shrunkHere`: the view's measure while shrunk isn't the room's, so the
+  next open is shaped to the whole room). Off for the Whole Screen and a bare / hidden panel. The
+  window-switching edge strips stop 110 pt short of the foot (the corner). VoiceOver: adjustable,
+  "Use all the space". Pinch to zoom is untouched at any size.
+- Tests: `ResizableWindowUITests` (drag 382×576 → 262×396, top and middle kept, `WATCH SHAPE` sent;
+  the next open full; a double tap full), and `WatchHeaderUITests`, `InputCarouselUITests`,
+  `StabilityUITests`, `DesktopWindowUITests` pass (serve restarted between runs: the question test
+  needs Terminal's question unanswered).
+- **Needs a real Mac and phone:** a real window reshaping to a resized frame (the stand-in's demo
+  window can't, so it letterboxes inside the frame and the arc sits off the picture); the shadow's
+  cost over live video in Release; a window with a minimum size the shape can't reach.
+
 ## Macrophone as Apple would make it (Nov 1 2026) — wins over every look described below
 
 Sameer: "feel like a native apple app … designed by apple … light and dark mode … borrow elements

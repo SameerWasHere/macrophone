@@ -1,0 +1,96 @@
+import XCTest
+
+/// The window as a window (Nov 8 2026): it opens taking all the room, its corner arc resizes it
+/// (the width round the middle, the height from the top), the next open takes all the room again, and a
+/// double tap on the arc gives it all the room again. Run on an iPhone simulator paired with
+/// `mpctl serve`; `TEST_RUNNER_MACROPHONE_SERVE_LOG=<serve's output>` also checks the Mac was
+/// sent the new shape. `TEST_RUNNER_MACROPHONE_RESIZE_SHOTS=<dir>` keeps a frame of each step.
+final class ResizableWindowUITests: XCTestCase {
+    override func setUp() { continueAfterFailure = false }
+
+    private func launch() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_WATCH": "1"]
+        app.launch()
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
+        return app
+    }
+
+    private func window(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "window on your Mac")).firstMatch
+    }
+
+    private func settled(_ e: XCUIElement) -> CGRect {
+        var last = CGRect.null
+        for _ in 0..<12 {
+            let f = e.frame
+            if abs(f.minX - last.minX) < 0.5, abs(f.width - last.width) < 0.5, abs(f.height - last.height) < 0.5 { return f }
+            last = f
+            usleep(400_000)
+        }
+        return last
+    }
+
+    private func shot(_ name: String) {
+        guard let dir = ProcessInfo.processInfo.environment["MACROPHONE_RESIZE_SHOTS"] else { return }
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+    }
+
+    private var serveLog: String {
+        ProcessInfo.processInfo.environment["MACROPHONE_SERVE_LOG"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
+    }
+
+    func testTheCornerResizesTheWindowAndEveryOpenIsFull() {
+        let app = launch()
+        let handle = app.descendants(matching: .any)["watch-resize"]
+        XCTAssertTrue(handle.waitForExistence(timeout: 25), "the corner arc is there once the window is live")
+        let win = window(app)
+        XCTAssertTrue(win.waitForExistence(timeout: 5))
+        // Start from all the room (a run before may have left a size).
+        handle.doubleTap()
+        sleep(2)
+        let full = settled(win)
+        shot("1-full")
+        let shapesBefore = serveLog.components(separatedBy: "WATCH SHAPE").count
+
+        // Drag the corner up and in.
+        let from = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: -60, dy: -180)))
+        sleep(2)
+        let small = settled(win)
+        shot("2-resized")
+        print("ResizableWindow: \(full) → \(small)")
+        XCTAssertEqual(small.minY, full.minY, accuracy: 1, "the window's top stays put")
+        XCTAssertEqual(small.midX, full.midX, accuracy: 1, "it stays centred across")
+        XCTAssertEqual(small.width, full.width - 120, accuracy: 6, "the width shrinks both ways round the middle (\(full.width) → \(small.width))")
+        XCTAssertEqual(small.height, full.height - 180, accuracy: 6, "the height shrinks from the foot (\(full.height) → \(small.height))")
+        if !serveLog.isEmpty {
+            sleep(1)
+            XCTAssertGreaterThan(serveLog.components(separatedBy: "WATCH SHAPE").count, shapesBefore, "the Mac was sent the new shape")
+        }
+
+        // A size lasts while the window's open, never into the next open: every window opens as
+        // big as the phone allows (Sameer, Nov 8 2026).
+        app.terminate()
+        let again = launch()
+        let handle2 = again.descendants(matching: .any)["watch-resize"]
+        XCTAssertTrue(handle2.waitForExistence(timeout: 25))
+        let reopened = settled(window(again))
+        shot("3-reopened")
+        XCTAssertEqual(reopened.width, full.width, accuracy: 1, "the next open takes all the room again (\(reopened.width))")
+        XCTAssertEqual(reopened.height, full.height, accuracy: 1)
+
+        // Smaller again, then a double tap: all the room.
+        let from2 = handle2.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from2.press(forDuration: 0.1, thenDragTo: from2.withOffset(CGVector(dx: -40, dy: -120)))
+        sleep(2)
+        XCTAssertLessThan(settled(window(again)).height, full.height - 60, "smaller again")
+        handle2.doubleTap()
+        sleep(2)
+        let back = settled(window(again))
+        shot("4-full-again")
+        XCTAssertEqual(back.width, full.width, accuracy: 1, "a double tap gives it all the room")
+        XCTAssertEqual(back.height, full.height, accuracy: 1)
+    }
+}

@@ -21,10 +21,13 @@ import UIKit
 
 /// The watch's own measures, kept here (Theme.swift holds the app's).
 enum WatchLook {
-    /// The bezel's corner, and the screen's inside it (concentric: the bezel's less its width).
+    /// The corner of the plates beside the window (the trackpad). The window itself has no bezel
+    /// any more (Nov 8 2026, Sameer: "less like there is a view window … more that that window is
+    /// just viewable on my iPhone and ready to interact with"): it's the Mac's window on the Mac's
+    /// wallpaper, square-cornered, with a window's shadow — no frame, no lit rim, no glow.
     static let bezel: CGFloat = 20
-    static let bezelWidth: CGFloat = 3
-    static var screen: CGFloat { bezel - bezelWidth }
+    static let bezelWidth: CGFloat = 0
+    static let screen: CGFloat = 0
     /// Every cell, key, switch and header control.
     /// Trimmed from 44 (Oct 18 2026, Sameer: "make some of the buttons around the window a bit
     /// smaller so we can further increase the square window") — still a comfortable press.
@@ -78,11 +81,14 @@ struct WatchPanel: View {
             // everywhere — on the cover too, where it had floated over the window's corner — and
             // the answers and the tips are rows under it.
             if !bare { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce) }
-            WatchWindow(watcher: watcher, interactive: true, dormant: dormant)
-                .frame(maxHeight: .infinity)
-                // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
-                .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
-                .offset(x: slide)
+            // All the room by default; his to resize from the corner (Nov 8 2026).
+            ResizableWindow(watcher: watcher, enabled: !bare && !dormant && !watcher.isDesktop) {
+                WatchWindow(watcher: watcher, interactive: true, dormant: dormant)
+                    // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
+                    .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
+            }
+            .frame(maxHeight: .infinity)
+            .offset(x: slide)
             // The first times: what a tap, a hold, a pinch and the side swipe do — a strip under
             // the window, never a card over it.
             if !bare, !dormant {
@@ -162,6 +168,8 @@ struct WatchPanel: View {
                 if (step > 0 && dx < 0) || (step < 0 && dx > 0) { go(step) }
             })
             .accessibilityHidden(true)
+            // Clear of the window's resize corner and the key row under it (Nov 8 2026).
+            .padding(.bottom, 110)
     }
 }
 
@@ -334,7 +342,7 @@ struct WatchHeaderBar: View {
             }
         } label: {
             HStack(spacing: 6) {
-                WatchKicker(watcher: watcher, nameOnly: !words)
+                WatchKicker(watcher: watcher, nameOnly: !words, icon: appIcon)
                 Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
             }
             .frame(minHeight: WatchLook.header)
@@ -345,6 +353,12 @@ struct WatchHeaderBar: View {
         .accessibilityIdentifier("watch-sessions")
     }
 
+    /// The watched app's own icon, as the Mac sent it with its open apps.
+    private var appIcon: Data? {
+        guard let id = watcher.bundleID ?? watcher.target?.bundleID else { return nil }
+        return model.liveTargets.first { $0.bundleID == id && $0.icon != nil }?.icon
+    }
+
     /// The window's name (a menu of the Mac's windows when there are others), the bell when it's
     /// on watch for changes, and the page dots. `words`: "Paused · Claude" rather than "Claude".
     @ViewBuilder private func name(dots: Bool = true, words: Bool = true) -> some View {
@@ -352,7 +366,7 @@ struct WatchHeaderBar: View {
             if sessions.count > 1 || watcher.canWatchDesktop || !model.everyWindow.isEmpty {
                 sessionMenu(words: words)
             } else {
-                WatchKicker(watcher: watcher, nameOnly: !words)
+                WatchKicker(watcher: watcher, nameOnly: !words, icon: appIcon)
             }
             if alertOn, !inBar { WatchAlertBadge() }
             if dots, sessions.count > 1, sessions.count <= 8, let i = current {
@@ -612,16 +626,25 @@ struct WatchKicker: View {
     @ObservedObject var watcher: Watcher
     /// The app's name without "Paused ·" or "Opening" (a header with no room for them).
     var nameOnly = false
+    /// The app's own icon (Nov 8 2026): the window is that app, here — not a feed with a "live"
+    /// light. Faded while it isn't live; a problem (ochre) still shows the dot.
+    var icon: Data? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Breathes while live, driven by Core Animation: it costs the app nothing per frame
-            // (a SwiftUI repeat animation re-rendered the view sixty times a second).
-            LiveDot(color: UIColor(color), breathing: watcher.phase == .live && !reduceMotion)
-                .frame(width: 8, height: 8)
-                .shadow(color: color.opacity(0.8), radius: 4)
-                .accessibilityHidden(true)
+        HStack(spacing: 7) {
+            if let target = watcher.target, icon != nil || watcher.isDesktop, color != Light.ochre {
+                TargetIcon(target: target, icon: icon, size: 20)
+                    .opacity(watcher.phase == .live || watcher.phase == .reconnecting ? 1 : 0.45)
+                    .accessibilityHidden(true)
+            } else {
+                // Breathes while live, driven by Core Animation: it costs the app nothing per frame
+                // (a SwiftUI repeat animation re-rendered the view sixty times a second).
+                LiveDot(color: UIColor(color), breathing: watcher.phase == .live && !reduceMotion)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: color.opacity(0.8), radius: 4)
+                    .accessibilityHidden(true)
+            }
             // Whole words or fewer of them, never cut: "PAUSED · CLAUDE", then "CLAUDE".
             ViewThatFits(in: .horizontal) {
                 label(nameOnly && watcher.phase != .offline ? watcher.name : words)
@@ -738,6 +761,7 @@ struct WatchWindow: View {
     /// watcher nothing (not its size either: the panel is laid out without its header meanwhile).
     @Environment(\.watchWindowHidden) private var hidden
     @Environment(\.watchRestPicture) private var restPicture
+    @Environment(\.watchResizing) private var resizing
     private var live: Bool { interactive && !hidden }
     /// A moment of words after the Pan | Scroll switch flips or Aa changes: what happens now.
     @State private var dragNote: String?
@@ -754,11 +778,13 @@ struct WatchWindow: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        let screen = RoundedRectangle(cornerRadius: max(0, corner - bezelWidth), style: .continuous)
-        let bezel = RoundedRectangle(cornerRadius: corner, style: .continuous)
-        let high = contrast == .increased
         ZStack {
-            Ink.sunk
+            // No plate under the picture (Nov 8 2026): what's around a window that doesn't fill
+            // the view is the Mac's wallpaper, as round a window on the Mac's desktop. Only while
+            // there's no picture at all does a quiet pane of glass hold the window's place.
+            if !(watcher.hasPicture || watcher.lastPicture != nil || (hidden && restPicture != nil)) {
+                Rectangle().fill(.ultraThinMaterial).accessibilityHidden(true)
+            }
             // Opening: what this window looked like last time, until its first frame (Nov 3
             // 2026). (Nov 4 2026) It's the same viewer as the live picture, handed the kept one
             // until then: drawn as its own picture, whole and dimmed, it was smaller and paler
@@ -798,7 +824,9 @@ struct WatchWindow: View {
                                  pointer.viewer = v
                                  // Where the trackpad's pointer starts: the middle of what shows.
                                  input.visibleCenter = { [weak v] in v?.visibleCenter }
-                             })
+                             },
+                             floats: !fill && !reduceTransparency,
+                             resizing: resizing)
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill, interactive: live) }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
@@ -859,45 +887,12 @@ struct WatchWindow: View {
             }
             if interactive { overlay }
         }
-        .clipShape(screen)
-        // The screen sits a hair below the bezel: a dark line at its edge is the recess.
-        .overlay(screen.strokeBorder(Color.black.opacity(high ? 0 : 0.55), lineWidth: 1))
+        // Not clipped: the viewer clips its own picture, and the window's shadow (drawn beside the
+        // viewer, round what of the picture shows) falls outside its frame onto the wallpaper.
+        // (Nov 8 2026: the bezel, its lit rim, the state's glow and the cyan ring that answered
+        // each key are gone — they made it a screen showing the Mac, not the Mac's window. The
+        // key's own press, the click's ring at the finger and the next frame are the answer.)
         .padding(bezelWidth)
-        .background {
-            // The bezel, and the light under it in the state's colour (a still layer of its own, so
-            // the pictures changing above it cost the shadow nothing).
-            bezel.fill(Ink.raised)
-                .shadow(color: glow.opacity(reduceTransparency ? 0 : glowStrength), radius: 28, y: 6)
-                .shadow(color: .black.opacity(reduceTransparency ? 0 : 0.5), radius: 16, y: 10)
-        }
-        // The rim, lit from above as every plate in the app is.
-        .overlay(SpecularEdge(shape: bezel))
-        // The window comes alive: one pass of light round its rim as the first picture lands.
-        .overlay {
-            if interactive && !reduceMotion {
-                bezel.strokeBorder(Light.cyan, lineWidth: 1.5)
-                    .keyframeAnimator(initialValue: 0.0, trigger: watcher.cameAlive) { ring, a in ring.opacity(a) } keyframes: { _ in
-                        CubicKeyframe(0.9, duration: 0.18)
-                        CubicKeyframe(0, duration: 0.9)
-                    }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
-        // A key, an answer or a Window command on its way: the rim answers the moment it's sent,
-        // so the input never feels lost while the Mac's next frame is on its way (a click has
-        // its ring at the finger instead).
-        .overlay {
-            if interactive && !reduceMotion {
-                bezel.strokeBorder(Light.cyan, lineWidth: 1.5)
-                    .keyframeAnimator(initialValue: 0.0, trigger: watcher.inputSeq) { ring, a in ring.opacity(a) } keyframes: { _ in
-                        CubicKeyframe(0.7, duration: 0.07)
-                        CubicKeyframe(0, duration: 0.33)
-                    }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
         .onChange(of: watcher.cameAlive) { _, _ in if interactive { Haptics.arrived() } }
         .onChange(of: watcher.noteSeq) { _, _ in
             guard interactive else { return }
@@ -934,23 +929,6 @@ struct WatchWindow: View {
         .animation(.easeInOut(duration: 0.2), value: watcher.movedAway)
         .animation(.easeInOut(duration: 0.2), value: watcher.stale)
         .animation(.easeInOut(duration: 0.25), value: watcher.hasPicture)
-    }
-
-    /// The light under the bezel: the window's state, in the kicker's colour.
-    private var glow: Color {
-        switch watcher.phase {
-        case .live: return Light.cyan
-        case .needsPermission, .unavailable, .offline: return Light.ochre
-        case .starting, .paused, .reconnecting: return Light.cyan
-        }
-    }
-
-    private var glowStrength: Double {
-        switch watcher.phase {
-        case .live: return interactive ? 0.22 : 0.14
-        case .needsPermission, .unavailable, .offline: return 0.16
-        case .starting, .paused, .reconnecting: return 0.06
-        }
     }
 
     @ViewBuilder private var overlay: some View {
@@ -1755,19 +1733,28 @@ struct WindowViewer: UIViewRepresentable {
     var pointerSprite: PointerSpriteView? = nil
     /// The view, once made and on every update: the window hands it what needs it.
     var onReady: (ViewerScrollView) -> Void = { _ in }
+    /// The window floats on the wallpaper with a window's shadow (not a folded Duo's half, where
+    /// it fills edge to edge).
+    var floats = false
+    /// His finger is on the window's resize corner.
+    var resizing = false
 
-    func makeUIView(context: Context) -> ViewerScrollView {
-        let v = ViewerScrollView()
-        wire(v)
-        return v
+    func makeUIView(context: Context) -> ViewerHost {
+        let host = ViewerHost()
+        host.floats = floats
+        wire(host.viewer)
+        return host
     }
 
-    func updateUIView(_ v: ViewerScrollView, context: Context) {
+    func updateUIView(_ host: ViewerHost, context: Context) {
+        host.floats = floats
+        let v = host.viewer
         wire(v)
         v.viewKey = viewKey
         v.canDrag = canDrag
         v.keyboardUp = keyboardUp
         v.answersUp = answersUp
+        v.resizing = resizing
         v.onLog = onLog
         v.fill = fill
         v.footInset = footInset
@@ -1794,7 +1781,118 @@ struct WindowViewer: UIViewRepresentable {
     }
 }
 
+/// The viewer, with the Mac window's shadow under it and its hairline edge over it (Nov 8 2026):
+/// both follow what of the picture shows — round the whole window when it sits smaller than the
+/// view on the wallpaper, round the view when the window fills it or is zoomed past it — so the
+/// window reads as a Mac window lying on the Mac's desktop, not a picture in a frame. The scroll
+/// view clips its picture; this host doesn't, so the shadow falls on the wallpaper outside it.
+final class ViewerHost: UIView {
+    let viewer = ViewerScrollView()
+    private let shade = UIView()
+    private let edge = UIView()
+    var floats = false { didSet { if floats != oldValue { placeShade() } } }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = false
+        backgroundColor = .clear
+        for v in [shade, edge] {
+            v.isUserInteractionEnabled = false
+            v.isAccessibilityElement = false
+            v.isHidden = true
+        }
+        // macOS's own window shadow: soft, dark, a little below.
+        shade.layer.shadowColor = UIColor.black.cgColor
+        shade.layer.shadowOpacity = 0.3
+        shade.layer.shadowRadius = 16
+        shade.layer.shadowOffset = CGSize(width: 0, height: 8)
+        // …and its hairline: a dark one in light, a light one in dark (what keeps a dark window
+        // on a dark desktop from melting into it).
+        edge.layer.borderWidth = 0.5
+        addSubview(shade)
+        addSubview(viewer)
+        addSubview(edge)
+        viewer.onPictureMoved = { [weak self] in self?.placeShade() }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: ViewerHost, _) in self.paintEdge() }
+        paintEdge()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if viewer.frame != bounds { viewer.frame = bounds }
+        placeShade()
+    }
+
+    private func paintEdge() {
+        let dark = traitCollection.userInterfaceStyle == .dark
+        edge.layer.borderColor = UIColor(white: dark ? 1 : 0, alpha: dark ? 0.16 : 0.14).cgColor
+    }
+
+    /// The shadow and the edge round what of the picture shows; moved with the viewer's own
+    /// animation when it's animating (the zoom-out's), else at once.
+    private func placeShade() {
+        let r = floats ? viewer.shownPicture(in: self) : .zero
+        let show = r.width > 1 && r.height > 1
+        shade.isHidden = !show
+        edge.isHidden = !show
+        guard show else { return }
+        let path = UIBezierPath(rect: CGRect(origin: .zero, size: r.size)).cgPath
+        let d = UIView.inheritedAnimationDuration
+        if d > 0, let old = shade.layer.shadowPath {
+            let a = CABasicAnimation(keyPath: "shadowPath")
+            a.fromValue = old
+            a.toValue = path
+            a.duration = d
+            a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            shade.layer.add(a, forKey: "shadowPath")
+        }
+        shade.frame = r
+        edge.frame = r
+        shade.layer.shadowPath = path
+    }
+}
+
 final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+    /// The picture moved within the view (a zoom, a scroll, a new size): the host's shadow follows.
+    var onPictureMoved: () -> Void = {}
+
+    /// He's dragging the window's corner (Nov 8 2026): the picture keeps its zoom and its spot —
+    /// the window's edge moves over it, as a Mac window's does — and settles to fit the new size
+    /// when he lets go (until the Mac's window, reshaped to it, sends its first picture).
+    var resizing = false {
+        didSet {
+            guard resizing != oldValue, !resizing, imageSize != .zero, bounds.width > 0 else { return }
+            configureZoom()
+            reset(animated: true)
+        }
+    }
+
+    /// A size change mid-drag: the same zoom, the bottom kept if it showed, else the same spot.
+    private func keepZoomResizing(oldHeight: CGFloat) {
+        let s = zoomScale, w = imageSize.width * s, h = imageSize.height * s
+        let left = contentOffset.x + contentInset.left, top = contentOffset.y + contentInset.top
+        let wasBottom = top >= max(0, h - max(1, oldHeight - footInset)) - 24
+        configureZoom()
+        minimumZoomScale = min(minimumZoomScale, s)
+        maximumZoomScale = max(maximumZoomScale, s)
+        centerIfSmall()
+        let bottom = max(0, h - visibleHeight)
+        let x = min(max(left, 0), max(0, w - bounds.width))
+        let y = wasBottom ? bottom : min(max(top, 0), bottom)
+        contentOffset = CGPoint(x: x - contentInset.left, y: y - contentInset.top)
+    }
+
+    /// What of the picture is on screen, in `view`'s space: the picture's frame at its zoom and
+    /// scroll, cut to this view's bounds.
+    func shownPicture(in view: UIView) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0, !canvas.isHidden else { return .zero }
+        let picture = canvas.convert(canvas.bounds, to: view)
+        let shown = picture.intersection(convert(bounds, to: view))
+        return shown.isNull ? .zero : shown
+    }
+
     /// What zooms: the picture, with the video canvas over it while video flows.
     private let canvas = UIView()
     /// Fires the moment a finger lands (a press with no wait, beside every other gesture): a
@@ -2150,9 +2248,14 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        defer { onPictureMoved() }
         guard bounds.size != lastBounds, imageSize != .zero, bounds.width > 0 else { return }
         let old = lastBounds
         lastBounds = bounds.size
+        if resizing, old != .zero {
+            keepZoomResizing(oldHeight: old.height)
+            return
+        }
         let forAnswers = CACurrentMediaTime() < holdZoomUntil
         if old != .zero, abs(old.width - bounds.width) < 1, keyboardUp || heightBeforeKeyboard != nil || forAnswers {
             if keyboardUp, heightBeforeKeyboard == nil { heightBeforeKeyboard = old.height }
@@ -2629,8 +2732,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { adjusted = true; onTouch() }
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) { adjusted = true; onTouch() }
-    func scrollViewDidZoom(_ scrollView: UIScrollView) { centerIfSmall(); placePointer() }
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { placePointer() }
+    func scrollViewDidZoom(_ scrollView: UIScrollView) { centerIfSmall(); placePointer(); onPictureMoved() }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { placePointer(); onPictureMoved() }
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { keepView(); reportWhole() }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { keepView() } }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { keepView() }

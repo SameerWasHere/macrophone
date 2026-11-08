@@ -530,7 +530,9 @@ final class Watcher: ObservableObject {
     /// cross-fade). Only the window in hand measures: the strip over the live words and the
     /// glance are other sizes for a moment.
     func viewerMeasured(_ size: CGSize, fill: Bool = false, interactive: Bool = true) {
-        guard interactive, size != viewerSize || fill != viewerFills || viewerPose != input.pose else { return }
+        // A window he made smaller on the phone measures smaller; the view's own room is what
+        // the next open is shaped to (every window opens as big as it can be, Nov 8 2026).
+        guard interactive, !shrunkHere, size != viewerSize || fill != viewerFills || viewerPose != input.pose else { return }
         viewerSize = size
         viewerFills = fill
         viewerPose = input.pose
@@ -613,7 +615,7 @@ final class Watcher: ObservableObject {
     }
 
     private func applyAutoFit() {
-        guard wantsAutoFit, isOpen, !glancing, !sizedByHand, phase == .live, viewAtRest, let target, !isDesktop,
+        guard wantsAutoFit, isOpen, !glancing, !sizedByHand, !resizingHere, phase == .live, viewAtRest, let target, !isDesktop,
               canFitToPhone, !Self.keepsOwnSize(target) else { return }
         // Folded, the half's own measure, never the phone layout's still fading out.
         guard !fillsView || viewerFills, viewerSize.width > 40, viewerSize.height > 40 else { return }
@@ -660,6 +662,34 @@ final class Watcher: ObservableObject {
         guard autoFitted, !sizedByHand, !askedForFit, canWindowCommands else { return }
         _ = sendWindow(.restore)
         log?.add("watching: the window goes back to its own size")
+    }
+
+    /// He's dragging the window's corner on the phone: nothing reshapes the Mac's window mid-drag.
+    var resizingHere = false
+    /// He made the window smaller than its room on the phone (until it's given all the room again,
+    /// or the next open): the view's measure isn't the room's.
+    var shrunkHere = false
+
+    /// He resized the window on the phone (Nov 8 2026, Sameer: "the window can take up the max
+    /// space possible and the user can resize the window as they want with the space available
+    /// on their phone"): the Mac's window takes the new shape, as auto-fit gives it — so it goes
+    /// back to its own size when the view leaves it, like any shape the view gave it unasked.
+    func resizedHere(_ size: CGSize) {
+        touch()
+        guard size.width > 40, size.height > 40 else { return }
+        guard let target, !isDesktop, canFitToPhone, phase == .live else { return }
+        guard sendShape(size) else { return }
+        shapeSent = size
+        wantsAutoFit = false
+        sizedByHand = false
+        if !askedForFit { autoFitted = true }
+        if fit != .normal { setFitLocally(.normal) }
+        if wholeWindow { wholeWindow = false }
+        if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
+        Self.setFitted(target, true)
+        Self.setKeepsOwnSize(target, false)
+        drag = .scroll
+        log?.add("watching: resized on the phone (\(Int(size.width))×\(Int(size.height)))")
     }
 
     /// Fit to iPhone: the Mac gives the window this view's shape, as big as its screen allows, so
