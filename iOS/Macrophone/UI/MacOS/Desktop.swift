@@ -41,10 +41,11 @@ struct PhoneMenuBar: View {
         } trailing: {
             // `looksConnected`: back from the background the extras hold as they were while the
             // link comes back (Nov 7 2026); a tap meanwhile waits for it.
-            if model.isConnected ? watcher.canWatchDesktop : hadWholeScreen {
+            // Unpaired, nothing holds a place (Nov 8 2026: after an unpair the dimmed extras stayed).
+            if model.isConnected ? watcher.canWatchDesktop : (model.isPaired && hadWholeScreen) {
                 WholeScreenButton(watcher: watcher, menuExtra: true).disabled(!model.looksConnected)
             }
-            if model.isConnected ? model.canMacControls : hadControls {
+            if model.isConnected ? model.canMacControls : (model.isPaired && hadControls) {
                 MacControlsButton(style: .menuExtra).disabled(!model.looksConnected)
             }
             Button { model.sheet = .history } label: { Image(systemName: "clock") }

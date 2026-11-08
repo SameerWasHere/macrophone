@@ -808,8 +808,10 @@ struct MainView: View {
 
     /// The bar's lower group at rest: Whole Screen and Mac Controls, each when the Mac offers it (or
     /// did when last connected, while it connects again).
-    var barWholeScreen: Bool { model.isConnected ? watcher.canWatchDesktop : barHadWholeScreen }
-    var barMacControls: Bool { model.isConnected ? model.canMacControls : barHadControls }
+    // With no Mac paired there's nothing to hold a place for (Nov 8 2026: after an unpair the
+    // bar kept a dimmed Whole Screen and Control Center beside "Pair your Mac").
+    var barWholeScreen: Bool { model.isConnected ? watcher.canWatchDesktop : (model.isPaired && barHadWholeScreen) }
+    var barMacControls: Bool { model.isConnected ? model.canMacControls : (model.isPaired && barHadControls) }
     /// Upright on the inner screen at rest, the system lays those out in a bar at the foot.
     var uprightFootBar: Bool { posture.pose.foldAcross && innerBarShown && (barWholeScreen || barMacControls) }
 

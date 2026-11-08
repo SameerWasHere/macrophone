@@ -54,6 +54,11 @@ struct OpenAppSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.doneButtonStyle() }
+                // The Duo's cover lays an inline title at the leading edge; centred, as pairing's
+                // and every other iPhone's (Nov 8 2026).
+                if VerticalBarProbe.edge != nil {
+                    ToolbarItem(placement: .principal) { Text("Open an App").font(.headline) }
+                }
             }
         }
         .tint(Light.cyan)
