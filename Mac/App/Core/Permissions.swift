@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import AVFoundation
 import Combine
 import CoreGraphics
 import MacrophoneKit
@@ -19,6 +20,12 @@ final class PermissionsMonitor: ObservableObject {
     /// Asked for Screen Recording from here and it's still off: macOS often wants Macrophone
     /// reopened before the switch takes (System Settings offers "Quit & Reopen").
     @Published private(set) var screenRecordingAsked = false
+    /// The microphone, for dictation at the desk (Nov 7 2026) — only asked for there.
+    @Published private(set) var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
+    /// Input Monitoring: only needed if macOS refuses desk dictation's key tap with Accessibility alone.
+    @Published private(set) var inputMonitoring = CGPreflightListenEventAccess()
+    static let microphoneSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
+    static let inputMonitoringSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
 
     var current: MacPermissions { MacPermissions(accessibility: accessibility, screenRecording: screenRecording) }
     /// Called with the new pair whenever either changes.
@@ -55,6 +62,11 @@ final class PermissionsMonitor: ObservableObject {
     }
 
     func refresh() {
+        // The desk's two (never told to the phones).
+        let mic = AVCaptureDevice.authorizationStatus(for: .audio)
+        if mic != microphone { microphone = mic }
+        let listen = CGPreflightListenEventAccess()
+        if listen != inputMonitoring { inputMonitoring = listen }
         var ax = AXIsProcessTrusted(), screen = CGPreflightScreenCaptureAccess()
         #if DEBUG
         // MACROPHONE_FAKE_GRANTS=both | none | accessibility | screen — what's allowed, for screenshots.
@@ -75,6 +87,24 @@ final class PermissionsMonitor: ObservableObject {
     func openAccessibility() {
         if !accessibility { _ = Paster.requestTrust() }
         NSWorkspace.shared.open(Self.accessibilitySettingsURL)
+    }
+
+    /// The microphone: macOS's own question the first time, Privacy & Security › Microphone after.
+    func openMicrophone() {
+        if microphone == .notDetermined {
+            Task { @MainActor in
+                _ = await AVCaptureDevice.requestAccess(for: .audio)
+                self.refresh()
+            }
+            return
+        }
+        NSWorkspace.shared.open(Self.microphoneSettingsURL)
+    }
+
+    /// Privacy & Security › Input Monitoring. Asking once puts Macrophone in that list.
+    func openInputMonitoring() {
+        if !inputMonitoring { CGRequestListenEventAccess() }
+        NSWorkspace.shared.open(Self.inputMonitoringSettingsURL)
     }
 
     /// Opens Privacy & Security › Screen Recording. Asking once puts Macrophone in that list.

@@ -46,6 +46,12 @@ import SwiftUI
 ///   MACROPHONE_ALERTS_PRINT=1       print each alert (its kind, headline, line, picture size) to stdout; the
 ///                                   distributed notification "com.sameer.macrophone.debug.alertWatch" (object: a
 ///                                   bundle id) puts that app's front window on watch
+///   MACROPHONE_DESK_AUDIO=<file>    one desk dictation from an audio file (speech → this Mac's cleanup, or
+///                                   MACROPHONE_DESK_LEVEL=off|light|medium|heavy), printed ("DESK RAW:" / "DESK CLEANED:")
+///                                   instead of pasted, twice (made now, then made ahead); then quits
+///   MACROPHONE_DESK_PILL=<words>[|handsfree|finishing:<status>]  the listening pill held on screen;
+///                                   MACROPHONE_DESK_APPEARANCE=light|dark forces its look
+///   MACROPHONE_DESK_LIVE=1          a MACROPHONE_INSTANCE copy listens for the desk key too (off by default)
 ///   MACROPHONE_WATCH_TIMING=1      print each watched picture's or video frame's stages in milliseconds (WatchService)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
 ///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
@@ -139,7 +145,35 @@ enum DebugHooks {
             bag.append(t)
         }
         if let demo = env["MACROPHONE_MENUBAR_DEMO"] { app.debugStatusItem.debugDemo(demo) }
-        guard let show = env["MACROPHONE_SHOW"] else { return false }
+        if let path = env["MACROPHONE_DESK_AUDIO"] { runDeskAudio(path, model: model); return true }
+        if let words = env["MACROPHONE_DESK_TRY"] { model.desk.tryText = words }
+        if let spec = env["MACROPHONE_DESK_SIMULATE"] { simulateDesk(spec, model: model); return true }
+        if let spec = env["MACROPHONE_DESK_PILL"] {
+            // "words|handsfree" or "words|finishing:Cleaning up…" — the pill held on screen.
+            let parts = spec.components(separatedBy: "|")
+            let extra = parts.dropFirst().first ?? ""
+            if env["MACROPHONE_BACKDROP"] == "1" {
+                // A backdrop of our own just round the pill, so its glass has something to show
+                // and a capture of that rect holds nothing but our two windows.
+                let f = ListeningPill.place().insetBy(dx: -60, dy: -40)
+                let w = NSWindow(contentRect: f, styleMask: [.borderless], backing: .buffered, defer: false)
+                w.level = .floating
+                w.collectionBehavior = [.canJoinAllSpaces, .stationary]
+                w.ignoresMouseEvents = true
+                w.contentView = NSHostingView(rootView: Backdrop())
+                w.orderFrontRegardless()
+                backdrop = w
+                if let file = env["MACROPHONE_PILL_RECT_FILE"] {
+                    let primary = NSScreen.screens.first?.frame.height ?? 0
+                    try? "\(Int(f.minX)),\(Int(primary - f.maxY)),\(Int(f.width)),\(Int(f.height))".write(toFile: file, atomically: true, encoding: .utf8)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                model.desk.debugStage(parts[0], handsFree: extra == "handsfree",
+                                      finishing: extra.hasPrefix("finishing") ? String(extra.dropFirst(10)) : nil)
+            }
+        }
+        guard let show = env["MACROPHONE_SHOW"] else { return env["MACROPHONE_DESK_PILL"] != nil }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 
         if show.hasPrefix("window-"), let pane = Pane(rawValue: String(show.dropFirst(7))) {
@@ -203,6 +237,54 @@ enum DebugHooks {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.codeRequest = CodeRequest(code: "482 913", phoneName: "Sameer's iPhone") }
         default: app.openSetup(.firstRun)
         }
+    }
+
+    // MARK: Desk dictation from a file
+
+    /// MACROPHONE_DESK_AUDIO=<file>: one desk dictation from an audio file through the same speech
+    /// and this Mac's cleanup level (or MACROPHONE_DESK_LEVEL), printed instead of pasted; then quits.
+    private static func runDeskAudio(_ path: String, model: AppModel) {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        let level = env["MACROPHONE_DESK_LEVEL"].flatMap(CleanupLevel.init(rawValue:)) ?? model.settings.deskCleanup
+        let language = env["MACROPHONE_DESK_LANGUAGE"] ?? DeskDictation.language
+        guard #available(macOS 26.0, *) else { print("DESK needs macOS 26"); exit(2) }
+        Task { @MainActor in
+            print("DESK language \(language) · cleanup \(level.rawValue) · cleanup available: \(Cleaner.availability(language: language).isAvailable)")
+            // Twice: the first makes the analyzer now, the second takes the one made ahead.
+            for run in 1...2 {
+                if run == 2 {
+                    let w0 = Date()
+                    await DeskSpeech.warm(language: language)
+                    print("DESK warmed ahead in \(Int(Date().timeIntervalSince(w0) * 1000)) ms")
+                }
+                guard let r = await DeskFileRun.run(path: path, level: level, language: language) else {
+                    print("DESK FAILED: no speech engine or unreadable file"); exit(1)
+                }
+                print("DESK run \(run): speech \(r.speechMs) ms, cleanup \(r.cleanupMs) ms, \(r.raw.split(whereSeparator: \.isWhitespace).count) words")
+                print("DESK RAW: \(r.raw)")
+                print("DESK CLEANED: \(r.cleaned ?? "(none)")")
+            }
+            exit(0)
+        }
+    }
+
+    /// MACROPHONE_DESK_SIMULATE=<file>[@hold seconds][@handsfree]: the key held (or double-tapped)
+    /// through the real state machine and controller, the file as the mic; the result printed.
+    private static func simulateDesk(_ spec: String, model: AppModel) {
+        setvbuf(stdout, nil, _IOLBF, 0)
+        let parts = spec.components(separatedBy: "@")
+        let url = URL(fileURLWithPath: parts[0])
+        let hold = parts.dropFirst().first.flatMap(Double.init) ?? 6
+        let handsFree = parts.contains("handsfree")
+        let t0 = Date()
+        model.desk.dryRun = { raw, cleaned in
+            print("DESK SIM \(handsFree ? "hands-free" : "hold") \(String(format: "%.1f", hold)) s → result \(Int(Date().timeIntervalSince(t0) * 1000)) ms after the press")
+            print("DESK RAW: \(raw)")
+            print("DESK CLEANED: \(cleaned ?? "(none)")")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
+        }
+        model.desk.debugSimulate(file: url, hold: hold, handsFree: handsFree)
+        DispatchQueue.main.asyncAfter(deadline: .now() + hold + 20) { print("DESK SIM: no result"); exit(1) }
     }
 
     // MARK: Popup staging
@@ -443,6 +525,11 @@ enum DebugHooks {
             if let inner = s.attachedSheet ?? s.sheets.first {
                 out["sheet2"] = inner.windowNumber
             }
+        }
+        if let n = app.model.desk.debugPillWindow, let f = app.model.desk.debugPillFrame {
+            out["pill"] = n
+            let primary = NSScreen.screens.first?.frame.height ?? 0
+            out["pillFrame"] = [f.minX, primary - f.maxY, f.width, f.height]
         }
         if let f = app.debugStatusItem.visibleFrame {
             let primary = NSScreen.screens.first?.frame.height ?? 0

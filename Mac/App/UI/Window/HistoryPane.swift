@@ -93,7 +93,7 @@ struct HistoryPane: View {
                 LazyVStack(spacing: 10) {
                     ForEach(items) { item in
                         // With more than one phone, say which one each came from.
-                        HistoryRow(item: item, device: model.peers.count > 1 ? item.dictation.sourceDevice : nil,
+                        HistoryRow(item: item, device: model.peers.count > 1 || item.dictation.sourceDevice == DeskDictation.source ? item.dictation.sourceDevice : nil,
                                    onDelete: { model.deleteHistoryItem(item.id) })
                     }
                 }

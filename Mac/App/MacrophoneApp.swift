@@ -14,11 +14,12 @@ enum Main {
 }
 
 enum Pane: String, CaseIterable, Identifiable {
-    case history, agents, devices, developer, general
+    case history, dictation, agents, devices, developer, general
     var id: String { rawValue }
     var title: String {
         switch self {
         case .history: return "History"
+        case .dictation: return "Dictation"
         case .agents: return "Agents"
         case .devices: return "Devices"
         case .developer: return "Developer"
@@ -28,6 +29,7 @@ enum Pane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .history: return "clock.arrow.circlepath"
+        case .dictation: return "mic"
         case .agents: return "sparkles"
         case .devices: return "iphone"
         case .developer: return "chevron.left.forwardslash.chevron.right"
@@ -196,8 +198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A Dock icon while a window is open; back to the menu bar only when the last one closes.
     private func becomeRegular() {
         #if DEBUG
-        // Screenshots while someone uses this Mac: no Dock icon, no activation.
-        if DebugHooks.quietWindows { return }
+        // Screenshots while someone uses this Mac: no Dock icon, no activation; nothing takes the keyboard.
+        if DebugHooks.quietWindows || DebugHooks.env["MACROPHONE_NO_ACTIVATE"] == "1" { return }
         #endif
         if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         NSApp.activate(ignoringOtherApps: true)

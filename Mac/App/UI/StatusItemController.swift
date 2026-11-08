@@ -234,6 +234,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // 1. Status.
         let failed: Bool = { if case .failed = model.listenerState { return true } else { return false } }()
         menu.addItem(headerItem(failed: failed))
+        // Dictation at the desk: one line saying how (Desk/DeskDictation.swift).
+        if let hint = model.desk.hint {
+            let mi = NSMenuItem(title: hint, action: nil, keyEquivalent: "")
+            mi.image = symbolImage("mic")
+            mi.isEnabled = false
+            menu.addItem(mi)
+        }
         for (peerID, appName) in watchingNow.sorted(by: { $0.value < $1.value }) {
             let who = model.peers.first { $0.id == peerID }.map(model.displayName) ?? "Your iPhone"
             let w = MenuWords.stopWatching(app: appName, phone: who)

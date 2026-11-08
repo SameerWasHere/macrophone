@@ -132,6 +132,7 @@ struct MainView: View {
     @ViewBuilder private var detail: some View {
         switch nav.pane ?? .history {
         case .history: HistoryPane(model: model, settings: model.settings)
+        case .dictation: DictationPane(model: model, settings: model.settings, desk: model.desk, permissions: model.permissions)
         case .agents: AgentsPane(model: model, settings: model.settings)
         case .devices: DevicesPane(model: model)
         case .developer: DeveloperPane(model: model, settings: model.settings)
@@ -234,7 +235,7 @@ struct Sidebar: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
         }
-        // ⌘1 … ⌘5 pick a section, as in Mail and Xcode. The buttons draw nothing.
+        // ⌘1 … ⌘6 pick a section, as in Mail and Xcode. The buttons draw nothing.
         .background(
             ForEach(Pane.allCases) { p in
                 Button("") { nav.pane = p }
