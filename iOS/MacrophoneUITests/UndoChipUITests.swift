@@ -78,24 +78,116 @@ final class UndoChipUITests: XCTestCase {
     }
 
     func testHistoryShowsUndoOnTheNewestRowOnlyWhileItCan() throws {
-        // History opens 2 s after the stop; the landing comes while it's up.
-        let app = launch(actions: "pick@Claude,record,stoprecord,sheet@history", life: "12")
-        XCTAssertTrue(app.cells.firstMatch.waitForExistence(timeout: 30))
+        // History opens 2 s after the stop; the landing comes while it's up (it reaches
+        // `rememberUndoable` with the sheet up, and the row's Undo shows).
+        let (app, row) = historyWithUndoableRow(life: "12")
         let undo = app.buttons["history-undo-button"].firstMatch
-        XCTAssertTrue(undo.waitForExistence(timeout: 40), "the newest paste shows Undo")
         XCTAssertTrue(undo.label.hasPrefix("Undo paste into"), undo.label)
-        // (`cells.firstMatch` is not the newest row on this sheet; the row is the one holding Undo.)
-        let row = app.cells.containing(.button, identifier: "history-undo-button").firstMatch
-        XCTAssertTrue(row.exists, "Undo sits on a row")
-        XCTAssertTrue(row.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "To Claude")).firstMatch.exists, "and it's the newest paste's")
-        let rowFrame = row.frame
-        XCTAssertTrue(undo.frame.midY < rowFrame.maxY && undo.frame.midY > rowFrame.minY, "Undo sits on the newest row: \(undo.frame) vs \(rowFrame)")
+        XCTAssertTrue(undo.frame.midY < row.frame.maxY && undo.frame.midY > row.frame.minY, "Undo sits on the newest row: \(undo.frame) vs \(row.frame)")
+        XCTAssertGreaterThan(undo.frame.midX, row.frame.midX, "at the row's trailing end")
         // Gone once the window has passed.
         let gone = NSPredicate(format: "exists == false")
         let wait = XCTNSPredicateExpectation(predicate: gone, object: undo)
         XCTAssertEqual(XCTWaiter().wait(for: [wait], timeout: 16), .completed, "no Undo once the Mac can't")
-        // The swipe never offers it either, then.
-        app.cells.containing(NSPredicate(format: "label BEGINSWITH %@", "To Claude")).firstMatch.swipeRight()
-        XCTAssertFalse(app.buttons["history-undo"].firstMatch.waitForExistence(timeout: 2), "no Undo Paste in the swipe once the Mac can't")
+        // The swipe never offers it either, then (Send Again is there: the swipe did open).
+        row.swipeRight()
+        XCTAssertTrue(app.buttons["Send Again"].firstMatch.waitForExistence(timeout: 3), "the leading swipe opened")
+        XCTAssertFalse(undoSwipeAction(app).exists, "no Undo Paste in the swipe once the Mac can't")
+        // Nor the page's bottom bar (a first tap closes the swipe, the next opens the page).
+        openPage(row)
+        sleep(1)
+        if !app.buttons["Copy"].firstMatch.exists { openPage(row) }
+        XCTAssertTrue(app.buttons["Copy"].firstMatch.waitForExistence(timeout: 5), "the page is up")
+        XCTAssertFalse(app.buttons["history-page-undo"].exists, "no Undo Paste on the page once the Mac can't")
+    }
+
+    // MARK: History's three ways to Undo, each reaching the Mac (Nov 7 2026)
+    //
+    // The newest paste's row is found by the Undo button it holds while the Mac can take it back
+    // (History lives on between runs, so every run adds another "To Claude" row), then held by its
+    // place in the list. The row reading "Undone from the phone" is the Mac's answer (`undoDone`,
+    // ok) arriving — the Mac took it; serve's log says `UNDO <id>` for each (read after the run:
+    // its output is block-buffered).
+
+    /// Opens History over a fresh landing and returns the newest paste's row, held by position.
+    private func historyWithUndoableRow(life: String = "40") -> (XCUIApplication, XCUIElement) {
+        let app = launch(actions: "pick@Claude,record,stoprecord,sheet@history", life: life)
+        XCTAssertTrue(app.cells.firstMatch.waitForExistence(timeout: 30))
+        let undo = app.buttons["history-undo-button"].firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 40), "the newest paste shows Undo")
+        let cells = app.cells.allElementsBoundByIndex
+        guard let i = cells.firstIndex(where: { $0.frame.minY <= undo.frame.midY && undo.frame.midY <= $0.frame.maxY }) else {
+            XCTFail("no row holds Undo"); return (app, app.cells.firstMatch)
+        }
+        let row = app.cells.element(boundBy: i)
+        let words = rowWords(row)
+        XCTAssertTrue(words.label.hasPrefix("To Claude"), "the newest paste's row: \(words.label)")
+        XCTAssertFalse(words.label.contains(Self.undone), "not undone yet: \(words.label)")
+        return (app, row)
+    }
+
+    private static let undone = "Undone from the phone"
+
+    /// The row's one element of words ("To Claude, 4:41 PM, Pasted into Claude") — the cell
+    /// itself carries no label.
+    private func rowWords(_ row: XCUIElement) -> XCUIElement {
+        row.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "To ")).firstMatch
+    }
+
+    /// The swipe's Undo Paste (its identifier, or its title — SwiftUI's swipe buttons don't always
+    /// carry the identifier through).
+    private func undoSwipeAction(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == 'history-undo' OR label == 'Undo Paste'")).firstMatch
+    }
+
+    /// A tap on the row's leading side (its trailing end holds Undo): the row's page.
+    private func openPage(_ row: XCUIElement) {
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
+    }
+
+    private func waitUndone(_ row: XCUIElement, _ how: String) {
+        let undone = NSPredicate(format: "label CONTAINS %@", Self.undone)
+        let words = rowWords(row)
+        let wait = XCTNSPredicateExpectation(predicate: undone, object: words)
+        XCTAssertEqual(XCTWaiter().wait(for: [wait], timeout: 8), .completed, "\(how): the row reads “\(Self.undone)” — \(words.label)")
+    }
+
+    func testHistoryRowsUndoButtonReachesTheMac() throws {
+        let (app, row) = historyWithUndoableRow()
+        let undo = app.buttons["history-undo-button"].firstMatch
+        XCTAssertTrue(undo.label.hasPrefix("Undo paste into Claude"), undo.label)
+        undo.tap()
+        waitUndone(row, "the row's Undo")
+        XCTAssertFalse(undo.exists, "Undo goes once the paste is taken back")
+        row.swipeRight()
+        XCTAssertTrue(app.buttons["Send Again"].firstMatch.waitForExistence(timeout: 3), "the leading swipe opened")
+        XCTAssertFalse(undoSwipeAction(app).exists, "nothing left to undo in the swipe")
+    }
+
+    func testHistorySwipeUndoPasteReachesTheMac() throws {
+        let (app, row) = historyWithUndoableRow()
+        row.swipeRight()
+        let action = undoSwipeAction(app)
+        XCTAssertTrue(action.waitForExistence(timeout: 3), "the leading swipe offers Undo Paste")
+        // First: a full swipe never undoes by accident, so Undo Paste leads, Send Again after it.
+        let again = app.buttons["Send Again"].firstMatch
+        XCTAssertTrue(again.exists)
+        XCTAssertLessThan(action.frame.minX, again.frame.minX, "Undo Paste leads the swipe")
+        action.tap()
+        waitUndone(row, "the swipe's Undo Paste")
+        XCTAssertFalse(app.buttons["history-undo-button"].exists, "the row's Undo goes with it")
+    }
+
+    func testHistoryPagesUndoPasteReachesTheMac() throws {
+        let (app, row) = historyWithUndoableRow()
+        openPage(row)
+        let undo = app.buttons["history-page-undo"].firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "the page's bottom bar offers Undo Paste")
+        undo.tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: undo)
+        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "Undo Paste goes from the page once asked")
+        // Back to the list: the row says so.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        waitUndone(row, "the page's Undo Paste")
     }
 }
