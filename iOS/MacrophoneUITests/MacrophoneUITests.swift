@@ -101,16 +101,31 @@ final class MacrophoneUITests: XCTestCase {
         var app = launch(paired.merging(["MACROPHONE_RESET": "1", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_SEND": "1",
                                          "MACROPHONE_SIM_RECORD": "Messages, a long enough sentence to fill a few lines of words while I keep on talking about the uploader and how it retries"]) { $1 })
         let idle = frame(app, "Start dictation")
+        // Where the controls sit at rest, and what Send after pasting says.
+        let toggle = sendSwitch(app)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        let toggleAt = toggle.frame, toggleWas = toggle.value as? String
+        let history = app.buttons["History"]
+        XCTAssertTrue(history.exists)
+        let historyAt = history.frame
         app.buttons["Start dictation"].tap()
         sleep(3)
         same(idle, frame(app, "Stop and send"), "recording (an app said first) keeps the button in place")
-        // While the mic is open the controls step aside: the transcript has the whole area.
-        XCTAssertFalse(sendSwitch(app).isHittable, "the controls are hidden while recording")
-        XCTAssertFalse(app.buttons["History"].isHittable, "the top bar is hidden while recording")
+        // While the mic is open the controls step aside: the transcript has the whole area. (On
+        // the iOS 27 simulator XCUITest lists the faded-out layer and calls it hittable — the
+        // tree isn't what's on screen — so the check is what a finger finds there: nothing.)
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        origin.withOffset(CGVector(dx: toggleAt.midX, dy: toggleAt.midY)).tap()
+        origin.withOffset(CGVector(dx: historyAt.midX, dy: historyAt.midY)).tap()
+        XCTAssertTrue(app.buttons["Stop and send"].exists, "still recording: the taps found nothing where the controls were")
+        XCTAssertFalse(app.navigationBars["History"].exists, "the top bar's History is out of reach while recording")
         app.buttons["Stop and send"].tap()
         same(idle, frame(app, "Start dictation"), "sending keeps the button in place")
         sleep(4)
         same(idle, frame(app, "Start dictation"), "the new last dictation keeps the button in place")
+        // Back at rest, the controls are where they were, untouched by the tap that found nothing.
+        XCTAssertEqual(toggle.frame, toggleAt, "the controls come back in place")
+        XCTAssertEqual(toggle.value as? String, toggleWas, "the tap while recording never reached Send after pasting")
         app.terminate()
         // Hold to talk: the button is under the finger the whole time.
         app = launch(paired.merging(["MACROPHONE_SIM_RECORD": "holding the button down while I talk"]) { $1 })
