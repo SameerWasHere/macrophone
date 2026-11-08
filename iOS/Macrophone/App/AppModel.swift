@@ -52,6 +52,8 @@ struct Route: Equatable {
 
 enum AppSheet: String, Identifiable {
     case history, settings, pairing, customCleanup, openApp, macControls, macs
+    /// Once, after the first Mac is paired: use it away from home? (Nov 7 2026)
+    case awayOffer
     var id: String { rawValue }
 }
 
@@ -150,6 +152,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var pairedMacs: [PairedPeer] = []
     @Published var pairing: PairingPhase = .idle
     @Published var sheet: AppSheet?
+    /// Where Settings opens when something asked for a page in it (the away guide); cleared when it closes.
+    @Published var settingsOpenPath: [SettingsRoute]?
     @Published private(set) var cleanupAvailability: CleanupAvailability = .osTooOld
     @Published var showOnboarding: Bool
     @Published private(set) var recorderPhase: Recorder.Phase = .idle

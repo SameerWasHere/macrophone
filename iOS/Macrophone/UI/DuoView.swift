@@ -1394,7 +1394,7 @@ struct DuoGlance: View {
         } else if !model.isConnected {
             EmptyState(symbol: "laptopcomputer.slash", title: "Can't find \(model.macName)",
                        message: "Make sure it's awake with Macrophone open — its windows show up here when it is.") {
-                WakeMacAction()
+                MacNotFoundAction()
             }
         } else if case let .app(bundleID, _, _) = target {
             // The pick isn't open on the Mac: open it from here.

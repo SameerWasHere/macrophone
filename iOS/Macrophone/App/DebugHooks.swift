@@ -14,7 +14,14 @@ import UIKit
 ///                                            (sendto: Settings › Send to, the full list of places)
 /// MACROPHONE_OPEN_APP=<name>                 with SCREEN=openapp: then open that app from the list
 ///                                            (custom: the Custom cleanup editor from the mic screen; settings-custom: from Settings)
-/// MACROPHONE_ONBOARDING_STEP=0…6             which setup step to open on
+/// MACROPHONE_ONBOARDING_STEP=0|1|3|5|6       which setup step to open on (welcome, voice, get the Mac app, pair,
+///                                            test; 2 and 4, the pages before Nov 7 2026, open voice and pair)
+/// MACROPHONE_FAKE_TAILSCALE=on|off           this iPhone on Tailscale or not (the away guide, the empty state)
+/// MACROPHONE_FAKE_TAILSCALE_APP=1|0          Tailscale's app answers its link (installed) or not
+/// MACROPHONE_FAKE_AWAY=tailscale|remote|off  what the Mac shared: a Tailscale address, addresses but no Tailscale, none
+/// MACROPHONE_AWAY_TEST_ADDRESS=host:port     the real Test it, dialled at that address (serve's away door on loopback)
+/// MACROPHONE_FAKE_AWAY_TEST=works|remoteOff|unreachable|notThisMac|noAddress  what Test it finds (after 0.9 s)
+/// MACROPHONE_AWAY_OFFER=1|again            "Use it away from home?" offered afresh (as after a first pairing) / only if never answered
 /// MACROPHONE_FAKE_TRANSCRIPT=<text>          a finished dictation, as if spoken (cleanup + delivery run)
 /// MACROPHONE_FAKE_CAMERA=1                  the QR scanner sees a Mac's pairing window (store screenshots)
 /// MACROPHONE_CLEANUP_BUDGET=<seconds>       cleanup's time budget (to see a partial cleanup)
@@ -158,7 +165,7 @@ enum DebugHooks {
     static func early() {
         let d = UserDefaults.standard
         if env["MACROPHONE_RESET"] == "1" {
-            for key in d.dictionaryRepresentation().keys where key.hasPrefix("settings.") || key.hasPrefix("onboarding.") || key.hasPrefix("link.") {
+            for key in d.dictionaryRepresentation().keys where key.hasPrefix("settings.") || key.hasPrefix("onboarding.") || key.hasPrefix("link.") || key.hasPrefix("away.") {
                 d.removeObject(forKey: key)
             }
             try? FileManager.default.removeItem(at: AppFiles.history)
@@ -169,6 +176,7 @@ enum DebugHooks {
             d.set(screen != "onboarding", forKey: "onboarding.done")
             if screen != "onboarding" { d.set(true, forKey: "link.networkExplained") }
         }
+        if env["MACROPHONE_AWAY_OFFER"] == "1" { d.removeObject(forKey: "away.offered") }
         if let s = env["MACROPHONE_ONBOARDING_STEP"].flatMap(Int.init) {
             d.set(s, forKey: "onboarding.step")
             d.set(false, forKey: "onboarding.done")
@@ -417,6 +425,8 @@ enum DebugHooks {
         case "macs": model.sheet = .macs
         default: break
         }
+        // "again": offered only if it hasn't been answered (the once-ever rule, for the tests).
+        if env["MACROPHONE_AWAY_OFFER"] == "1" || env["MACROPHONE_AWAY_OFFER"] == "again" { model.offerAwayIfDue(after: 1.5) }
         if let s = env["MACROPHONE_OPEN_URL"], let url = URL(string: s) {
             model.handleURL(url)
         }

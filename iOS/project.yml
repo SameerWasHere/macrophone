@@ -97,6 +97,8 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: com.sameer.macrophone
             CFBundleURLSchemes: [macrophone]
+        # The away guide asks whether Tailscale's app answers its link (Nov 7 2026) — read only as a yes.
+        LSApplicationQueriesSchemes: [tailscale]
   MacrophoneControls:
     type: app-extension
     platform: iOS

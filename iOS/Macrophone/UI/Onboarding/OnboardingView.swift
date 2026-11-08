@@ -2,10 +2,25 @@ import MacrophoneKit
 import SwiftUI
 
 /// Phone-first setup. Every step can be skipped, and the app comes back to the same step.
+/// Five steps since Nov 7 2026 (the setup review: "simple and clean and not confusing"): the
+/// microphone and speech recognition are one page (one Continue, iOS's two questions in a row),
+/// and getting the Mac app carries the Local Network explanation, so the scanner comes straight
+/// after it (the pre-ask page and the "Looking for your Mac…" page said what pairing says again).
+/// The raw values are what was stored before: a stored 2 (speech) is the voice page, a stored 4
+/// (finding the Mac) is pairing.
 enum OnboardingStep: Int, CaseIterable {
-    case welcome, microphone, speech, getMac, findMac, pair, test
+    case welcome = 0, voice = 1, getMac = 3, pair = 5, test = 6
 
-    var next: OnboardingStep? { OnboardingStep(rawValue: rawValue + 1) }
+    init(stored: Int) {
+        switch stored {
+        case 2: self = .voice
+        case 4: self = .pair
+        default: self = OnboardingStep(rawValue: stored) ?? .welcome
+        }
+    }
+
+    var index: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+    var next: OnboardingStep? { index + 1 < Self.allCases.count ? Self.allCases[index + 1] : nil }
 }
 
 /// Setup Assistant (Nov 1 2026): each step is a page on the system background — a big symbol, a
@@ -18,16 +33,13 @@ struct OnboardingView: View {
     /// `@AppStorage` value reaches the view through UserDefaults, outside `withAnimation`, so a
     /// tapped Continue or Skip cut to the next page instead of sliding it in.
     @State private var shownRaw: Int?
-    @State private var looking = false
     @State private var denied: String?
-    /// Looked for a while and found nothing: say what else to check.
-    @State private var lookingLong = false
     /// iPhone SE-class heights: a smaller hero and title so every step's buttons are on screen.
     @State private var compact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    private var step: OnboardingStep { OnboardingStep(rawValue: shownRaw ?? stepRaw) ?? .welcome }
+    private var step: OnboardingStep { OnboardingStep(stored: shownRaw ?? stepRaw) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,11 +61,6 @@ struct OnboardingView: View {
         .onChange(of: step) { _, _ in skipFinishedSteps() }
         // Back from Settings with the permission turned on: carry on from here.
         .onChange(of: scenePhase) { _, phase in if phase == .active { skipFinishedSteps() } }
-        .onChange(of: model.discoveredMacs.count) { _, n in
-            if step == .findMac, looking, n > 0 {
-                Task { try? await Task.sleep(nanoseconds: 1_200_000_000); if step == .findMac { advance() } }
-            }
-        }
         .onChange(of: model.pairing) { _, p in
             // A pairing link opened from the Camera app lands here too.
             if case .connecting = p, step != .pair { go(.pair) }
@@ -67,7 +74,7 @@ struct OnboardingView: View {
             HStack(spacing: 6) {
                 ForEach(OnboardingStep.allCases, id: \.rawValue) { s in
                     Capsule()
-                        .fill(s.rawValue <= step.rawValue ? Ink.ink.opacity(0.85) : Ink.ink.opacity(0.16))
+                        .fill(s.index <= step.index ? Ink.ink.opacity(0.85) : Ink.ink.opacity(0.16))
                         .frame(width: s == step ? 18 : 6, height: 6)
                 }
             }
@@ -75,7 +82,7 @@ struct OnboardingView: View {
             .accessibilityRepresentation {
                 Rectangle().fill(.clear).frame(width: 90, height: 44)
                     .accessibilityElement()
-                    .accessibilityLabel("Step \(step.rawValue + 1) of \(OnboardingStep.allCases.count)")
+                    .accessibilityLabel("Step \(step.index + 1) of \(OnboardingStep.allCases.count)")
             }
             Spacer()
             Button {
@@ -97,10 +104,8 @@ struct OnboardingView: View {
     @ViewBuilder private var content: some View {
         switch step {
         case .welcome: welcome
-        case .microphone: microphone
-        case .speech: speech
+        case .voice: voice
         case .getMac: getMac
-        case .findMac: findMac
         case .pair: PairingPanel(onDone: { advance() }, compact: compact, doneTitle: "Continue")
         case .test: OnboardingTest(recorder: recorder, compact: compact, onFinish: finish)
         }
@@ -110,7 +115,7 @@ struct OnboardingView: View {
 
     private var welcome: some View {
         SetupPage(title: "Steer your Mac from here",
-                  message: "See the window where Claude Code or any app is working on your Mac, tap to click, and say your next prompt. Your iPhone turns your voice into text right here and sends it in.",
+                  message: "Watch Claude Code or any app working on your Mac, tap to click, and say your next prompt.",
                   compact: compact) {
             DemoVignette().scaleEffect(compact ? 0.82 : 1).frame(height: compact ? 172 : 210)
         } buttons: {
@@ -118,49 +123,32 @@ struct OnboardingView: View {
         }
     }
 
-    private var microphone: some View {
-        SetupPage(title: "It listens only while you ask it to",
-                  message: "Macrophone uses the microphone while you tap or hold the button — never in the background. The sound is turned into text and thrown away. No audio is ever kept.",
-                  compact: compact) {
+    /// The microphone and speech recognition on one page: one Continue, and iOS asks its two
+    /// questions back to back. What's still off says so here, with the one button that fixes it.
+    private var voice: some View {
+        let micOff = Recorder.micStatus == .denied
+        let speechOff = Recorder.speechStatus == .denied || Recorder.speechStatus == .restricted
+        return SetupPage(title: "It listens only while you ask it to",
+                         message: "Macrophone hears you only while you tap or hold the button, and turns your voice into text on this iPhone. No audio is kept. iOS asks to allow the microphone and speech recognition.",
+                         compact: compact) {
             SetupSymbol(name: "mic.fill", style: Light.ember, compact: compact)
         } content: {
-            if Recorder.micStatus == .denied {
+            if micOff {
                 note("The microphone is off for Macrophone. Turn it on in Settings, then come back — or skip for now.")
-            }
-        } buttons: {
-            if Recorder.micStatus == .denied {
-                openSettingsButton
-            } else {
-                SetupButton("Continue") {
-                    Task {
-                        _ = await Recorder.requestMic()
-                        if Recorder.micStatus == .granted { advance() } else { denied = "mic" }
-                    }
-                }
-            }
-        }
-    }
-
-    private var speech: some View {
-        let off = Recorder.speechStatus == .denied || Recorder.speechStatus == .restricted
-        return SetupPage(title: "Your words are transcribed on this iPhone",
-                         message: "iOS will ask to allow speech recognition. Macrophone only uses languages your iPhone can transcribe by itself, so what you say isn't sent to Apple or anyone else.",
-                         compact: compact) {
-            SetupSymbol(name: "waveform", style: LinearGradient(colors: MacOSLook.intelligence, startPoint: .leading, endPoint: .trailing),
-                        compact: compact)
-        } content: {
-            if off {
+            } else if speechOff {
                 note(Recorder.speechStatus == .restricted
                      ? "Speech recognition is turned off on this iPhone (Screen Time or a profile). You can skip for now."
                      : "Speech recognition is off for Macrophone. Turn it on in Settings, then come back — or skip for now.")
             }
         } buttons: {
-            if off {
-                if Recorder.speechStatus == .denied { openSettingsButton }
-            } else {
+            if micOff || Recorder.speechStatus == .denied {
+                openSettingsButton
+            } else if !speechOff {
                 SetupButton("Continue") {
                     Task {
-                        _ = await Recorder.requestSpeech()
+                        if Recorder.micStatus != .granted { _ = await Recorder.requestMic() }
+                        guard Recorder.micStatus == .granted else { denied = "mic"; return }
+                        if Recorder.speechStatus != .authorized { _ = await Recorder.requestSpeech() }
                         if Recorder.speechStatus == .authorized { advance() } else { denied = "speech" }
                     }
                 }
@@ -168,79 +156,47 @@ struct OnboardingView: View {
         }
     }
 
+    /// Where to get the Mac app, and — since Continue is what makes iOS ask — why iOS is about
+    /// to ask about the local network ("Continue", never words that press for the permission:
+    /// App Review 5.1.1(iv), Oct 2026).
     private var getMac: some View {
         SetupPage(title: "Get Macrophone for your Mac", message: "It's free. On your Mac, go to:", compact: compact) {
             SetupSymbol(name: "laptopcomputer.and.arrow.down", style: Light.cyan, compact: compact)
         } content: {
-            Text(Product.macDownloadDisplay)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Light.cyan)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-                .textSelection(.enabled)
-                .padding(.vertical, 16)
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
-                .accessibilityLabel("sameer dot u s slash macrophone")
+            VStack(spacing: compact ? 14 : 20) {
+                Text(Product.macDownloadDisplay)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Light.cyan)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .textSelection(.enabled)
+                    .padding(.vertical, 16)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
+                    .accessibilityLabel("sameer dot u s slash macrophone")
+                Label {
+                    Text("Next, iOS asks to find devices on your network — that's how your iPhone finds your Mac. Nothing goes to the internet.")
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "wifi").foregroundStyle(Light.cyan)
+                }
+                .font(.footnote)
+                .foregroundStyle(Ink.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } buttons: {
-            SetupButton("I Have It") { advance() }
+            SetupButton("Continue") {
+                model.networkExplained = true
+                model.startLink()
+                advance()
+            }
             ShareLink(item: Product.website,
                       subject: Text("Macrophone for Mac"),
                       message: Text("Get Macrophone for your Mac: \(Product.website.absoluteString)")) {
                 Text("Send the Link to Yourself")
             }
             .setupSecondary()
-        }
-    }
-
-    @ViewBuilder private var findMac: some View {
-        if !looking {
-            SetupPage(title: "Next, iOS asks to find devices on your network",
-                      message: "That's how your iPhone finds your Mac. They talk to each other directly — nothing goes to the internet.",
-                      compact: compact) {
-                SetupSymbol(name: "wifi", style: Light.cyan, compact: compact)
-            } buttons: {
-                // "Continue", never words that press for the permission (App Review 5.1.1(iv), Oct 2026).
-                SetupButton("Continue") {
-                    // The ask fades into the search (a cut before; and a page with no transition of
-                    // its own would take the steps' slide).
-                    withAnimation(Motion.pick(Motion.settle, reduce: reduceMotion)) { looking = true }
-                    model.startLink()
-                    Task {
-                        try? await Task.sleep(nanoseconds: 12_000_000_000)
-                        if model.discoveredMacs.isEmpty { withAnimation { lookingLong = true } }
-                    }
-                    if !model.discoveredMacs.isEmpty {
-                        Task { try? await Task.sleep(nanoseconds: 1_200_000_000); advance() }
-                    }
-                }
-            }
-            .transition(.opacity)
-        } else {
-            let found = !model.discoveredMacs.isEmpty
-            let stuck = !found && (model.localNetworkDenied || lookingLong)
-            SetupPage(title: model.discoveredMacs.first.map { "Found \($0.name)" } ?? "Looking for your Mac…",
-                      message: found
-                        ? "Next, pair them so only your iPhone can send to it."
-                        : "Open Macrophone on your Mac. Keep both on the same Wi-Fi, or close together with Wi-Fi turned on.",
-                      compact: compact) {
-                Searching(found: found, compact: compact)
-            } content: {
-                if !found, model.localNetworkDenied {
-                    note("Local Network is off for Macrophone, so it can't see your Mac. Turn it on in Settings › Privacy & Security › Local Network.")
-                } else if !found, lookingLong {
-                    note("Still nothing? Check that Local Network is on for Macrophone in Settings.")
-                }
-            } buttons: {
-                if found {
-                    SetupButton("Continue") { advance() }
-                } else {
-                    if stuck { openSettingsButton }
-                    Button("Continue") { advance() }.setupSecondary()
-                }
-            }
-            .transition(.opacity)
         }
     }
 
@@ -272,9 +228,10 @@ struct OnboardingView: View {
     /// A step there's nothing left to do on (its permission given, its Mac paired).
     private func isDone(_ s: OnboardingStep) -> Bool {
         switch s {
-        case .microphone: return Recorder.micStatus == .granted
-        case .speech: return Recorder.speechStatus == .authorized
-        case .findMac, .pair:
+        case .voice: return Recorder.micStatus == .granted && Recorder.speechStatus == .authorized
+        // A Mac already in sight (the link running from before): the app is there.
+        case .getMac: return model.networkExplained && !model.discoveredMacs.isEmpty
+        case .pair:
             if case .paired = model.pairing { return false }   // let the success show
             return model.isPaired
         default: return false
@@ -289,9 +246,8 @@ struct OnboardingView: View {
     /// Steps that are already done (a permission granted, a Mac already paired) pass by themselves.
     private func skipFinishedSteps() {
         switch step {
-        case .microphone where Recorder.micStatus == .granted: advance()
-        case .speech where Recorder.speechStatus == .authorized: advance()
-        case .findMac where model.isPaired, .pair where model.isPaired:
+        case .voice where isDone(.voice): advance()
+        case .getMac where model.isPaired, .pair where model.isPaired:
             if case .paired = model.pairing { return }   // let the success show
             go(.test)
         default: break
@@ -303,44 +259,8 @@ struct OnboardingView: View {
         model.networkExplained = true
         withAnimation(Motion.pick(Motion.depart, reduce: reduceMotion)) { model.showOnboarding = false }
         model.startLink()
-    }
-}
-
-/// Rings rippling out from a Mac while the phone browses (AirDrop's, in the accent).
-private struct Searching: View {
-    var found: Bool
-    var compact = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || found)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            ZStack {
-                ForEach(0..<3) { i in
-                    let p = (t / 2.4 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
-                    Circle()
-                        .strokeBorder((found ? Light.mint : Light.cyan).opacity((1 - p) * 0.45), lineWidth: 1.5)
-                        .frame(width: 96 + 124 * p, height: 96 + 124 * p)
-                        .opacity(reduceMotion || found ? (i == 0 ? 0.6 : 0) : 1)
-                }
-                if found {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 64, weight: .regular))
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, Light.mint)
-                        .transition(.scale.combined(with: .opacity))
-                } else {
-                    Image(systemName: "laptopcomputer")
-                        .font(.system(size: 52, weight: .regular))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(Light.cyan)
-                }
-            }
-            .frame(height: 220)
-        }
-        .scaleEffect(compact ? 0.75 : 1)
-        .frame(height: compact ? 165 : 220)
-        .accessibilityHidden(true)
+        // Paired in setup: once, "Use it away from home?" (Nov 7 2026).
+        model.offerAwayIfDue(after: 1.0)
     }
 }
 

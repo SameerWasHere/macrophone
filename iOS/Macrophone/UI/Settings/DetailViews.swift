@@ -107,59 +107,6 @@ struct LanguageView: View {
     }
 }
 
-/// Away from home, step by step (Nov 4 2026: the steps were a fourteen-line footer on the Mac's
-/// page). A numbered list, as Apple's own how-tos read, with where to try it at the foot.
-struct AwaySetupView: View {
-    private static let steps: [(title: String, detail: String?)] = [
-        ("Install Tailscale on your Mac and on this iPhone.", "It's free, and nothing goes through a server of ours."),
-        ("Sign in to both with the same account.", "The same Google or Apple sign-in. In the iPhone's Tailscale app, your Mac should be in the list of devices."),
-        ("Turn Tailscale on here.", "Allow the VPN when iOS asks. On your Mac's page, Tailscale on this iPhone then says On."),
-        ("Turn on Remote access on your Mac.", "In Macrophone on your Mac: Devices › Away from home."),
-        ("Open Macrophone here once at home.", "Your Mac's address arrives by itself."),
-    ]
-
-    var body: some View {
-        Form {
-            Section {
-                ForEach(Array(Self.steps.enumerated()), id: \.offset) { i, step in
-                    HStack(alignment: .firstTextBaseline, spacing: 14) {
-                        Image(systemName: "\(i + 1).circle.fill")
-                            .font(.title3)
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Light.cyan)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(step.title).foregroundStyle(Ink.ink)
-                            if let d = step.detail {
-                                Text(d).font(.subheadline).foregroundStyle(Ink.secondary)
-                            }
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 2)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Step \(i + 1). \(step.title) \(step.detail ?? "")")
-                }
-            } header: {
-                Text("With Tailscale")
-            } footer: {
-                Text("To try it, turn off Wi-Fi and Bluetooth here — otherwise a nearby iPhone talks to your Mac directly.")
-            }
-            Section {
-                Text("Forward Macrophone's port on your router to your Mac, then type your home's address on your Mac's page.")
-                    .foregroundStyle(Ink.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-            } header: {
-                Text("Without Tailscale")
-            } footer: {
-                Text("The port is in Macrophone on your Mac, under Devices › Away from home.")
-            }
-        }
-        .navigationTitle("Away from Home")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
 /// The diagnostics text, readable before it's shared. Never contains dictation text or keys.
 struct DiagnosticsView: View {
     @EnvironmentObject var model: AppModel

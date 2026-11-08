@@ -83,8 +83,9 @@ struct RootView: View {
             Group {
                 switch sheet {
                 case .history: HistoryView()
-                case .settings: SettingsView(settings: model.settings, initialPath: settingsPath)
-                        .onDisappear { settingsPath = [] }
+                case .settings: SettingsView(settings: model.settings, initialPath: model.settingsOpenPath ?? settingsPath)
+                        .onDisappear { settingsPath = []; model.settingsOpenPath = nil }
+                case .awayOffer: AwayOfferSheet()
                 case .pairing: PairingView()
                 case .macs: MacsSheet()
                 case .customCleanup: CustomCleanupSheet()
@@ -165,7 +166,7 @@ extension AppSheet {
     var coversScreen: Bool {
         switch self {
         case .settings, .history, .pairing, .openApp, .customCleanup: return true
-        case .macControls, .macs: return false
+        case .macControls, .macs, .awayOffer: return false
         }
     }
 }
@@ -219,7 +220,7 @@ struct InnerScreenSheet: ViewModifier {
         switch sheet {
         case .settings, .history: return .screen
         case .macControls: return .fitted
-        case .pairing, .macs, .customCleanup, .openApp: return .form
+        case .pairing, .macs, .customCleanup, .openApp, .awayOffer: return .form
         }
     }
 
