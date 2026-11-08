@@ -1429,12 +1429,25 @@ struct DuoGlance: View {
     private func pictured<Screen: View>(_ aspect: CGSize?, connecting: Bool, @ViewBuilder screen: () -> Screen) -> some View {
         let screen = screen()
         return GeometryReader { geo in
-            let room = CGSize(width: geo.size.width, height: max(0, geo.size.height - Self.barHeight))
+            // What's in front on the Mac, a line under the bar (Nov 7 2026, FrontWindowLine): its
+            // room kept while the Mac tells it, so the picture never moves for it.
+            let line: CGFloat = model.macTellsFront && geo.size.height - Self.barHeight - FrontWindowLook.room >= 180 ? FrontWindowLook.room : 0
+            let room = CGSize(width: geo.size.width, height: max(0, geo.size.height - Self.barHeight - line))
             let frame = Self.fit(aspect, bezel: bezelWidth, in: room)
+            let barWidth = max(frame.width, min(geo.size.width, 320))
             VStack(spacing: 0) {
                 screen.frame(width: frame.width, height: frame.height)
                 glanceBar(connecting: connecting)
-                    .frame(width: max(frame.width, min(geo.size.width, 320)), height: Self.barHeight)
+                    .frame(width: barWidth, height: Self.barHeight)
+                if line > 0 {
+                    ZStack {
+                        if !dormant, let w = model.frontOffer {
+                            FrontWindowLine(window: w, width: barWidth - 28).transition(.opacity)
+                        }
+                    }
+                    .frame(height: FrontWindowLook.height)
+                    .animation(.easeInOut(duration: 0.25), value: model.frontOffer)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }

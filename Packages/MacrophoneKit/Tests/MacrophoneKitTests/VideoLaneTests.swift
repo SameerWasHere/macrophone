@@ -222,6 +222,9 @@ final class MacSide: LinkServerDelegate {
     /// The volume this Mac gives a phone that asks (MacVolumeTests).
     nonisolated(unsafe) var volume: MacVolume?
     nonisolated(unsafe) var volumeAsks = 0
+    /// The window in front this Mac tells a phone that asks (FrontWindowTests).
+    nonisolated(unsafe) var front: FrontWindow?
+    nonisolated(unsafe) var frontAsks = 0
     func linkServer(_ server: LinkServer, approveCode code: String, phoneName: String) async -> Bool { false }
     func linkServer(_ server: LinkServer, didPair peer: PairedPeer) {}
     func linkServer(_ server: LinkServer, didUnpair peerID: UUID) {}
@@ -237,6 +240,7 @@ final class PhoneSide: LinkClientDelegate {
     /// The desktop pictures that came, and from which Mac (WallpaperTests).
     nonisolated(unsafe) var wallpapers: [(MacWallpaper, UUID)] = []
     nonisolated(unsafe) var volumes: [(MacVolume, UUID)] = []
+    nonisolated(unsafe) var fronts: [(FrontWindow?, UUID)] = []
     func linkClient(_ client: LinkClient, stateChanged state: LinkClient.State) {}
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac]) {}
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) {}

@@ -32,6 +32,8 @@ struct StartDictationControl: ControlWidget {
 struct MacrophoneControlsBundle: WidgetBundle {
     var body: some Widget {
         StartDictationControl()
+        // What's in front on the Mac, live (Nov 7 2026, Shared/WatchFrontIntent.swift).
+        WatchFrontControl()
         WatchAppsWidget()
     }
 }

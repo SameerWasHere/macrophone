@@ -2197,6 +2197,84 @@ the banner, Unpair on its page —, Pair Another Mac, This iPhone's name) · **H
 The inner screen's sidebar (`SettingsGroup`) is the same sections one for one: dictation, cleanup,
 watching, alerts, appearance, devices, history, about. Frames: `docs/screens/settings-nov7/`.
 
+## What's in front on your Mac (Nov 7 2026)
+
+Sameer: "pick up where the Mac is" — whatever window is in front on the Mac, a tap on the phone and
+you're watching it. **Handoff was tried and dropped** (branch `worktree-agent-a48ebd8a78bc9b46c`,
+69422a0): `useractivityd` accepts a background app's `becomeCurrent()` but its "DETERMINE" step
+advertises only the front app's activity (`setAdvertisableItems:(())`), and a menu bar app is almost
+never the front app. Its front-window read, its never-offered rules and the phone's "watch this
+window on that Mac" path were lifted into `FrontWindow`; nothing of NSUserActivity is left.
+Frames: `docs/screens/front-window-nov7/`.
+- **Wire** (MacrophoneKit `Core/FrontWindow.swift`, `Transport/FrontWindowLink.swift`, feature
+  `frontWindow`, the volume's pattern — own delegate protocols): `.frontWindow(FrontWindow?)` Mac →
+  phone after the welcome and on each change; `FrontWindow` = bundle id, app name, window number
+  (= a `LiveTarget`'s `windowKey`), title (one line, ≤ 60, "…"; dropped when it's the app's name);
+  `line` "Terminal — codex ~/api", `target`, `isSame(as:)` (same app and window, or the app with no
+  window named). Nil = nothing safe to offer. `neverShown` (password managers, Keychain Access,
+  Passwords, the login window, SecurityAgent, the Dock, Control Center…) and Macrophone's own copies
+  (`mayShow`). `FrontWindowPacer` (pure): a change waits 0.5 s to stay put (⌘Tab through three apps
+  sends one), never sooner than 0.5 s after the last, the same value never twice. Only to a phone
+  naming it; an older phone never gets it, an older Mac never sends it. `FrontWindowTests` (the
+  shape, titles, the pacing, a real connection both ways, ports 47941–47943).
+- **Mac** (`Mac/App/Core/FrontWindow.swift`, `FrontWindowWatcher`, made in `AppModel.init`;
+  `AppModel: LinkServerFrontWindowDelegate`): looks only while a phone naming it is connected
+  (`phonesChanged()` on connect / disconnect) — at once on NSWorkspace's activate / space / wake /
+  unlock / quit, then every 2 s, every 6 s after a quiet minute; the read (`CGWindowListCopyWindowInfo`
+  on screen: the app's first layer-0 window ≥ 160 × 90, its title with Screen Recording, else
+  Accessibility's focused window) off the main thread. A phone connecting gets `now()` (read at once
+  when the last read is over 3 s old). Macrophone in front changes nothing (the last real app's
+  window stays). Nil for a `neverShown` app, a non-regular app in front (a system dialog), a window
+  kept out of screen capture (sharing state none), Secure Input held by the front app, a locked
+  screen or the session switched away. The log has counts and reasons only ("front window: 3 changes
+  told", "nothing offered — a password field is in front") — never a title. DEBUG:
+  `MACROPHONE_FRONT_PRINT=1` (each one told, to stdout), `MACROPHONE_FRONT_FAKE=<bundle id>` (that
+  app taken as in front — proves it without the focus).
+- **Phone** (`iOS/Macrophone/Model/FrontWindowHere.swift`): `AppModel.macFront` (`MacFront`: the
+  window and which Mac said it; cleared when the link drops), `frontNow` (connected, the active
+  Mac's), `frontOffer` (= `frontNow` unless it's the pick, or the pick is Where I'm typing — its own
+  card watches the app in front then), `frontTarget` (the list's entry when it knows that window).
+  **The line** (`UI/MacOS/FrontWindowLine.swift`, `front-window-line`): a glass capsule under the
+  desktop card (regular iPhone, the Duo's cover) — the app's icon, "Now on your Mac" (dropped first
+  when it's narrow), "Terminal — codex — ~/api", an eye; label "Now on your Mac: ‹line›". Under the
+  Duo glance's bar the same (`DuoGlance.pictured`). **Its room is kept while the Mac tells it**
+  (`macTellsFront`, `bar.had.front` while it connects, as the bar keeps its buttons), so the card and
+  the glance never move as the line comes and goes; without room for both (`leastRoom`, 180 pt of
+  picture) the line goes. **A tap only looks** (`watchFront`, as a flip): Send to stays, a dictation
+  while it shows goes to it for that recording (`watchedPlace`); on the inner screen it picks, as a
+  flip does there.
+- **Watch What's in Front, from cold** (`watchWhatsInFront`): the Home Screen quick action (second,
+  after Dictate to the pick — `QuickActions.Kind.front`), a Control Center / Lock Screen / Action
+  Button control (`WatchFrontControl`, `iOS/Shared/WatchFrontIntent.swift`, in `MacrophoneControls`)
+  and the App Intent `WatchFrontIntent` ("Watch What's in Front"; phrases "Watch what's in front
+  with Macrophone", "… on my Mac …", "Show what's on my Mac …", "Pick up where my Mac is …"). The
+  intent's title and description have no "Mac" (ITMS-90626). It waits for the connect
+  (`waitingFront`, run again from `stateChanged` and each `.frontWindow`), then watches the Mac's
+  word at that moment; a Mac from before (or no word 1.5 s after the welcome) is asked for
+  `.frontApp`, which every Mac adopts (`WatchService.find`); the Mac saying nil: "Nothing in front on
+  ‹Mac› to show right now", nothing opened.
+- **mpctl:** `serve` names it and tells a demo front window (`Sources/mpctl/Front.swift`: `--front
+  <bundle id>[#<key>]|none`, `--front-every N` moves it along the demo's windows, 20 s; 0 never;
+  `--no-front` a Mac from before); a watch of Where I'm typing is answered with the front window's
+  app; every watch prints `WATCH TARGET <bundle id>#<key>` (" (front)" for Where I'm typing). `listen
+  --features frontWindow` prints `FRONT <bundle id>#<key> · <line>` (or `FRONT none`).
+- **Proven:** `swift test`; `mpctl listen` against `serve` (welcome + each change; an older phone
+  hears nothing and stays connected); a Debug copy of the Mac app (`MACROPHONE_INSTANCE=front`,
+  `MACROPHONE_FRONT_FAKE=com.apple.finder`) told a paired `mpctl listen` Finder after the welcome and
+  once from the pacer, and nothing to a phone not naming it. iPhone 18 Pro simulator (27.0) against
+  `serve --front com.apple.Terminal#42 --front-every 0`: `FrontWindowUITests`
+  (`TEST_RUNNER_MACROPHONE_FRONT_TEST=1`, `…_SERVE_LOG`, `…_FRONT_SHOTS`) — the line under Claude's
+  card, a tap → `WATCH TARGET com.apple.Terminal#42`, Done → Claude still the pick and the card where
+  it was; the quick action and the intent before the link is up → the same window once connected;
+  against `serve --no-front` (`…_FRONT_OLD_MAC=1`) both → Where I'm typing. `serve --front none`:
+  the room kept, no line, the status line's sentence. The inner glance through the stand-in frame
+  (`MACROPHONE_POSTURE=portrait MACROPHONE_FRAME=669x951`). Hooks: `MACROPHONE_FRONT_ACTION=quick|
+  intent|model` (`MACROPHONE_FRONT_DELAY`), `MACROPHONE_WATCH_ACTIONS=…,front` (the line's tap).
+- **Needs a real Mac and phone:** the installed Mac app's read on real windows (Claude's, a
+  Terminal tab's title, a full-screen Space, a password field, the lock screen); the Control Center
+  control and the quick action from a real cold launch; Siri's phrases; the line on a real Duo's
+  inner screen.
+
 ## The ten polish ideas (Nov 5 2026)
 
 Sameer: "Do all 10" — eight agents in parallel, merged the same night. Each below.

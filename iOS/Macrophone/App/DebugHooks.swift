@@ -48,6 +48,9 @@ import UIKit
 /// MACROPHONE_INTENT_SEND=<place>@<text>[@send|@paste]  runs Send Text's perform() (place: clipboard|front|<name>,
 ///                                            empty = the pick; no third part = the place's own Send after pasting)
 /// MACROPHONE_INTENT_WATCH=<place>             runs Watch's perform() (screen|<name>, empty = the pick)
+/// MACROPHONE_FRONT_ACTION=quick|intent|model  Watch What's in Front at launch, before the link is up — through the
+///                                            quick action's handler, the intent's perform(), or the model's call
+///                                            (MACROPHONE_FRONT_DELAY=<s> first, 0 by default)
 /// MACROPHONE_LANDINGS=ignore|ignore-old  drop the Mac's landing reports (a Mac that never confirms / an older one)
 /// MACROPHONE_STATUS=queued|delivered|failed|sending|copied|landing|landed-sent|landed-sent-spoken|landed-pasted|landed-clipboard|landed-failed|landed-copied|landed-cancelled|unconfirmed
 /// MACROPHONE_EXPLAIN=<sentence>             the status line's control explanation, held (layout checks)
@@ -398,6 +401,20 @@ enum DebugHooks {
                 _ = try? await intent.perform()
             }
         }
+        if let how = env["MACROPHONE_FRONT_ACTION"] {
+            // What's in front on the Mac (Model/FrontWindowHere.swift), cold: the way each one comes in.
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64((Double(env["MACROPHONE_FRONT_DELAY"] ?? "0") ?? 0) * 1e9))
+                switch how {
+                case "quick":
+                    model.runQuickAction(QuickActions.item(.front, "Watch What's in Front", subtitle: nil, symbol: "macwindow.on.rectangle"))
+                case "intent":
+                    _ = try? await WatchFrontIntent().perform()
+                default:
+                    model.watchWhatsInFront()
+                }
+            }
+        }
         if let to = env["MACROPHONE_INTENT_WATCH"] {
             Task {
                 try? await Task.sleep(nanoseconds: UInt64((Double(env["MACROPHONE_FAKE_DELAY"] ?? "2.5") ?? 2.5) * 1e9))
@@ -459,6 +476,9 @@ enum DebugHooks {
                         model.showWindowForPose()
                     } else if a == "close" {
                         model.watcher.close()
+                    } else if a == "front" {
+                        // The "Now on your Mac" line's tap (FrontWindowLine).
+                        if let w = model.frontOffer { model.watchFront(w) } else { NSLog("FRONT no line to tap") }
                     } else if a.hasPrefix("sheet@") {
                         let s = String(a.dropFirst(6))
                         model.sheet = s == "settings" ? .settings : s == "history" ? .history : s == "controls" ? .macControls : s == "openapp" ? .openApp : nil
