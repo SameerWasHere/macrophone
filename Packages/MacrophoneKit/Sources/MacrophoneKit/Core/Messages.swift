@@ -251,6 +251,12 @@ public enum Message: Codable, Sendable {
     /// Mac → phone (only to a phone naming FrontWindow.feature): the window in front on the Mac,
     /// or nil when there's nothing safe to offer — after the welcome and on each change.
     case frontWindow(FrontWindow?)
+    /// Mac → phone (only to a phone naming KeepAwakeStatus.feature): Keep Awake as it is — after
+    /// the welcome and on every change.
+    case keepAwake(KeepAwakeStatus)
+    /// Phone → Mac (only to a Mac naming KeepAwakeStatus.feature): turn it on or off, the
+    /// displays, the timer.
+    case keepAwakeSet(KeepAwakeRequest)
     // Either way
     case ping
     case pong

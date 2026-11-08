@@ -134,6 +134,7 @@ struct MainView: View {
         case .history: HistoryPane(model: model, settings: model.settings)
         case .dictation: DictationPane(model: model, settings: model.settings, desk: model.desk, permissions: model.permissions)
         case .agents: AgentsPane(model: model, settings: model.settings)
+        case .keepAwake: KeepAwakePane(keepAwake: model.keepAwake)
         case .devices: DevicesPane(model: model)
         case .developer: DeveloperPane(model: model, settings: model.settings)
         case .general: GeneralPane(model: model, settings: model.settings, updater: updater, notifier: Notifier.shared)

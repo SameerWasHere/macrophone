@@ -233,6 +233,9 @@ extension MacReach {
                     if let d = shared.displays.first(where: { $0.id == id }) { model.watchWholeScreen(d) }
                 } else if s.hasPrefix("control@"), let c = MacControl(rawValue: String(s.dropFirst(8))) {
                     model.press(c)
+                } else if s.hasPrefix("awake@"), let a = KeepAwakeRequest.Action(rawValue: String(s.dropFirst(6))) {
+                    // Keep Awake, as the Control Center tile asks (Nov 7 2026).
+                    model.askKeepAwake(a, minutes: a == .timer ? 60 : nil)
                 } else if s == "controls" {
                     // The Mac Controls panel, as its button opens it.
                     model.sheet = .macControls

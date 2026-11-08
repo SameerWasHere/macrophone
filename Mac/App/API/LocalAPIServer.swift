@@ -43,6 +43,9 @@ final class LocalAPIServer: @unchecked Sendable {
     /// An agent told the Mac what it's doing (`POST /v1/agent`, from `mp hook`). Called on the main queue.
     var onAgentEvent: (AgentEvent) -> Void = { _ in }
     static let maxBodyBytes = 64 * 1024
+    /// Keep Awake (`GET` / `POST /v1/awake`): called on the main queue with the action (nil for
+    /// GET); answers with a status code and the JSON body.
+    var awake: (_ action: String?, _ reply: @escaping (Int, Data) -> Void) -> Void = { _, reply in reply(404, Data("{}".utf8)) }
     /// Called on the main queue.
     var onStateChange: (State) -> Void = { _ in }
 
@@ -241,6 +244,24 @@ final class LocalAPIServer: @unchecked Sendable {
         lock.lock(); let expected = "Bearer " + token; lock.unlock()
         guard let auth = r.headers["authorization"], Self.constantTimeEqual(auth, expected) else {
             return respond(c, 401, ["error": "Missing or wrong token. Find it in Macrophone › Developer."])
+        }
+        if r.path == "/v1/awake" {
+            // Keep Awake (`mp awake …`): GET its state, POST {"action": "on|off|displays_on|displays_off"}.
+            var action: String?
+            switch r.method {
+            case "GET": break
+            case "POST":
+                guard let obj = try? JSONSerialization.jsonObject(with: r.body) as? [String: Any], let a = obj["action"] as? String,
+                      ["on", "off", "displays_on", "displays_off"].contains(a) else {
+                    return respond(c, 400, ["error": "Send {\"action\": \"on\", \"off\", \"displays_on\" or \"displays_off\"}."])
+                }
+                action = a
+            default: return respond(c, 405, ["error": "Use GET or POST."], extra: ["Allow": "GET, POST"])
+            }
+            DispatchQueue.main.async {
+                self.awake(action) { code, body in self.queue.async { self.respondJSON(c, code, body) } }
+            }
+            return
         }
         if r.path == "/v1/agent" {
             guard r.method == "POST" else { return respond(c, 405, ["error": "Use POST."], extra: ["Allow": "POST"]) }

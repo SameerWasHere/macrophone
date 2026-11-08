@@ -32,6 +32,8 @@ targets:
     sources:
       - path: App
       - path: Resources
+      # Keep Awake's helper: its name and protocol (Nov 7 2026).
+      - path: Helper/HelperProtocol.swift
     dependencies:
       - package: MacrophoneKit
         product: MacrophoneKit
@@ -43,6 +45,17 @@ targets:
         copy:
           destination: wrapper
           subpath: Contents/Helpers
+      # Keep Awake's root daemon, at Contents/MacOS/MacrophoneHelper; its launchd plist is
+      # written by scripts/helper-plist.sh (below) into Contents/Library/LaunchDaemons.
+      - target: MacrophoneHelper
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
+    postBuildScripts:
+      - name: Keep Awake helper plist
+        script: "\"$SRCROOT/scripts/helper-plist.sh\""
+        basedOnDependencyAnalysis: false
     settings:
       base:
         INFOPLIST_FILE: Resources/Info.plist
@@ -76,9 +89,38 @@ targets:
           PRODUCT_NAME: Macrophone Debug
           PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.mac.debug
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          MACROPHONE_HELPER_LABEL: com.sameer.macrophone.mac.debug.helper
         Release:
           PRODUCT_NAME: Macrophone
           PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.mac
+          MACROPHONE_HELPER_LABEL: com.sameer.macrophone.mac.helper
+
+  # Keep Awake's root daemon (Nov 7 2026): runs only the pmset changes PowerChange allows, for
+  # Macrophone only. No packages — its one shared rule is compiled in from MacrophoneKit.
+  MacrophoneHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Helper
+        excludes:
+          - "Info.plist"
+      - path: ../Packages/MacrophoneKit/Sources/MacrophoneKit/Core/KeepAwakePower.swift
+    settings:
+      base:
+        PRODUCT_NAME: MacrophoneHelper
+        INFOPLIST_FILE: Helper/Info.plist
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        ENABLE_APP_SANDBOX: NO
+        # Signed as itself; the app refuses any other daemon under the label.
+        OTHER_CODE_SIGN_FLAGS: "--identifier $(PRODUCT_BUNDLE_IDENTIFIER)"
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.mac.debug.helper
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.mac.helper
 
   macrophone-cli:
     type: tool
@@ -106,6 +148,7 @@ schemes:
       targets:
         Macrophone: all
         macrophone-cli: all
+        MacrophoneHelper: all
     run:
       config: Debug
     archive:

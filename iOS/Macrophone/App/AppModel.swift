@@ -287,6 +287,8 @@ final class AppModel: ObservableObject {
         c.features.append(MacPermissions.feature)
         // The Mac's displays, Wake Your Mac, Mac Controls (Oct 19 2026, Model/MacReach.swift).
         c.features += [Displays.feature, WakeInfo.feature, MacControl.feature, MacVolume.feature]
+        // Keep Awake: the Mac on with its lid closed, from Control Center (Nov 7 2026, Model/KeepAwakeModel.swift).
+        c.features.append(KeepAwakeStatus.feature)
         // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
         c.features.append(MacWallpaper.feature)
         // Windows on watch, and every alert with a picture of its window (Nov 6 2026).

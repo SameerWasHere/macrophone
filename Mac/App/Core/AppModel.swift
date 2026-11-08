@@ -50,6 +50,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     private(set) var stayAwake: StayAwake!
     /// The window in front, told to the phones (Core/FrontWindow.swift).
     private(set) var frontWindow: FrontWindowWatcher!
+    private(set) var keepAwake: KeepAwakeService!
     /// Every window on screen, as last told to the phones (AllWindows).
     private var everyWindowSent: [LiveTarget] = []
     private var everyWindowTimer: Timer?
@@ -133,6 +134,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         desk = DeskDictation(app: self)
         stayAwake = StayAwake(log: log)
         frontWindow = FrontWindowWatcher(app: self)
+        // Keep Awake (Nov 7 2026, KeepAwake/): the Mac on with the lid closed, from here or the phone.
+        keepAwake = KeepAwakeService(log: log)
         watch.onChange = { [weak self] in
             guard let self else { return }
             self.stayAwake.update(phonesConnected: !self.connected.isEmpty, watching: !self.watch.watching.isEmpty)
@@ -165,6 +168,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         let watchService = watch!
         server.watchInput = { peer, input in watchService.directInput(peer, input) }
         startMacReach()
+        wireKeepAwake()
         history = historyStore.all
         peers = server.store.peers()
         lastReceived = historyStore.latest?.receivedAt
@@ -229,6 +233,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         tailscale.refresh()
         attention.update()
         desk.start()
+        keepAwake.start()
         pushStatus()
         // Nothing lands without Accessibility: ask at launch, which also puts Macrophone in the list.
         #if DEBUG

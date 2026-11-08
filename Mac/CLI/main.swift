@@ -15,6 +15,8 @@ Usage:
   mp wait [--timeout 60] [--json]   wait for the next dictation and print it (1–300 s)
   mp list [-n 10] [--json]          recent dictations, newest first (1–50)
   mp status                         is Macrophone running, which iPhones are connected
+  mp awake [status|on|off]          Keep Awake: the Mac stays on (lid closed too) for your iPhone
+  mp awake displays on|off          while Keep Awake is on: the displays
   mp mcp                            run the MCP server on stdio (for Claude and other agents)
   mp hook claude | codex            what Claude Code and Codex run on their events (Macrophone sets it up)
   mp --version | --help
@@ -85,6 +87,7 @@ func timeLabel(_ d: Date) -> String {
 func run() async -> Int32 {
     // What an agent runs on its events: its own arguments, never the options below.
     if CommandLine.arguments.dropFirst().first == "hook" { return await Hook.run(Array(CommandLine.arguments.dropFirst(2))) }
+    if CommandLine.arguments.dropFirst().first == "awake" { return await Awake.run(Array(CommandLine.arguments.dropFirst(2))) }
     guard let o = parse(Array(CommandLine.arguments.dropFirst())) else { return 2 }
     switch o.command {
     case "help": out(usage); return 0

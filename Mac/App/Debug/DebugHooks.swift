@@ -178,6 +178,14 @@ enum DebugHooks {
         guard let show = env["MACROPHONE_SHOW"] else { return env["MACROPHONE_DESK_PILL"] != nil }
         if env["MACROPHONE_BACKDROP"] == "1" { showBackdrop() }
 
+        if show.hasPrefix("quiet-"), let pane = Pane(rawValue: String(show.dropFirst(6))) {
+            app.debugShowQuietly(pane)
+            if let size = env["MACROPHONE_WINDOW_SIZE"]?.split(separator: "x").compactMap({ Double($0) }), size.count == 2,
+               let w = app.debugMainWindow {
+                w.setContentSize(NSSize(width: size[0], height: size[1]))
+            }
+            return true
+        }
         if show.hasPrefix("window-"), let pane = Pane(rawValue: String(show.dropFirst(7))) {
             app.openMainWindow(pane: pane)
             // MACROPHONE_WINDOW_SIZE=780x520: check a pane at the window's smallest size.

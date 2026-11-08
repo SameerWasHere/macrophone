@@ -97,34 +97,55 @@ struct Hotkey: Codable, Equatable, Sendable {
     }
 }
 
-/// Registers one global hot key and calls `action` when it's pressed.
+/// Global hot keys: "open Macrophone" (id 1, `apply` / `action`) and any others (`register` —
+/// Keep Awake's ⌘⇧G and ⌘⇧D). One Carbon handler for them all, dispatching by id and passing on
+/// what isn't ours (Carbon hands every hot key to every handler, and a `noErr` swallows it).
 @MainActor
 final class HotkeyCenter {
     static let shared = HotkeyCenter()
     var action: () -> Void = {}
-    private var ref: EventHotKeyRef?
+    private var refs: [UInt32: EventHotKeyRef] = [:]
+    private var actions: [UInt32: () -> Void] = [:]
     private var handler: EventHandlerRef?
     /// Set when the shortcut couldn't be registered (another app owns it).
     private(set) var lastError: String?
+    nonisolated static let signature = OSType(0x4D50484B) // 'MPHK'
 
     private init() {}
 
     func apply(_ key: Hotkey) {
-        if let ref { UnregisterEventHotKey(ref); self.ref = nil }
-        lastError = nil
-        guard key.enabled else { return }
-        installHandler()
-        let id = EventHotKeyID(signature: OSType(0x4D50484B) /* 'MPHK' */, id: 1)
-        var newRef: EventHotKeyRef?
-        let st = RegisterEventHotKey(key.keyCode, key.modifiers, id, GetApplicationEventTarget(), 0, &newRef)
-        if st == noErr { ref = newRef } else { lastError = "\(key.display) is taken by another app — pick another." }
+        lastError = register(id: 1, key) { [weak self] in self?.action() }
     }
+
+    /// Registers (or replaces — or, with a disabled key, removes) hot key `id`. Returns words
+    /// when another app owns that shortcut, else nil.
+    @discardableResult
+    func register(id: UInt32, _ key: Hotkey, action: @escaping () -> Void) -> String? {
+        if let ref = refs[id] { UnregisterEventHotKey(ref); refs[id] = nil }
+        actions[id] = nil
+        guard key.enabled else { return nil }
+        installHandler()
+        var newRef: EventHotKeyRef?
+        let st = RegisterEventHotKey(key.keyCode, key.modifiers, EventHotKeyID(signature: Self.signature, id: id),
+                                     GetApplicationEventTarget(), 0, &newRef)
+        guard st == noErr, let newRef else { return "\(key.display) is taken by another app — pick another." }
+        refs[id] = newRef
+        actions[id] = action
+        return nil
+    }
+
+    fileprivate func fire(_ id: UInt32) { actions[id]?() }
 
     private func installHandler() {
         guard handler == nil else { return }
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            DispatchQueue.main.async { MainActor.assumeIsolated { HotkeyCenter.shared.action() } }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+            var hk = EventHotKeyID()
+            let st = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                       nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
+            guard st == noErr, hk.signature == HotkeyCenter.signature else { return OSStatus(eventNotHandledErr) }
+            let id = hk.id
+            DispatchQueue.main.async { MainActor.assumeIsolated { HotkeyCenter.shared.fire(id) } }
             return noErr
         }, 1, &spec, nil, &handler)
     }

@@ -1,0 +1,168 @@
+=== run1-blocked
+AWAKE: keep awake: launch — was off, sleep normal, laptop, helper ready → nothing
+AWAKE: after status: SameerOS's On The Go is on — turn it off there first.
+AWAKE: keep awake: not turned on — another app keeps the Mac awake
+AWAKE: after on: SameerOS's On The Go is on — turn it off there first.
+AWAKE: after status: SameerOS's On The Go is on — turn it off there first.
+=== run2-onoff
+AWAKE: keep awake: launch — was off, sleep normal, laptop, helper ready → nothing
+AWAKE DRY RUN: would run pmset -a sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 1 (through the helper)
+AWAKE DRY RUN: would hold the no-system-sleep, no-idle-sleep and no-display-sleep assertions
+AWAKE: keep awake: on — sleep settings changed, auto-dim 5m
+AWAKE: after on: On · lid can close
+AWAKE DRY RUN: would set the built-in display's brightness to 0%
+AWAKE DRY RUN: no external displays to turn off
+AWAKE: keep awake: displays off (asked, 0 unplugged)
+AWAKE: after displaysoff: On · lid can close · displays off since 10:59 PM
+AWAKE: after input: On · lid can close · displays off since 10:59 PM
+AWAKE: after wait@7: On · lid can close · displays off since 10:59 PM
+AWAKE: keep awake: displays on (a key or the mouse)
+AWAKE DRY RUN: would set the built-in display's brightness to 60%
+AWAKE DRY RUN: would wake the displays
+AWAKE: after input: On · lid can close
+AWAKE: keep awake: watchdog — all holding
+AWAKE: after watchdog: On · lid can close
+AWAKE: keep awake: back at desk in 3m
+AWAKE: after timer@3: On · lid can close · back at desk at 10:59 PM
+AWAKE DRY RUN: would set the built-in display's brightness to 0%
+AWAKE DRY RUN: no external displays to turn off
+AWAKE: keep awake: displays off (idle, 0 unplugged)
+AWAKE DRY RUN: would notify: Displays off
+AWAKE DRY RUN: would run pmset -c sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 0 (through the helper)
+AWAKE DRY RUN: would release the assertions
+AWAKE DRY RUN: would set the built-in display's brightness to 60%
+AWAKE DRY RUN: would wake the displays
+AWAKE: keep awake: off (timer)
+AWAKE DRY RUN: would notify: Keep Awake is off
+AWAKE: after wait@5: Off
+AWAKE DRY RUN: would run pmset -a sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 1 (through the helper)
+AWAKE DRY RUN: would hold the no-system-sleep, no-idle-sleep and no-display-sleep assertions
+AWAKE: keep awake: on — sleep settings changed, auto-dim 5m
+AWAKE: after on: On · lid can close
+AWAKE DRY RUN: would run pmset -c sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 0 (through the helper)
+AWAKE DRY RUN: would release the assertions
+AWAKE: keep awake: off (asked)
+AWAKE: after phoneoff: Off
+AWAKE DRY RUN: would run pmset -a sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 1 (through the helper)
+AWAKE DRY RUN: would hold the no-system-sleep, no-idle-sleep and no-display-sleep assertions
+AWAKE: keep awake: on — sleep settings changed, auto-dim 5m
+AWAKE: after on: On · lid can close
+AWAKE DRY RUN: would set the built-in display's brightness to 0%
+AWAKE DRY RUN: no external displays to turn off
+AWAKE: keep awake: displays off (idle, 0 unplugged)
+AWAKE DRY RUN: would notify: Displays off
+=== run3-restart
+AWAKE DRY RUN: simulated a restart: sleep settings back to normal
+AWAKE: keep awake: launch — was on, sleep normal, laptop, helper ready → ask(MacrophoneKit.KeepAwakeDisagreement.sleepCameBack)
+AWAKE DRY RUN: would run pmset -a sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 1 (through the helper)
+AWAKE DRY RUN: would hold the no-system-sleep, no-idle-sleep and no-display-sleep assertions
+AWAKE: keep awake: on — sleep settings changed, auto-dim 5m
+AWAKE: after wait@2: On · lid can close · displays off since 10:59 PM
+AWAKE: after status: On · lid can close · displays off since 10:59 PM
+=== run4-battery
+AWAKE: keep awake: launch — was on, sleep normal, laptop, helper ready → resume
+AWAKE DRY RUN: would hold the no-system-sleep, no-idle-sleep and no-display-sleep assertions
+AWAKE DRY RUN: would release the assertions
+AWAKE: keep awake: off (asked)
+AWAKE: after off: Off
+AWAKE DRY RUN: would run pmset -a sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 1 (through the helper)
+AWAKE DRY RUN: would hold the no-system-sleep, no-idle-sleep and no-display-sleep assertions
+AWAKE: keep awake: on — sleep settings changed, auto-dim 5m
+AWAKE: after on: On · lid can close · warning: Battery 9% — plug in your Mac to keep it awake.
+AWAKE: keep awake: battery 9% ≤ 10% — turning off
+AWAKE DRY RUN: would run pmset -c sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 0 (through the helper)
+AWAKE DRY RUN: would release the assertions
+AWAKE: keep awake: off (lowBattery)
+AWAKE DRY RUN: would notify: Keep Awake turned off
+AWAKE: after power: Off
+=== run5-heat
+AWAKE: keep awake: launch — was off, sleep normal, laptop, helper ready → nothing
+AWAKE: after off: Off
+AWAKE: keep awake: not turned on — battery 9%
+AWAKE: after on: Off · problem: Your battery is at 9% — plug in your Mac to turn on Keep Awake.
+AWAKE: after power: Off · problem: Your battery is at 9% — plug in your Mac to turn on Keep Awake.
+=== run6-hot
+AWAKE: keep awake: launch — was off, sleep normal, laptop, helper ready → nothing
+AWAKE DRY RUN: would run pmset -a sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 1 (through the helper)
+AWAKE DRY RUN: would hold the no-system-sleep, no-idle-sleep and no-display-sleep assertions
+AWAKE: keep awake: on — sleep settings changed, auto-dim 5m
+AWAKE: after on: On · lid can close · warning: Your Mac is hot. If it's in a bag, take it out or open the lid.
+AWAKE: keep awake: critically hot — turning off
+AWAKE DRY RUN: would run pmset -c sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 0 (through the helper)
+AWAKE DRY RUN: would release the assertions
+AWAKE: keep awake: off (tooHot)
+AWAKE DRY RUN: would notify: Keep Awake turned off
+AWAKE: after power: Off
+=== run7-leftover
+AWAKE: keep awake: launch — was off, sleep off, laptop, helper ready → ask (sleepOffWithoutUs)
+AWAKE: after status: Off · your Mac is still set never to sleep · sleep still off
+AWAKE DRY RUN: would run pmset -b sleep 1 (through the helper)
+AWAKE DRY RUN: would run pmset -b displaysleep 2 (through the helper)
+AWAKE DRY RUN: would run pmset -c sleep 1 (through the helper)
+AWAKE DRY RUN: would run pmset -c displaysleep 10 (through the helper)
+AWAKE DRY RUN: would run pmset -a hibernatemode 3 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 0 (through the helper)
+AWAKE: keep awake: normal sleep restored
+AWAKE: after restore: Off
+AWAKE DRY RUN: would run pmset -a sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 1 (through the helper)
+AWAKE DRY RUN: would hold the no-system-sleep, no-idle-sleep and no-display-sleep assertions
+AWAKE: keep awake: on — sleep settings changed, auto-dim 5m
+AWAKE: after on: On · lid can close
+AWAKE DRY RUN: would run pmset -c sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -c hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b sleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b displaysleep 0 (through the helper)
+AWAKE DRY RUN: would run pmset -b hibernatemode 0 (through the helper)
+AWAKE DRY RUN: would run pmset -a disablesleep 0 (through the helper)
+AWAKE DRY RUN: would release the assertions
+AWAKE: keep awake: off (asked)
+AWAKE DRY RUN: would unregister the helper
+AWAKE: keep awake: prepared for removal — done
+AWAKE: after remove: Off
+AWAKE: after status: Off

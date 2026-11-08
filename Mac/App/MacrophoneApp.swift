@@ -14,13 +14,14 @@ enum Main {
 }
 
 enum Pane: String, CaseIterable, Identifiable {
-    case history, dictation, agents, devices, developer, general
+    case history, dictation, agents, keepAwake, devices, developer, general
     var id: String { rawValue }
     var title: String {
         switch self {
         case .history: return "History"
         case .dictation: return "Dictation"
         case .agents: return "Agents"
+        case .keepAwake: return "Keep Awake"
         case .devices: return "Devices"
         case .developer: return "Developer"
         case .general: return "General"
@@ -31,6 +32,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .history: return "clock.arrow.circlepath"
         case .dictation: return "mic"
         case .agents: return "sparkles"
+        case .keepAwake: return "cup.and.heat.waves"
         case .devices: return "iphone"
         case .developer: return "chevron.left.forwardslash.chevron.right"
         case .general: return "gearshape"
@@ -222,6 +224,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) { model.watch.stopAll() }
 
     var debugMainWindow: NSWindow? { mainWindow?.window }
+
+    #if DEBUG
+    /// The window on screen without taking the keyboard from whatever app is in front
+    /// (MACROPHONE_SHOW=quiet-<pane>: frames while someone uses this Mac).
+    func debugShowQuietly(_ pane: Pane) {
+        if mainWindow == nil { mainWindow = MainWindowController(model: model, updater: updater) }
+        mainWindow?.select(pane)
+        model.setWindowOpen(true)
+        mainWindow?.window?.orderFrontRegardless()
+    }
+    #endif
     var debugSetupWindow: NSWindow? { setupWindow?.window }
     var debugDiagnosticsWindow: NSWindow? { diagnosticsWindow }
     var debugStatusItem: StatusItemController { statusItem }

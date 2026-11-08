@@ -225,6 +225,9 @@ final class MacSide: LinkServerDelegate {
     /// The window in front this Mac tells a phone that asks (FrontWindowTests).
     nonisolated(unsafe) var front: FrontWindow?
     nonisolated(unsafe) var frontAsks = 0
+    /// Keep Awake as this Mac tells it, and the requests phones sent (KeepAwakeTests).
+    nonisolated(unsafe) var keepAwake: KeepAwakeStatus?
+    nonisolated(unsafe) var keepAwakeRequests: [KeepAwakeRequest] = []
     func linkServer(_ server: LinkServer, approveCode code: String, phoneName: String) async -> Bool { false }
     func linkServer(_ server: LinkServer, didPair peer: PairedPeer) {}
     func linkServer(_ server: LinkServer, didUnpair peerID: UUID) {}
@@ -241,6 +244,7 @@ final class PhoneSide: LinkClientDelegate {
     nonisolated(unsafe) var wallpapers: [(MacWallpaper, UUID)] = []
     nonisolated(unsafe) var volumes: [(MacVolume, UUID)] = []
     nonisolated(unsafe) var fronts: [(FrontWindow?, UUID)] = []
+    nonisolated(unsafe) var keepAwakes: [KeepAwakeStatus] = []
     func linkClient(_ client: LinkClient, stateChanged state: LinkClient.State) {}
     func linkClient(_ client: LinkClient, discovered macs: [DiscoveredMac]) {}
     func linkClient(_ client: LinkClient, unpairedBy macID: UUID) {}

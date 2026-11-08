@@ -70,6 +70,8 @@ Every key is always present; `cleaned` and `profile` are `null` when absent.
 | `GET /v1/status` | `200 {"app_version":"1.0.0","api_version":1,"history_enabled":true,"phones":[{"name":"Sameer's iPhone","connected":true,"last_seen":"…"}]}` |
 
 | `POST /v1/agent` | An agent's event (what `mp hook` sends): `{"agent":"claude","event":"PermissionRequest","session":"…","cwd":"…","tool":"Bash","toolDetail":"git push","pids":[…]}`. `204`. The phone's alert (and the Answered you mark in Send to) follow. |
+| `GET /v1/awake` | Keep Awake (Nov 7 2026): `200 {"on":true,"line":"On · lid can close · displays off since 3:12 PM","machine":"laptop","lid_can_close":true,"displays_off":true,"back_at":null,"battery":84,"charging":false,"blocked":null,"problem":null,"warning":null,"sleep_still_off":false,"dry_run":false}` — every key always present |
+| `POST /v1/awake` | `{"action":"on"\|"off"\|"displays_on"\|"displays_off"}` → `200` with the state after it (as GET). Never shows a dialog on the Mac: turning on without Macrophone's sleep-settings permission keeps the lid-open mode and says so in `problem`; a refused turn-on says why in `blocked` / `problem`. `400` for anything else |
 
 **Agents (Oct 17 2026).** Macrophone › Agents › Connect adds `…/Macrophone.app/Contents/Helpers/macrophone hook claude` to Claude Code's hooks in `~/.claude/settings.json` (SessionStart, UserPromptSubmit, PermissionRequest, Notification, PostToolUse, Stop, SessionEnd) or sets Codex's `notify` in `~/.codex/config.toml` (never over one you set). The first change backs the file up beside it (`.macrophone-backup`); Disconnect takes out exactly what it added. The hook prints nothing, always exits 0 and gives up after 1.5 s.
 
@@ -93,6 +95,8 @@ mp latest [--json]                the latest dictation (also just `mp`)
 mp wait [--timeout 60] [--json]   wait for the next dictation and print it (1–300 s)
 mp list [-n 10] [--json]          recent dictations, newest first (1–50)
 mp status                         is Macrophone running, which iPhones are connected
+mp awake [status|on|off] [--json] Keep Awake: the Mac stays on (lid closed too) for your iPhone
+mp awake displays on|off          while Keep Awake is on: the displays (exit 1 when `on` didn't turn it on)
 mp mcp                            run the MCP server on stdio
 mp --version | --help
 ```
