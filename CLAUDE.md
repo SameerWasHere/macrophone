@@ -1888,6 +1888,61 @@ the rise frame by frame). Measured on a Duo simulator's cover (the UI test print
   are two) or the system giving the column the keyboard's bar height back — Apple's call. Dark mode
   and the rest set were shot, not changed.
 
+## The fix-up pass (Nov 7 2026, evening)
+
+Sameer: "Do all the improvements" — three agents, merged together, smoke-tested on an iPhone 18 Pro
+(iOS 27.0) and a Duo (27.1) against `mpctl serve`.
+
+**Connecting, not reconnecting; an app that isn't open.** A window opened before the link is up (a
+folded Duo launch, a widget or alert at launch) used to show "Reconnecting…" over a dimmed kept
+picture: `Watcher.start` with no link always called `beginReconnecting`. Now that hold is a first
+connect (`Watcher.firstConnect`): nothing over the held picture while the app comes up or comes back
+(`Watcher.linkQuiet` = AppModel's `settling || returning`, pushed by `linkLooks`), then "Connecting
+to ‹Mac›…" (`holdWords`; the glance's bar too). A real drop while here still says "Reconnecting…"
+after 0.5 s. The phone's list of open apps can be old (`targets-<id>.json`, a folded launch, a
+widget tapped before the list came): the Mac's answer for an app that isn't running is
+`WatchState.unavailable(…, notOpen: true)` ("‹App› isn't open on your Mac"; `WatchService.find`,
+kept by `resolve` when it strips `closed` for a window never seen; `WatchState.saysAppNotOpen` reads
+it, or an older Mac's words). The phone closes the view as Done does (`Watcher.appNotOpen`) and
+`AppModel.watchedAppNotOpen` takes the app out of `liveTargets`, asks the Mac for its list and says
+so, so the card and the glance show "‹App› isn't open" with Open ‹App›. Send to is untouched; just
+opened from here (`isOpening`) it asks again in a second. `mpctl serve --quit <bundle ids>`;
+`WatchConnectingUITests` (`TEST_RUNNER_MACROPHONE_NO_MAC=1` with the Mac stopped,
+`…_QUIT_TEST=1` with `serve --quit com.tinyspeck.slackmacgap`). Frames: `docs/screens/connecting-nov7/`.
+
+**The laptop's keyboard.** Measured (`MACROPHONE_KBD_DUMP=1`): folded as a laptop, iOS starts the
+keyboard's frame at the top of the hinge's band (455.5, 20 pt above the fold) whatever's in it, its
+keys ~50 pt lower (526) — it isn't the predictions bar. **The keyboard's window takes every touch in
+that band**: a bar drawn there by the layout looked right but hide and the keys never answered (the
+first try, reverted the same evening — `DuoSettleUITests`' mic test caught it). So the bar stays the
+keyboard's accessory everywhere, on top of that frame (403.7), and the laptop's window gives its
+foot as before (Claude 434.7 → 374.7 pt; its top, left and width never move; the Whole Screen keeps
+its size, its foot under the keys). Flat upright has no band (the frame starts at 549): its in-hand
+deck is at least the keyboard's height (`flatUprightKeyboard`), so the window there stays whole with
+either keyboard. The keyboard's height is kept per shape (`keyboard.iosKeys.v2.<surface>.<wide|laptop|tall>`;
+the laptop's 495 used to overwrite flat upright's 350). `DuoTypingUITests` checks hide answers a tap.
+Frames: `docs/screens/duo/nov7-laptop-keyboard/` (the "after" there is the reverted try).
+
+**The first open, warmed.** The first window opened after launch held the main thread ~200 ms
+(later opens ~75): SwiftUI building, for the first time, the carousel's keyboard and trackpad pages
+(the keyboard's field is the app's first text view) and the header. `MainView.warmPanel`: once per
+launch, 0.7 s after the Mac first connects, `PagesWarmup` and the hidden panel's header are built
+unseen for 0.25 s, then let go; skipped if a window or the words are up; `MACROPHONE_NO_WARMUP=1`
+to compare. iPhone 17 Pro sim, 10 launches each: median 154 ms with it, 205 without.
+
+**Undo in History, a real keyboard, the tests that failed.** History's Undo was never broken (round
+2's test swiped `cells.firstMatch`, not the newest row); `UndoChipUITests` now proves the row's
+Undo, the leading swipe and `HistoryPage`'s Undo Paste each reach the Mac (`UNDO <id>`) and the row
+reads "Undone from the phone", and that none is offered after `MACROPHONE_UNDO_LIFE`. **A real
+keyboard typed nothing on the Mac**: `HardwareKeysCatcher`, behind everything in `RootView`, was
+updated by SwiftUI only at launch, so `HardwareKeysView` never took the keyboard; it now follows the
+watcher, the pages and `HardwareKeyboard` itself (Combine). `testMicButtonNeverMoves` checks the
+controls are out of reach while recording by a tap where they sit (XCUITest calls the faded layer
+hittable) — it leaves the simulator unpaired, run it last; `DuoUITests` flat upright: Send to is the
+Dock, as wide as its icons. serve's `stdout()` flushes each line. `DesktopWindowUITests` fails the
+very first time on a fresh simulator (no kept picture: the card's plate becomes the picture after the
+first open); it passes after.
+
 ## Trackpad speed (Nov 7 2026)
 
 Sameer: "a trackpads sensitivity toggle in setting". Settings › (under Show the app after sending)
