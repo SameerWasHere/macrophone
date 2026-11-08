@@ -17,6 +17,8 @@ enum QuickActions {
         case watch = "com.sameer.macrophone.watch"
         /// Opens the Mac's whole screen live.
         case screen = "com.sameer.macrophone.screen"
+        /// Opens the window in front on the Mac live (Model/FrontWindowHere.swift).
+        case front = "com.sameer.macrophone.front"
     }
 
     /// The Home Screen shows four.
@@ -94,9 +96,9 @@ extension AppModel {
         return (parts[0], parts.count > 1 ? parts.dropFirst().joined(separator: " — ") : nil)
     }
 
-    /// The long press's items: Dictate to the pick, the last windows watched, the whole screen
-    /// when the Mac offers it, and Dictate to Where I'm typing — four at most, in that order of
-    /// use (a second watched window before Where I'm typing).
+    /// The long press's items: Dictate to the pick, Watch What's in Front, the last window
+    /// watched, the whole screen when the Mac offers it, and Dictate to Where I'm typing — four at
+    /// most, in that order of use (a second watched window before Where I'm typing).
     func refreshQuickActions() {
         var items: [UIApplicationShortcutItem] = []
         let pick = settings.selection.target
@@ -105,6 +107,8 @@ extension AppModel {
                                        subtitle: isPaired ? (name.window ?? macName) : "Copies it on this iPhone",
                                        symbol: "mic", target: QuickActions.id(for: pick)))
         if isPaired {
+            // What's in front on the Mac, whatever it is: second, under the thumb.
+            items.append(QuickActions.item(.front, "Watch What's in Front", subtitle: "Live on \(macName)", symbol: "macwindow.on.rectangle"))
             // Only windows of apps still open (when the Mac's list is known).
             let open = Set(liveTargets.map(\.bundleID))
             let watched = QuickActions.recent(mac: pairedMac?.id).filter { w in
@@ -154,6 +158,8 @@ extension AppModel {
             watchFromIntent(targetID: target, name: nil)
         case .screen:
             watchFromIntent(targetID: TargetEntity.screenID, name: nil)
+        case .front:
+            watchWhatsInFront()
         }
         return true
     }

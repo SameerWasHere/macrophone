@@ -295,6 +295,8 @@ final class AppModel: ObservableObject {
         c.features.append(UndoPaste.feature)
         // The Mac's pointer shape, drawn as the trackpad's pointer (Nov 1 2026, UI/TrackpadView.swift).
         c.features.append(MacCursor.feature)
+        // What's in front on the Mac, one tap away (Nov 7 2026, Model/FrontWindowHere.swift).
+        c.features.append(FrontWindow.feature)
         #if DEBUG
         // MACROPHONE_VIDEO=0: a phone from before video (pictures), to compare the two.
         if DebugHooks.env["MACROPHONE_VIDEO"] == "0" { c.features.removeAll { $0 == WatchVideo.feature } }
@@ -559,6 +561,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastRoute: LinkRoute?
     /// Watch asked for while the link was on its way back: runs on the connect (never dropped).
     private var waitingWatch: TargetRef?
+    /// What's in front on the Mac, as it last said (Model/FrontWindowHere.swift).
+    @Published var macFront: MacFront?
+    /// Watch What's in Front was asked for (a quick action, the control, the intent) and waits for the Mac.
+    var waitingFront = false
+    var frontTimeout: Task<Void, Never>?
 
     /// Connected, or as good as, for looks only: the eye badge, the needs marks, the menu bar's
     /// extras, the cover bar's items, the pill's light. An action needing the link waits for
@@ -1913,6 +1920,9 @@ extension AppModel: LinkClientDelegate {
         if case .connected = state, waitingWholeScreen { waitingWholeScreen = false; watchWholeScreenWhenReady() }
         // Watch, tapped while the link was on its way back.
         if case .connected = state, let t = waitingWatch { waitingWatch = nil; watcher.open(t) }
+        // What's in front on the Mac (Model/FrontWindowHere.swift): its word goes with the link;
+        // Watch What's in Front, asked for before the Mac was here, goes on the connect.
+        if case .connected = state { frontLinkChanged(connected: true) } else { frontLinkChanged(connected: false) }
         // On the Duo's inner screen with nothing watched yet: the pick's window, now that the Mac is here.
         if case .connected = state { openWindowForPose() }
     }
@@ -2346,6 +2356,11 @@ enum IntentBridge {
 
     @MainActor static func watch(targetID: String?, name: String?) async {
         AppModel.shared.watchFromIntent(targetID: targetID, name: name)
+    }
+
+    /// Watch What's in Front (the intent, the control): the Mac's front window, once it's here.
+    @MainActor static func watchFront() async {
+        AppModel.shared.watchWhatsInFront()
     }
 }
 

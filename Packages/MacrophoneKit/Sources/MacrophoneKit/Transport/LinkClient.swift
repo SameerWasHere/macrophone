@@ -865,6 +865,8 @@ public final class LinkClient: @unchecked Sendable {
             deliverWallpaper(w, macID: macID)
         case let .macVolume(v):
             deliverVolume(v, macID: macID)
+        case let .frontWindow(w):
+            deliverFrontWindow(w, macID: macID)
         case let .macCursor(c):
             deliverCursor(c)
         case let .undoDone(r):

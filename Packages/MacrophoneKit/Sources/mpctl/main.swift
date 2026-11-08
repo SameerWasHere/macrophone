@@ -49,6 +49,9 @@ import MacrophoneKit
 //   mpctl serve --no-volume                    # a Mac from before it says its volume: the phone's slider has no level, ± still work
 //   mpctl serve --volume-after 6               # the volume told 6 s after the welcome (the phone's remembered level shows meanwhile)
 //   mpctl listen --features macVolume         # prints VOLUME 56% / VOLUME muted after the welcome and on each change (Nov 7 2026)
+//   mpctl serve --front <bundle id>[#<key>]|none [--front-every 20] [--no-front]   # the window in front (Front.swift)
+//   mpctl listen --features frontWindow       # prints FRONT <bundle id>#<key> · <app> — <title> after the welcome and on each change
+//   (every watch prints WATCH TARGET <bundle id>#<key>; a watch of Where I'm typing ends in "(front)")
 //   mpctl cleanup-eval [--file samples.json] [--level medium]
 //
 // State lives in ~/.mpctl/<role> (or --state DIR) so a serve and a phone can coexist.
@@ -251,8 +254,11 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {
         watches[peerID]?.cancel()
         watches[peerID] = nil
-        guard let target else { tones.set(false, for: peerID, server: server); stdout("WATCH stopped"); return }
+        guard let asked = target else { tones.set(false, for: peerID, server: server); stdout("WATCH stopped"); return }
+        // Where I'm typing: the demo front window's app (Front.swift), as the Mac app adopts the app in front.
+        let target = FrontDemo.resolve(asked)
         stdout("WATCH \(target.displayName)")
+        if case let .app(bid, key, _) = target { stdout("WATCH TARGET \(bid)#\(key ?? "")\(asked == .frontApp ? " (front)" : "")") }
         // An app this Mac doesn't have open (an old list on the phone asked for it): said as the
         // Mac app says it.
         if case let .app(bid, _, name) = target, quitApps.contains(bid) {
@@ -729,6 +735,8 @@ func run() async -> Int32 {
         // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).
         if has("--no-input") { server.macFeatures.removeAll { [WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature].contains($0) } }
         if !has("--jpeg"), !has("--no-volume") { server.macFeatures.append(MacVolume.feature) }
+        // What's in front on the Mac (Front.swift): --no-front is a Mac from before.
+        if !has("--jpeg"), !has("--no-front") { server.macFeatures.append(FrontWindow.feature); FrontDemo.start(server) }
         server.start()
         let invite = server.makeInvite()
         stdout("PAIR URL \(invite.url.absoluteString)")

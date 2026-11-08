@@ -607,6 +607,9 @@ public final class LinkServer: @unchecked Sendable {
                 if phoneFeatures?.contains(MacVolume.feature) == true, macFeatures.contains(MacVolume.feature) {
                     sendVolumeAfterWelcome(to: phoneID, on: session)
                 }
+                if phoneFeatures?.contains(FrontWindow.feature) == true, macFeatures.contains(FrontWindow.feature) {
+                    sendFrontWindowAfterWelcome(to: phoneID, on: session)
+                }
                 notify { $0.linkServer(self, peerConnected: p, appVersion: appVersion, os: os) }
             case let .dictation(d, delayed):
                 if seen.contains(d.id) {
@@ -737,7 +740,7 @@ public final class LinkServer: @unchecked Sendable {
                 handleAlertWatch(request, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .undoDone, .alertWatches, .macAlert:
+            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .undoDone, .alertWatches, .macAlert, .frontWindow:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

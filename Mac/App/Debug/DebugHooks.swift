@@ -39,6 +39,8 @@ import SwiftUI
 ///   MACROPHONE_ALERTS_PRINT=1       print each alert (its kind, headline, line, picture size) to stdout; the
 ///                                   distributed notification "com.sameer.macrophone.debug.alertWatch" (object: a
 ///                                   bundle id) puts that app's front window on watch
+///   MACROPHONE_FRONT_PRINT=1        print each "what's in front" told to the phones (Core/FrontWindow.swift)
+///   MACROPHONE_FRONT_FAKE=<bundle id>  that app taken as in front (proves it without taking the focus)
 ///   MACROPHONE_WATCH_TIMING=1      print each watched picture's or video frame's stages in milliseconds (WatchService)
 ///   Simulated dictations (the same call the phone link makes): post the distributed notification
 ///   "com.sameer.macrophone.debug.dictate" with object = JSON {"text", "target"?: "clipboard|front|<bundle id>",
@@ -56,7 +58,7 @@ enum DebugHooks {
     static func run(_ app: AppDelegate) -> Bool {
         let model = app.model
         // Printed lines reach a file or a pipe as they're printed.
-        if ProcessInfo.processInfo.environment["MACROPHONE_ALERTS_PRINT"] == "1" { setvbuf(stdout, nil, _IOLBF, 0) }
+        if ProcessInfo.processInfo.environment["MACROPHONE_ALERTS_PRINT"] == "1" || env["MACROPHONE_FRONT_PRINT"] == "1" { setvbuf(stdout, nil, _IOLBF, 0) }
         listenForSimulatedDictations(model)
         // Make an app's front window a chat waiting for its answer, as a dictation sent there does —
         // without typing anything (ReplyWatcher's live test). The notification's object: a bundle id.

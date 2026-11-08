@@ -361,14 +361,32 @@ struct MainView: View {
                                     // air above and below, never moving the Dock under it.
                                     GeometryReader { g in
                                         let room = g.size.height - desktopTop
+                                        // What's in front on the Mac, a line under the card (Nov 7
+                                        // 2026, UI/MacOS/FrontWindowLine.swift): its room is kept
+                                        // while the Mac tells it, so the card never moves for it.
+                                        let line: CGFloat = model.macTellsFront && room - FrontWindowLook.room >= DesktopWindowLook.leastRoom ? FrontWindowLook.room : 0
+                                        let width = g.size.width - 2 * Space.margin
                                         if room >= DesktopWindowLook.leastRoom {
-                                            DesktopWindowCard(target: model.selection.target,
-                                                              room: CGSize(width: g.size.width - 2 * Space.margin,
-                                                                           height: room - 2 * (compact ? DesktopWindowLook.air / 2 : DesktopWindowLook.air)),
-                                                              hidden: !phoneSettings,
-                                                              onWatch: watchFromCard)
-                                                .frame(width: g.size.width, height: room)
-                                                .padding(.top, desktopTop)
+                                            VStack(spacing: 0) {
+                                                DesktopWindowCard(target: model.selection.target,
+                                                                  room: CGSize(width: width,
+                                                                               height: room - 2 * (compact ? DesktopWindowLook.air / 2 : DesktopWindowLook.air) - line),
+                                                                  hidden: !phoneSettings,
+                                                                  onWatch: watchFromCard)
+                                                if line > 0 {
+                                                    ZStack {
+                                                        if phoneSettings, let w = model.frontOffer {
+                                                            FrontWindowLine(window: w, width: min(width, DesktopWindowLook.widest))
+                                                                .transition(.opacity)
+                                                        }
+                                                    }
+                                                    .frame(height: FrontWindowLook.height)
+                                                    .padding(.top, FrontWindowLook.gap)
+                                                    .animation(.easeInOut(duration: 0.25), value: model.frontOffer)
+                                                }
+                                            }
+                                            .frame(width: g.size.width, height: room)
+                                            .padding(.top, desktopTop)
                                         }
                                     }
                                     .transition(.opacity)

@@ -142,5 +142,15 @@ struct MacrophoneShortcuts: AppShortcutsProvider {
                     ],
                     shortTitle: "Watch",
                     systemImageName: "eye")
+        // What's in front on the Mac, live (Nov 7 2026, Shared/WatchFrontIntent.swift).
+        AppShortcut(intent: WatchFrontIntent(),
+                    phrases: [
+                        "Watch what's in front with \(.applicationName)",
+                        "Watch what's in front on my Mac with \(.applicationName)",
+                        "Show what's on my Mac with \(.applicationName)",
+                        "Pick up where my Mac is with \(.applicationName)",
+                    ],
+                    shortTitle: "What's in Front",
+                    systemImageName: "macwindow.on.rectangle")
     }
 }

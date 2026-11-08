@@ -248,6 +248,9 @@ public enum Message: Codable, Sendable {
     /// Mac → phone (only to a phone naming MacAlerts.feature): something happened in a window on
     /// watch, or an agent is asking — with a picture of the window.
     case macAlert(MacAlert)
+    /// Mac → phone (only to a phone naming FrontWindow.feature): the window in front on the Mac,
+    /// or nil when there's nothing safe to offer — after the welcome and on each change.
+    case frontWindow(FrontWindow?)
     // Either way
     case ping
     case pong

@@ -43,6 +43,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     @Published private(set) var alertWatches: [AlertWatch] = []
     private(set) var attachments: AttachmentInbox!
     private(set) var stayAwake: StayAwake!
+    /// The window in front, told to the phones (Core/FrontWindow.swift).
+    private(set) var frontWindow: FrontWindowWatcher!
     /// Every window on screen, as last told to the phones (AllWindows).
     private var everyWindowSent: [LiveTarget] = []
     private var everyWindowTimer: Timer?
@@ -124,6 +126,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         Task { @MainActor [weak self] in self?.windowAlerts.restore() }
         attachments = AttachmentInbox(app: self)
         stayAwake = StayAwake(log: log)
+        frontWindow = FrontWindowWatcher(app: self)
         watch.onChange = { [weak self] in
             guard let self else { return }
             self.stayAwake.update(phonesConnected: !self.connected.isEmpty, watching: !self.watch.watching.isEmpty)
@@ -149,6 +152,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.macFeatures.append(MacAlerts.feature)
         // The displays, Mac Controls, Wake the Mac (Oct 19 2026, Core/MacReach.swift).
         server.macFeatures += [Displays.feature, MacControl.feature, WakeInfo.feature]
+        // What's in front on this Mac, one tap away on the phone (Nov 7 2026, Core/FrontWindow.swift).
+        server.macFeatures.append(FrontWindow.feature)
         // Swipes and the pointer skip the main actor: the receive loop hands each step to the
         // watch's posters.
         let watchService = watch!
@@ -622,6 +627,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         stayAwake.update(phonesConnected: true, watching: !watch.watching.isEmpty)
         followEveryWindow()
         tellMacReach(peer.id)
+        frontWindow.phonesChanged()
     }
 
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) {
@@ -634,6 +640,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         attention.update()
         stayAwake.update(phonesConnected: !connected.isEmpty, watching: !watch.watching.isEmpty)
         followEveryWindow()
+        frontWindow.phonesChanged()
     }
 
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {
