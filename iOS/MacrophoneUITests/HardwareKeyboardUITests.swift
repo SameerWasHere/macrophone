@@ -20,10 +20,13 @@ final class HardwareKeyboardUITests: XCTestCase {
         app.launch()
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
         if allow.waitForExistence(timeout: 2) { allow.tap() }
+        // The note says where a keyboard's typing goes, once, in the status line for a few seconds
+        // as the window opens (Nov 7 2026, round 4) — looked for from the start, it's brief.
+        let note = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Keyboard connected · typing on")).firstMatch
+        let noted = note.waitForExistence(timeout: 20)
         let done = app.buttons["watch-done"].firstMatch
         guard done.waitForExistence(timeout: 20) else { throw XCTSkip("no paired Mac: the window view never opened") }
-        // The note says where a keyboard's typing goes, once.
-        _ = app.staticTexts["Keyboard connected — typing on your Mac"].waitForExistence(timeout: 4)
+        XCTAssertTrue(noted, "the status line says where the keyboard types")
         sleep(1)
 
         let logPath = ProcessInfo.processInfo.environment["MACROPHONE_SERVE_LOG"]

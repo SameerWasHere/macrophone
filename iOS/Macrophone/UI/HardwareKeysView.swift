@@ -1,3 +1,4 @@
+import Combine
 import MacrophoneKit
 import SwiftUI
 import UIKit
@@ -7,31 +8,51 @@ import UIKit
 /// connected and the keyboard page isn't up — and only while nothing else is typing (a search
 /// field, Settings, the word being fixed) and no sheet is over the window. Its input view is
 /// empty, so iOS never raises keys of its own for it.
+///
+/// The view hears the watcher, the pages and the keyboard itself (Combine), not through
+/// SwiftUI's update (Nov 7 2026): behind everything in `RootView`, its `updateUIView` — and a
+/// wrapper view's body, tried too — ran only at launch, never again when a window opened or a
+/// keyboard connected, so it never asked for the keyboard and a real keyboard typed nothing on
+/// the Mac (`HardwareKeyboardUITests`, failing since round 1).
 struct HardwareKeysCatcher: UIViewRepresentable {
-    @ObservedObject var watcher: Watcher
-    @ObservedObject private var input: MacInput
-    @ObservedObject private var keyboard = HardwareKeyboard.shared
-
-    init(watcher: Watcher) {
-        self.watcher = watcher
-        _input = ObservedObject(wrappedValue: watcher.input)
-    }
+    var watcher: Watcher
 
     func makeUIView(context: Context) -> HardwareKeysView {
         let v = HardwareKeysView()
-        v.input = input
+        v.follow(watcher)
         return v
     }
 
     func updateUIView(_ v: HardwareKeysView, context: Context) {
-        v.input = input
-        v.wanted = watcher.isShowing && input.page != .keyboard && keyboard.connected
+        if v.watcher !== watcher { v.follow(watcher) }
     }
 }
 
 final class HardwareKeysView: UIView, UIKeyInput {
     weak var input: MacInput?
-    /// Should hear the keyboard now (set from SwiftUI's update — acted on the next turn, never in it).
+    fileprivate weak var watcher: Watcher?
+    private var follows: [AnyCancellable] = []
+
+    /// Hears what decides `wanted`: a window in hand, the page that isn't the keyboard's, a
+    /// keyboard connected. `objectWillChange` comes before the change, so it's read a turn later.
+    fileprivate func follow(_ watcher: Watcher) {
+        self.watcher = watcher
+        input = watcher.input
+        let changed = Publishers.Merge3(watcher.objectWillChange.map { _ in () },
+                                        watcher.input.objectWillChange.map { _ in () },
+                                        HardwareKeyboard.shared.objectWillChange.map { _ in () })
+        follows = [changed.receive(on: DispatchQueue.main).sink { [weak self] in
+            MainActor.assumeIsolated { self?.decide() }
+        }]
+        decide()
+    }
+
+    private func decide() {
+        guard let watcher else { wanted = false; return }
+        wanted = watcher.isShowing && watcher.input.page != .keyboard && HardwareKeyboard.shared.connected
+    }
+
+    /// Should hear the keyboard now (acted on the next turn, never inside a SwiftUI update).
     var wanted = false {
         didSet {
             guard wanted != oldValue else { return }
