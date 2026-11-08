@@ -232,17 +232,6 @@ extension MainView {
                     .clipped()
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-            // Folded, the keyboard's own bar is drawn here, in the hinge's band at the top of the
-            // keyboard's frame — not as its accessory, which iOS stacks on that frame, over the
-            // Mac's half (`KeyboardTextView.barInLayout`). It rides in on the keyboard's motion.
-            .overlay(alignment: .top) {
-                if let keysTop, KeyboardTextView.barInLayout(posture.pose) {
-                    MacKeyboardBar(input: input, watcher: watcher, surface: .inner)
-                        .frame(width: geo.size.width)
-                        .padding(.top, keysTop)
-                        .transition(.opacity)
-                }
-            }
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
             // A window coming into hand (or going back to the glance) moves the fold's line on a
             // flat screen: the window grows to its new size on the same spring, never jumps.

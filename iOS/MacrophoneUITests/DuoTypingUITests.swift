@@ -57,7 +57,11 @@ final class DuoTypingUITests: XCTestCase {
     private func lowerKeyboard(_ app: XCUIApplication) {
         let hide = app.buttons["keyboard-hide"]
         if hide.exists { hide.tap() }
-        sleep(2)
+        // The bar's hide answers a tap (Nov 7 2026: drawn in the laptop's hinge band it couldn't —
+        // the keyboard's window takes every touch there).
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: hide)
+        wait(for: [gone], timeout: 4)
+        sleep(1)
     }
 
     private func shot(_ name: String) {
@@ -93,13 +97,18 @@ final class DuoTypingUITests: XCTestCase {
                 XCTAssertEqual(typed.minY, rest.minY, accuracy: 1, "\(what): nor its top (\(rest.minY) → \(typed.minY))")
                 XCTAssertGreaterThan(typed.height, rest.height * 0.5, "\(what): the Mac's screen is never a sliver (\(rest.height) → \(typed.height))")
                 if pose == "laptop" || pose == "portrait" {
-                    // Upright the keyboard never reaches the Mac's half (Nov 7 2026): the window keeps
-                    // its whole frame, and the keyboard's bar sits under the window's foot — folded, in
-                    // the hinge's band (iOS starts the keyboard's frame 20 pt above the fold, its keys
-                    // ~50 pt below), flat on the deck under the fold.
-                    XCTAssertEqual(typed.height, rest.height, accuracy: 1, "\(what): the window keeps its height (\(rest.height) → \(typed.height))")
-                    XCTAssertGreaterThanOrEqual(bar.minY, rest.maxY - 1, "\(what): the keyboard's bar is under the window (\(bar.minY), its foot at \(rest.maxY))")
-                    XCTAssertGreaterThanOrEqual(bar.minY, fold - (pose == "laptop" ? 24 : 0), "\(what): the keyboard reaches no higher than the fold's band (\(bar.minY), the fold at \(fold))")
+                    // Flat upright the keyboard never reaches the Mac's half (Nov 7 2026): the window
+                    // keeps its whole frame, the bar on the deck under the fold. Folded, iOS starts the
+                    // keyboard's frame in the hinge's band and takes every touch there, so the bar rides
+                    // on top of it and the window's foot gives way (its top never moves, above).
+                    if pose == "portrait" {
+                        XCTAssertEqual(typed.height, rest.height, accuracy: 1, "\(what): the window keeps its height (\(rest.height) → \(typed.height))")
+                        XCTAssertGreaterThanOrEqual(bar.minY, fold, "\(what): the keyboard reaches no higher than the fold (\(bar.minY), the fold at \(fold))")
+                    }
+                    // (The Whole Screen keeps its rest size, its foot under the keyboard, by design.)
+                    if place != "screen" || pose == "portrait" {
+                        XCTAssertGreaterThanOrEqual(bar.minY, typed.maxY - 1, "\(what): the keyboard's bar is under the window (\(bar.minY), its foot at \(typed.maxY))")
+                    }
                     // The bar takes a tap where it's drawn: Mac Keys swaps the keyboard, and back.
                     let toggle = app.buttons["keyboard-mac-keys"]
                     let before = toggle.value as? String
@@ -108,8 +117,10 @@ final class DuoTypingUITests: XCTestCase {
                     XCTAssertNotEqual(toggle.value as? String, before, "\(what): Mac Keys answers a tap on the bar")
                     let swapped = settledWindow(app, "\(what): the keyboards swapped")
                     shot("typing-\(pose)-\(place)-mackeys\(macKeys)-swapped")
-                    XCTAssertEqual(swapped.height, rest.height, accuracy: 1, "\(what): the other keyboard leaves the window whole too (\(rest.height) → \(swapped.height))")
-                    XCTAssertGreaterThanOrEqual(barElement.frame.minY, rest.maxY - 1, "\(what): the other keyboard's bar is under the window too")
+                    XCTAssertEqual(swapped.height, typed.height, accuracy: 1, "\(what): the other keyboard leaves the window as the first did (\(typed.height) → \(swapped.height))")
+                    if place != "screen" || pose == "portrait" {
+                        XCTAssertGreaterThanOrEqual(barElement.frame.minY, swapped.maxY - 1, "\(what): the other keyboard's bar is under the window too")
+                    }
                     toggle.tap()
                     sleep(2)
                 }

@@ -121,13 +121,9 @@ final class KeyboardTextView: UITextView {
         // The folded laptop's frame holds the hinge's band too: kept apart from flat upright's
         // (`v2`: before Nov 7 2026 the two shared one key, and the laptop's 495 pt was taken for
         // flat upright's 350).
-        let shape = s.width > s.height ? "wide" : Self.barInLayout(Posture.shared.pose) ? "laptop" : "tall"
+        let shape = s.width > s.height ? "wide" : Posture.shared.pose == .laptop ? "laptop" : "tall"
         return "keyboard.iosKeys.v2.\(surface.rawValue).\(shape)"
     }
-
-    /// The folded laptop: the Mac's bar is the layout's, laid in the hinge's band, not the
-    /// keyboard's accessory (Nov 7 2026).
-    static func barInLayout(_ pose: FoldPose) -> Bool { pose == .laptop }
 
     /// The keyboard's whole height last seen on flat upright, its keys and the bar on them (the
     /// flat deck makes room for it at rest, so the Mac's window never moves for it).
@@ -166,12 +162,11 @@ final class KeyboardTextView: UITextView {
         deckKeyboard?.foot = window?.safeAreaInsets.bottom ?? 0
         let keys: UIView? = mac ? deckKeyboard : nil
         var reload = false
-        // On the folded laptop the bar isn't the keyboard's: iOS starts the keyboard's frame at the
-        // top of the hinge's band (20 pt above the fold) whatever is in it — its keys ~50 pt lower,
-        // off the crease — and an accessory sits on top of that frame, on the Mac's half. There
-        // the bar is drawn by the layout, in that band (`MainView.laptopBody`).
-        let accessory: UIView? = Self.barInLayout(pose) ? nil : bar
-        if inputAccessoryView !== accessory { inputAccessoryView = accessory; reload = true }
+        // The bar is the keyboard's accessory on every screen. (On the folded laptop iOS starts the
+        // keyboard's frame at the top of the hinge's band, 20 pt above the fold, its keys ~50 pt
+        // lower — and the keyboard's window takes every touch in that band, so a bar drawn there
+        // by the layout can't be tapped. On the accessory it sits just above the band.)
+        if inputAccessoryView !== bar { inputAccessoryView = bar; reload = true }
         if inputView !== keys { inputView = keys; reload = true }
         // Upright on the inner screen the deck is short: no shortcuts groups beside the predictions.
         // The predictions stay (Nov 7 2026, Sameer's newest word wins over the Nov 1 "suppress the
