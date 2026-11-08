@@ -46,6 +46,10 @@ public struct MacAlert: Codable, Sendable, Equatable, Identifiable {
     public var at: Date
     /// The window as it looked, a JPEG (nil: no picture — closed, or Screen Recording off).
     public var jpeg: Data?
+    /// From a chat the phone wrote to, not a window on watch (ChatAnswers, Nov 8 2026): the phone
+    /// lets it through by its "When a chat answers you" switch. Nil from a Mac from before, and
+    /// an older phone ignores it.
+    public var chat: Bool?
 
     public enum Kind: String, Sendable, CaseIterable {
         /// It was busy a while and went still.
@@ -68,7 +72,7 @@ public struct MacAlert: Codable, Sendable, Equatable, Identifiable {
     public var knownKind: Kind { Kind(rawValue: kind) ?? .updated }
 
     public init(id: UUID = UUID(), ref: TargetRef, appName: String, title: String, kind: Kind, headline: String,
-                detail: String? = nil, promptID: String? = nil, at: Date = Date(), jpeg: Data? = nil) {
+                detail: String? = nil, promptID: String? = nil, at: Date = Date(), jpeg: Data? = nil, chat: Bool? = nil) {
         self.id = id
         self.ref = ref
         self.appName = appName
@@ -79,6 +83,7 @@ public struct MacAlert: Codable, Sendable, Equatable, Identifiable {
         self.promptID = promptID
         self.at = at
         self.jpeg = jpeg
+        self.chat = chat
     }
 
     /// One notification per window: a newer alert replaces the older one on the Lock Screen.
@@ -458,6 +463,25 @@ public enum AlertWords {
         return pick.map { String($0.prefix(140)) }
     }
 
+    /// The line under "Claude answered you" (Nov 8 2026): the reply's last lines as they read —
+    /// text recognition gives a chat's wrapped lines one by one, so the last two or three together
+    /// make the end of a sentence where one alone is a fragment. At most `limit` characters, cut at
+    /// a word; never a shell's prompt. Nil when nothing new was read.
+    public static func reply(_ newLines: [String], limit: Int = 160) -> String? {
+        let lines = newLines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && !isPrompt($0) }
+        guard let last = lines.last else { return nil }
+        var picked = [last]
+        for l in lines.dropLast().reversed().prefix(2) {
+            guard picked.reduce(l.count, { $0 + $1.count + 1 }) <= limit else { break }
+            picked.insert(l, at: 0)
+        }
+        let text = picked.joined(separator: " ")
+        guard text.count > limit else { return text }
+        let cut = text.prefix(limit - 1)
+        let word = cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut
+        return word.trimmingCharacters(in: .whitespaces.union(.punctuationCharacters)) + "…"
+    }
+
     static func succeeded(_ text: String) -> Bool {
         ["done", "finished", "complete", "passed", "success", "succeeded", "built", "✓", "✔", "saved", "exported", "uploaded"].contains { text.contains($0) }
     }
@@ -472,6 +496,69 @@ public enum AlertWords {
         let t = line.trimmingCharacters(in: .whitespaces)
         guard let last = t.last else { return true }
         return ["%", "$", "#", "❯", ">", "›"].contains(String(last)) && (t.count < 3 || t.contains("@") || t.contains("~") || t.contains(" "))
+    }
+}
+
+/// The answer finds you (Nov 8 2026). Sameer dictates a prompt to a chat from the phone, pockets
+/// it, and comes back for the answer: 47 of his last 50 dictations went to the Claude app with
+/// send, almost all from away. A chat the phone wrote to (ReplyWatcher's) now alerts when it
+/// answers, with no window on watch — "Claude answered you", the reply's last lines, a picture of
+/// the window — through the one sender (a connected phone, else iCloud).
+public enum ChatAnswers {
+    /// Named in the Mac's welcome: it takes `.chatAnswers(on:)` and follows chats for answers.
+    /// Named in the phone's hello: it has the "When a chat answers you" switch.
+    public static let feature = "chatAnswers"
+    /// The phone's hello also says how the switch stands, so a Mac hears it on every connect
+    /// (the live message is for a change while connected).
+    public static let onWord = "chatAnswers-on"
+    public static let offWord = "chatAnswers-off"
+    /// A chat is followed this long after the phone last wrote to it.
+    public static let followFor: TimeInterval = 2 * 3600
+    /// …and for this many answers with no new message from the phone.
+    public static let maxAnswers = 2
+    /// Two alerts from one chat at least this far apart (an answer that flickers — words, a
+    /// pause, more words — isn't told twice).
+    public static let quiet: TimeInterval = 30
+
+    /// What a phone's hello says about the switch: on, off, or nothing (a phone from before).
+    public static func choice(in features: Set<String>) -> Bool? {
+        if features.contains(onWord) { return true }
+        if features.contains(offWord) { return false }
+        return nil
+    }
+}
+
+/// Is this answer one to tell? The rule ReplyWatcher applies per chat (pure, for the tests): each
+/// new answer (a new `answeredAt`) while the chat is followed — within `followFor` of the phone's
+/// last message, fewer than `maxAnswers` told, `quiet` since the last — is told once. The phone
+/// writing to it again starts a new follower (re-armed).
+public struct AnswerFollower: Equatable, Sendable {
+    public let engagedAt: Date
+    public private(set) var told = 0
+    public private(set) var lastAnswer: Date?
+    public private(set) var lastTold: Date?
+
+    public init(engagedAt: Date) { self.engagedAt = engagedAt }
+
+    public func following(at now: Date) -> Bool {
+        told < ChatAnswers.maxAnswers && now.timeIntervalSince(engagedAt) < ChatAnswers.followFor
+    }
+
+    /// The chat answered (at `answeredAt`): true when this is news to tell now. An answer seen
+    /// once is never told again, told or not.
+    public mutating func shouldTell(answeredAt: Date, at now: Date) -> Bool {
+        guard answeredAt != lastAnswer else { return false }
+        lastAnswer = answeredAt
+        guard following(at: now) else { return false }
+        if let last = lastTold, now.timeIntervalSince(last) < ChatAnswers.quiet { return false }
+        told += 1
+        lastTold = now
+        return true
+    }
+
+    /// He looked at the chat on the phone: whatever it said then is seen (not told after).
+    public mutating func seen(answeredAt: Date?) {
+        if let answeredAt { lastAnswer = answeredAt }
     }
 }
 

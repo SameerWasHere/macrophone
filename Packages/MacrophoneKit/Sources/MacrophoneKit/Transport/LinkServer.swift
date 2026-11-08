@@ -746,6 +746,8 @@ public final class LinkServer: @unchecked Sendable {
                 // An action this Mac doesn't know (a newer phone) is ignored, never a session's end.
                 guard request.isValid else { break }
                 handleKeepAwake(request, from: phoneID)
+            case let .chatAnswers(on):
+                handleChatAnswers(on, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
             case .macPermissions, .macWallpaper, .macVolume, .macCursor, .undoDone, .alertWatches, .macAlert, .frontWindow, .keepAwake:

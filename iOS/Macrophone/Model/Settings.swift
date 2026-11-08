@@ -19,6 +19,9 @@ final class Settings: ObservableObject {
     @Published var watchAfterSending: Bool { didSet { d.set(watchAfterSending, forKey: K.watchAfterSending) } }
     /// A notification when a window on the Mac asks something nobody is watching (Oct 16 2026).
     @Published var agentAlerts: Bool { didSet { d.set(agentAlerts, forKey: K.agentAlerts) } }
+    /// A notification when a chat you wrote to from the phone answers (Nov 8 2026): the Mac follows
+    /// it (ReplyWatcher) and tells this phone, through iCloud when the app is closed. On by default.
+    @Published var chatAnswers: Bool { didSet { d.set(chatAnswers, forKey: K.chatAnswers) } }
     /// The Custom cleanup level's instructions as the person wrote them. Empty = the default
     /// (exactly Medium's). Applied to the cleaner the moment it changes, and at launch.
     @Published var customInstructions: String {
@@ -71,6 +74,7 @@ final class Settings: ObservableObject {
         historyEnabled = defaults.object(forKey: K.history) as? Bool ?? true
         watchAfterSending = defaults.object(forKey: K.watchAfterSending) as? Bool ?? true
         agentAlerts = defaults.object(forKey: K.agentAlerts) as? Bool ?? true
+        chatAnswers = defaults.object(forKey: K.chatAnswers) as? Bool ?? true
         let custom = defaults.string(forKey: K.customInstructions) ?? ""
         customInstructions = custom
         CleanupPrompts.setCustomInstructions(custom)
@@ -137,6 +141,7 @@ final class Settings: ObservableObject {
         static let history = "settings.historyEnabled"
         static let watchAfterSending = "settings.watchAfterSending"
         static let agentAlerts = "settings.agentAlerts"
+        static let chatAnswers = "settings.chatAnswers"
         static let deviceName = "settings.deviceName"
         static let appearance = "settings.appearance"
         static let macWallpaper = "settings.macWallpaper"

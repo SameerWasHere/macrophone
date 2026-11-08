@@ -245,7 +245,7 @@ final class AppModel: ObservableObject {
         Task { await AgentAlerts.shared.subscribeInCloud() }
         // Notifications are asked for the first time a window is watched — the moment they make sense.
         watcher.$isOpen.filter { $0 }.first().sink { [weak self] _ in
-            guard self?.settings.agentAlerts == true else { return }
+            guard self?.settings.agentAlerts == true || self?.settings.chatAnswers == true else { return }
             Task { await AgentAlerts.shared.askIfNeeded() }
         }.store(in: &bag)
         recorder.onFinish = { [weak self] outcome in self?.recordingFinished(outcome) }
@@ -293,6 +293,10 @@ final class AppModel: ObservableObject {
         c.features.append(MacWallpaper.feature)
         // Windows on watch, and every alert with a picture of its window (Nov 6 2026).
         c.features.append(MacAlerts.feature)
+        // "When a chat answers you", and how it stands (Nov 8 2026): the Mac follows the chats this
+        // phone writes to and tells it their answers while it's on.
+        c.features.append(ChatAnswers.feature)
+        c.features.append((UserDefaults.standard.object(forKey: Settings.K.chatAnswers) as? Bool ?? true) ? ChatAnswers.onWord : ChatAnswers.offWord)
         // With the notification extension in the app, a picture that comes through iCloud shows too.
         if Bundle.main.builtInPlugInsURL.map({ FileManager.default.fileExists(atPath: $0.appendingPathComponent("MacrophoneAlerts.appex").path) }) == true {
             c.features.append(MacAlerts.cloudPictureFeature)
@@ -1215,6 +1219,9 @@ final class AppModel: ObservableObject {
         landingWait?.cancel()
         awaitingLanding = nil
         let l = Landing(result: result, detail: it.landingDetail ?? "", target: it.dictation.target, to: routeNote(id), late: late)
+        // Sent into a chat: its answer will come as a notification — the moment to ask for them
+        // (once) and make sure they can reach a closed app (Nov 8 2026).
+        if result == .sent, settings.chatAnswers { Task { await AgentAlerts.shared.sentToChat() } }
         guard !recorder.isActive else { return }   // the next one is being spoken: History has it
         status = .landed(l)
         if l.isSuccess { Haptics.landed() } else { Haptics.failed() }
@@ -2315,15 +2322,35 @@ extension AppModel: LinkClientDelegate {
         client.features.append("alertState-" + word)
     }
 
+    /// The push service this build is signed for, beside the state in the hello.
+    func noteAlertPush(_ word: String) {
+        client.features.removeAll { $0.hasPrefix("alertPush-") }
+        client.features.append("alertPush-" + word)
+    }
+
     func alertsReadyInCloud() {
         guard !client.features.contains(Attention.cloudFeature) else { return }
         client.features.append(Attention.cloudFeature)
     }
 
-    /// A tapped alert: watch that window (and send there), where its answers wait.
+    /// "When a chat answers you" changed: the Mac hears it now (or in the next hello).
+    func setChatAnswers(_ on: Bool) {
+        client.setChatAnswers(on)
+        log.add("chat answers: \(on ? "on" : "off")")
+        Task {
+            if on { await AgentAlerts.shared.askIfNeeded(force: true) }
+            else if !AgentAlerts.shared.wanted { await AgentAlerts.shared.unsubscribeInCloud() }
+        }
+    }
+
+    /// A tapped alert: watch that window (and send there), where its answers wait — at the
+    /// bottom, where an answer is (Nov 8 2026: the zoom you left it at stays).
     func openAttention(_ ref: TargetRef) {
         if case .app = ref, ref != settings.selection.target { pick(ref) }
+        let already = watcher.isShowing && watcher.target == ref
+        Watcher.lookAtNewest(ref)
         watcher.open(ref)
+        if already { watcher.showNewest() }
     }
 
     func linkClient(_ client: LinkClient, localNetworkDenied: Bool) {

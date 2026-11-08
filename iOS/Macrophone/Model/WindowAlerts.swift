@@ -20,13 +20,18 @@ extension AppModel: LinkClientAlertsDelegate {
 
     func linkClient(_ client: LinkClient, macAlert a: MacAlert) {
         guard client === self.client else { return }
-        // A question goes by the agent-alerts switch; a window he put on watch, always.
-        if a.knownKind == .asking, !settings.agentAlerts, alertWatch(for: a.ref) == nil { return }
+        // A chat he wrote to goes by "When a chat answers you" (Nov 8 2026); a question by the
+        // agent-alerts switch; a window he put on watch, always.
+        if a.chat == true {
+            guard settings.chatAnswers else { return }
+        } else if a.knownKind == .asking, !settings.agentAlerts, alertWatch(for: a.ref) == nil {
+            return
+        }
         // Already looking at that window: he sees it.
         if sceneActive, watcher.isShowing, let t = watcher.target, t.bundleID == a.ref.bundleID,
            t.windowKey == nil || t.windowKey == a.ref.windowKey { return }
         AgentAlerts.shared.post(a)
-        log.add("alert: \(a.kind) in \(a.appName)\(a.jpeg == nil ? "" : " with a picture")")
+        log.add("alert: \(a.kind)\(a.chat == true ? " (a chat)" : "") in \(a.appName)\(a.jpeg == nil ? "" : " with a picture")")
     }
 
     /// The Mac can watch windows for changes right now.

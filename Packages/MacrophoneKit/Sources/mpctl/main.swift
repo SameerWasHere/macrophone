@@ -51,6 +51,9 @@ import MacrophoneKit
 //   mpctl listen --features macVolume         # prints VOLUME 56% / VOLUME muted after the welcome and on each change (Nov 7 2026)
 //   mpctl serve --front <bundle id>[#<key>]|none [--front-every 20] [--no-front]   # the window in front (Front.swift)
 //   mpctl listen --features frontWindow       # prints FRONT <bundle id>#<key> · <app> — <title> after the welcome and on each change
+//   mpctl serve --answer-after 6 [--no-chat-answers]   # a dictation sent to an app "answers" 6 s after it lands:
+//              the phone gets "‹App› answered you" with the demo window's picture (ANSWER sent …), as the Mac's
+//              ReplyWatcher does for a chat the phone wrote to; --no-chat-answers is a Mac from before (Nov 8 2026)
 //   (every watch prints WATCH TARGET <bundle id>#<key>; a watch of Where I'm typing ends in "(front)")
 //   mpctl serve [--awake-desktop] [--awake-blocked] [--awake-no-helper] [--awake-battery N] [--no-awake]
 //              Keep Awake (Nov 7 2026): a made-up state; prints AWAKE on / AWAKE off / AWAKE displays off / AWAKE timer 60m
@@ -92,6 +95,8 @@ func stdout(_ s: String) { print(s); fflush(Foundation.stdout) }
 final class ServeDelegate: LinkServerDelegate {
     /// Windows on watch (Alerts.swift).
     var alertWatchList: [AlertWatch] = []
+    /// The phone's "When a chat answers you" (its hello, then any change); nil: a phone from before.
+    var chatAnswers: Bool?
     func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) {
         (ClipboardItem(text: "git push origin main"), "Copied from your Mac")
     }
@@ -149,6 +154,7 @@ final class ServeDelegate: LinkServerDelegate {
                 stdout("ATTENTION sent: \(codex.title) — \(p.question ?? "-")")
             }
         }
+        if let on = ChatAnswers.choice(in: server.phoneFeatures(peer.id)) { chatAnswers = on; stdout("CHAT ANSWERS \(on ? "on" : "off") (hello)") }
         stdout("CONNECTED \(peer.name) (\(os), v\(appVersion))\(server.isRemote(peer.id) ? " from away" : "")")
         MacReachDemo.tell(server, peer.id)
     }
@@ -179,6 +185,9 @@ final class ServeDelegate: LinkServerDelegate {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             server.reportLanding(id, result: result, detail: detail, to: phone)
             stdout("LANDED \(result.rawValue): \(detail)")
+            if result == .sent, case let .app(bundleID, key, name)? = dictation.target {
+                self.answerLater(bundleID: bundleID, key: key, name: name, server: server)
+            }
         }
         return (.delivered, "Printed by mpctl")
     }
@@ -733,6 +742,7 @@ func run() async -> Int32 {
         // Undo the last paste (Undo.swift): answers as the Mac does, presses nothing.
         if !has("--no-undo") { server.macFeatures.append(UndoPaste.feature) }
         if !has("--no-alerts") { server.macFeatures.append(MacAlerts.feature) }
+        if !has("--no-alerts"), !has("--no-chat-answers") { server.macFeatures.append(ChatAnswers.feature) }
         if !has("--jpeg") { server.macFeatures += MacReachDemo.features }
         if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }
         // --no-input: a Mac from before the pointer, typing and held keys (the phone shows no trackpad or keyboard page).

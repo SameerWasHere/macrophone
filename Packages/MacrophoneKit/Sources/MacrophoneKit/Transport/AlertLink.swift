@@ -8,6 +8,8 @@ import Foundation
 public protocol LinkServerAlertsDelegate: AnyObject {
     func alertWatches(_ server: LinkServer) -> [AlertWatch]
     func linkServer(_ server: LinkServer, alertWatch request: AlertWatchRequest, from peerID: UUID)
+    /// The phone's "When a chat answers you" switch changed (ChatAnswers).
+    func linkServer(_ server: LinkServer, chatAnswers on: Bool, from peerID: UUID)
 }
 
 /// The phone's side: the list of windows on watch, and an alert while the app is open.
@@ -22,6 +24,13 @@ extension LinkServer {
         Task { @MainActor [weak self] in
             guard let self, let d = self.delegate as? LinkServerAlertsDelegate else { return }
             d.linkServer(self, alertWatch: request, from: peerID)
+        }
+    }
+
+    func handleChatAnswers(_ on: Bool, from peerID: UUID) {
+        Task { @MainActor [weak self] in
+            guard let self, let d = self.delegate as? LinkServerAlertsDelegate else { return }
+            d.linkServer(self, chatAnswers: on, from: peerID)
         }
     }
 
@@ -44,6 +53,20 @@ extension LinkClient {
     public func alertWatch(_ ref: TargetRef, on: Bool) -> Bool {
         guard macCanAlert, let s = currentSession else { return false }
         Task { try? await s.send(.alertWatch(AlertWatchRequest(ref: ref, on: on))) }
+        return true
+    }
+
+    /// The connected Mac follows chats for their answers (its welcome names it).
+    public var macFollowsChats: Bool { macFeatures.contains(ChatAnswers.feature) }
+
+    /// "When a chat answers you" changed: the next hello says so, and a Mac connected now hears
+    /// it at once. False when the Mac can't be told now.
+    @discardableResult
+    public func setChatAnswers(_ on: Bool) -> Bool {
+        features.removeAll { $0 == ChatAnswers.onWord || $0 == ChatAnswers.offWord }
+        features.append(on ? ChatAnswers.onWord : ChatAnswers.offWord)
+        guard macFollowsChats, let s = currentSession else { return false }
+        Task { try? await s.send(.chatAnswers(on: on)) }
         return true
     }
 

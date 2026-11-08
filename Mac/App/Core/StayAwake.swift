@@ -73,6 +73,18 @@ final class StayAwake {
         }
     }
 
+    private var chats: IOPMAssertionID = 0
+
+    /// Chats the phone wrote to, followed for their answer (Watch/ReplyWatcher.swift, Nov 8 2026):
+    /// the same, for at most the two hours each is followed.
+    func update(followedChats: Int) {
+        if followedChats > 0 {
+            if chats == 0 { chats = hold(kIOPMAssertPreventUserIdleSystemSleep, "Macrophone: waiting for a chat to answer you") }
+        } else {
+            drop(&chats)
+        }
+    }
+
     private func hold(_ type: String, _ reason: String) -> IOPMAssertionID {
         var id: IOPMAssertionID = 0
         let ok = IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason as CFString, &id)

@@ -907,6 +907,15 @@ final class Watcher: ObservableObject {
     /// Where the window's view keeps the zoom you left it at, per app.
     var viewKey: String? { (bundleID ?? target?.bundleID).map { "watch.view." + $0 } }
 
+    /// The next open of this app's window starts at the bottom — the newest, where an answer is —
+    /// keeping the zoom and the spot across it you left (a tapped "answered you", Nov 8 2026).
+    static func lookAtNewest(_ target: TargetRef) {
+        guard let key = target.bundleID.map({ "watch.view." + $0 }), let data = UserDefaults.standard.data(forKey: key),
+              var view = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        view["bottom"] = true
+        if let back = try? JSONSerialization.data(withJSONObject: view) { UserDefaults.standard.set(back, forKey: key) }
+    }
+
     private static func fitKey(_ target: TargetRef) -> String? { target.bundleID.map { "watch.fit." + $0 } }
 
     /// A sentence over the window for a moment, with the symbol of what changed.

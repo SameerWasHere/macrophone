@@ -257,6 +257,9 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac (only to a Mac naming KeepAwakeStatus.feature): turn it on or off, the
     /// displays, the timer.
     case keepAwakeSet(KeepAwakeRequest)
+    /// Phone → Mac (only to a Mac naming ChatAnswers.feature): "When a chat answers you" turned
+    /// on or off on the phone (its hello says how it stands at each connect).
+    case chatAnswers(on: Bool)
     // Either way
     case ping
     case pong

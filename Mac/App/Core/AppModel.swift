@@ -159,6 +159,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.macFeatures.append(UndoPaste.feature)
         // Windows on watch, and every alert with a picture (Nov 6 2026, Watch/WindowAlerts.swift).
         server.macFeatures.append(MacAlerts.feature)
+        // A chat the phone wrote to alerts when it answers (Nov 8 2026, Watch/ReplyWatcher.swift).
+        server.macFeatures.append(ChatAnswers.feature)
         // The displays, Mac Controls, Wake the Mac (Oct 19 2026, Core/MacReach.swift).
         server.macFeatures += [Displays.feature, MacControl.feature, WakeInfo.feature]
         // What's in front on this Mac, one tap away on the phone (Nov 7 2026, Core/FrontWindow.swift).
@@ -665,7 +667,13 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         log.add("phone connected (app \(appVersion)), \(peerRoutes[peer.id]?.rawValue ?? "route unknown")")
         // Where the phone's alerts-while-closed stand (its hello says, Nov 7 2026).
         if let state = server.phoneFeatures(peer.id).first(where: { $0.hasPrefix("alertState-") }) {
-            log.add("phone alerts while closed: \(state.dropFirst("alertState-".count))")
+            let push = server.phoneFeatures(peer.id).first(where: { $0.hasPrefix("alertPush-") }).map { ", push \($0.dropFirst("alertPush-".count))" } ?? ""
+            log.add("phone alerts while closed: \(state.dropFirst("alertState-".count))\(push)")
+        }
+        // "When a chat answers you" on the phone (Nov 8 2026, Watch/ReplyWatcher.swift).
+        if let on = ChatAnswers.choice(in: server.phoneFeatures(peer.id)), alerts.chatAnswers != on {
+            alerts.chatAnswers = on
+            log.add("chat answers: \(on ? "on" : "off") (the phone's switch)")
         }
         pushStatus()
         attention.update()
@@ -872,6 +880,12 @@ extension AppModel: LinkServerAlertsDelegate {
 
     func linkServer(_ server: LinkServer, alertWatch request: AlertWatchRequest, from peerID: UUID) {
         windowAlerts.set(request.ref, on: request.on)
+    }
+
+    func linkServer(_ server: LinkServer, chatAnswers on: Bool, from peerID: UUID) {
+        guard alerts.chatAnswers != on else { return }
+        alerts.chatAnswers = on
+        log.add("chat answers: \(on ? "on" : "off") (the phone's switch)")
     }
 
     func alertWatchesChanged(_ list: [AlertWatch]) {

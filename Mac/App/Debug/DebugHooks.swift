@@ -88,6 +88,13 @@ enum DebugHooks {
             MainActor.assumeIsolated { model.replies.engaged(windowID: w.id, bundleID: bid) }
             model.log.add("debug: engaged \(bid)#\(w.id)")
         })
+        // "When a chat answers you" as a phone's hello says it (object "on" / "off"), for the
+        // answer-alert's live test with no phone (Nov 8 2026).
+        bag.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.chatAnswers"),
+                                                                       object: nil, queue: .main) { n in
+            MainActor.assumeIsolated { model.alerts.chatAnswers = (n.object as? String) == "on" }
+            model.log.add("debug: chat answers \((n.object as? String) ?? "off")")
+        })
         // Put an app's front window on watch for changes, as the phone or the menu does (the
         // notification's object: a bundle id); each alert is printed (MACROPHONE_ALERTS_PRINT).
         bag.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.sameer.macrophone.debug.alertWatch"),
