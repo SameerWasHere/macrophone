@@ -87,6 +87,8 @@ import UIKit
 ///                                            region stood in for; the fold runs across an upright frame — the laptop,
 ///                                            portrait — and down one on its side — the book, landscape — at the screen's
 ///                                            middle), e.g. MACROPHONE_FRAME=669x951 MACROPHONE_POSTURE=laptop@112
+/// MACROPHONE_KBD_DUMP=1                      logs "KBD frame top … keys from …" each time the keyboard page's keyboard shows
+///                                            (the laptop's hinge band: the frame starts 20 pt above the fold, the keys ~50 below)
 /// MACROPHONE_FAKE_KEYBOARD=<height>          the keyboard page draws a stand-in keyboard of that height inside the frame
 ///                                            (with the Mac's bar above it) instead of raising the simulator's own — the
 ///                                            inner screen's layout at its real proportions, since the cover's keyboard

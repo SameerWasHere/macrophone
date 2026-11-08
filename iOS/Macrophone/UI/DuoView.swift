@@ -174,8 +174,12 @@ extension MainView {
             // changes. Flat and upright with a window in hand the deck is one height whatever its
             // mode (the tallest's: the header, the modes, a question's answers and the mic with
             // its Thread), so changing mode, a question coming or going, never moves the window.
-            let restDeck = flat ? min(geo.size.height * (watcher.isShowing ? 0.45 : 0.52), watcher.isShowing ? DuoLook.flatDeck : DuoLook.flatDeckAtRest) : h.deck.height
             let restGap: CGFloat = flat ? 10 : h.deck.minY - h.mac.maxY
+            // In hand, flat upright's deck is at least as tall as the keyboard and its bar (402 pt
+            // on the simulator, measured — `flatUprightKeyboard`): the keyboard rises over the deck
+            // alone and the window keeps its frame.
+            let flatHand = max(DuoLook.flatDeck, KeyboardTextView.flatUprightKeyboard - geo.safeAreaInsets.bottom - restGap)
+            let restDeck = flat ? min(geo.size.height * (watcher.isShowing ? 0.45 : 0.52), watcher.isShowing ? flatHand : DuoLook.flatDeckAtRest) : h.deck.height
             let restMac = flat ? geo.size.height - restDeck - restGap : h.mac.height
             // The keyboard up (Nov 7 2026, round 3): the top half is the Mac's screen, and a
             // Mac's screen doesn't move for a keyboard — its width, its scale and its top edge
@@ -186,9 +190,13 @@ extension MainView {
             // re-measured from the shorter room and shrank, re-centred, by a hundred points.) A
             // moment's change: the Mac's window isn't reshaped for it.
             let keysTop = typingOver ? keyboardTop(in: geo) : nil
-            let macHeight = keysTop.map { max(min(restMac, $0 - DuoLook.keyboardGap), (restMac * DuoLook.typingMacFloor).rounded()) } ?? restMac
+            // A keyboard that stops at the Mac's foot or below (the laptop: its frame starts at the
+            // hinge's band; flat upright: under the deck made for it) takes nothing from it.
+            let macHeight = keysTop.map { $0 >= restMac - 0.5 ? restMac : max(min(restMac, $0 - DuoLook.keyboardGap), (restMac * DuoLook.typingMacFloor).rounded()) } ?? restMac
             let gap = keysTop.map { min(restGap, max(0, $0 - macHeight)) } ?? restGap
-            let deckHeight = keysTop.map { max(0, $0 - macHeight - gap) } ?? restDeck
+            // What's left of the deck over a keyboard shorter than it (Mac Keys before iOS's keyboard
+            // has been measured there): nothing rather than a sliver of the mode bar.
+            let deckHeight = keysTop.map { $0 - macHeight - gap < 60 ? 0 : $0 - macHeight - gap } ?? restDeck
             VStack(spacing: 0) {
                 // The Mac's screen: the picture as big as the half allows, in from the screen's
                 // rounded corners so none of it is cut (Nov 1 2026, Sameer: "the view window
@@ -224,6 +232,17 @@ extension MainView {
                     .clipped()
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+            // Folded, the keyboard's own bar is drawn here, in the hinge's band at the top of the
+            // keyboard's frame — not as its accessory, which iOS stacks on that frame, over the
+            // Mac's half (`KeyboardTextView.barInLayout`). It rides in on the keyboard's motion.
+            .overlay(alignment: .top) {
+                if let keysTop, KeyboardTextView.barInLayout(posture.pose) {
+                    MacKeyboardBar(input: input, watcher: watcher, surface: .inner)
+                        .frame(width: geo.size.width)
+                        .padding(.top, keysTop)
+                        .transition(.opacity)
+                }
+            }
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
             // A window coming into hand (or going back to the glance) moves the fold's line on a
             // flat screen: the window grows to its new size on the same spring, never jumps.
