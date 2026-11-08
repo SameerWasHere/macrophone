@@ -47,6 +47,12 @@ final class AttentionWatcher {
             cloudWanted = true
             app.log.add("attention: a phone gets alerts through iCloud")
         }
+        // A phone with the notification extension: alerts through iCloud carry the picture from
+        // now on (marked on connect, not only when an alert happens to go while it's connected).
+        if !app.server.phones(with: MacAlerts.cloudPictureFeature).isEmpty, !app.alerts.cloudPictures {
+            app.alerts.cloudPictures = true
+            app.log.add("alerts: a phone shows pictures from iCloud")
+        }
         let wanted = !app.server.phones(with: Attention.feature).isEmpty || !app.server.phones(with: MacAlerts.feature).isEmpty || (cloudWanted && CloudAlerts.available)
         if wanted, task == nil {
             task = Task { [weak self] in

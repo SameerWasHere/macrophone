@@ -28,11 +28,9 @@ targets:
     dependencies:
       - package: MacrophoneKit
       - target: MacrophoneControls
-      # MacrophoneAlerts (below) is embedded once its App ID has the iCloud container: Apple's API
-      # can't link a container to an App ID (developer.apple.com › Identifiers ›
-      # com.sameer.macrophone.alerts › iCloud › Configure › iCloud.com.sameer.macrophone). Until then
-      # an alert that comes through iCloud shows its headline and the window, without the picture.
-      # - target: MacrophoneAlerts
+      # The notification extension: an alert through iCloud shows the window's picture (embedded
+      # Nov 7 2026, once Sameer linked iCloud.com.sameer.macrophone to its App ID).
+      - target: MacrophoneAlerts
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone
