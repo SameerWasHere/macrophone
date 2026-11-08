@@ -118,7 +118,22 @@ final class KeyboardTextView: UITextView {
     /// screen's foot in): the Mac's keys take the same, so the window above never moves on a swap.
     private var measureKey: String {
         let s = window?.bounds.size ?? .zero
-        return "keyboard.iosKeys.\(surface.rawValue).\(s.width > s.height ? "wide" : "tall")"
+        // The folded laptop's frame holds the hinge's band too: kept apart from flat upright's
+        // (`v2`: before Nov 7 2026 the two shared one key, and the laptop's 495 pt was taken for
+        // flat upright's 350).
+        let shape = s.width > s.height ? "wide" : Self.barInLayout(Posture.shared.pose) ? "laptop" : "tall"
+        return "keyboard.iosKeys.v2.\(surface.rawValue).\(shape)"
+    }
+
+    /// The folded laptop: the Mac's bar is the layout's, laid in the hinge's band, not the
+    /// keyboard's accessory (Nov 7 2026).
+    static func barInLayout(_ pose: FoldPose) -> Bool { pose == .laptop }
+
+    /// The keyboard's whole height last seen on flat upright, its keys and the bar on them (the
+    /// flat deck makes room for it at rest, so the Mac's window never moves for it).
+    static var flatUprightKeyboard: CGFloat {
+        let keys = UserDefaults.standard.double(forKey: "keyboard.iosKeys.v2.inner.tall")
+        return (keys > 150 ? keys : 350) + KeyboardBarHost.height
     }
 
     var macKeysHeight: CGFloat {
@@ -151,7 +166,12 @@ final class KeyboardTextView: UITextView {
         deckKeyboard?.foot = window?.safeAreaInsets.bottom ?? 0
         let keys: UIView? = mac ? deckKeyboard : nil
         var reload = false
-        if inputAccessoryView !== bar { inputAccessoryView = bar; reload = true }
+        // On the folded laptop the bar isn't the keyboard's: iOS starts the keyboard's frame at the
+        // top of the hinge's band (20 pt above the fold) whatever is in it — its keys ~50 pt lower,
+        // off the crease — and an accessory sits on top of that frame, on the Mac's half. There
+        // the bar is drawn by the layout, in that band (`MainView.laptopBody`).
+        let accessory: UIView? = Self.barInLayout(pose) ? nil : bar
+        if inputAccessoryView !== accessory { inputAccessoryView = accessory; reload = true }
         if inputView !== keys { inputView = keys; reload = true }
         // Upright on the inner screen the deck is short: no shortcuts groups beside the predictions.
         // The predictions stay (Nov 7 2026, Sameer's newest word wins over the Nov 1 "suppress the
@@ -175,9 +195,24 @@ final class KeyboardTextView: UITextView {
     }
 
     @objc private func keyboardShown(_ n: Notification) {
+        #if DEBUG
+        // MACROPHONE_KBD_DUMP=1: where the keyboard's frame starts, whether the bar is on it, and
+        // where the system keyboard's keys start (its placeholder) — the laptop's hinge band.
+        if isFirstResponder, DebugHooks.env["MACROPHONE_KBD_DUMP"] == "1" {
+            let end = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue ?? .zero
+            var keysTop = CGFloat.nan
+            func find(_ v: UIView) {
+                if String(describing: type(of: v)).contains("KeyboardPlaceholder") { keysTop = v.convert(v.bounds, to: nil).minY }
+                v.subviews.forEach(find)
+            }
+            window?.windowScene?.windows.forEach(find)
+            NSLog("KBD frame top %.1f (%.1f tall), the bar %@, keys from %.1f", end.minY, end.height,
+                  inputAccessoryView === bar ? "on it" : "drawn by the layout", keysTop)
+        }
+        #endif
         guard isFirstResponder, inputView == nil,
               let end = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
-        let keys = end.height - (bar?.bounds.height ?? 0)
+        let keys = end.height - (inputAccessoryView === bar ? (bar?.bounds.height ?? 0) : 0)
         guard keys > 150, abs(keys - UserDefaults.standard.double(forKey: measureKey)) > 0.5 else { return }
         UserDefaults.standard.set(Double(keys), forKey: measureKey)
         if let d = deckKeyboard, abs(d.keysHeight - macKeysHeight) > 0.5 { d.keysHeight = macKeysHeight }

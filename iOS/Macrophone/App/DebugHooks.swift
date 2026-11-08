@@ -87,6 +87,8 @@ import UIKit
 ///                                            region stood in for; the fold runs across an upright frame — the laptop,
 ///                                            portrait — and down one on its side — the book, landscape — at the screen's
 ///                                            middle), e.g. MACROPHONE_FRAME=669x951 MACROPHONE_POSTURE=laptop@112
+/// MACROPHONE_KBD_DUMP=1                      logs "KBD frame top … keys from …" each time the keyboard page's keyboard shows
+///                                            (the laptop's hinge band: the frame starts 20 pt above the fold, the keys ~50 below)
 /// MACROPHONE_FAKE_KEYBOARD=<height>          the keyboard page draws a stand-in keyboard of that height inside the frame
 ///                                            (with the Mac's bar above it) instead of raising the simulator's own — the
 ///                                            inner screen's layout at its real proportions, since the cover's keyboard
@@ -96,6 +98,7 @@ import UIKit
 ///                                            holds one of the mic button's looks (the Thread and the sky follow; holding
 ///                                            pairs with MACROPHONE_FAKE_RECORDING for "let go to send")
 /// MACROPHONE_HITCH=1                         time each action to the next frame (`HitchProbe`), marked in recordings
+/// MACROPHONE_NO_WARMUP=1                     skip the first open's warm-up after launch (`MainView.warmPanel`), to compare
 /// MACROPHONE_A11Y=motion,transparency,contrast  the mic button as under Reduce Motion / Reduce Transparency / Increase
 ///                                            Contrast (the simulator can't flip those live; the button alone honours this)
 /// MACROPHONE_TYPE=xxxLarge|accessibility1…5  the whole app at that Dynamic Type size

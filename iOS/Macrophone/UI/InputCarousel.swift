@@ -450,6 +450,29 @@ struct InputPageRow: View {
 
 /// The keyboard page: the hidden field that brings the iOS keyboard up, with the Mac's keys on
 /// the keyboard's own bar (`MacKeyboardBar`) — nothing of its own on the page but a breath.
+/// The carousel's watching pages — the keyboard's field, the trackpad and its bar — built once,
+/// unseen, ahead of the first window opened after launch (`MainView.warmPanel`): their first build
+/// and measure was most of that open's hold on the main thread. Nothing here takes a touch or the
+/// keyboard (the page isn't up, so the field doesn't ask for it), and nothing is sent.
+struct PagesWarmup: View {
+    @ObservedObject var input: MacInput
+    @ObservedObject var watcher: Watcher
+
+    var body: some View {
+        ZStack {
+            KeyboardPage(input: input, watcher: watcher)
+            VStack(spacing: 0) {
+                TrackpadPage(input: input, watcher: watcher, barSays: true)
+                TrackpadBar(input: input)
+            }
+        }
+        .frame(height: 220)
+        .opacity(DockZoom.asleep)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 struct KeyboardPage: View {
     @ObservedObject var input: MacInput
     @ObservedObject var watcher: Watcher
