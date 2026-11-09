@@ -1204,7 +1204,10 @@ final class AppModel: ObservableObject {
         bumpPulse()
     }
 
-    /// Sends everything queued for the active Mac, oldest first, marked delayed. Stops at the
+    /// How long a queued dictation still counts as the one just made (pasted and sent as asked).
+    static let freshFor: TimeInterval = 120
+
+    /// Sends everything queued for the active Mac, oldest first, marked delayed once stale. Stops at the
     /// first failure. What's queued for another Mac waits until that one is active again.
     func flushQueue() {
         guard !flushing, isConnected, let mac = client.activeMac, queue.hasEntries(for: mac.id) else { return }
@@ -1216,9 +1219,15 @@ final class AppModel: ObservableObject {
                 if latest?.id == e.id { status = .sending(mac: mac.name, to: routeNote(e.id)) }
                 updateItem(e.id) { $0.delivery = .sending }
                 do {
-                    let ack = try await client.send(e.dictation, delayed: true, to: mac.id, timeout: 8)
+                    // "Delayed" is for words that sat a while: the Mac only copies those, never
+                    // pastes or sends them by surprise. A retry moments after a blip is still the
+                    // dictation he just made — it goes where he sent it (Nov 9 2026: before, one
+                    // dropped packet away from home turned "send to Claude" into a silent copy).
+                    let stale = Date().timeIntervalSince(e.dictation.createdAt) > Self.freshFor
+                    let ack = try await client.send(e.dictation, delayed: stale, to: mac.id, timeout: 8)
                     queue.remove(e.id)
-                    apply(ack, to: e.id, macName: mac.name, late: true)
+                    if !stale { updateItem(e.id) { $0.wasDelayed = false } }
+                    apply(ack, to: e.id, macName: mac.name, late: stale)
                 } catch {
                     queue.markAttempt(e.id)
                     updateItem(e.id) { $0.delivery = .queued }

@@ -8,6 +8,45 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The reliability review (Nov 9 2026)
+
+Sameer: "Review this app and make the improvements you think are needed to deliver the value prop."
+The screens held up; what didn't was what happens when something goes wrong between the mic and the
+Mac. Each proven on a simulator against `mpctl serve` (frozen with `kill -STOP` by PID to stand in
+for a dead link).
+- **Words never die with the app** (`AppModel.inFlightWords`, a second `DeliveryQueue` at
+  `AppFiles.inFlight`): a dictation is written to disk as the mic closes and removed when `deliver`
+  returns (acked or queued). Until now it lived only in memory until cleanup finished — up to a
+  minute on a long prompt, with the phone usually pocketed and the app suspended ~25 s in — and a
+  send cut short stayed "Sending" in History for ever. `recoverInFlightWords()` at launch puts what's
+  left into the queue as it was said (uncleaned); the Mac drops one it already has (same id).
+  Proven: app killed mid-send → "1 dictation from the last run recovered into the queue" → delivered.
+- **A retry moments after a blip pastes and sends as asked** (`flushQueue`, `AppModel.freshFor`
+  120 s): everything from the queue used to go `delayed: true`, which the Mac only ever copies — one
+  dropped packet away from home turned "send to Claude" into a silent copy. Now `delayed` is for a
+  dictation older than two minutes; a fresh one goes where it was sent. **This narrows the Oct rule
+  "a delayed item is never pasted"** to items that actually sat. A failed send with the link still up
+  retries by itself 6 s later (`retryQueueSoon`), not at the next connect or dictation.
+- **A Mac that goes silent is noticed** (`LinkClient.pingEvery` 15 s, `silenceLimit` 10 s): nothing
+  from the Mac after a ping ends the session, so the phone stops reading Ready over a dead link and
+  looks for the Mac again. Proven: "nothing from the Mac for 10 s after a ping", reconnect, the queued
+  dictation landed pasted.
+- **What the UI fires reaches the Mac in order** (`SecureSession.post`, one outbox task): every
+  key, click, typed character, watch and shape went in a task of its own and could swap on the wire
+  (a release before its press, letters out of order). **The Mac runs what the phone asks of a watched
+  window one at a time** (`WatchService.actChain`). The Mac app changed: `Mac/App/Watch/WatchService.swift`.
+- **The route is decided as the recording ends**, not after cleanup (a second recording started
+  meanwhile could take the first one's place); words held for a word's card go when the app leaves or
+  a new recording starts; a resize drag the system cancels still ends (`@GestureState`).
+- **Dead code out** (665 lines): `DesktopWidget.swift`, `WindowChrome.swift`, the old controls panel
+  and helpers nothing used.
+- Tests: `swift test` 353; WatchHeader (2), InputCarousel (4), Stability, FullScreen (3), DesktopWindow,
+  UndoChip (7), HardwareKeyboard (2), ResizableWindow (2, against `serve --reshape`) pass on an
+  iPhone 17 Pro. `VideoLaneTests`-style loopback tests can fail once when the machine is busy building.
+- **For Sameer to decide:** a dictation recovered after a kill goes uncleaned (cleaning it at
+  launch is possible); an app that isn't open is still "copied instead" rather than opened; the
+  resize does nothing visible for a window the Mac can't reshape.
+
 ## On its side, the window's name heads the right page (Nov 9 2026)
 
 Sameer: "move these controls in landscape mode to the top of the right screen so that there is more
