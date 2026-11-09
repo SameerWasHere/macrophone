@@ -244,8 +244,6 @@ final class KeyboardTextView: UITextView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override var canBecomeFirstResponder: Bool { true }
-
     /// Let go of the keyboard while the page still wants it (hide, the system, a menu): a
     /// moment later, still without it, the page is told. A menu that hands the keyboard straight
     /// back never counts.
@@ -255,7 +253,20 @@ final class KeyboardTextView: UITextView {
     /// A `becomeFirstResponder` already queued (the page's first frames ask twice).
     private var focusQueued = false
 
+    /// Only while the page wants it (Nov 8 2026, round 3): UIKit restores a text view's keyboard
+    /// by itself — the window's last text input, when the responder that took over lets go — and
+    /// did so a tenth of a second into full screen on the Duo once the keyboard mode had been
+    /// used (the log read "wants false, page mic, full screen true"): the keyboard rose over the
+    /// deck with the Mac bar on it, the full-screen ground arrived under it, then it went.
+    override var canBecomeFirstResponder: Bool { wantsKeyboard && stillWanted() && super.canBecomeFirstResponder }
+
     override func becomeFirstResponder() -> Bool {
+        guard wantsKeyboard, stillWanted() else {
+            #if DEBUG
+            AppModel.shared.log.add("keyboard field: refused the keyboard (page \(String(describing: MainActor.assumeIsolated { AppModel.shared.watcher.input.page })), full screen \(MainActor.assumeIsolated { AppModel.shared.watcher.fullScreen }))")
+            #endif
+            return false
+        }
         #if DEBUG
         AppModel.shared.log.add("keyboard field: taking the keyboard (wants \(wantsKeyboard), seen \(seen), page \(String(describing: MainActor.assumeIsolated { AppModel.shared.watcher.input.page })), full screen \(MainActor.assumeIsolated { AppModel.shared.watcher.fullScreen }))")
         #endif

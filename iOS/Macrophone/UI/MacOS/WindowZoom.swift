@@ -235,8 +235,9 @@ final class WindowZoom: ObservableObject {
             v.subviews.forEach(walk)
         }
         walk(window)
-        // (A parked view measures tiny: no use.)
-        guard let (viewer, clip) = best, clip.width > area.width / 2, clip.height > 1,
+        // (A parked view measures tiny: no use. The Duo's side page is under half the screen's
+        // width — round 3: the book's and the open screen's flights started "from nowhere".)
+        guard let (viewer, clip) = best, clip.width > min(area.width / 2, 200), clip.height > 1,
               let content = viewer.delegate?.viewForZooming?(in: viewer) else { return nil }
         let picture = content.convert(content.bounds, to: nil)
         guard picture.width > 1, picture.height > 1 else { return nil }
@@ -244,6 +245,31 @@ final class WindowZoom: ObservableObject {
         // the clipped picture's shape, and the card's 12 pt corner opens into it.
         return WindowZoomPlace(clip: clip, picture: picture, corner: viewer.pictureCorner * viewer.zoomScale)
     }
+
+    /// The picture the viewer found by `viewerPlace` shows now (its displayed video frame, else
+    /// its image), for a flight read ahead of the change (round 3).
+    static func viewerPicture(in area: CGRect) -> UIImage? {
+        guard let window = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.keyWindow else { return nil }
+        var best: (ViewerScrollView, CGRect)?
+        func walk(_ v: UIView) {
+            if let s = v as? ViewerScrollView, s.window != nil, !s.isHidden {
+                let r = s.convert(s.bounds, to: nil)
+                if r.intersects(area), r.width * r.height > (best.map { $0.1.width * $0.1.height } ?? 0) { best = (s, r) }
+                return
+            }
+            v.subviews.forEach(walk)
+        }
+        walk(window)
+        return best?.0.pictureNow()
+    }
+}
+
+/// Where the Duo's window in hand sits on the screen (the half's viewer, in global points): full
+/// screen's flight out lands on it (Nov 8 2026, round 3).
+@MainActor
+final class InnerWindowSpot {
+    static let shared = InnerWindowSpot()
+    var frame: CGRect = .zero
 }
 
 // MARK: - Full screen: one continuous grow (Nov 8 2026)
@@ -267,6 +293,23 @@ final class FullScreenZoom: ObservableObject {
     @Published private(set) var landing = false
     private var generation = 0
     static let duration: TimeInterval = 0.42
+
+    /// Where the picture shows the moment before full screen changes (Nov 8 2026, round 3):
+    /// `Watcher.setFullScreen` reads it before it publishes, since by the time the flight is asked
+    /// for the layouts may already have swapped under it (on the Duo the full-screen viewer was the
+    /// one found, so the flight went from the screen to the screen: a hard cut). Good for a moment.
+    private(set) var prepared: (place: WindowZoomPlace, image: UIImage?, at: Date)?
+    func prepare() {
+        guard let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds,
+              let place = WindowZoom.viewerPlace(in: screen) else { prepared = nil; return }
+        prepared = (place, WindowZoom.viewerPicture(in: screen), Date())
+    }
+    /// The prepared start, if it's fresh.
+    func takePrepared() -> (place: WindowZoomPlace, image: UIImage?)? {
+        defer { prepared = nil }
+        guard let p = prepared, Date().timeIntervalSince(p.at) < 0.6 else { return nil }
+        return (p.place, p.image)
+    }
 
     /// Into full screen: from where the window's viewer shows its picture to the screen.
     func enter(image: UIImage?, from: WindowZoomPlace?, screen: CGRect, corner: CGFloat) {

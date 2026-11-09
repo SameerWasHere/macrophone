@@ -276,15 +276,22 @@ struct WatchHeaderBar: View {
     private enum Fit { case full, noDots, nameAlone, zoomInMenu, soundInMenu, fullScreenInMenu, squeezed }
 
     private func row(_ fit: Fit) -> some View {
-        let fullScreenFolded = fit == .fullScreenInMenu || fit == .squeezed
-        let soundFolded = fit == .soundInMenu || fullScreenFolded
+        // The Whole Screen has no Window menu to fold Full Screen into (Nov 8 2026, round 3: on a
+        // Pro its row folded and the button was gone — the one place full screen matters most), and
+        // fewer cells to make room for: its button stays.
+        let lastStages = fit == .fullScreenInMenu || fit == .squeezed
+        let fullScreenFolded = lastStages && !watcher.isDesktop
+        let soundFolded = fit == .soundInMenu || lastStages
         // 8 between the pieces of glass (10 had a Pro's row 3 pt short of keeping zoom out).
         return HStack(spacing: narrow ? 6 : 8) {
             name(dots: fit == .full, words: fit == .full || fit == .noDots)
                 .fixedSize(horizontal: fit != .squeezed, vertical: false)
             if !fullScreenFolded { fullScreenButton }
             Spacer(minLength: narrow ? 2 : 4)
-            clusters(zoomInMenu: fit == .zoomInMenu || soundFolded, soundInMenu: soundFolded, fullScreenInMenu: fullScreenFolded)
+            // The Whole Screen's zoom-out cell is what its row gives up at the last stages (a Pro:
+            // "Whole Scre…" with both kept); Full Screen stays.
+            clusters(zoomInMenu: fit == .zoomInMenu || soundFolded, soundInMenu: soundFolded, fullScreenInMenu: fullScreenFolded,
+                     zoomHidden: lastStages && watcher.isDesktop)
             done
         }
     }
@@ -402,7 +409,7 @@ struct WatchHeaderBar: View {
     /// The clusters by Done. `zoomInMenu`: zoom out is the Window menu's first item instead of a
     /// cell of its own (a row too narrow for the name otherwise); `fullScreenInMenu`: Full Screen
     /// is an item there too (Nov 8 2026).
-    @ViewBuilder private func clusters(zoomInMenu: Bool = false, soundInMenu: Bool = false, fullScreenInMenu: Bool = false) -> some View {
+    @ViewBuilder private func clusters(zoomInMenu: Bool = false, soundInMenu: Bool = false, fullScreenInMenu: Bool = false, zoomHidden: Bool = false) -> some View {
         // The Mac's sound here, and its volume, brightness and media keys (Oct 19 2026,
         // Sameer: "Mac controls should be its own button rather than hidden in a sub menu"
         // — one tap from any window, on every page): one piece of glass.
@@ -422,9 +429,10 @@ struct WatchHeaderBar: View {
         if dragSwitch, watcher.phase.holdsLayout {
             WatchDragSwitch(watcher: watcher, style: .glyphs).fixedSize().disabled(watcher.phase != .live)
         }
-        if watcher.macCanFit, watcher.target != .clipboard {
-            // The whole screen has no window to size, minimize or close: zoom out stays its cell.
-            let folded = zoomInMenu && !watcher.isDesktop
+        if watcher.macCanFit, watcher.target != .clipboard, !(zoomHidden && !attachHere) {
+            // The whole screen has no window to size, minimize or close: zoom out stays its cell
+            // (until the row's last stages, round 3 — `zoomHidden`).
+            let folded = zoomInMenu && !watcher.isDesktop || zoomHidden
             HStack(spacing: 0) {
                 if !folded { WatchWholeButton(watcher: watcher) }
                 if !watcher.isDesktop {
@@ -1831,7 +1839,12 @@ struct WindowViewer: UIViewRepresentable {
         wire(v)
         v.readsCorners = readsCorners
         v.fitsOtherShapes = fitsOtherShapes
+        // Thawed: laid out now, before the next frame draws (Nov 8 2026, round 3) — its canvas
+        // held the zoom of the room it was frozen in, and showed a frame of the picture small in
+        // the corner (a thumbnail) at every full-screen landing on the Duo.
+        let thawed = v.frozen && !frozen
         v.frozen = frozen
+        if thawed { v.setNeedsLayout(); v.layoutIfNeeded() }
         v.viewKey = viewKey
         v.canDrag = canDrag
         v.keyboardUp = keyboardUp
@@ -2487,6 +2500,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             centerIfSmall()
             contentOffset = offset
             reportWhole()
+            video?.release()
         } else if size != imageSize {
             // A new size (first picture, another window, or the window was resized): start over —
             // under a short dissolve when a picture was already up, so the view never jumps.
@@ -2500,6 +2514,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             // its old frame meanwhile — a black band and a shifted copy, or a thumbnail, for the
             // 0.22 s until the new frame drew.
             let still = hadPicture && !keptShown && !UIAccessibility.isReduceMotionEnabled ? makeStill() : nil
+            #if DEBUG
+            onLog?("viewer: picture \(Int(imageSize.width))×\(Int(imageSize.height)) → \(Int(size.width))×\(Int(size.height)) in \(Int(bounds.width))×\(Int(bounds.height)) — \(still != nil ? "the old one held as a still" : "no still (had \(hadPicture), kept \(keptShown))")")
+            #endif
             imageSize = size
             zoomScale = 1
             canvas.frame = CGRect(origin: .zero, size: size)
@@ -2510,6 +2527,10 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             reset(animated: false)
             if let still { hold(still, until: size, video: video != nil) }
             hadPicture = true
+            // The frame at the new size, held by the canvas until now (round 3), goes on screen
+            // under the still, at the new geometry — on the next turn, once the still is on screen
+            // (released in the same pass, the new frame drew a frame before the still did).
+            if let video { DispatchQueue.main.async { video.release() } }
         } else if lastRecenter != nil, recenter != lastRecenter {
             // A key, an answer or a dictation: its result shows at the bottom. Your zoom stays.
             reset(animated: true, toBottom: true)
@@ -2523,14 +2544,18 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
 
     // MARK: The still across a size change (Nov 8 2026, round 2)
 
+    /// What this viewer shows this moment as a picture: the displayed video frame, else its image.
+    func pictureNow() -> UIImage? {
+        // Decoded now: an image view handed an undecoded image draws nothing for its first frame.
+        if let v = wantedVideo, v.superview === canvas, v.hasFrame, let pb = v.displayedFrame() { return WindowSnapshots.image(from: pb).flatMap { $0.preparingForDisplay() ?? $0 } }
+        return imageView.image
+    }
+
     /// The picture on screen now, as it is on screen: the displayed frame (or the image) in a
     /// view clipped to what of it shows, with the window's corners, over this view in its host.
     private func makeStill() -> UIView? {
         guard let host = superview, imageSize.width > 0 else { return nil }
-        let image: UIImage?
-        if let v = wantedVideo, v.superview === canvas, v.hasFrame, let pb = v.displayedFrame() { image = WindowSnapshots.image(from: pb) }
-        else { image = imageView.image }
-        guard let image else { return nil }
+        guard let image = pictureNow() else { return nil }
         let picture = canvas.convert(canvas.bounds, to: host)
         let shown = picture.intersection(convert(bounds, to: host))
         guard !shown.isNull, shown.width > 1, shown.height > 1 else { return nil }
@@ -2596,9 +2621,21 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         if !force, !isScrollEnabled, let holder = video.superview?.superview as? ViewerScrollView, holder.isScrollEnabled, holder.window != nil, !holder.leaving { return }
         // The newest viewer that wants the video: a viewer on its way out hands the canvas here.
         if window != nil { Self.newest = self }
-        if let old = video.superview, let snap = video.snapshotView(afterScreenUpdates: false) {
+        // The holder keeps the frame it shows as a picture (Nov 8 2026, round 3: a snapshot view
+        // of a video layer came out empty, so the Duo's glance went blank for the 0.2 s of its
+        // fade as the window in hand took the canvas).
+        if let old = video.superview {
+            let snap: UIView
+            if video.hasFrame, let pb = video.displayedFrame(), let image = WindowSnapshots.image(from: pb) {
+                let iv = UIImageView(image: image)
+                iv.contentMode = .scaleToFill
+                snap = iv
+            } else if let s = video.snapshotView(afterScreenUpdates: false) {
+                snap = s
+            } else { snap = UIView() }
             snap.frame = video.frame
             snap.tag = Self.snapshotTag
+            snap.isUserInteractionEnabled = false
             old.addSubview(snap)
         }
         video.removeFromSuperview()
@@ -2802,6 +2839,9 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         // (Nov 7 2026: centred, the red light was off the screen's edge, and the book lost the
         // whole title bar). He pans from there.
         let fromCorner = saved == nil && (otherShape || fill && s > fitWidth * 1.01)
+        #if DEBUG
+        onLog?("viewer: reset to zoom \(String(format: "%.3f", s)) (fit \(String(format: "%.3f", fitWidth)); \(saved != nil ? "a saved view" : otherShape ? "another shape, from the corner" : "the start"); view \(Int(bounds.width))×\(Int(visibleHeight)))")
+        #endif
         let apply = {
             self.setZoomScale(s, animated: false)
             self.centerIfSmall()

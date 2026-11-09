@@ -385,12 +385,20 @@ final class Watcher: ObservableObject {
         guard on != fullScreen, !on || isShowing else { return }
         // Going in: the window at its own shape is what the card and the next open should hold.
         if on { keepPicture() }
+        // The flight's start is read before the layouts change under it (Nov 8 2026, round 3: on
+        // the Duo the full-screen viewer was already there by the time the flight looked, so it
+        // went nowhere — a hard cut).
+        FullScreenZoom.shared.prepare()
+        // The deck's mode comes back on the way out (Nov 8 2026, round 2: it reset to Mic even
+        // when the trackpad was up) — set before the layout returns, with no animation, so the
+        // mode bar never shows Mic sliding to the trackpad as the deck fades in (round 3).
+        if !on, let page = pageBeforeFullScreen, page == .trackpad, input.page != page {
+            var t = Transaction(); t.disablesAnimations = true
+            withTransaction(t) { input.show(page, quiet: true) }
+        }
         fullScreen = on
         if isDesktop { wholeWindow = on ? false : !fillsView }
-        // The deck's mode comes back on the way out (Nov 8 2026, round 2: it reset to Mic even
-        // when the trackpad was up).
         if on { pageBeforeFullScreen = input.page; if input.page != .mic { input.show(.mic, quiet: true) } }
-        else if let page = pageBeforeFullScreen, page == .trackpad, input.page != page { input.show(page, quiet: true) }
         // A window he had made smaller: all the room again, in and out (`ResizableWindow` follows).
         shrunkHere = false
         Haptics.arrived()
@@ -460,6 +468,16 @@ final class Watcher: ObservableObject {
         askKeyframe()
         // The size this app's window is remembered at: the Mac applies it once it finds the window.
         if fit != .normal { _ = sendFit(fit) }
+        // A session starting again (the link back, the app back on screen) for a window the view
+        // had shaped (Nov 8 2026, round 3): the Mac starts a fresh watch and may have put the window
+        // back meanwhile, so the shape goes with the watch again, before its first picture — it
+        // used to come back at the Mac's own shape and stay letterboxed until Done. A Mac that
+        // can't take it ahead gets it from the view's measure once the frames flow.
+        if holding || phase == .live, shapeSent != nil || autoFitted {
+            let was = shapeSent
+            shapeAhead()
+            if shapeSent == was { wantsAutoFit = true }
+        }
         touch()
     }
 

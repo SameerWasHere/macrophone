@@ -245,6 +245,8 @@ final class ServeDelegate: LinkServerDelegate {
     var watched: [UUID: DemoWindow] = [:]
     /// When each phone's watch began (a shape within a second of it is the shape ahead).
     var watchStarted: [UUID: Date] = [:]
+    /// A stopped watch's grace before its demo window goes back to its own shape (round 3).
+    var graces: [UUID: Task<Void, Never>] = [:]
     var prompts: [UUID: WatchPrompt] = [:]
     /// A phone that named "video" gets HEVC: its encoder, and whether it asked for a keyframe.
     var encoders: [UUID: VideoEncoder] = [:]
@@ -272,7 +274,26 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, watch target: TargetRef?, from peerID: UUID) {
         watches[peerID]?.cancel()
         watches[peerID] = nil
-        guard let asked = target else { tones.set(false, for: peerID, server: server); stdout("WATCH stopped"); return }
+        guard let asked = target else {
+            tones.set(false, for: peerID, server: server); stdout("WATCH stopped")
+            // As the Mac app does (Nov 8 2026, round 3): a reshaped window keeps its shape through a
+            // pause for a grace (`--restore-grace <s>`, 45 as the Mac's); a new watch meanwhile
+            // keeps it, the grace running out puts it back. The phone's Done sends `restore` first.
+            // (A second stop — the pause, then the link let go — leaves a grace already running.)
+            if graces[peerID] == nil, has("--reshape"), let demo = lock.sync({ watched[peerID] }), demo.reshaped {
+                let grace = Double(flag("--restore-grace") ?? "") ?? 45
+                graces[peerID] = Task {
+                    try? await Task.sleep(nanoseconds: UInt64(grace * 1e9))
+                    guard !Task.isCancelled else { return }
+                    demo.reshape(aspect: nil)
+                    stdout("WATCH WINDOW restored after \(Int(grace)) s")
+                    self.graces[peerID] = nil
+                }
+            }
+            return
+        }
+        graces[peerID]?.cancel()
+        graces[peerID] = nil
         // Where I'm typing: the demo front window's app (Front.swift), as the Mac app adopts the app in front.
         let target = FrontDemo.resolve(asked)
         stdout("WATCH \(target.displayName)")

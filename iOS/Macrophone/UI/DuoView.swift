@@ -715,7 +715,16 @@ struct DuoFullScreen: View {
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea()
-        .background(Color.black.ignoresSafeArea())
+        // The ground where the picture doesn't reach — on a tall screen, until the Mac's reshaped
+        // picture lands — is the Mac's own desktop under a dark veil, not black (Nov 8 2026, round
+        // 3: the old wide picture over the top 60% of a black screen read as a feed on a TV).
+        .background {
+            ZStack {
+                DesktopBackground(wallpaper: AppModel.shared.wallpaper, settings: AppModel.shared.settings, glow: .clear)
+                Color.black.opacity(0.62)
+            }
+            .ignoresSafeArea()
+        }
         .onAppear {
             #if DEBUG
             // MACROPHONE_FULLSCREEN_PAD=x,y: the hold's pad at that point, 2 s in (for a screenshot).
@@ -1123,6 +1132,9 @@ struct DuoMacHalf: View {
     /// is open — the words you're saying.
     private func screen(footInset: CGFloat, floating: Bool) -> some View {
         WatchWindow(watcher: watcher, interactive: true, bezelWidth: bezel, corner: corner, fill: true, footInset: footInset, dormant: handDormant || asleep)
+            // Where the window in hand is on the screen: full screen's flight lands on it (Nov 8
+            // 2026, round 3 — it had landed near full-screen size and re-laid to the page).
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { InnerWindowSpot.shared.frame = $0 }
             .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
             .overlay(alignment: .bottom) {
                 if floating, main.showLiveWords {

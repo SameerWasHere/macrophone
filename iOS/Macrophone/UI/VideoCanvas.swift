@@ -54,10 +54,41 @@ final class VideoCanvas: UIView {
         format = desc
         lastSets = sets
         let d = CMVideoFormatDescriptionGetDimensions(desc)
-        frameSize = CGSize(width: CGFloat(d.width), height: CGFloat(d.height))
+        let size = CGSize(width: CGFloat(d.width), height: CGFloat(d.height))
+        // A new size with a picture on screen (the Mac reshaped the window — Nov 8 2026, round 3):
+        // the old frame stays up and the new one is held until the viewer has taken the new size
+        // (`release`). Flushed at once, the layer went blank and then drew the new frame in the old
+        // canvas — a bare pane with a small copy of the picture in it, and the still the viewer makes
+        // of "the old picture" was made of the new frame stretched into the old frame's rect.
+        if hasFrame, size != frameSize {
+            holding = true
+            frameSize = size
+            displayLayer.sampleBufferRenderer.flush()
+            return true
+        }
+        frameSize = size
         displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
         hasFrame = false
         return true
+    }
+
+    /// A frame at a new size waits for the viewer (`apply`); the viewer lets it through once it
+    /// has laid out for the new size — or it goes through by itself after a moment, if no viewer
+    /// is there to.
+    private var holding = false
+    private var held: CMSampleBuffer?
+    private var holdRelease: DispatchWorkItem?
+
+    func release() {
+        guard holding else { return }
+        holding = false
+        holdRelease?.cancel()
+        holdRelease = nil
+        if let s = held {
+            held = nil
+            displayLayer.sampleBufferRenderer.enqueue(s)
+            hasFrame = true
+        }
     }
 
     /// Puts a frame on screen as soon as it decodes. False when it can't be shown (no parameter
@@ -91,6 +122,15 @@ final class VideoCanvas: UIView {
            let first = attachments.firstObject as? NSMutableDictionary {
             first[kCMSampleAttachmentKey_DisplayImmediately as String] = true
         }
+        if holding {
+            held = sample
+            if holdRelease == nil {
+                let item = DispatchWorkItem { [weak self] in self?.release() }
+                holdRelease = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
+            }
+            return true
+        }
         renderer.enqueue(sample)
         hasFrame = true
         return true
@@ -114,6 +154,10 @@ final class VideoCanvas: UIView {
         lastSets = nil
         frameSize = .zero
         hasFrame = false
+        holding = false
+        held = nil
+        holdRelease?.cancel()
+        holdRelease = nil
         displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
     }
 }

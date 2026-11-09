@@ -7,6 +7,82 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+## The window is the app, round 3 of review (Nov 8 2026) — wins over the three sections below where they differ
+
+A third reviewer walked build 27 (`docs/screens/native-review-r3/`: Pro light/dark/SE/xxxLarge/Reduce
+Motion, the Duo in every pose, real touches at 20 fps). Frames: `docs/screens/native-window-nov8/r3/`
+(`before/` the reviewer's tiles, `after/` this build's, 10 fps and 20 fps where it mattered). **The
+Mac app changed in this round** (`WatchService`, below) — it needs installing.
+- **The keyboard that rose into full screen once the keyboard mode had been used** was UIKit's
+  own doing: it restores a text view's keyboard by itself — the window's last text input — when the
+  responder that took over lets go, and `HardwareKeysView` lets go for the second the layouts swap.
+  The log read "taking the keyboard (wants false, page mic, full screen true)" a tenth of a second
+  after "full screen on". `KeyboardTextView.canBecomeFirstResponder` (and `becomeFirstResponder`)
+  is now `wantsKeyboard && stillWanted()` — the page is the keyboard and not full screen — so no
+  restore ever finds it willing. Proven on the laptop (hide → full screen, stay on the keyboard →
+  full screen, mic mode → full screen), the cover and flat upright: the log says "refused the
+  keyboard" where it used to say "taking", and no keyboard shows.
+- **A session that starts again sends the shape again** (`Watcher.start`: the link back, the app
+  back on screen — `shapeAhead()` with the watch, else `wantsAutoFit` for the view's measure), so a
+  dropped link or a return no longer brings the window back at the Mac's own shape. **The Mac keeps
+  a window's sizes through a pause for a grace** (`WatchService.park` / `putBack`, 45 s): every
+  stop used to put the window back at once — Done, but also the phone's pause when the app left the
+  screen and a link that blipped — and the new watch's record had no `beforeWindowChanges`, so Done
+  after a blip never put it back either. Now a stop parks the Aa fit and the frame from before the
+  view shaped it; the same window watched again within the grace carries them over; another window,
+  the grace running out, or quitting puts it back; the phone's Done still sends `restore` first.
+  `mpctl serve` mirrors it (`--restore-grace <s>`, 45; "WATCH WINDOW restored after N s"). The
+  status line says nothing while the window's own capsule says "Reconnecting…" (said twice before).
+- **Full screen is one grow on every screen**: `Watcher.setFullScreen` reads the flight's start
+  before it publishes (`FullScreenZoom.prepare` → `takePrepared`) — by the time the flight was asked
+  for, the full-screen viewer was the one on screen on the Duo, so it flew from the screen to the
+  screen (a cut); `WindowZoom.viewerPlace` takes a viewer under half the screen's width (the side
+  pages: "from nowhere"). Full screen's ground is the Mac's desktop under a dark veil, not black.
+- **The way out lands on the page** (`InnerWindowSpot`: the window in hand reports its frame; the
+  exit flies to it on the inner screen) and **the deck's mode is restored before the layout
+  returns, with no animation** (the mode bar showed Mic sliding to the trackpad as the deck faded in).
+- **Show it here keeps the glance's picture** (`ViewerScrollView.adopt`: the holder keeps the
+  displayed frame as a real picture; a `snapshotView` of a video layer came out empty).
+- **The first open's reshape, found at 60 fps** (`MACROPHONE_FORGET_WINDOWS=1` gives the first
+  open's state — no remembered shape, no kept picture — with the pairing kept): the keyframe at
+  the new size carries new parameter sets, and `VideoCanvas.apply` flushed the layer and removed the
+  picture at once, then drew the new frame in the old canvas — the bare pane with a small copy of
+  the picture in it — and the viewer's still of "the old picture" was made of that new frame,
+  stretched into the old rect (the double exposure of two layouts). Now a new size with a picture
+  up **holds the new frame** (`VideoCanvas.holding` / `release`): the old frame stays on the layer,
+  the viewer lays out for the new size and makes its still of the old frame, then lets the new one
+  through under it (`ViewerScrollView.update` → `video?.release()`; by itself after 0.5 s if no
+  viewer does). The log says "viewer: picture 1400×900 → 596×900 … the old one held as a still".
+- **A thawed viewer lays out before it draws** (`WindowViewer`: `frozen` → not frozen runs
+  `layoutIfNeeded`), so no frame shows the picture small in a corner at a full-screen landing.
+- **The Whole Screen has Full Screen** (`WatchHeaderBar.row`: its button never folds for the
+  desktop; the zoom-out cell is what its row gives up at the last stages, so "Whole Screen" reads
+  whole), and the status line no longer says it "isn't open" (`AppModel.isNotOpen`).
+- **Reduce Motion**: leaving full screen fades the full-screen view out under the window fading in
+  (gone at once, a frame showed the window at half opacity over the wallpaper).
+- **Seen frame by frame on this build** (an iPhone 17 Pro and a Duo against `mpctl serve --rounded
+  --reshape --restore-grace 6`; `after/`): the keyboard — five paths (laptop: hide → full screen,
+  stay on the keyboard → full screen, mic mode → full screen; the cover; flat upright) — "refused
+  the keyboard" 50 ms after "full screen on" every time, no keyboard in any frame (before: the
+  field took it with "wants false" and the keyboard rose ~1 s); the stand-in stopped mid-watch and
+  started 6 s later → `WATCH SHAPE 0.66 · RESHAPED (ahead)` with the new watch, the window back at
+  the view's shape from its first frame, the capsule alone saying Reconnecting; home for 9 s →
+  "restored after 6 s" at the stand-in, back → the shape ahead again, no reshape seen; full screen
+  flies "(prepared)" on the Pro (382×576), the laptop (645×434), the cover (362×254), the side page
+  (438×475) and the book (before: the side pages "from nowhere", a cut), 0.42 s each way; the way
+  out lands on the page in one step (side: 25.0 → 25.1 s; before: a near-full-screen frame then
+  the page); Show it here keeps the glance's picture through its 0.2 s fade; the Whole Screen's
+  header reads "Whole Screen · Full Screen · Sound | Mac Controls · Done"; the first open with
+  nothing remembered: 1400×900 at 1.5× fit from the corner, the view's shape 0.5 s later, the
+  reshaped frame 0.65 s in under a still of the old picture that fades in 0.18 s — no pane, no
+  thumbnail (60 fps); Reduce Motion's way out is one cross-fade frame, no wash.
+- **Left:** the reshape's 0.18 s is a dissolve of two layouts (a reflow can't be animated); the
+  window's frame grows from the letterboxed old rect to the room as the new picture lands (the
+  still keeps the old rect); the Whole Screen gives up its zoom-out cell on a Pro-width row.
+- Hooks: `MACROPHONE_WATCH_ACTIONS=…,hidekeyboard`, `MACROPHONE_FORGET_WINDOWS=1`; DEBUG log
+  lines "full screen flight in/out: from …", "viewer: picture W×H → W×H … held as a still / no
+  still", "viewer: reset to zoom …", "keyboard field: refused the keyboard".
+
 ## The window is the app, round 2 of review (Nov 8 2026) — wins over the two sections below where they differ
 
 A second reviewer walked build 26 at 20 fps (`docs/screens/native-review-r2/`); two round-1 fixes

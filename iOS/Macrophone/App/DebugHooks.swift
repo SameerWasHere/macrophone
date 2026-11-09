@@ -175,6 +175,15 @@ enum DebugHooks {
             try? FileManager.default.removeItem(at: AppFiles.queue)
             try? FileManager.default.removeItem(at: AppFiles.log)
         }
+        // MACROPHONE_FORGET_WINDOWS=1 (Nov 8 2026, round 3): the first open's state — no view shape
+        // remembered for any pose, no view kept per app, no kept pictures — with the pairing kept.
+        if env["MACROPHONE_FORGET_WINDOWS"] == "1" {
+            for key in d.dictionaryRepresentation().keys where key.hasPrefix("watch.viewSize") || key.hasPrefix("watch.view.")
+                || key.hasPrefix("watch.fit") || key.hasPrefix("watch.ownSize") {
+                d.removeObject(forKey: key)
+            }
+            WindowSnapshots.forgetAll()
+        }
         if let screen = env["MACROPHONE_SCREEN"] {
             d.set(screen != "onboarding", forKey: "onboarding.done")
             if screen != "onboarding" { d.set(true, forKey: "link.networkExplained") }
@@ -569,6 +578,9 @@ enum DebugHooks {
                         withAnimation(Motion.settle) { model.watcher.input.show(p) }
                     } else if a.hasPrefix("page@"), let p = MacInput.Page(rawValue: String(a.dropFirst(5))) {
                         model.watcher.input.show(p)
+                    } else if a == "hidekeyboard" {
+                        // The keyboard bar's hide (Nov 8 2026, round 3): back to the page it rose over.
+                        model.watcher.input.hideKeyboard()
                     } else if a.hasPrefix("point@") {
                         let d = a.split(separator: "@").dropFirst().compactMap { Double($0) }
                         if d.count == 2 { for _ in 0..<10 { model.watcher.input.pointerMoved(by: CGVector(dx: d[0] / 10, dy: d[1] / 10), dt: 1.0 / 60) } }
