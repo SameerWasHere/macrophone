@@ -44,6 +44,42 @@ final class ResizableWindowUITests: XCTestCase {
         ProcessInfo.processInfo.environment["MACROPHONE_SERVE_LOG"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
     }
 
+    /// The Duo's inner screen (Nov 9 2026): the arc on every pose but the laptop, whose half is the
+    /// Mac's screen, whole. Run on a Duo simulator held in the pose (`duo-sim.sh pose <udid>
+    /// portrait|open|folded|tabletop`) with `TEST_RUNNER_MACROPHONE_DUO_REAL=portrait|side|book|laptop`.
+    func testTheInnerScreenResizesExceptTheLaptop() throws {
+        guard let pose = ProcessInfo.processInfo.environment["MACROPHONE_DUO_REAL"] else { throw XCTSkip("set TEST_RUNNER_MACROPHONE_DUO_REAL") }
+        let app = XCUIApplication()
+        var env = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_WATCH": "1"]
+        // Flat, the window opens as the glance: Show it here takes it in hand.
+        if pose == "portrait" || pose == "side" { env["MACROPHONE_WATCH_ACTIONS"] = "wait@3,show" }
+        app.launchEnvironment = env
+        app.launch()
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
+        let win = app.descendants(matching: .any)["duo-window"].firstMatch
+        XCTAssertTrue(win.waitForExistence(timeout: 25), "the window is in hand")
+        sleep(4)
+        let handle = app.descendants(matching: .any)["watch-resize"]
+        if pose == "laptop" {
+            XCTAssertFalse(handle.exists && handle.isHittable, "the laptop's half is the Mac's screen, whole: no arc")
+            return
+        }
+        XCTAssertTrue(handle.waitForExistence(timeout: 10), "the arc is there on the \(pose) pose")
+        let full = settled(window(app))
+        shot("duo-\(pose)-1-full")
+        let from = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: -60, dy: -120)))
+        sleep(2)
+        let small = settled(window(app))
+        shot("duo-\(pose)-2-resized")
+        print("ResizableWindow \(pose): \(full) → \(window(app).frame)")
+        XCTAssertLessThan(small.width, full.width - 40, "smaller across on the \(pose) pose")
+        handle.doubleTap()
+        sleep(2)
+        shot("duo-\(pose)-3-full-again")
+    }
+
     func testTheCornerResizesTheWindowAndEveryOpenIsFull() {
         let app = launch()
         let handle = app.descendants(matching: .any)["watch-resize"]

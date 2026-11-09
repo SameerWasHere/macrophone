@@ -1075,7 +1075,13 @@ struct DuoMacHalf: View {
             // keys to all be the bottom half … so that nothing blocks the view window"): the
             // picture is the whole half and nothing lies over it — the header, the answers and the
             // words you're saying are on the deck.
-            screen(footInset: 0, floating: false)
+            // Resizable from its corner on the inner screen too (Nov 9 2026, Sameer: "The resize
+            // arrow should be available on the inner display as well … The only place it is not
+            // needed is laptop mode where it should default to always take half the screen"):
+            // flat upright has the arc; the laptop's half is the Mac's screen, whole.
+            ResizableWindow(watcher: watcher, enabled: resizable) {
+                screen(footInset: 0, floating: false)
+            }
         } else if let short = shortPicture {
             // A window that can't fill the half (the fourth pass — the Mac can't reshape it, or
             // hasn't yet: the whole screen, a window on the book's tall page): the picture at the
@@ -1088,8 +1094,10 @@ struct DuoMacHalf: View {
                 WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
-                screen(footInset: 0, floating: false)
-                    .frame(height: short)
+                ResizableWindow(watcher: watcher, enabled: resizable) {
+                    screen(footInset: 0, floating: false)
+                }
+                .frame(height: short)
                 if main.showLiveWords {
                     DuoLiveWords(main: main, room: room, below: true)
                         .transition(.opacity)
@@ -1109,7 +1117,9 @@ struct DuoMacHalf: View {
                 WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
-                screen(footInset: 0, floating: true)
+                ResizableWindow(watcher: watcher, enabled: resizable) {
+                    screen(footInset: 0, floating: true)
+                }
                 if watcher.answers != nil, !main.showLiveWords {
                     // One row while typing: the keyboard has the rest.
                     WatchActions(watcher: watcher, floating: true, oneLine: main.typingOver)
@@ -1121,6 +1131,12 @@ struct DuoMacHalf: View {
             }
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.answers?.id)
         }
+    }
+
+    /// The corner arc: every inner pose but the laptop (its half is the Mac's screen, always the
+    /// whole half), never the Whole Screen (a display can't change shape), never hidden.
+    private var resizable: Bool {
+        watcher.input.pose != .laptop && !watcher.isDesktop && !handDormant && !asleep
     }
 
     /// The glance.
@@ -1150,7 +1166,12 @@ struct DuoMacHalf: View {
     /// width). Nil when that fills the half, or when what's left under it would be too little.
     private var shortPicture: CGFloat? {
         // The laptop's screen is the picture, whatever its shape (fitted in the half).
-        guard !edge, watcher.hasPicture, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 else { return nil }
+        // Only a window the Mac can't reshape (the Whole Screen, an older Mac): one it can takes the
+        // page's whole room — sized from its current picture, the page sent that picture's shape
+        // back to the Mac and the window could never grow to fill it (Nov 9 2026: 438×282 on a
+        // 438×480 page, every time).
+        guard !edge, watcher.isDesktop || !watcher.canFitToPhone,
+              watcher.hasPicture, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 else { return nil }
         let width = room.width - 2 * DuoLook.halfBezel
         let h = width * size.height / size.width + 2 * DuoLook.halfBezel
         // The header's rows above it, the answers and the keys under it.

@@ -40,8 +40,9 @@ struct ResizableWindow<Content: View>: View {
     static var minWidth: CGFloat { 0.5 }
     static var minHeight: CGFloat { 0.35 }
 
-    /// A new open, another window, or full screen (in or out): all the room again.
-    private var opening: String { "\(watcher.isOpen)-\(watcher.windowSeq)-\(watcher.fullScreen)-\(watcher.target.map { "\($0)" } ?? "")" }
+    /// A new open, another window, full screen (in or out) or another pose (a fold, a turn): all
+    /// the room again — a new space starts as big as it can be.
+    private var opening: String { "\(watcher.isOpen)-\(watcher.windowSeq)-\(watcher.fullScreen)-\(watcher.input.pose.name)-\(watcher.target.map { "\($0)" } ?? "")" }
     private var shown: CGSize { enabled ? (live ?? share) : CGSize(width: 1, height: 1) }
     /// What of the picture shows inside the frame (the viewer says): the arc sits on its corner
     /// when the window sits smaller than its frame (one the Mac can't reshape to it).

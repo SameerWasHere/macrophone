@@ -7,6 +7,23 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+
+## The corner arc on the inner screen too (Nov 9 2026)
+
+Sameer: "The resize arrow should be available on the inner display as well and the window should
+still default to be the largest it can be to fill a given space. The only place it is not needed is
+laptop mode where it should default to always take half the screen." `DuoMacHalf` wraps its window
+in `ResizableWindow` on every inner pose but `.laptop` (`resizable`: not the laptop, not the Whole
+Screen, not hidden); flat upright, the side page and the book have the arc, the laptop's half is
+the Mac's screen, whole. A pose change (`watcher.input.pose` in `ResizableWindow.opening`) starts the
+window at all its room again, as an open or full screen does. Found on the way: the side/book page's
+`shortPicture` (a window too short to fill the page sits at the top at its fitted height) applied to
+every window, so the page measured the current picture's height and sent that shape back to the Mac
+— the window could never grow to fill the page (438×282 on a 438×475 page); it's only for a window
+the Mac can't reshape now (the Whole Screen, an older Mac). `ResizableWindowUITests
+.testTheInnerScreenResizesExceptTheLaptop` (`TEST_RUNNER_MACROPHONE_DUO_REAL=portrait|side|book|laptop`,
+a duo-sim pose) passes on all four.
+
 ## The window illusion (Nov 9 2026) — wins over every native-window section below where they differ
 
 Sameer, on his Duo with build 28: "app windows are buggy as hell! It ends up getting scrunched up
