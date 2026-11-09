@@ -189,6 +189,8 @@ enum AppFiles {
     }()
     static var history: URL { directory.appendingPathComponent("history.json") }
     static var queue: URL { directory.appendingPathComponent("queue.json") }
+    /// Dictations between the mic closing and the Mac having them (`AppModel.inFlightWords`).
+    static var inFlight: URL { directory.appendingPathComponent("in-flight.json") }
     static var log: URL { directory.appendingPathComponent("diagnostics.log") }
     /// The one Mac's open apps as last heard, before several Macs (read once, then moved).
     static var legacyTargets: URL { directory.appendingPathComponent("targets.json") }

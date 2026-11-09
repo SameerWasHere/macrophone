@@ -98,6 +98,13 @@ final class AppModel: ObservableObject {
     /// The active Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
     let wallpaper = WallpaperStore()
     let queue = DeliveryQueue(url: AppFiles.queue)
+    /// Words never die with the app (Nov 9 2026): a dictation is written here the moment the mic
+    /// closes and taken out once the Mac has it or the queue does. Cleanup can take most of a
+    /// minute on a long prompt and the phone is often pocketed at once — iOS suspends the app
+    /// ~25 s in and may then kill it, and until now the words were only in memory until cleanup
+    /// finished (and a send cut short stayed "Sending" in History for ever). What's still here at
+    /// the next launch goes into the queue as it was said, uncleaned.
+    private let inFlightWords = DeliveryQueue(url: AppFiles.inFlight)
     let log = DiagnosticLog(url: AppFiles.log)
     private let history: HistoryStore<HistoryItem>
     private let pairingStore = KeychainPairingStore(service: "com.sameer.macrophone.pairing", directory: AppFiles.directory)
@@ -267,6 +274,7 @@ final class AppModel: ObservableObject {
         if let mac = pairedMac { liveTargets = Self.loadTargets(for: mac.id) }
         refreshHistory()
         refreshAvailability()
+        recoverInFlightWords()
         // One line (each write rewrites the log file) and no keychain read: launch stays light.
         log.add("app launched, version \(Bundle.main.shortVersion) (\(Bundle.main.buildNumber)), \(queue.count) queued; "
                 + "language \(settings.language); cleanup \(cleanupAvailability.isAvailable ? "available" : "unavailable"); open apps cached: \(liveTargets.count); "
@@ -658,6 +666,8 @@ final class AppModel: ObservableObject {
 
     private func enterBackground() {
         beginBackgroundTask()
+        // Words held for a word's card don't wait on a card nobody is looking at.
+        if heldOutcome != nil { cancelFix() }
         if recorder.isActive {
             #if DEBUG
             if debugSimulating { recorder.endSimulation(); debugSimulating = false }
@@ -710,6 +720,9 @@ final class AppModel: ObservableObject {
     func startRecording(override asked: SendSelection? = nil) async {
         guard !recorder.isActive else { return }
         recordingStartedHidesChip()
+        // Words still waiting on a word's card (the mic closed while it was up) go now, with the
+        // fixes made so far: a new recording must never leave them behind.
+        if heldOutcome != nil { fixDraft = nil; releaseHeldWords() }
         wordFixes = []
         fixDraft = nil
         // Full screen on the Duo (Nov 3 2026, Sameer: "it should default to pasting wherever the
@@ -964,16 +977,24 @@ final class AppModel: ObservableObject {
         }
         #endif
         processing = true
-        Task { await finish(raw: raw, outcome: o) }
+        // Where these words go is decided now, while this recording's place still stands (the next
+        // recording may set its own before the task below runs).
+        let route = route(for: raw)
+        recordingOverride = nil
+        let id = UUID()
+        if let mac = client.activeMac {
+            inFlightWords.append(Dictation(id: id, raw: route.body, language: o.language, target: route.target, send: route.send,
+                                           targetSpoken: route.spokenTarget ? true : nil, stoppedEarly: o.reason.isEarly,
+                                           duration: o.duration, sourceDevice: settings.deviceName), delayed: true, mac: mac.id)
+        }
+        Task { await finish(id: id, raw: raw, route: route, outcome: o) }
     }
 
-    private func finish(raw: String, outcome o: Recorder.Outcome) async {
+    private func finish(id: UUID, raw: String, route: Route, outcome o: Recorder.Outcome) async {
         processing = true
         inFlight += 1
         defer { processing = false; inFlight -= 1 }
-        let route = route(for: raw)
         let level = effectiveCleanupLevel
-        recordingOverride = nil
         log.add("target: \(Self.kind(route.target))\(route.send ? " + send" : "")\(route.spoken != nil ? " (said)" : "")")
         // The prefix is only for the phone: what's cleaned and sent starts after it.
         var cleaned: String?
@@ -997,7 +1018,7 @@ final class AppModel: ObservableObject {
         if cleaned == nil, route.body != raw { cleaned = route.body }
         // Every dictation carries where it goes, so the Mac routes each one exactly (a sync race
         // can't misroute it).
-        let d = Dictation(raw: raw, cleaned: cleaned, cleanupLevel: cleanupRan ? level : .off, language: o.language,
+        let d = Dictation(id: id, raw: raw, cleaned: cleaned, cleanupLevel: cleanupRan ? level : .off, language: o.language,
                           target: route.target, send: route.send, targetSpoken: route.spokenTarget ? true : nil,
                           stoppedEarly: o.reason.isEarly, duration: o.duration, sourceDevice: settings.deviceName)
         #if DEBUG
@@ -1091,6 +1112,8 @@ final class AppModel: ObservableObject {
     // MARK: Delivery
 
     private func deliver(_ d: Dictation, resend: Bool) async {
+        // Answered or queued by the time this returns: either way the words are safe elsewhere.
+        defer { inFlightWords.remove(d.id) }
         guard let mac = client.activeMac else {
             UIPasteboard.general.string = d.text
             updateItem(d.id) { $0.delivery = .copiedOnPhone; $0.deliveredAt = Date() }
@@ -1117,7 +1140,41 @@ final class AppModel: ObservableObject {
             queue.append(d, delayed: true, mac: mac.id)
             updateItem(d.id) { $0.delivery = .queued; $0.wasDelayed = true }
             setQueuedStatus()
+            retryQueueSoon()
         }
+    }
+
+    /// A send that failed with the link still up (the Mac slow to answer, a stalled connection the
+    /// phone hasn't noticed yet) is tried again by itself: before, what was queued then waited for
+    /// the next connect or the next dictation — "Queued" under a Mac that reads connected.
+    private var queueRetry: Task<Void, Never>?
+    private func retryQueueSoon() {
+        queueRetry?.cancel()
+        queueRetry = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard !Task.isCancelled, let self, self.isConnected, !self.queue.isEmpty else { return }
+            self.flushQueue()
+        }
+    }
+
+    /// Dictations the last run never finished with (the app was killed mid-cleanup or mid-send):
+    /// queued for their Mac as they were said. The Mac drops one it already has (same id).
+    private func recoverInFlightWords() {
+        let lost = inFlightWords.entries
+        guard !lost.isEmpty else { return }
+        for e in lost where !queue.contains(e.id) {
+            queue.append(e.dictation, delayed: true, mac: e.macID)
+            if item(e.id) != nil {
+                updateItem(e.id) { $0.delivery = .queued; $0.wasDelayed = true }
+            } else {
+                var h = HistoryItem(dictation: e.dictation, delivery: .queued)
+                h.wasDelayed = true
+                history.add(h)
+            }
+        }
+        inFlightWords.removeAll()
+        refreshHistory()
+        log.add("\(lost.count) dictation\(lost.count == 1 ? "" : "s") from the last run recovered into the queue")
     }
 
     private func setQueuedStatus() {
@@ -1167,6 +1224,7 @@ final class AppModel: ObservableObject {
                     updateItem(e.id) { $0.delivery = .queued }
                     if latest?.id == e.id { status = .queued }
                     log.add("queued send failed again (\(String(describing: error)))")
+                    retryQueueSoon()
                     break
                 }
             }
