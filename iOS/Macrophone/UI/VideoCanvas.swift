@@ -23,7 +23,10 @@ final class VideoCanvas: UIView {
         super.init(frame: frame)
         backgroundColor = .clear
         isUserInteractionEnabled = false
-        displayLayer.videoGravity = .resize
+        // Never stretched (Nov 9 2026, Sameer: "it ends up getting scrunched up"): a frame whose
+        // size isn't the canvas's yet — the moment of a reshape — is fitted inside it, never
+        // squeezed to it. In step, the canvas is the frame's own shape and this is the same.
+        displayLayer.videoGravity = .resizeAspect
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -76,7 +79,11 @@ final class VideoCanvas: UIView {
     /// has laid out for the new size — or it goes through by itself after a moment, if no viewer
     /// is there to.
     private var holding = false
-    private var held: CMSampleBuffer?
+    /// Every frame since the new size's keyframe, in order: each frame of a stream builds on the
+    /// ones before it, so dropping all but the newest (as this did) left the decoder unable to show
+    /// any of them — the old frame stayed up, stretched into the new canvas, until the next
+    /// keyframe (the scrunched window of Nov 9 2026, with a real window that redraws all the time).
+    private var held: [CMSampleBuffer] = []
     private var holdRelease: DispatchWorkItem?
 
     func release() {
@@ -84,11 +91,10 @@ final class VideoCanvas: UIView {
         holding = false
         holdRelease?.cancel()
         holdRelease = nil
-        if let s = held {
-            held = nil
-            displayLayer.sampleBufferRenderer.enqueue(s)
-            hasFrame = true
-        }
+        let frames = held
+        held = []
+        for s in frames { displayLayer.sampleBufferRenderer.enqueue(s) }
+        if !frames.isEmpty { hasFrame = true }
     }
 
     /// Puts a frame on screen as soon as it decodes. False when it can't be shown (no parameter
@@ -123,7 +129,10 @@ final class VideoCanvas: UIView {
             first[kCMSampleAttachmentKey_DisplayImmediately as String] = true
         }
         if holding {
-            held = sample
+            // A keyframe starts the run over; a run that grows long is cut back to its keyframe.
+            if frame.keyframe { held = [] }
+            held.append(sample)
+            if held.count > 90 { held.removeFirst(held.count - 90) }
             if holdRelease == nil {
                 let item = DispatchWorkItem { [weak self] in self?.release() }
                 holdRelease = item
@@ -155,7 +164,7 @@ final class VideoCanvas: UIView {
         frameSize = .zero
         hasFrame = false
         holding = false
-        held = nil
+        held = []
         holdRelease?.cancel()
         holdRelease = nil
         displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)

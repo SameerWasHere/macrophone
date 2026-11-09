@@ -313,6 +313,7 @@ final class Watcher: ObservableObject {
             sizedByHand = false
             askedForFit = false
             wantsAutoFit = true
+            shapeAskedAt = Date()
             resuming = false
             decideDragAhead()
         }
@@ -608,19 +609,23 @@ final class Watcher: ObservableObject {
         if !fullScreen, size.width > 40, size.height > 40 {
             UserDefaults.standard.set([size.width, size.height], forKey: Self.viewSizeKey(input.pose, fill: fill))
         }
-        // A room still settling when its shape went (Nov 8 2026, the review: the Duo's side page
-        // measured half its height at the first Show it here, and the Mac's window became 2:1
-        // until a full-screen round trip): a measure that disagrees with the shape just sent by a
-        // tenth or more, within a few seconds of it, owes the window its shape again.
-        if let was = shapeSent, let at = shapeSentAt, Date().timeIntervalSince(at) < 3, !sizedByHand, !wantsAutoFit,
-           size.width > 40, size.height > 40, abs((size.width / size.height) / (was.width / was.height) - 1) > 0.1 {
-            wantsAutoFit = true
-            log?.add("watching: the view settled at another shape — the window takes it again")
-        }
+        // (Nov 9 2026: the round-2 rule here — a measure off the shape just sent re-arms the
+        // shape — is gone. On his Duo it made every mode change two reshapes of the real window:
+        // a layout passing through was sent, then "corrected" (the Mac's log: 925 → 790 → 925 →
+        // 912 → 596 → 925 … sixteen in a minute). A shape now goes only once the view has held
+        // still — `settle` — so the first one is the right one.)
+        measuredAt = Date()
         autoFitSoon()
     }
     /// When the last shape went to the Mac.
     private var shapeSentAt: Date?
+    /// When the view's size last changed, and when a shape was last asked for (a new window, a
+    /// pose, full screen): the shape goes only once the view has held still `settle` seconds and
+    /// at least `settleAfterAsk` after the ask — a layout on its way somewhere is never sent.
+    private var measuredAt = Date.distantPast
+    private var shapeAskedAt = Date.distantPast
+    private static let settle: TimeInterval = 0.6
+    private static let settleAfterAsk: TimeInterval = 0.9
 
     // MARK: The window takes the view's shape (Oct 31 2026)
 
@@ -659,6 +664,7 @@ final class Watcher: ObservableObject {
     func poseSettled() {
         guard isOpen else { return }
         wantsAutoFit = true
+        shapeAskedAt = Date()
         autoFitSoon()
     }
 
@@ -689,10 +695,15 @@ final class Watcher: ObservableObject {
         autoFitTask?.cancel()
         guard wantsAutoFit, isOpen, !glancing, !sizedByHand, let target, !isDesktop,
               canFitToPhone, !Self.keepsOwnSize(target) else { return }
-        let wait = max(0.5, switchedAt.map { Self.dwell - Date().timeIntervalSince($0) } ?? 0)
+        let now = Date()
+        let wait = max(Self.settle - now.timeIntervalSince(measuredAt),
+                       Self.settleAfterAsk - now.timeIntervalSince(shapeAskedAt),
+                       switchedAt.map { Self.dwell - now.timeIntervalSince($0) } ?? 0, 0.05)
         autoFitTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(wait * 1e9))
             guard let self, !Task.isCancelled else { return }
+            // Still moving (a measure came in meanwhile and didn't reschedule): wait again.
+            if Date().timeIntervalSince(self.measuredAt) < Self.settle - 0.01 { self.autoFitSoon(); return }
             self.applyAutoFit()
         }
     }

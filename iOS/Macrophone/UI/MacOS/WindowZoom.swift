@@ -372,7 +372,10 @@ struct FullScreenZoomFlight: View {
                 Image(uiImage: image)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: p.picture.width, height: p.picture.height)
+                    // At its own shape, never squeezed to the rect (Nov 9 2026).
+                    .scaledToFill()
+                    .frame(width: p.picture.width, height: p.picture.height, alignment: .topLeading)
+                    .clipped()
                     .offset(x: p.picture.minX - p.clip.minX, y: p.picture.minY - p.clip.minY)
                     .frame(width: p.clip.width, height: p.clip.height, alignment: .topLeading)
                     .clipShape(RoundedRectangle(cornerRadius: p.corner, style: .circular))
@@ -407,7 +410,10 @@ struct WindowZoomFlight: View {
                 Image(uiImage: image)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: p.picture.width, height: p.picture.height)
+                    // At its own shape, never squeezed to the rect (Nov 9 2026).
+                    .scaledToFill()
+                    .frame(width: p.picture.width, height: p.picture.height, alignment: .topLeading)
+                    .clipped()
                     .offset(x: p.picture.minX - p.clip.minX, y: p.picture.minY - p.clip.minY)
                     .frame(width: p.clip.width, height: p.clip.height, alignment: .topLeading)
                     .clipShape(shape)

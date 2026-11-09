@@ -2350,7 +2350,10 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         bouncesZoom = true
         contentInsetAdjustmentBehavior = .never
         backgroundColor = .clear
-        imageView.contentMode = .scaleToFill
+        // Never stretched (Nov 9 2026): a picture of another shape than the canvas for a moment
+        // (a kept picture under the first frame of a reshaped window) covers it at its own shape.
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
         imageView.layer.minificationFilter = .trilinear
         canvas.addSubview(imageView)
         addSubview(canvas)
@@ -2566,9 +2569,19 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         clip.layer.cornerCurve = .circular
         let iv = UIImageView(image: image)
         iv.contentMode = .scaleToFill
-        iv.frame = CGRect(x: picture.minX - shown.minX, y: picture.minY - shown.minY, width: picture.width, height: picture.height)
+        // At the picture's own shape, across the canvas's width from its top-left (Nov 9 2026: a
+        // frame of another shape than the canvas was squeezed into it — the scrunched window).
+        iv.frame = Self.unstretched(image.size, at: CGRect(x: picture.minX - shown.minX, y: picture.minY - shown.minY, width: picture.width, height: picture.height))
         clip.addSubview(iv)
         return clip
+    }
+
+    /// A picture of `size` laid over `rect` at its own shape: the rect's width, from its top-left
+    /// (a window's content keeps its top-left as the window changes shape).
+    static func unstretched(_ size: CGSize, at rect: CGRect) -> CGRect {
+        guard size.width > 0, size.height > 0, rect.width > 0 else { return rect }
+        let h = rect.width * size.height / size.width
+        return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: h)
     }
 
     private var still: UIView?
@@ -2628,7 +2641,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             let snap: UIView
             if video.hasFrame, let pb = video.displayedFrame(), let image = WindowSnapshots.image(from: pb) {
                 let iv = UIImageView(image: image)
-                iv.contentMode = .scaleToFill
+                iv.contentMode = .scaleAspectFill
+                iv.clipsToBounds = true
                 snap = iv
             } else if let s = video.snapshotView(afterScreenUpdates: false) {
                 snap = s
