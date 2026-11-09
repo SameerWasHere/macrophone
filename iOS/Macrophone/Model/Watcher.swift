@@ -281,10 +281,16 @@ final class Watcher: ObservableObject {
         if switching {
             // The next window's kept picture takes the view at once (Nov 8 2026, the review: the
             // last window's picture stayed, dimmed, under a box with a spinner — a remote
-            // viewer's loading dialog). Nothing kept: the quiet pane, and "Opening …" in the name.
-            stale = false
-            image = nil
-            if videoSize != nil { video.clear(); videoSize = nil }
+            // viewer's loading dialog). Nothing kept (round 2): the last picture stays, dimmed,
+            // frame and key row in place, until the first frame — never a cut to an empty plate.
+            let key = WindowSnapshots.key(mac: macID(), target: target)
+            if WindowSnapshots.cached(key) != nil {
+                stale = false
+                image = nil
+                if videoSize != nil { video.clear(); videoSize = nil }
+            } else {
+                stale = hasPicture
+            }
             windowSeq &+= 1
             appName = ""
             bundleID = target.bundleID
@@ -324,6 +330,15 @@ final class Watcher: ObservableObject {
         log?.add("watching opened")
     }
 
+    /// The video canvas moved to another viewer (full screen in or out, the glance, the strip):
+    /// a renderer the move failed is reset and the next frame asked for stands on its own
+    /// (Nov 8 2026, round 2).
+    func canvasMoved() {
+        guard isOpen, videoSize != nil else { return }
+        video.ready()
+        askKeyframe()
+    }
+
     /// Done: on the Duo's inner screen the glance (the pictures stay, the controls go); anywhere
     /// else, closed.
     func done() {
@@ -357,6 +372,8 @@ final class Watcher: ObservableObject {
 
     /// The window in hand takes the whole screen: no deck, no bar, no status bar.
     @Published private(set) var fullScreen = false
+    /// The input page when full screen was entered (the trackpad comes back on exit).
+    private var pageBeforeFullScreen: MacInput.Page?
 
     /// Every pose has room for it (it was the inner screen on its side only, Nov 3 – Nov 8 2026).
     static func allowsFullScreen(_ pose: FoldPose) -> Bool { true }
@@ -370,7 +387,10 @@ final class Watcher: ObservableObject {
         if on { keepPicture() }
         fullScreen = on
         if isDesktop { wholeWindow = on ? false : !fillsView }
-        if on, input.page != .mic { input.show(.mic, quiet: true) }
+        // The deck's mode comes back on the way out (Nov 8 2026, round 2: it reset to Mic even
+        // when the trackpad was up).
+        if on { pageBeforeFullScreen = input.page; if input.page != .mic { input.show(.mic, quiet: true) } }
+        else if let page = pageBeforeFullScreen, page == .trackpad, input.page != page { input.show(page, quiet: true) }
         // A window he had made smaller: all the room again, in and out (`ResizableWindow` follows).
         shrunkHere = false
         Haptics.arrived()
@@ -564,6 +584,12 @@ final class Watcher: ObservableObject {
         viewerSize = size
         viewerFills = fill
         viewerPose = input.pose
+        // Kept per pose (Nov 8 2026, round 2): the shape ahead needs a measure from this pose,
+        // and the first open after every launch had none — it came in at the Mac's own shape and
+        // jumped to the view's 1.3 s later.
+        if !fullScreen, size.width > 40, size.height > 40 {
+            UserDefaults.standard.set([size.width, size.height], forKey: Self.viewSizeKey(input.pose, fill: fill))
+        }
         // A room still settling when its shape went (Nov 8 2026, the review: the Duo's side page
         // measured half its height at the first Show it here, and the Mac's window became 2:1
         // until a full-screen round trip): a measure that disagrees with the shape just sent by a
@@ -685,17 +711,28 @@ final class Watcher: ObservableObject {
     private func shapeAhead() {
         guard macFeatures().contains(WatchShape.aheadFeature),
               !glancing, !sizedByHand, let target, !isDesktop, canFitToPhone, !Self.keepsOwnSize(target),
-              !fullScreen, viewerPose == input.pose, viewerFills == fillsView,
-              viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
-        shapeSent = viewerSize
+              !fullScreen else { return }
+        // This pose's measure, from this launch or the last (`viewSizeKey`).
+        var size = viewerPose == input.pose && viewerFills == fillsView ? viewerSize : .zero
+        var remembered = false
+        if size.width <= 40 || size.height <= 40,
+           let kept = UserDefaults.standard.array(forKey: Self.viewSizeKey(input.pose, fill: fillsView)) as? [CGFloat], kept.count == 2 {
+            size = CGSize(width: kept[0], height: kept[1])
+            remembered = true
+        }
+        guard size.width > 40, size.height > 40, sendShape(size) else { return }
+        shapeSent = size
         shapeSentAt = Date()
         if !askedForFit { autoFitted = true }
         if wholeWindow { wholeWindow = false }
         if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
         Self.setFitted(target, true)
         drag = .scroll
-        log?.add("watching: the window opens at the view's shape (\(Int(viewerSize.width))×\(Int(viewerSize.height)))")
+        log?.add("watching: the window opens at the view's shape (\(Int(size.width))×\(Int(size.height)))\(remembered ? " — remembered from last time" : "")")
     }
+
+    /// Where the view's size in a pose is kept between launches (for the shape ahead).
+    private static func viewSizeKey(_ pose: FoldPose, fill: Bool) -> String { "watch.viewSize.\(pose.name).\(fill ? "fill" : "fit")" }
 
     /// The view leaves a window it shaped by itself: the Mac puts it back as it was.
     private func putBackAutoFit() {

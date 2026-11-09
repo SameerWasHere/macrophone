@@ -38,6 +38,7 @@ struct MacKeyboardField: UIViewRepresentable {
         // page goes with it — back to the mic (Sameer: "when hitting the close button, the UI
         // should just go back to mic mode", never a keyboard page with no keyboard).
         v.onKeyboardGone = { [weak input] in input?.hideKeyboard(quiet: true) }
+        v.stillWanted = { [weak input, weak watcher] in input?.page == .keyboard && watcher?.fullScreen == false }
         v.bar = KeyboardBarHost(rootView: MacKeyboardBar(input: input, watcher: watcher))
         v.inputAccessoryView = v.bar
         return v
@@ -100,6 +101,11 @@ final class KeyboardTextView: UITextView {
         return false
     }
     var wantsKeyboard = false
+    /// Asked again the moment the keyboard would be taken (Nov 8 2026, round 2): `wantsKeyboard`
+    /// is what the last SwiftUI update said; the page can have moved on since, and in full screen
+    /// there is no keyboard page at all — the reviewer's Duo brought this field's keyboard up over
+    /// the full-screen picture from the mic mode.
+    var stillWanted: () -> Bool = { true }
     /// No shortcuts groups beside the predictions (upright on the inner screen).
     var compact = false {
         didSet {
@@ -250,6 +256,9 @@ final class KeyboardTextView: UITextView {
     private var focusQueued = false
 
     override func becomeFirstResponder() -> Bool {
+        #if DEBUG
+        AppModel.shared.log.add("keyboard field: taking the keyboard (wants \(wantsKeyboard), seen \(seen), page \(String(describing: MainActor.assumeIsolated { AppModel.shared.watcher.input.page })), full screen \(MainActor.assumeIsolated { AppModel.shared.watcher.fullScreen }))")
+        #endif
         becoming = true
         defer { becoming = false }
         let ok = super.becomeFirstResponder()
@@ -361,12 +370,12 @@ final class KeyboardTextView: UITextView {
     func applyFocus() {
         guard window != nil else { return }
         if !wantsKeyboard { goneCheck?.cancel() }
-        if wantsKeyboard, !isFirstResponder, !focusQueued, seen {
+        if wantsKeyboard, !isFirstResponder, !focusQueued, seen, stillWanted() {
             focusQueued = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.focusQueued = false
-                guard self.wantsKeyboard, self.window != nil, !self.isFirstResponder, self.seen else { return }
+                guard self.wantsKeyboard, self.window != nil, !self.isFirstResponder, self.seen, self.stillWanted() else { return }
                 self.becomeFirstResponder()
             }
         } else if !wantsKeyboard, isFirstResponder {

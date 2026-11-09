@@ -179,7 +179,12 @@ extension MainView {
             // on the simulator, measured — `flatUprightKeyboard`): the keyboard rises over the deck
             // alone and the window keeps its frame.
             let flatHand = max(DuoLook.flatDeck, KeyboardTextView.flatUprightKeyboard - geo.safeAreaInsets.bottom - restGap)
-            let restDeck = flat ? min(geo.size.height * (watcher.isShowing ? 0.45 : 0.52), watcher.isShowing ? flatHand : DuoLook.flatDeckAtRest) : h.deck.height
+            // In hand, flat upright gives the Mac the laptop's half exactly (Nov 8 2026, round 2 —
+            // Sameer's call on the fold): the window's shape is the same folded or flat, so a
+            // fold between them reshapes nothing. The deck gets the rest (never less than the
+            // keyboard needs, `flatHand`, so the window stays whole with either keyboard).
+            let flatHandDeck = max(geo.size.height - h.mac.height - restGap, flatHand)
+            let restDeck = flat ? (watcher.isShowing ? flatHandDeck : min(geo.size.height * 0.52, DuoLook.flatDeckAtRest)) : h.deck.height
             let restMac = flat ? geo.size.height - restDeck - restGap : h.mac.height
             // The keyboard up (Nov 7 2026, round 3): the top half is the Mac's screen, and a
             // Mac's screen doesn't move for a keyboard — its width, its scale and its top edge
