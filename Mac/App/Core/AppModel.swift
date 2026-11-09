@@ -159,6 +159,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         watchWallpaper()
         // The pointer's shape on the phone's trackpad pointer (Nov 1 2026, Watch/WatchService.swift).
         server.macFeatures.append(MacCursor.feature)
+        // The watched window's real corners, read once per size (Nov 9 2026, Watch/WindowMask.swift).
+        server.macFeatures.append(WatchWindowMask.feature)
         server.macFeatures.append(UndoPaste.feature)
         // Windows on watch, and every alert with a picture (Nov 6 2026, Watch/WindowAlerts.swift).
         server.macFeatures.append(MacAlerts.feature)

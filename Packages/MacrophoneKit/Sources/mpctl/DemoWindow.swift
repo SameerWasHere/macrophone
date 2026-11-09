@@ -59,10 +59,14 @@ final class DemoWindow: @unchecked Sendable {
     private(set) var width = 1400
     private(set) var height = 900
     /// `mpctl serve --rounded`: the window's corners rounded (26 pt at 2× — a Tahoe window's) with
-    /// black outside the arcs, as a captured Mac window arrives (the transparent corners of a
-    /// single-window capture have no alpha once they're video or JPEG — Nov 8 2026). A phone that
-    /// clips the corners shows none of the black.
+    /// TRANSPARENT corners, as the Mac captures a single window (Nov 9 2026); the video and JPEG
+    /// paths flatten them to black on the way out exactly as the Mac's stream does, and `serve`
+    /// sends the mask the Mac would (`WindowMaskReader.make(from:)` on this very picture), so a
+    /// phone that takes it shows none of the black. `--rounded-black` (the Nov 8 2026 look: black
+    /// painted outside the arcs, no mask) is the fallback test — the phone's pixel guess.
     var cornerRadius: CGFloat = 0
+    /// `--rounded-black`: paint the corners black instead of leaving them transparent.
+    var blackCorners = false
     /// `mpctl serve --reshape`: the window takes the shape the phone sends (`watchShape`), as the
     /// Mac app gives a real window the view's shape — at the width it had, or the height, whichever
     /// keeps it inside 1400 × 900 — and goes back on `.restore`.
@@ -280,17 +284,27 @@ final class DemoWindow: @unchecked Sendable {
             ctx.drawPath(using: .fillStroke)
         }
         if cornerRadius > 0 {
-            // Outside the window's rounded corners: black, as the capture's transparent pixels
-            // come through video or JPEG.
+            // Outside the window's rounded corners: transparent, as a single-window capture is
+            // (the video and JPEG paths flatten that to black, as the Mac's do) — or black painted
+            // on, for the fallback test (`--rounded-black`).
             let r = cornerRadius
             let outside = CGMutablePath()
             outside.addRect(CGRect(x: 0, y: 0, width: w, height: h))
             outside.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: w, height: h), cornerWidth: r, cornerHeight: r, transform: nil))
+            ctx.setBlendMode(blackCorners ? .normal : .clear)
             ctx.setFillColor(CGColor(gray: 0, alpha: 1))
             ctx.addPath(outside)
             ctx.fillPath(using: .evenOdd)
+            ctx.setBlendMode(.normal)
         }
         return ctx.makeImage()
+    }
+
+    /// The window's corners as the Mac would read them off a frame with alpha (nil for square
+    /// corners painted black, or none).
+    func mask() -> WatchWindowMask? {
+        guard cornerRadius > 0, !blackCorners, let image = image() else { return nil }
+        return WindowMaskReader.make(from: image)
     }
 
     private func encode(_ image: CGImage, type: String, quality: Double) -> Data? {

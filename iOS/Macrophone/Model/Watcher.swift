@@ -107,6 +107,17 @@ final class Watcher: ObservableObject {
     /// This window's picture from the last time it showed (Nov 3 2026, `WindowSnapshots`): drawn,
     /// dimmed, until this watch's first frame — never an empty plate while it opens.
     @Published private(set) var lastPicture: UIImage?
+    /// The window's real corners, as the Mac read them off a frame with alpha (Nov 9 2026,
+    /// `WatchWindowMask`): the viewer clips the picture with them instead of guessing a radius
+    /// off black pixels. Nil from a Mac from before (the guess stays), and across a switch.
+    @Published private(set) var mask: WatchWindowMask?
+
+    /// The Mac sent the window's corners for the picture size it names.
+    func maskArrived(_ m: WatchWindowMask) {
+        guard isOpen, !isDesktop else { return }
+        mask = m
+        log?.add("watching: the window's corners from the Mac — \(Int(m.radius)) px at \(m.width)×\(m.height)\(m.corners == nil ? " (radius only)" : "")")
+    }
     /// The Mac the pictures come from (the snapshots are kept per Mac).
     var macID: () -> UUID? = { nil }
     private var keepTask: Task<Void, Never>?
@@ -293,6 +304,7 @@ final class Watcher: ObservableObject {
             }
             windowSeq &+= 1
             appName = ""
+            mask = nil
             bundleID = target.bundleID
             focus = nil
             prompt = nil
@@ -413,6 +425,7 @@ final class Watcher: ObservableObject {
         keepTask?.cancel()
         putBackAutoFit()
         isOpen = false
+        mask = nil
         // Closed while the link was away: the next open asks afresh (and holds again if it must).
         if phase == .reconnecting { phase = .offline }
         resuming = false

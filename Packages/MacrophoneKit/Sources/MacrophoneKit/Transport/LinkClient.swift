@@ -869,6 +869,8 @@ public final class LinkClient: @unchecked Sendable {
             deliverFrontWindow(w, macID: macID)
         case let .macCursor(c):
             deliverCursor(c)
+        case let .watchMask(m):
+            deliverMask(m)
         case let .undoDone(r):
             deliverUndo(r)
         case let .alertWatches(list):

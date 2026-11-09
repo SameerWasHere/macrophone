@@ -38,6 +38,13 @@ extension ServeDelegate: LinkServerWallpaperDelegate {
     }
 }
 
+extension PhoneDelegate: LinkClientMaskDelegate {
+    /// `mpctl listen --features windowMask`: the watched window's corners, as the Mac read them (Nov 9 2026).
+    func linkClient(_ client: LinkClient, watchMask m: WatchWindowMask) {
+        stdout("MASK \(Int(m.radius)) px at \(m.width)×\(m.height)\(m.corners.map { " · \($0.count) bytes" } ?? " · radius only")")
+    }
+}
+
 extension PhoneDelegate: LinkClientWallpaperDelegate {
     func linkClient(_ client: LinkClient, macWallpaper w: MacWallpaper, macID: UUID) {
         stdout("WALLPAPER \(w.width)×\(w.height) \(w.jpeg.count / 1024) KB"

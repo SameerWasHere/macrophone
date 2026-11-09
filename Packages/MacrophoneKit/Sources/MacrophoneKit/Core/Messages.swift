@@ -236,6 +236,9 @@ public enum Message: Codable, Sendable {
     /// Mac → phone (only to a phone naming MacCursor.feature): the Mac's pointer as it looks now,
     /// while the phone's trackpad pointer is up — when it shows and on each change.
     case macCursor(MacCursor)
+    /// Mac → phone (only to a phone naming WatchWindowMask.feature): the watched window's real
+    /// corner shape, read off one frame with alpha — once per picture size (Nov 9 2026).
+    case watchMask(WatchWindowMask)
     /// Phone → Mac (only to a Mac naming UndoPaste.feature): undo this dictation's paste.
     case undoPaste(id: UUID)
     /// Mac → phone: what that undo did.

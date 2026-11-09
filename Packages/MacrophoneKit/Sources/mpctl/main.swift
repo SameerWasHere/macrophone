@@ -39,7 +39,11 @@ import MacrophoneKit
 //   mpctl probe [--seconds 20] [--every 0.1] [--no-lane]   # watch a busy window and time a ping's
 //              round trip the whole while: median / p95 / p99 / max, and the video frames that came
 //   mpctl serve --busy                        # the demo window changes every frame (output streaming past)
-//   mpctl serve --rounded --reshape           # a Tahoe window's rounded corners (black outside them); the window takes the shape the phone sends
+//   mpctl serve --rounded --reshape           # a Tahoe window's rounded corners, transparent outside them, and the mask the Mac would
+//                                             # send (Nov 9 2026: WATCH MASK 53 px at 1400×900); the window takes the shape the phone sends
+//   mpctl serve --rounded-black               # the corners painted black, no mask (the phone's pixel-guess fallback)
+//   mpctl listen --features windowMask        # prints MASK 53 px at 1192×1084 · N bytes when the window's corners come
+//   mpctl alpha-bench [--frames 60]           # HEVC vs HEVC-with-alpha on the demo window: encode ms and KB a frame (the mask's alternative)
 //   mpctl serve --no-lane / any phone command --no-lane   # a Mac / a phone from before the video lane
 //   mpctl serve --permissions accessibility=off,screen=off # what this "Mac" says it's allowed to do
 //   mpctl watch --double-click 0.5,0.5 | --drag 0.2,0.5,0.6,0.5 | --hover 0.5,0.5 | --type "words" | --key cmd+shift+f5
@@ -157,6 +161,7 @@ final class ServeDelegate: LinkServerDelegate {
         }
         if let on = ChatAnswers.choice(in: server.phoneFeatures(peer.id)) { chatAnswers = on; stdout("CHAT ANSWERS \(on ? "on" : "off") (hello)") }
         stdout("CONNECTED \(peer.name) (\(os), v\(appVersion))\(server.isRemote(peer.id) ? " from away" : "")")
+        if has("--verbose") { stdout("FEATURES \(server.phoneFeatures(peer.id).sorted().joined(separator: " "))") }
         MacReachDemo.tell(server, peer.id)
     }
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) { stdout("DISCONNECTED") }
@@ -259,9 +264,12 @@ final class ServeDelegate: LinkServerDelegate {
             if case let .app(bid, wk, _) = target { key = bid + "#" + (wk ?? "") } else { key = "front" }
             if let d = demos[key] { return d }
             let d = DemoWindow()
-            // --rounded: a Tahoe window's corners, black outside them (Nov 8 2026); --reshape:
-            // the window takes the shape the phone sends, as the Mac app reshapes a real one.
-            if has("--rounded") { d.cornerRadius = 52 }
+            // --rounded: a Tahoe window's corners, transparent outside them, and the mask the Mac
+            // would send (Nov 9 2026); --rounded-black: black painted outside them, no mask (the
+            // Nov 8 2026 look, for the phone's pixel-guess fallback); --reshape: the window takes
+            // the shape the phone sends, as the Mac app reshapes a real one.
+            if has("--rounded") || has("--rounded-black") { d.cornerRadius = 52 }
+            if has("--rounded-black") { d.blackCorners = true }
             let name = target.displayName.components(separatedBy: " — ")
             d.app = name.first ?? "Claude"
             if name.count > 1 { d.title = name[1] } else { d.title = d.app }
@@ -308,6 +316,8 @@ final class ServeDelegate: LinkServerDelegate {
         }
         let demo = self.demo(for: target)
         lock.sync { watched[peerID] = demo; watchStarted[peerID] = Date() }
+        // A new watch: the phone starts with no mask, so the first one goes again (Nov 9 2026).
+        masksSent[peerID] = nil
         // The app's own name, as the Mac sends it ("Terminal", not "Terminal — claude ~/app").
         let appName = target.displayName.components(separatedBy: " — ").first ?? target.displayName
         let forced = flag("--watch-state")
@@ -332,6 +342,9 @@ final class ServeDelegate: LinkServerDelegate {
             // window before its first picture, so the first frame waits a moment for it here too
             // (the phone never sees the old shape — Nov 8 2026).
             if has("--reshape") { try? await Task.sleep(nanoseconds: 250_000_000) }
+            // --rounded: the window's corners, as the Mac reads them off one frame with alpha
+            // (Nov 9 2026) — once the shape ahead is in, so they're read at the first frame's size.
+            await self.sendMask(server, demo, to: peerID)
             while !Task.isCancelled {
                 n += 1
                 // A line of the answer every second; the window is looked at thirty times a second
@@ -399,7 +412,10 @@ final class ServeDelegate: LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID) {
         stdout("WATCH FIT \(fit.rawValue)")
-        lock.sync { watched[peerID] }?.fit(fit)
+        guard let demo = lock.sync({ watched[peerID] }) else { return }
+        demo.fit(fit)
+        // A new picture size: its corners again (Nov 9 2026).
+        Task { await self.sendMask(server, demo, to: peerID) }
     }
 
     /// Fit to iPhone, or a window taking the view's shape by itself (the demo window keeps its own).
@@ -415,6 +431,21 @@ final class ServeDelegate: LinkServerDelegate {
             if !ahead { try? await Task.sleep(nanoseconds: 500_000_000) }
             demo.reshape(aspect: aspect)
             stdout("WATCH RESHAPED \(demo.width)×\(demo.height)\(ahead ? " (ahead)" : "")")
+            // A new picture size: its corners again, as the Mac app sends them (Nov 9 2026).
+            await self.sendMask(server, demo, to: peerID)
+        }
+    }
+
+    /// `--rounded`: the demo window's corners, read off its own alpha the way the Mac reads a
+    /// real window's, to a phone that named `windowMask` — once per picture size.
+    private var masksSent: [UUID: WatchWindowMask] = [:]
+    func sendMask(_ server: LinkServer, _ demo: DemoWindow, to peerID: UUID) async {
+        guard server.phones(with: WatchWindowMask.feature).contains(peerID) else { if has("--rounded") { stdout("WATCH MASK not sent: the phone doesn't name \(WatchWindowMask.feature)") }; return }
+        guard let mask = demo.mask() else { if has("--rounded") { stdout("WATCH MASK not sent: nothing read off the demo window") }; return }
+        guard masksSent[peerID] != mask else { return }
+        masksSent[peerID] = mask
+        if await server.sendMask(mask, to: peerID) {
+            stdout("WATCH MASK \(Int(mask.radius)) px at \(mask.width)×\(mask.height) · \(mask.corners?.count ?? 0) bytes")
         }
     }
 
@@ -782,6 +813,8 @@ func run() async -> Int32 {
         // The desktop picture (Wallpaper.swift): the demo gradient, or --wallpaper's image.
         server.macFeatures.append(MacWallpaper.feature)
         server.macFeatures.append(MacCursor.feature)
+        // The window's corners as a mask (Nov 9 2026): --rounded sends the demo's.
+        server.macFeatures.append(WatchWindowMask.feature)
         // Undo the last paste (Undo.swift): answers as the Mac does, presses nothing.
         if !has("--no-undo") { server.macFeatures.append(UndoPaste.feature) }
         if !has("--no-alerts") { server.macFeatures.append(MacAlerts.feature) }
@@ -1203,6 +1236,9 @@ func run() async -> Int32 {
 
     case "cleanup-eval":
         return await CleanupEval.run(file: flag("--file"), level: flag("--level"), only: flag("--only"))
+
+    case "alpha-bench":
+        return await AlphaBench.run()
 
     case "wake-testset":
         return await WakeBench.generate(dir: args.count > 1 ? args[1] : "wake-testset")

@@ -750,7 +750,7 @@ public final class LinkServer: @unchecked Sendable {
                 handleChatAnswers(on, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .undoDone, .alertWatches, .macAlert, .frontWindow, .keepAwake:
+            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .watchMask, .undoDone, .alertWatches, .macAlert, .frontWindow, .keepAwake:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

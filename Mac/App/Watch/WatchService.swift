@@ -81,6 +81,16 @@ final class WatchService {
         /// While the pointer is up, the Mac's pointer shape is read and sent on each change
         /// (Nov 1 2026, `MacCursor`), to a phone that draws it.
         var cursorTask: Task<Void, Never>?
+        /// The window's real corners, read once per picture size and sent to a phone that clips
+        /// with them (Nov 9 2026, `WindowMaskCapture`): the size last asked for, the mask last
+        /// sent, and the read under way.
+        var maskFor: CGSize?
+        var maskSent: WatchWindowMask?
+        var maskTask: Task<Void, Never>?
+        /// With companions: what the stream shows (the display's filter and the area in it), so
+        /// the mask is read off the same picture.
+        var maskFilter: SCContentFilter?
+        var maskSource: CGRect?
         /// A window was found and shown at least once: only then can it be "closed".
         var sawWindow = false
         /// When the window it showed was first found gone: a beat later, still gone, it's closed.
@@ -175,6 +185,8 @@ final class WatchService {
             settle.reset()
             companions = []
             area = nil
+            maskFilter = nil
+            maskSource = nil
             poster.area = nil
             input.set(area: nil)
         }
@@ -323,6 +335,7 @@ final class WatchService {
         w.poster.stop()
         w.input.stop()
         w.cursorTask?.cancel()
+        w.maskTask?.cancel()
         if w.input.clicks + w.input.moves + w.input.typed > 0 {
             app.log.add("watch input: \(w.input.clicks) clicks, \(w.input.moves) pointer moves (\(w.input.missed) didn't land, warped there), \(w.input.typed) characters typed")
         }
@@ -574,7 +587,47 @@ final class WatchService {
             tellPipe(w)
         }
         if w.poster.window != wid { w.poster.window = wid; w.input.set(window: wid, pid: w.pid) }
+        // The picture's size changed (the stream started, the window was resized, companions came
+        // or went): the phone gets the window's corners at that size (Nov 9 2026).
+        if let s = w.stream, wid != WindowServer.desktopID {
+            let px = CGSize(width: s.size.width, height: s.size.height)
+            if px != w.maskFor { w.maskFor = px; refreshMask(w, wid: wid, pixels: px) }
+        }
         return .live(appName: w.appName)
+    }
+
+    // MARK: The window's corners (Nov 9 2026)
+
+    /// Reads the window's corners off one frame with alpha and sends them to the phone — a beat
+    /// after the size settles (a resize passes through sizes), never the same mask twice. With
+    /// companions the picture is a piece of the display (square); the whole screen never asks.
+    private func refreshMask(_ w: Watch, wid: CGWindowID, pixels: CGSize) {
+        w.maskTask?.cancel()
+        guard app.server.phones(with: WatchWindowMask.feature).contains(w.peer) else { return }
+        let size = (width: Int(pixels.width), height: Int(pixels.height))
+        w.maskTask = Task { @MainActor [weak self, weak w] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard let self, let w, !Task.isCancelled, let s = w.stream, s.size.width == size.width, s.size.height == size.height else { return }
+            // Off the very picture the stream shows: the window alone, or — with companions (a
+            // sheet, a panel, an app's own child window inside it) — the display's area with them.
+            let read: (mask: WatchWindowMask?, ms: Int, how: String)
+            if let filter = w.maskFilter, let source = w.maskSource {
+                read = await WindowMaskCapture.read(filter: filter, source: source, windowID: nil, size: size)
+            } else {
+                guard let scw = await self.scWindow(wid), !Task.isCancelled else { return }
+                read = await WindowMaskCapture.read(filter: SCContentFilter(desktopIndependentWindow: scw), source: nil, windowID: wid, size: size)
+            }
+            guard !Task.isCancelled, w.stream === s else { return }
+            let with = w.companions.isEmpty ? "" : ", with \(w.companions.count) companions"
+            if let m = read.mask {
+                self.app.log.add("window mask: \(Int(m.radius)) px round at \(m.width)×\(m.height), read in \(read.ms) ms (\(read.how)\(m.corners == nil ? ", radius only" : ", \(m.corners!.count) bytes")\(with))")
+            } else {
+                self.app.log.add("window mask: nothing to read at \(size.width)×\(size.height) (\(read.how), \(read.ms) ms\(with)) — the phone keeps its own guess")
+            }
+            guard let mask = read.mask, mask != w.maskSent else { return }
+            w.maskSent = mask
+            await self.app.server.sendMask(mask, to: w.peer)
+        }
     }
 
     /// The windows laid over the watched one right now (`WatchCompanions`, one window list): when
@@ -603,6 +656,8 @@ final class WatchService {
             guard w.stream === s else { return }
             w.companions = found
             w.area = p.area
+            w.maskFilter = SCContentFilter(display: display, including: [host] + others)
+            w.maskSource = p.area.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
             w.poster.area = p.area
             w.input.set(area: p.area)
         case .alone:
@@ -611,7 +666,11 @@ final class WatchService {
             guard w.stream === s else { return }
             w.alone()
         }
-        if w.companions.count != before { app.log.add("watch: with \(w.companions.count) companion windows") }
+        if w.companions.count != before {
+            // Which (owner and layer only — never a title), so a false companion can be told apart.
+            let kinds = w.companions.map { "\($0.owner ?? "?")@\($0.layer)" }.joined(separator: ", ")
+            app.log.add("watch: with \(w.companions.count) companion windows\(kinds.isEmpty ? "" : " (\(kinds))")")
+        }
         tellPipe(w)
         w.hurry()
     }

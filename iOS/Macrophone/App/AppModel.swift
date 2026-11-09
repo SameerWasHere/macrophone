@@ -291,6 +291,8 @@ final class AppModel: ObservableObject {
         c.features.append(KeepAwakeStatus.feature)
         // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
         c.features.append(MacWallpaper.feature)
+        // The watched window's real corners, read on the Mac (Nov 9 2026, UI/WatchPanel.swift).
+        c.features.append(WatchWindowMask.feature)
         // Windows on watch, and every alert with a picture of its window (Nov 6 2026).
         c.features.append(MacAlerts.feature)
         // "When a chat answers you", and how it stands (Nov 8 2026): the Mac follows the chats this

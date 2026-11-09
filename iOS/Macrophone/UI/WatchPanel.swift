@@ -883,6 +883,7 @@ struct WatchWindow: View {
                              floats: !fill && !reduceTransparency,
                              resizing: resizing,
                              readsCorners: !watcher.isDesktop,
+                             windowMask: watcher.mask,
                              onPictureShown: { r in
                                  // The resize arc follows the window's own corner (never the
                                  // frame's when the picture sits smaller than it).
@@ -1816,6 +1817,9 @@ struct WindowViewer: UIViewRepresentable {
     /// The picture is a window: its own rounded corners are read and clipped to (not the whole
     /// screen's picture).
     var readsCorners = true
+    /// The window's real corners from the Mac (Nov 9 2026): clipped with them when they fit the
+    /// picture's size; nil keeps the pixel read.
+    var windowMask: WatchWindowMask? = nil
     /// What of the picture shows, in the view's own space, whenever it moves.
     var onPictureShown: (CGRect) -> Void = { _ in }
     /// A picture shaped unlike the view opens whole (see `WatchWindow.fitsOtherShapes`).
@@ -1838,6 +1842,7 @@ struct WindowViewer: UIViewRepresentable {
         let v = host.viewer
         wire(v)
         v.readsCorners = readsCorners
+        v.windowMask = windowMask
         v.fitsOtherShapes = fitsOtherShapes
         // Thawed: laid out now, before the next frame draws (Nov 8 2026, round 3) — its canvas
         // held the zoom of the room it was frozen in, and showed a frame of the picture small in
@@ -2076,18 +2081,70 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     // black." The radius is read off the picture itself — the top-left and top-right diagonals,
     // counting black pixels from the corner (a circle's arc meets the diagonal r·(1 − 1/√2) in):
     // the title bar behind them is never black, and a Terminal's black page is below it — and the
-    // picture is clipped to it (the canvas's own corner, so it scales with the zoom). Nothing from
-    // the Mac: an installed Mac app from before draws the same.
+    // picture is clipped to it (the canvas's own corner, so it scales with the zoom). That was
+    // the guess (Nov 8 2026), and it fails on real windows. Now (Nov 9 2026) a Mac that can sends
+    // the window's REAL corners, read off one frame with alpha (`WatchWindowMask`): its radius —
+    // which the shadow, the hairline, the arc and the flights all take as `pictureCorner` — and
+    // a small PNG of the four corners' own alpha, laid on the canvas as a 9-slice layer mask, so
+    // whatever curve the window has clips exactly at any zoom. The guess stays for a Mac from
+    // before, and for a picture of another size than the mask was read at (its radius, scaled).
 
     /// The window's corner radius, in the picture's pixels (0: square, or not known).
     private(set) var pictureCorner: CGFloat = 0 {
         didSet {
             guard pictureCorner != oldValue else { return }
-            canvas.layer.cornerRadius = pictureCorner
-            canvas.layer.masksToBounds = pictureCorner > 0
+            applyClip()
             roundView()
             onPictureMoved()
         }
+    }
+    /// The window's corners from the Mac (nil: none came — the pixels are read instead).
+    var windowMask: WatchWindowMask? {
+        didSet {
+            guard windowMask != oldValue else { return }
+            // A mask gone or changed: the clip is decided again for the picture up.
+            cornerRead.tries = 0
+            if imageSize != .zero { readCornerIfNeeded() }
+        }
+    }
+    /// The 9-slice mask on the canvas, and the mask it was made from.
+    private var maskLayer: CALayer?
+    private var maskLayerFor: WatchWindowMask?
+
+    /// Clips the canvas: the Mac's own corners when they fit this picture, else a round corner
+    /// of `pictureCorner` (the guess, or the Mac's radius scaled to another size).
+    private func applyClip() {
+        if let m = windowMask, readsCorners, imageSize != .zero, m.fits(width: Int(imageSize.width), height: Int(imageSize.height)),
+           let png = m.corners, m.radius > 0 {
+            if maskLayerFor != m || maskLayer == nil {
+                guard let image = WindowMaskReader.image(png) else { roundCanvas(); return }
+                let layer = CALayer()
+                layer.contents = image
+                layer.contentsGravity = .resize
+                layer.contentsCenter = m.contentsCenter
+                // One mask pixel per picture pixel: the canvas is laid out in picture pixels and
+                // zoomed by its transform, so the arc stays the window's at any zoom.
+                layer.contentsScale = 1
+                layer.magnificationFilter = .linear
+                maskLayer = layer
+                maskLayerFor = m
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            maskLayer?.frame = canvas.bounds
+            canvas.layer.mask = maskLayer
+            canvas.layer.cornerRadius = 0
+            canvas.layer.masksToBounds = false
+            CATransaction.commit()
+        } else {
+            roundCanvas()
+        }
+    }
+
+    private func roundCanvas() {
+        if canvas.layer.mask != nil { canvas.layer.mask = nil }
+        canvas.layer.cornerRadius = pictureCorner
+        canvas.layer.masksToBounds = pictureCorner > 0
     }
     /// Whether the picture is a window at all (not the whole screen): its corners are read.
     var readsCorners = true
@@ -2114,6 +2171,26 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let video = wantedVideo != nil && wantedVideo!.superview === canvas
         if cornerRead.size != imageSize || cornerRead.generation != lastGeneration || cornerRead.video != video {
             cornerRead = (imageSize, lastGeneration, video, 0)
+        }
+        // The Mac said what the corners are (Nov 9 2026): no guessing off the pixels. For this
+        // picture's size, its own alpha as the clip; for another (a picture narrowed for a remote
+        // link, a size the Mac hasn't read yet), its radius scaled to the width.
+        if let m = windowMask {
+            let fits = m.fits(width: Int(imageSize.width), height: Int(imageSize.height))
+            // Another size: the same picture at another scale (narrowed for a remote link — the
+            // same shape) scales the arc with it; a window reshaped (another shape) keeps its
+            // corner's pixels, so the radius stands as it is until that size's own mask comes.
+            let sameShape = abs((Double(m.width) / Double(m.height)) / Double(imageSize.width / imageSize.height) - 1) < 0.02
+            let r = fits ? CGFloat(m.radius) : sameShape ? CGFloat(m.radius(forWidth: Int(imageSize.width))) : CGFloat(m.radius)
+            if r != pictureCorner || (fits && maskLayerFor != m) {
+                onLog?("viewer: the window's corners from the Mac — \(Int(r)) px\(fits ? ", its own alpha" : sameShape ? ", the radius scaled" : ", the radius as read") (\(Int(imageSize.width))×\(Int(imageSize.height)))")
+            }
+            pictureCorner = r
+            // The same radius again, the mask new (another size's PNG arrived): the clip is laid again.
+            applyClip()
+            cornerTask?.cancel()
+            cornerRead.tries = Self.cornerTries
+            return
         }
         guard cornerRead.tries < Self.cornerTries else { return }
         cornerRead.tries += 1
