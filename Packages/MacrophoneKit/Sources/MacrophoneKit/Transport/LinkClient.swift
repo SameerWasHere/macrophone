@@ -881,7 +881,7 @@ public final class LinkClient: @unchecked Sendable {
             pongArrived()
         case .showPermissions:
             break
-        case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape,
+        case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape, .watchShapeLive,
              .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertWatch, .keepAwakeSet, .chatAnswers:
             break
         }
@@ -1126,6 +1126,27 @@ public final class LinkClient: @unchecked Sendable {
         Task { try? await s.send(.watchShape(width: Double(size.width), height: Double(size.height))) }
         return true
     }
+
+    /// The window's shape while the finger drags its corner (Nov 9 2026): to a Mac naming
+    /// `WatchShape.liveFeature` every shape goes as `watchShapeLive` (applied at once there, the
+    /// release marked `final`); to a Mac from before a live shape sends nothing (false) and the
+    /// final one goes as today's `watchShape`. The connected Mac can take live shapes:
+    /// `macTakesLiveShapes`.
+    @discardableResult
+    public func watchShape(_ size: CGSize, live: Bool, final: Bool) -> Bool {
+        guard size.width > 0, size.height > 0 else { return false }
+        let (session, canLive, canShape) = lock.sync { (self.session, macFeatures.contains(WatchShape.liveFeature), macFeatures.contains(WatchShape.feature)) }
+        guard let s = session, canShape else { return false }
+        if canLive {
+            Task { try? await s.send(.watchShapeLive(width: Double(size.width), height: Double(size.height), final: final)) }
+            return true
+        }
+        guard final || !live else { return false }
+        Task { try? await s.send(.watchShape(width: Double(size.width), height: Double(size.height))) }
+        return true
+    }
+
+    public var macTakesLiveShapes: Bool { lock.sync { macFeatures.contains(WatchShape.liveFeature) } }
 
     /// The connected Mac presses keys beyond Esc, the arrows and Return.
     public var canPressKeys: Bool { lock.sync { session != nil && macFeatures.contains(WatchKey.feature) } }

@@ -127,6 +127,9 @@ struct ResizableWindow<Content: View>: View {
                 if full { next = CGSize(width: 1, height: 1) }
                 if full != snapped { snapped = full; if full { Haptics.pick() } }
                 live = next
+                // The Mac's window follows the finger (Nov 9 2026): the frame's shape goes every
+                // ~90 ms while it moves, applied at once there, so the app reflows under the finger.
+                watcher.resizingShape(CGSize(width: room.width * next.width, height: room.height * next.height))
             }
             .onEnded { _ in
                 let final = live ?? share

@@ -771,8 +771,69 @@ final class Watcher: ObservableObject {
         log?.add("watching: the window goes back to its own size")
     }
 
-    /// He's dragging the window's corner on the phone: nothing reshapes the Mac's window mid-drag.
+    /// He's dragging the window's corner on the phone: nothing else reshapes the Mac's window
+    /// mid-drag (the finger does — `resizingShape`).
     var resizingHere = false
+
+    // MARK: The window under the finger (Nov 9 2026)
+
+    // Sameer: "the resizing needs to be as responsive as possible". While the finger drags the
+    // corner, the frame's shape goes to the Mac every `WatchShape.liveInterval` (~90 ms) when the
+    // aspect has moved more than a percent (`watchShapeLive`), and the Mac resizes the window at
+    // once with no frames held — so the app reflows under the finger, as under a Mac's pointer.
+    // The release sends the final one the same way; a Mac from before gets that one alone, as
+    // today's `watchShape` (the client decides). Numbers only in the log.
+
+    /// A shape to the Mac while the finger drags (`final` at the release); false when nothing went.
+    var sendLiveShape: (CGSize, Bool) -> Bool = { _, _ in false }
+    private var liveShapeSent: CGSize?
+    private var liveShapeSentAt: Date?
+    private var liveShapePending: CGSize?
+    private var liveShapeTask: Task<Void, Never>?
+    private var liveShapeCount = 0
+    private var liveShapeBegan: Date?
+
+    /// The frame's size now, from the finger: sent when it's due (`WatchShape.liveShapeDue`),
+    /// else kept as the newest pending one and sent on the next tick.
+    func resizingShape(_ size: CGSize) {
+        guard target != nil, !isDesktop, canFitToPhone, phase == .live else { return }
+        if liveShapeBegan == nil { liveShapeBegan = Date(); liveShapeCount = 0 }
+        if WatchShape.liveShapeDue(size: size, lastSent: liveShapeSent ?? shapeSent, lastAt: liveShapeSentAt) {
+            liveShapeTask?.cancel(); liveShapeTask = nil
+            liveShapePending = nil
+            sendLive(size)
+            return
+        }
+        guard size.width > 40, size.height > 40 else { return }
+        liveShapePending = size
+        guard liveShapeTask == nil else { return }
+        let wait = max(0.01, WatchShape.liveInterval - Date().timeIntervalSince(liveShapeSentAt ?? .distantPast))
+        liveShapeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1e9))
+            guard let self, !Task.isCancelled else { return }
+            self.liveShapeTask = nil
+            guard let p = self.liveShapePending, self.resizingHere else { return }
+            self.liveShapePending = nil
+            if WatchShape.liveShapeDue(size: p, lastSent: self.liveShapeSent ?? self.shapeSent, lastAt: nil) { self.sendLive(p) }
+        }
+    }
+
+    private func sendLive(_ size: CGSize) {
+        guard sendLiveShape(size, false) else { return }
+        liveShapeSent = size
+        liveShapeSentAt = Date()
+        liveShapeCount += 1
+    }
+
+    /// The release: the live run ends (whatever's pending is dropped for the final shape).
+    private func endLiveShapes() {
+        liveShapeTask?.cancel(); liveShapeTask = nil
+        liveShapePending = nil
+        liveShapeSent = nil
+        liveShapeSentAt = nil
+        liveShapeBegan = nil
+        liveShapeCount = 0
+    }
     /// He made the window smaller than its room on the phone (until it's given all the room again,
     /// or the next open): the view's measure isn't the room's.
     var shrunkHere = false
@@ -783,10 +844,18 @@ final class Watcher: ObservableObject {
     /// back to its own size when the view leaves it, like any shape the view gave it unasked.
     func resizedHere(_ size: CGSize) {
         touch()
+        defer { endLiveShapes() }
         guard size.width > 40, size.height > 40 else { return }
         guard let target, !isDesktop, canFitToPhone, phase == .live else { return }
-        guard sendShape(size) else { return }
+        // The final shape: live to a Mac that takes them (applied at once, with the ones before
+        // it), today's `watchShape` to one from before (the client decides).
+        liveShapeTask?.cancel(); liveShapeTask = nil
+        liveShapePending = nil
+        guard sendLiveShape(size, true) else { return }
+        liveShapeCount += 1
+        if liveShapeBegan != nil { log?.add("watching: \(liveShapeCount) shapes went during the resize (\(String(format: "%.1f", Date().timeIntervalSince(liveShapeBegan!))) s)") }
         shapeSent = size
+        shapeSentAt = Date()
         wantsAutoFit = false
         sizedByHand = false
         if !askedForFit { autoFitted = true }
@@ -1156,6 +1225,12 @@ final class Watcher: ObservableObject {
         // picture under the video with it.
         if stale { stale = false; image = nil }
         if videoSize != video.frameSize || frame.points != lastPoints {
+            #if DEBUG
+            // A frame at a new size after a shape went (the resize's latency, Nov 9 2026).
+            if videoSize != video.frameSize, let at = liveShapeSentAt ?? shapeSentAt, Date().timeIntervalSince(at) < 5 {
+                log?.add("watch: a frame at \(Int(video.frameSize.width))×\(Int(video.frameSize.height)) arrived \(Int(Date().timeIntervalSince(at) * 1000)) ms after the shape went")
+            }
+            #endif
             lastPoints = frame.points
             videoSize = video.frameSize
             notePictureSize(video.frameSize, points: frame.points)

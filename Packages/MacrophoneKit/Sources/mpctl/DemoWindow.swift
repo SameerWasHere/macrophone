@@ -229,13 +229,20 @@ final class DemoWindow: @unchecked Sendable {
         let start = max(0, end - visible)
         if drift > 0, !all.isEmpty {
             // Busy: the whole window is text moving up by `drift` pixels a frame, cycling through
-            // the script in three columns — a big window full of output scrolling past.
+            // the script in columns — a big window full of output scrolling past. As many columns
+            // as fit 24 characters (one in a narrow window), each line cut to its column's width
+            // (Menlo 17 is ~10.3 px a character — Nov 9 2026: three columns of 40 characters
+            // overlapped in a reshaped window and read as corruption).
             let small = 26, rows = (h - 90) / small
             let first = drift / small, shift = drift % small
+            let perChar = 10.3
+            let cols = max(1, min(3, (w - 32) / Int(24 * perChar + 16)))
+            let colWidth = (w - 32) / cols
+            let chars = max(4, Int((Double(colWidth) - 16) / perChar))
             for i in 0...rows {
-                for col in 0..<3 {
-                    let l = all[(first + i * 3 + col) % all.count]
-                    text(String(l.prefix(40)), 16 + col * (w / 3), 80 + i * small + 20 - shift, size: 17, CGColor(gray: 0.92, alpha: 1))
+                for col in 0..<cols {
+                    let l = all[(first + i * cols + col) % all.count]
+                    text(String(l.prefix(chars)), 16 + col * colWidth, 80 + i * small + 20 - shift, size: 17, CGColor(gray: 0.92, alpha: 1))
                 }
             }
         } else {
