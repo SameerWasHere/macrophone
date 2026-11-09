@@ -228,6 +228,9 @@ final class MacSide: LinkServerDelegate {
     /// Keep Awake as this Mac tells it, and the requests phones sent (KeepAwakeTests).
     nonisolated(unsafe) var keepAwake: KeepAwakeStatus?
     nonisolated(unsafe) var keepAwakeRequests: [KeepAwakeRequest] = []
+    /// The window shapes phones sent (LiveShapeTests): the aspect, and nil for today's
+    /// `watchShape`, else whether the live shape was the final one.
+    nonisolated(unsafe) var shapes: [(CGFloat, Bool?)] = []
     func linkServer(_ server: LinkServer, approveCode code: String, phoneName: String) async -> Bool { false }
     func linkServer(_ server: LinkServer, didPair peer: PairedPeer) {}
     func linkServer(_ server: LinkServer, didUnpair peerID: UUID) {}

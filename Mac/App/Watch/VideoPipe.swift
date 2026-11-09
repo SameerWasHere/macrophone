@@ -38,6 +38,10 @@ final class VideoPipe: @unchecked Sendable {
         var sendMs: [Int] = []
         var sentAt: [Date] = []
         var videoFrames = 0
+        /// Keyframes and bytes handed to the wire (a live resize's cost is read off these: each
+        /// new size is a new encoder and a keyframe — Nov 9 2026).
+        var keyframes = 0
+        var bytes = 0
     }
 
     private let queue = DispatchQueue(label: "macrophone.watch-video", qos: .userInteractive)
@@ -262,6 +266,8 @@ final class VideoPipe: @unchecked Sendable {
         guard !stopped, let v = encoder else { return }
         if stats.frameMs.count < 4000 { stats.frameMs.append(Int(took * 1000)) }
         stats.videoFrames += 1
+        if e.keyframe { stats.keyframes += 1 }
+        stats.bytes += e.data.count
         seq += 1
         stats.sentAt.append(Date())
         let w = currentWords

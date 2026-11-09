@@ -95,10 +95,11 @@ final class ResizableWindowUITests: XCTestCase {
     }
 
     /// The window follows the finger (Nov 8 2026): a slow drag of the corner, held a moment at
-    /// the end, then let go — the window's frame, its picture and the arc move together, and
-    /// after the finger only the Mac's reshaped picture changes anything. Driven here, read frame
-    /// by frame from a recording made outside (`simctl io recordVideo`, `drag-frames.py`); the
-    /// test itself checks only the end: the window at the dragged size, and the shape sent once.
+    /// the end, then let go — the window's frame, its picture and the arc move together. Driven
+    /// here, read frame by frame from a recording made outside (`simctl io recordVideo`,
+    /// `drag-frames.py`); the test itself checks only the end: the window at the dragged size,
+    /// and the shapes the Mac was sent — several live ones while the finger moved (Nov 9 2026,
+    /// the Mac reshapes the window under the finger) and one final on the release.
     func testASlowDragForTheRecording() {
         let app = launch()
         let handle = app.descendants(matching: .any)["watch-resize"]
@@ -108,19 +109,29 @@ final class ResizableWindowUITests: XCTestCase {
         handle.doubleTap()
         sleep(3)
         let full = settled(win)
-        let shapesBefore = serveLog.components(separatedBy: "WATCH SHAPE").count
+        let before = serveLog
+        let shapesBefore = before.components(separatedBy: "WATCH SHAPE").count
+        let liveBefore = before.components(separatedBy: "WATCH SHAPE live").count
+        let finalBefore = before.components(separatedBy: "WATCH SHAPE final").count
         print("ResizableWindow: slow drag starts \(Date().timeIntervalSince1970)")
         let from = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        // Up and in, changing the window's shape (so the Mac reshapes it), slowly, held a moment.
-        from.press(forDuration: 0.3, thenDragTo: from.withOffset(CGVector(dx: -70, dy: -200)), withVelocity: .slow, thenHoldForDuration: 1.0)
+        // In and a little up — mostly narrower, so the window's shape changes all the way (the
+        // Mac reshapes to the aspect; a drag that shrinks both sides alike changes it little) —
+        // slowly, held a moment.
+        from.press(forDuration: 0.3, thenDragTo: from.withOffset(CGVector(dx: -70, dy: -60)), withVelocity: .slow, thenHoldForDuration: 1.0)
         print("ResizableWindow: slow drag ended \(Date().timeIntervalSince1970)")
         sleep(4)
         let small = settled(win)
         print("ResizableWindow: \(full) → \(small)")
         XCTAssertEqual(small.width, full.width - 140, accuracy: 8, "the width shrank round the middle")
-        XCTAssertEqual(small.height, full.height - 200, accuracy: 8, "the height shrank from the foot")
+        XCTAssertEqual(small.height, full.height - 60, accuracy: 8, "the height shrank from the foot")
         if !serveLog.isEmpty {
-            XCTAssertEqual(serveLog.components(separatedBy: "WATCH SHAPE").count, shapesBefore + 1, "one shape, sent when the finger let go")
+            let log = serveLog
+            let live = log.components(separatedBy: "WATCH SHAPE live").count - liveBefore
+            let final = log.components(separatedBy: "WATCH SHAPE final").count - finalBefore
+            print("ResizableWindow: \(live) live shapes, \(final) final (\(log.components(separatedBy: "WATCH SHAPE").count - shapesBefore) this drag)")
+            XCTAssertEqual(final, 1, "one final shape, sent when the finger let go")
+            XCTAssertGreaterThanOrEqual(live, 3, "the Mac's window followed the finger: several live shapes during the drag")
         }
     }
 }

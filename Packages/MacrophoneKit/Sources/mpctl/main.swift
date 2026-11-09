@@ -44,6 +44,8 @@ import MacrophoneKit
 //   mpctl serve --rounded-black               # the corners painted black, no mask (the phone's pixel-guess fallback)
 //   mpctl listen --features windowMask        # prints MASK 53 px at 1192×1084 · N bytes when the window's corners come
 //   mpctl alpha-bench [--frames 60]           # HEVC vs HEVC-with-alpha on the demo window: encode ms and KB a frame (the mask's alternative)
+//   mpctl serve --reshape --reshape-delay 500 # the old `watchShape` path waits that many ms (the Mac's hold); live shapes (a drag) apply at once
+//   mpctl serve --no-live-shape               # a Mac from before live shapes: one `watchShape` on release
 //   mpctl serve --no-lane / any phone command --no-lane   # a Mac / a phone from before the video lane
 //   mpctl serve --permissions accessibility=off,screen=off # what this "Mac" says it's allowed to do
 //   mpctl watch --double-click 0.5,0.5 | --drag 0.2,0.5,0.6,0.5 | --hover 0.5,0.5 | --type "words" | --key cmd+shift+f5
@@ -421,14 +423,15 @@ final class ServeDelegate: LinkServerDelegate {
     /// Fit to iPhone, or a window taking the view's shape by itself (the demo window keeps its own).
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {
         stdout("WATCH SHAPE \(String(format: "%.2f", aspect))")
-        // --reshape: the demo window takes it half a second later (about when the Mac app's
-        // reshaped frames reach a phone: its pipe holds them 0.3–0.9 s for the resize) — at once
-        // when it comes with the watch (the shape ahead: the Mac app reshapes before the first
-        // picture, so the phone never sees the old shape).
+        // --reshape: the demo window takes it `--reshape-delay` ms later (500: about when the Mac
+        // app's reshaped frames reach a phone — its pipe holds them 0.3–0.9 s for the resize) —
+        // at once when it comes with the watch (the shape ahead: the Mac app reshapes before the
+        // first picture, so the phone never sees the old shape).
         guard has("--reshape"), let (demo, started) = lock.sync({ watched[peerID].map { ($0, watchStarted[peerID] ?? .distantPast) } }) else { return }
         let ahead = Date().timeIntervalSince(started) < 1
+        let delay = Double(flag("--reshape-delay") ?? "") ?? 500
         Task {
-            if !ahead { try? await Task.sleep(nanoseconds: 500_000_000) }
+            if !ahead, delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1e6)) }
             demo.reshape(aspect: aspect)
             stdout("WATCH RESHAPED \(demo.width)×\(demo.height)\(ahead ? " (ahead)" : "")")
             // A new picture size: its corners again, as the Mac app sends them (Nov 9 2026).
@@ -446,6 +449,24 @@ final class ServeDelegate: LinkServerDelegate {
         masksSent[peerID] = mask
         if await server.sendMask(mask, to: peerID) {
             stdout("WATCH MASK \(Int(mask.radius)) px at \(mask.width)×\(mask.height) · \(mask.corners?.count ?? 0) bytes")
+        }
+    }
+
+    /// Live shapes while the finger drags the window's corner (Nov 9 2026): taken at once, as the
+    /// Mac app does (no hold), counted per drag; the final one prints the drag's count.
+    var liveShapes: [UUID: (count: Int, since: Date)] = [:]
+    func linkServer(_ server: LinkServer, watchShapeLive aspect: CGFloat, final: Bool, from peerID: UUID) {
+        let count = lock.sync { () -> Int in
+            var c = liveShapes[peerID] ?? (0, Date())
+            c.count += 1
+            liveShapes[peerID] = final ? nil : c
+            return c.count
+        }
+        if has("--reshape"), let demo = lock.sync({ watched[peerID] }) {
+            demo.reshape(aspect: aspect)
+            stdout("WATCH SHAPE \(final ? "final" : "live") \(String(format: "%.2f", aspect)) · RESHAPED \(demo.width)×\(demo.height)\(final ? " · \(count) shapes this drag" : "")")
+        } else {
+            stdout("WATCH SHAPE \(final ? "final" : "live") \(String(format: "%.2f", aspect))\(final ? " · \(count) shapes this drag" : "")")
         }
     }
 
@@ -818,6 +839,9 @@ func run() async -> Int32 {
         // Undo the last paste (Undo.swift): answers as the Mac does, presses nothing.
         if !has("--no-undo") { server.macFeatures.append(UndoPaste.feature) }
         if !has("--no-alerts") { server.macFeatures.append(MacAlerts.feature) }
+        // Live shapes while the finger drags the window's corner (Nov 9 2026): --no-live-shape is
+        // a Mac from before (one `watchShape` on release).
+        if !has("--no-live-shape"), !has("--jpeg") { server.macFeatures.append(WatchShape.liveFeature) }
         if !has("--no-alerts"), !has("--no-chat-answers") { server.macFeatures.append(ChatAnswers.feature) }
         if !has("--jpeg") { server.macFeatures += MacReachDemo.features }
         if let port = flag("--wake-port").flatMap(UInt16.init) { MacReachDemo.listenForWake(port: port) }

@@ -157,6 +157,10 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: give the watched window this shape (the phone's view of it, in points), as
     /// big as the screen allows — Fit to iPhone (only to a Mac naming WatchShape.feature).
     case watchShape(width: Double, height: Double)
+    /// Phone → Mac: the window's shape while his finger drags its corner (Nov 9 2026, only to a
+    /// Mac naming WatchShape.liveFeature): applied at once, the frames in between streamed, so
+    /// the app reflows under the finger; `final` is the shape at the release.
+    case watchShapeLive(width: Double, height: Double, final: Bool)
     /// Mac → phone: every window on screen (only to a phone naming AllWindows.feature), as it changes.
     case windows([LiveTarget])
     /// Phone → Mac: a dictation for this place has started — get it ready (only to a Mac naming

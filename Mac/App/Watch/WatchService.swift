@@ -97,6 +97,16 @@ final class WatchService {
         var goneAt: Date?
         /// The phone asked to close the window: gone right after that needs no beat.
         var closeAskedAt = Date.distantPast
+        /// Live shapes while the finger drags the window's corner (Nov 9 2026): the newest one
+        /// waiting for the throttle's next slot, when the last was applied, and the drag's
+        /// counts for the one log line at its end.
+        var liveShapePending: CGFloat?
+        var liveShapeTask: Task<Void, Never>?
+        var liveShapeAppliedAt = Date.distantPast
+        var liveShapes = 0
+        var liveShapesSince: Date?
+        var liveShapeFirstWidth: CGFloat?
+        var liveShapeStats: VideoPipe.Stats?
         /// When typing was last logged (a line per sentence, not per keystroke).
         var typedLogAt = Date.distantPast
         /// The whole screen: the app in front, as last told.
@@ -336,6 +346,7 @@ final class WatchService {
         w.input.stop()
         w.cursorTask?.cancel()
         w.maskTask?.cancel()
+        w.liveShapeTask?.cancel()
         if w.input.clicks + w.input.moves + w.input.typed > 0 {
             app.log.add("watch input: \(w.input.clicks) clicks, \(w.input.moves) pointer moves (\(w.input.missed) didn't land, warped there), \(w.input.typed) characters typed")
         }
@@ -1184,10 +1195,83 @@ final class WatchService {
         w.wake()
     }
 
+    // MARK: The window under the finger (Nov 9 2026)
+
+    // Sameer: "the resizing needs to be as responsive as possible … it should look and feel like
+    // we pulled the window of the app directly from the Mac and ran it on the iPhone". While his
+    // finger drags the window's corner the phone sends the frame's shape every ~90 ms
+    // (`watchShapeLive`); each is applied at once — no `holdForReshape`: every size in between
+    // is streamed, the phone fits whatever arrives, so the app reflows under the finger as it
+    // does under a Mac's pointer. At most one Accessibility resize per `WatchShape.macLiveInterval`
+    // (an Electron window takes tens of milliseconds to take a size): a shape that comes sooner
+    // waits as the one pending, the newest replacing it, and goes at the slot's end. The final
+    // one (the release) goes the same way, and the drag gets one log line of numbers.
+
+    /// A shape from the finger: applied now, or the newest waiting for the throttle's next slot.
+    func fitToPhoneLive(aspect: CGFloat, final: Bool, for peer: UUID) {
+        guard let w = watches[peer] else { return }
+        guard let wid = w.windowID, w.stream != nil else { w.wantedShape = aspect; w.wake(); return }
+        guard wid != WindowServer.desktopID else { return }
+        if w.liveShapesSince == nil {
+            w.liveShapesSince = Date()
+            w.liveShapeStats = w.pipe?.snapshot()
+        }
+        w.liveShapes += 1
+        let wait = WatchShape.macLiveInterval - Date().timeIntervalSince(w.liveShapeAppliedAt)
+        if wait <= 0 {
+            applyLiveShape(w, aspect: aspect)
+        } else {
+            w.liveShapePending = aspect
+            if w.liveShapeTask == nil {
+                w.liveShapeTask = Task { @MainActor [weak self, weak w] in
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, wait) * 1e9))
+                    guard let self, let w, !Task.isCancelled else { return }
+                    w.liveShapeTask = nil
+                    if let p = w.liveShapePending { w.liveShapePending = nil; self.applyLiveShape(w, aspect: p) }
+                }
+            }
+        }
+        guard final else { return }
+        // The release: the drag's one line, numbers only.
+        let n = w.liveShapes, since = w.liveShapesSince.map { Date().timeIntervalSince($0) } ?? 0
+        let from = w.liveShapeFirstWidth.map { Int($0) } ?? 0
+        let to = w.windowBounds.map { Int($0.width) } ?? 0
+        var streamed = ""
+        if let before = w.liveShapeStats, let now = w.pipe?.snapshot() {
+            streamed = " · \(now.keyframes - before.keyframes) keyframes, \(max(0, now.bytes - before.bytes) / 1024) KB streamed"
+        }
+        app.log.add("watch live shape: \(from) → \(to) px wide, \(n) shapes in \(String(format: "%.1f", since)) s\(streamed)")
+        w.liveShapes = 0
+        w.liveShapesSince = nil
+        w.liveShapeFirstWidth = nil
+        w.liveShapeStats = nil
+    }
+
+    /// One live shape onto the window, and the stream onto the size it took, straight away — not
+    /// at the loop's next look (a quarter second to a second and a half away).
+    private func applyLiveShape(_ w: Watch, aspect: CGFloat) {
+        w.liveShapeAppliedAt = Date()
+        if w.liveShapeFirstWidth == nil { w.liveShapeFirstWidth = w.windowBounds?.width }
+        guard let (_, took) = reshape(w, aspect: aspect, quiet: true) else { return }
+        w.windowBounds = CGRect(origin: w.windowBounds?.origin ?? took.origin, size: took.size)
+        if let s = w.stream, w.area == nil {
+            let width = maxWidth(for: w)
+            Task { await s.resize(to: took.size, maxWidth: width) }
+        }
+        w.focusAt = .distantPast
+        w.hurry()
+        w.wake()
+    }
+
     /// The window takes the phone's view's shape, as tall as the screen allows; returns the frame
     /// asked for (nil when it couldn't be).
     @discardableResult
     private func reshape(_ w: Watch, aspect: CGFloat) -> CGRect? {
+        reshape(w, aspect: aspect, quiet: false)?.asked
+    }
+
+    /// `quiet`: a live shape — no log line per shape (the drag gets one at its end).
+    private func reshape(_ w: Watch, aspect: CGFloat, quiet: Bool) -> (asked: CGRect, took: CGRect)? {
         guard let wid = w.windowID, wid != WindowServer.desktopID else { return nil }
         guard Paster.isTrusted else { app.log.add("watch fit to iPhone skipped: Accessibility not granted"); return nil }
         guard let win = AX.window(in: AX.app(w.pid), id: wid), AX.isAlive(win), !AX.bool(win, "AXFullScreen") else {
@@ -1204,8 +1288,8 @@ final class WatchService {
         // What the window took (an app with a smallest size keeps it): a shape off the phone's shows
         // as bars beside the picture, so the log says both.
         let took = AX.frame(win)
-        app.log.add("watch fit to iPhone: \(Int(now.width))×\(Int(now.height)) → \(Int(target.width))×\(Int(target.height)), took \(Int(took.width))×\(Int(took.height))")
-        return target
+        if !quiet { app.log.add("watch fit to iPhone: \(Int(now.width))×\(Int(now.height)) → \(Int(target.width))×\(Int(target.height)), took \(Int(took.width))×\(Int(took.height))") }
+        return (target, took)
     }
 
     /// A press and hold (or a two-finger tap) on the phone's picture: a right-click there. (A
