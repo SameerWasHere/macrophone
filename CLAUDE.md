@@ -7,6 +7,87 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+## The window is the app, round 2 of review (Nov 8 2026) — wins over the two sections below where they differ
+
+A second reviewer walked build 26 at 20 fps (`docs/screens/native-review-r2/`); two round-1 fixes
+hadn't held. Frames: `docs/screens/native-window-nov8/r2/` (`before/` the reviewer's tiles,
+`after/` 10 fps tiles on this build).
+- **The keyboard that popped entering full screen on the Duo — two ways in, both shut.** The
+  reviewer's frames show the keyboard *page's* field (its Mac bar over the keys) rising from the
+  mic mode a moment after the full-screen picture settled: `KeyboardTextView` now asks again the
+  moment it would take the keyboard (`stillWanted`: the page is the keyboard and not full screen —
+  there is no keyboard page in full screen), not what the last SwiftUI update said. On a
+  simulator with the hardware keyboard attached the other way showed: `HardwareKeysView`'s claim
+  a second into full screen (and the moment the mic mode came on the laptop) raised a keyboard
+  for *it* — it was a `UIKeyInput`, and iOS raises a keyboard for any key input that becomes
+  first responder: with no input view (or a zero-sized one) the system keys (the simulator draws
+  them though GCKeyboard says a keyboard is attached); with a 1 pt input view, nothing on the
+  cover or flat upright but on the folded laptop the keyboard's backdrop over the whole lower
+  half (iOS docks the keyboard's window to the half under the hinge whatever is in it: a white
+  sheet over the deck — and so it did for a plain responder that still vended the 1 pt view:
+  iOS raises the keyboard's window for any first responder with an input view of its own).
+  **It is a plain responder with no input view now** — every press arrives in `pressesBegan`
+  either way, so a real keyboard still types; the key-input conformance and the 1 pt view live on
+  `HardwareKeysTypingView`, made only under `MACROPHONE_UITEST_KEYS=1` (DEBUG) for XCUITest,
+  whose `typeText` reaches nothing but a key input (`HardwareKeyboardUITests` sets it). A DEBUG
+  line in `KeyboardTextView.becomeFirstResponder` names the page and full screen whenever the
+  field takes the keyboard. Recorded on the laptop, the cover and flat upright (the window opens
+  with the simulator's keyboard attached, mic mode → full screen → out): no keyboard, no sheet.
+  Round 1's one-second wait stays.
+- **The window frozen after full screen on the inner screen: not reproduced** on this build
+  (flat upright and the laptop, typing after the exit changed the picture; the side pose
+  recorded too). The likeliest mechanism is covered anyway: when the canvas changes viewers
+  (`ViewerScrollView.onCanvasAdopted` → `Watcher.canvasMoved`) the renderer a move may have
+  failed is reset and a keyframe asked for, so the next frame stands on its own.
+- **A size change holds the old picture as a still** (`ViewerScrollView.makeStill` / `hold` /
+  `thaw`): the displayed frame (or the picture), clipped to what showed, with the window's
+  corners, pinned in the host over the viewer while the canvas takes the new size under it;
+  it fades (0.18 s) once a frame at the new size has displayed (`displayedPixelBuffer`'s size;
+  1.2 s at most), or at once for a picture. Before: `UIView.transition`'s cross-dissolve
+  snapshotted the image view but not the video layer, which was resized to the new canvas and
+  aspect-fitted its old frame — a black band and a shifted copy on entry, a thumbnail on exit.
+- **A picture of another shape covers its view from the top-left** (`otherShape` in `reset`,
+  `WindowZoom.estimate`, `FullScreenZoom.exit`): the window's outline is final the moment the
+  flight lands, and the Mac's reshaped picture only reflows the content inside it (round 1's
+  "whole" left a narrow pillar-boxed window for 0.8–2 s, then the width arrived; the double tap
+  on the arc grew the width first and the height half a second later for the same reason).
+  Capped at `coverCap` × fitting whole — 1.5 in a window view, **1.3 on a screen it fills**
+  (`startScale(window:)` for a window, the whole screen keeps 1.8× the width): on its side a
+  0.7 window had covered a 1.42 screen at twice its size for a second; now it sits top-left on
+  the dark ground at 1.3× until the landscape picture lands.
+- **The shape ahead from memory** (`Watcher.viewSizeKey`): the view's size is kept per pose and
+  fill, so the first open after a launch — the card, the Dock, a widget, an alert — sends the
+  shape before the first picture ("opens at the view's shape … remembered from last time"); it
+  came in at the Mac's own shape and jumped 1.3 s later.
+- **The viewer holds while hidden or fading** (`WindowViewer(frozen:)` = `watchWindowHidden`):
+  the room collapsing under the panel as the words took it re-fitted a zoomed window to a small
+  whole picture for a frame.
+- **A flip to a window with no kept picture keeps the last picture, dimmed** (`stale` again,
+  only then), frame and key row in place; the flip's chip over the window is gone (it sat on the
+  Mac window's own title; the header's name and VoiceOver say it).
+- **The deck's mode comes back after full screen** (`pageBeforeFullScreen`: the trackpad).
+- **Flat upright gives the Mac the laptop's half** (`laptopBody`: in hand the deck is the rest
+  of the screen under `h.mac.height`, never less than the keyboard needs) — Sameer's call on
+  round 1's item 14: the window's shape is the same folded or flat, so a fold between them
+  reshapes nothing; the keyboard rule from the fix-up pass holds (the window stays whole).
+- **Seen frame by frame on this build** (10 fps tiles, 20 fps where it mattered; an iPhone 17
+  Pro and a Duo against `mpctl serve --rounded --reshape`): the flip to Messages with no kept
+  picture keeps Claude's picture dimmed for 0.2 s, frame and key row where they were, and no chip;
+  full screen on the Pro is one grow (0.42 s), the reshaped picture 1.0 s later as a 0.1–0.2 s
+  dissolve in place, and the way out lands the window's outline in one step with the reshaped
+  picture 1.0 s after; the card's open after a relaunch logs "remembered from last time" and the
+  picture is at the view's shape from its first frame; the mic's touch dims the window at its own
+  zoom (no small whole picture for a frame); the arc's double tap grows width and height together
+  over ~0.3 s; on its side full screen covers from the top-left at 1.3× (the reshaped landscape
+  picture 0.75 s later), lands back in one step, and the picture goes on updating after the exit
+  ("typed 30" → "typed 40": the frozen window wasn't reproduced on the side pose either); a fold
+  between the laptop and flat upright with a window in hand sends no `WATCH SHAPE`.
+- **Left:** the keyboard page's room timing and the square cut as the window grows back after
+  hide (the clip's corner isn't animated with the frame), the 2-frame ghosts at the Dock open
+  and Done's hand-over — noted, not changed. The reshape's 0.1–0.2 s dissolve still shows both
+  layouts over each other for those frames (a reflow can't be animated); the demo window
+  letterboxes where it can't reshape, as before.
+
 ## The window is the app, refined (Nov 8 2026, round 1 of review) — wins over the section below where they differ
 
 A fresh reviewer walked build 25 frame by frame (`docs/screens/native-review-r1/`); what broke the

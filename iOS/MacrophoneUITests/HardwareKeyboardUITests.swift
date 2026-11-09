@@ -16,7 +16,8 @@ final class HardwareKeyboardUITests: XCTestCase {
 
     func testAHardwareKeyboardTypesAndChordsOnTheMac() throws {
         let app = XCUIApplication()
-        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Terminal", "MACROPHONE_WATCH": "1"]
+        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Terminal", "MACROPHONE_WATCH": "1",
+                                 "MACROPHONE_UITEST_KEYS": "1"]
         app.launch()
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
         if allow.waitForExistence(timeout: 2) { allow.tap() }
@@ -68,7 +69,7 @@ final class HardwareKeyboardUITests: XCTestCase {
         let before = logPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?.count ?? 0
         let app = XCUIApplication()
         app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Terminal", "MACROPHONE_WATCH": "1",
-                                 "MACROPHONE_WATCH_ACTIONS": "hwkeys@command+tab+tab,hwkeys@option+tab+tab"]
+                                 "MACROPHONE_UITEST_KEYS": "1", "MACROPHONE_WATCH_ACTIONS": "hwkeys@command+tab+tab,hwkeys@option+tab+tab"]
         app.launch()
         let done = app.buttons["watch-done"].firstMatch
         guard done.waitForExistence(timeout: 20) else { throw XCTSkip("no paired Mac: the window view never opened") }

@@ -6,8 +6,8 @@ import UIKit
 /// The responder a real keyboard types through (Nov 5 2026, `HardwareKeyboard.swift`): an empty
 /// view behind everything that becomes first responder while a window is in hand, a keyboard is
 /// connected and the keyboard page isn't up — and only while nothing else is typing (a search
-/// field, Settings, the word being fixed) and no sheet is over the window. Its input view is
-/// empty, so iOS never raises keys of its own for it.
+/// field, Settings, the word being fixed) and no sheet is over the window. It is no key input, so
+/// iOS never raises a keyboard for it (Nov 8 2026).
 ///
 /// The view hears the watcher, the pages and the keyboard itself (Combine), not through
 /// SwiftUI's update (Nov 7 2026): behind everything in `RootView`, its `updateUIView` — and a
@@ -18,7 +18,13 @@ struct HardwareKeysCatcher: UIViewRepresentable {
     var watcher: Watcher
 
     func makeUIView(context: Context) -> HardwareKeysView {
+        // A key input only for XCUITest (`MACROPHONE_UITEST_KEYS=1`, DEBUG): `typeText` wants one.
+        // The app's own view is a plain responder — iOS raises no keyboard for it (below).
+        #if DEBUG
+        let v: HardwareKeysView = ProcessInfo.processInfo.environment["MACROPHONE_UITEST_KEYS"] == "1" ? HardwareKeysTypingView() : HardwareKeysView()
+        #else
         let v = HardwareKeysView()
+        #endif
         v.follow(watcher)
         return v
     }
@@ -28,7 +34,7 @@ struct HardwareKeysCatcher: UIViewRepresentable {
     }
 }
 
-final class HardwareKeysView: UIView, UIKeyInput {
+class HardwareKeysView: UIView {
     weak var input: MacInput?
     fileprivate weak var watcher: Watcher?
     private var follows: [AnyCancellable] = []
@@ -117,16 +123,24 @@ final class HardwareKeysView: UIView, UIKeyInput {
     // type without one), but every press is taken in `pressesBegan` before it can insert
     // anything, and no keys of iOS's own ever show: an empty input view, no shortcuts bar, no
     // predictions.
-    var hasText: Bool { false }
-    func insertText(_ text: String) { input?.hardwareInserted(text) }
-    func deleteBackward() { input?.hardwareInserted(nil) }
+    @objc var hasText: Bool { false }
+    @objc func insertText(_ text: String) { input?.hardwareInserted(text) }
+    @objc func deleteBackward() { input?.hardwareInserted(nil) }
     var autocorrectionType: UITextAutocorrectionType = .no
     var spellCheckingType: UITextSpellCheckingType = .no
     var autocapitalizationType: UITextAutocapitalizationType = .none
     var smartQuotesType: UITextSmartQuotesType = .no
     var smartDashesType: UITextSmartDashesType = .no
-    private let noKeys = UIView(frame: .zero)
-    override var inputView: UIView? { noKeys }
+    // Not a `UIKeyInput`, and no input view (Nov 8 2026, round 2): iOS raises a keyboard for a
+    // key input, or for any first responder with an input view of its own, and every press
+    // arrives in `pressesBegan` either way. As a key input with an empty input view this view
+    // brought the keyboard up on the Duo as it took the keyboard a second into full screen and
+    // the moment the mic mode came: zero-sized, the system keys (the simulator draws them though
+    // GCKeyboard says a keyboard is attached); a point tall, the folded laptop still drew the
+    // keyboard's window — its blurred backdrop — over the whole lower half (iOS docks it to the
+    // half under the hinge whatever is in it), and so it did for a plain responder that still
+    // vended the 1 pt view. The key-input conformance and the 1 pt input view live on
+    // `HardwareKeysTypingView`, used only under XCUITest, whose `typeText` needs a key input.
     override var inputAccessoryView: UIView? { nil }
 
     // No edit actions of its own: ⌘C, ⌘V, ⌘Z are the Mac's, not a copy here.
@@ -197,6 +211,19 @@ final class HardwareKeysView: UIView, UIKeyInput {
         guard !rest.isEmpty else { return }
         if cancelled { super.pressesCancelled(rest, with: event) } else { super.pressesEnded(rest, with: event) }
     }
+}
+
+/// The test rig's key input (DEBUG, `MACROPHONE_UITEST_KEYS=1`): XCUITest's `typeText` reaches a
+/// key input as inserted text and nothing else; the app never makes one of these itself.
+final class HardwareKeysTypingView: HardwareKeysView, UIKeyInput {
+    // A point tall, never zero: zero-sized, iOS 27 put the system keys up on the simulator.
+    private let noKeys: UIView = {
+        let v = UIInputView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), inputViewStyle: .keyboard)
+        v.allowsSelfSizing = true
+        v.backgroundColor = .clear
+        return v
+    }()
+    override var inputView: UIView? { noKeys }
 }
 
 extension UIResponder {
