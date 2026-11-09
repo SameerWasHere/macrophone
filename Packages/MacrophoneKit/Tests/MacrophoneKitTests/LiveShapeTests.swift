@@ -45,6 +45,20 @@ final class LiveShapeTests: XCTestCase {
         XCTAssertEqual(rig.mac.shapes.last!.0, 262.0 / 396.0, accuracy: 0.001)
     }
 
+    /// What the UI fires arrives in the order it was fired (`SecureSession.post`): each used to
+    /// go in a task of its own and two could swap on the wire.
+    func testWhatIsPostedArrivesInOrder() async throws {
+        let rig = try await Rig.make(port: 47947)
+        defer { rig.stop() }
+        rig.server.macFeatures += [WatchShape.feature, WatchShape.liveFeature]
+        try await rig.connect()
+        let n = 400
+        for i in 0..<n { XCTAssertTrue(rig.client.watchShape(CGSize(width: 100 + i, height: 100), live: true, final: i == n - 1)) }
+        try await rig.waitFor { rig.mac.shapes.count == n }
+        XCTAssertEqual(rig.mac.shapes.map { Int(($0.0 * 100).rounded()) }, (0..<n).map { 100 + $0 })
+        XCTAssertEqual(rig.mac.shapes.last?.1, true)
+    }
+
     func testAMacFromBeforeGetsOneShapeOnRelease() async throws {
         let rig = try await Rig.make(port: 47946)
         defer { rig.stop() }

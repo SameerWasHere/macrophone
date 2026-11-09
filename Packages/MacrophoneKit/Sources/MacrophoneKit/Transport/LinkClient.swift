@@ -143,6 +143,15 @@ public final class LinkClient: @unchecked Sendable {
     /// Waiting for the Mac's next pong (`roundTrip`).
     private var pongWaiters: [(Date) -> Void] = []
     private var pingTask: Task<Void, Never>?
+    /// When anything last arrived from the Mac on the session (the silence watchdog, `startLoops`).
+    private var lastHeard = Date()
+    /// How often the phone pings, and how long the Mac has to say anything after one. A Mac that
+    /// went to sleep (or a network that swallowed the link) sends no goodbye: the connection
+    /// stays "open" for minutes, the phone read Ready, and a dictation waited its whole timeout
+    /// before being queued. Silence after a ping ends the session, so the phone says what's true
+    /// and looks for the Mac again.
+    public static let pingEvery: TimeInterval = 15
+    public static let silenceLimit: TimeInterval = 10
     private var retryTask: Task<Void, Never>?
     private var retryDelay: TimeInterval = 1
     private var wantsConnection = false
@@ -725,6 +734,7 @@ public final class LinkClient: @unchecked Sendable {
             do {
                 while true {
                     let m = try await s.receive()
+                    self?.lock.sync { self?.lastHeard = Date() }
                     self?.handle(m, from: s, macID: macID)
                 }
             } catch {
@@ -734,9 +744,20 @@ public final class LinkClient: @unchecked Sendable {
         pingTask?.cancel()
         pingTask = Task { [weak self, weak s] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
-                guard let s else { return }
+                try? await Task.sleep(nanoseconds: UInt64(Self.pingEvery * 1e9))
+                guard let s, !Task.isCancelled else { return }
+                let asked = Date()
                 do { try await s.send(.ping) } catch { self?.sessionEnded(s, error: error); return }
+                try? await Task.sleep(nanoseconds: UInt64(Self.silenceLimit * 1e9))
+                guard let self, !Task.isCancelled else { return }
+                // (A wait that ran long — the app was suspended meanwhile — proves nothing.)
+                let waited = Date().timeIntervalSince(asked)
+                let heard = self.lock.sync { self.lastHeard }
+                if heard < asked, waited < Self.silenceLimit + 5 {
+                    self.log?.add("nothing from the Mac for \(Int(waited)) s after a ping — the link is taken as gone")
+                    self.sessionEnded(s, error: LinkError.timedOut)
+                    return
+                }
             }
         }
     }
@@ -834,7 +855,7 @@ public final class LinkClient: @unchecked Sendable {
                 }
             }
         case .ping:
-            Task { try? await s.send(.pong) }
+            s.post(.pong)
         case .unpair:
             log?.add("Mac forgot this phone")
             store.remove(macID)
@@ -991,40 +1012,40 @@ public final class LinkClient: @unchecked Sendable {
     /// the next welcome anyway (via `selectionProvider`).
     public func setSelection(_ selection: SendSelection) {
         guard let s = lock.sync({ session }) else { return }
-        Task { try? await s.send(.selection(selection)) }
+        s.post(.selection(selection))
     }
 
     /// Ask the Mac to rescan its open apps now (the picker opened).
     public func refreshTargets() {
         guard let s = lock.sync({ session }) else { return }
-        Task { try? await s.send(.refreshTargets) }
+        s.post(.refreshTargets)
     }
 
     /// Start watching a place's window on the Mac (nil stops). Returns false when not connected.
     @discardableResult
     public func watch(_ target: TargetRef?) -> Bool {
         guard let s = lock.sync({ session }) else { return false }
-        Task { try? await s.send(.watch(target)) }
+        s.post(.watch(target))
         return true
     }
 
     /// A one-tap action on the watched window.
     public func watchAction(_ action: WatchAction) {
         guard let s = lock.sync({ session }) else { return }
-        Task { try? await s.send(.watchAction(action)) }
+        s.post(.watchAction(action))
     }
 
     /// Answer the prompt the watched window showed with the answer at `index`.
     public func watchChoose(_ prompt: WatchPrompt, index: Int) {
         guard let s = lock.sync({ session }) else { return }
-        Task { try? await s.send(.watchChoose(promptID: prompt.id, index: index)) }
+        s.post(.watchChoose(promptID: prompt.id, index: index))
     }
 
     /// Ask the Mac for its installed apps (the answer comes to the delegate). False when not connected.
     @discardableResult
     public func listApps() -> Bool {
         guard let s = lock.sync({ session }) else { return false }
-        Task { try? await s.send(.listApps) }
+        s.post(.listApps)
         return true
     }
 
@@ -1032,7 +1053,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func openApp(_ bundleID: String) -> Bool {
         guard let s = lock.sync({ session }) else { return false }
-        Task { try? await s.send(.openApp(bundleID: bundleID)) }
+        s.post(.openApp(bundleID: bundleID))
         return true
     }
 
@@ -1043,14 +1064,14 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func quitApp(_ bundleID: String) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(MacAppQuit.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.quitApp(bundleID: bundleID)) }
+        s.post(.quitApp(bundleID: bundleID))
         return true
     }
 
     /// Scroll the watched window at a point by a delta (fractions of the window).
     public func watchScroll(at p: CGPoint, by d: CGVector) {
         guard let s = lock.sync({ session }) else { return }
-        Task { try? await s.send(.watchScroll(x: Double(p.x), y: Double(p.y), dx: Double(d.dx), dy: Double(d.dy))) }
+        s.post(.watchScroll(x: Double(p.x), y: Double(p.y), dx: Double(d.dx), dy: Double(d.dy)))
     }
 
     /// Where a swipe on the watched window is (it landed, lifted, its coast began or ended), so
@@ -1059,7 +1080,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchScrollPhase(_ phase: WatchScrollPhase, at p: CGPoint) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchScroll.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchScrollPhase(phase, x: Double(p.x), y: Double(p.y))) }
+        s.post(.watchScrollPhase(phase, x: Double(p.x), y: Double(p.y)))
         return true
     }
 
@@ -1070,14 +1091,14 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchWindow(_ command: WatchWindowCommand) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchWindowCommand.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchWindow(command)) }
+        s.post(.watchWindow(command))
         return true
     }
 
     /// A dictation for this place has started: the Mac gets it ready (only a Mac that can).
     public func prepare(_ target: TargetRef) {
         guard let s = lock.sync({ macFeatures.contains(DictationPrepare.feature) ? session : nil }) else { return }
-        Task { try? await s.send(.prepare(target)) }
+        s.post(.prepare(target))
     }
 
     /// The connected Mac shares its clipboard.
@@ -1087,7 +1108,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func requestClipboard() -> Bool {
         guard let s = lock.sync({ macFeatures.contains(ClipboardItem.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.clipboardRequest) }
+        s.post(.clipboardRequest)
         return true
     }
 
@@ -1096,7 +1117,7 @@ public final class LinkClient: @unchecked Sendable {
     public func sendClipboard(_ item: ClipboardItem) -> Bool {
         guard (item.text?.utf8.count ?? 0) <= ClipboardItem.maxText, (item.image?.count ?? 0) <= ClipboardItem.maxImage,
               let s = lock.sync({ macFeatures.contains(ClipboardItem.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.clipboardSet(item)) }
+        s.post(.clipboardSet(item))
         return true
     }
 
@@ -1125,7 +1146,7 @@ public final class LinkClient: @unchecked Sendable {
     public func watchShape(_ size: CGSize) -> Bool {
         guard size.width > 0, size.height > 0,
               let s = lock.sync({ macFeatures.contains(WatchShape.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchShape(width: Double(size.width), height: Double(size.height))) }
+        s.post(.watchShape(width: Double(size.width), height: Double(size.height)))
         return true
     }
 
@@ -1140,11 +1161,11 @@ public final class LinkClient: @unchecked Sendable {
         let (session, canLive, canShape) = lock.sync { (self.session, macFeatures.contains(WatchShape.liveFeature), macFeatures.contains(WatchShape.feature)) }
         guard let s = session, canShape else { return false }
         if canLive {
-            Task { try? await s.send(.watchShapeLive(width: Double(size.width), height: Double(size.height), final: final)) }
+            s.post(.watchShapeLive(width: Double(size.width), height: Double(size.height), final: final))
             return true
         }
         guard final || !live else { return false }
-        Task { try? await s.send(.watchShape(width: Double(size.width), height: Double(size.height))) }
+        s.post(.watchShape(width: Double(size.width), height: Double(size.height)))
         return true
     }
 
@@ -1157,7 +1178,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchKey(_ k: WatchKey) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchKey.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchKey(k)) }
+        s.post(.watchKey(k))
         return true
     }
 
@@ -1168,7 +1189,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func macControl(_ c: MacControl) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(MacControl.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.macControl(c)) }
+        s.post(.macControl(c))
         return true
     }
 
@@ -1179,7 +1200,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchRightClick(_ p: CGPoint) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchRightClick.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchRightClick(x: Double(p.x), y: Double(p.y))) }
+        s.post(.watchRightClick(x: Double(p.x), y: Double(p.y)))
         return true
     }
 
@@ -1190,7 +1211,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchMouse(_ e: WatchMouseEvent) -> Bool {
         guard e.isValid, let s = lock.sync({ macFeatures.contains(WatchMouse.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchMouse(e)) }
+        s.post(.watchMouse(e))
         return true
     }
 
@@ -1202,7 +1223,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchType(_ t: WatchTyping) -> Bool {
         guard t.isValid, !t.isEmpty, let s = lock.sync({ macFeatures.contains(WatchTyping.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchType(t)) }
+        s.post(.watchType(t))
         return true
     }
 
@@ -1213,14 +1234,14 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchKeyState(_ k: WatchKey, down: Bool) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchKeyHold.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchKeyState(k, down: down)) }
+        s.post(.watchKeyState(k, down: down))
         return true
     }
 
     /// Click the watched window at a fraction of its size (top-left origin).
     public func watchClick(_ p: CGPoint) {
         guard let s = lock.sync({ session }) else { return }
-        Task { try? await s.send(.watchClick(x: Double(p.x), y: Double(p.y))) }
+        s.post(.watchClick(x: Double(p.x), y: Double(p.y)))
     }
 
     /// Ask for a video frame that stands on its own. Only a Mac that named "video" gets it
@@ -1228,7 +1249,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchKeyframe() -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchVideo.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchKeyframe) }
+        s.post(.watchKeyframe)
         return true
     }
 
@@ -1248,7 +1269,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchSound(_ on: Bool) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(MacSound.feature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchSound(on: on)) }
+        s.post(.watchSound(on: on))
         return true
     }
 
@@ -1257,7 +1278,7 @@ public final class LinkClient: @unchecked Sendable {
     @discardableResult
     public func watchFit(_ fit: WatchFit) -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchVideo.fitFeature) ? session : nil }) else { return false }
-        Task { try? await s.send(.watchFit(fit)) }
+        s.post(.watchFit(fit))
         return true
     }
 

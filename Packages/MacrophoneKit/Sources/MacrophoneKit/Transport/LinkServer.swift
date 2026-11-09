@@ -366,7 +366,7 @@ public final class LinkServer: @unchecked Sendable {
         let all: [(SecureSession, Set<String>)] = lock.sync { sessions.map { ($0.value, features[$0.key] ?? []) } }
         for (s, f) in all {
             let list = EveryApp.list(targets, for: f)
-            Task { try? await s.send(.targets(list)) }
+            s.post(.targets(list))
         }
     }
 
@@ -374,7 +374,7 @@ public final class LinkServer: @unchecked Sendable {
     /// disconnected meanwhile, it times out on its own and says the Mac didn't confirm.
     public func reportLanding(_ id: UUID, result: LandingResult, detail: String, to peerID: UUID) {
         guard let s = lock.sync({ sessions[peerID] }) else { return }
-        Task { try? await s.send(.landed(id: id, result: result, detail: detail)) }
+        s.post(.landed(id: id, result: result, detail: detail))
     }
 
     /// Send one message to one phone and wait until it's on the wire (watching uses this, so a
@@ -394,7 +394,7 @@ public final class LinkServer: @unchecked Sendable {
     /// except `except`.
     public func broadcastSelection(_ selection: SendSelection, except: UUID? = nil) {
         lock.lock(); let all = sessions.filter { $0.key != except }.map(\.value); lock.unlock()
-        for s in all { Task { try? await s.send(.selection(selection)) } }
+        for s in all { s.post(.selection(selection)) }
     }
 
     // MARK: Connections

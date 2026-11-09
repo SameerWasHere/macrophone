@@ -45,7 +45,7 @@ extension LinkClient {
     @discardableResult
     public func showPermissionsOnMac() -> Bool {
         guard macFeatures.contains(MacPermissions.feature), let s = currentSession else { return false }
-        Task { try? await s.send(.showPermissions) }
+        s.post(.showPermissions)
         return true
     }
 

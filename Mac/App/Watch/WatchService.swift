@@ -1341,9 +1341,16 @@ final class WatchService {
         }
     }
 
+    /// What the phone asked for, running or waiting its turn.
+    private var actChain: Task<Void, Never>?
+
     /// Brings the watched window forward if it isn't already the front one, does `body`, and
     /// shows the result: the next picture the window gives goes at once (a swipe's scrolling
     /// keeps its pace — ten pictures a second would swamp the link).
+    ///
+    /// One at a time, in the order asked (`actChain`): each used to run in a task of its own, and
+    /// the first one after the window fell behind waits to bring it forward — so the keys typed
+    /// behind it (or a key's release behind its press) could run first.
     private func act(on peer: UUID, what: String, quiet: Bool = false, _ body: @escaping @MainActor (CGWindowID) async -> Void) {
         guard let w = watches[peer], let wid = w.windowID else { return }
         guard Paster.isTrusted else {
@@ -1357,8 +1364,10 @@ final class WatchService {
         }
         // The whole screen: nothing to bring forward — the click lands where it lands, a key goes to
         // whatever is in front.
+        let previous = actChain
         if wid == WindowServer.desktopID {
-            Task { [weak self] in
+            actChain = Task { [weak self] in
+                await previous?.value
                 if !quiet { w.hurry() }
                 await body(wid)
                 if !quiet { self?.app.log.add("watch \(what) (whole screen)") }
@@ -1368,7 +1377,8 @@ final class WatchService {
         }
         guard let running = NSRunningApplication(processIdentifier: w.pid), !running.isTerminated else { return }
         let name = w.appName
-        Task { [weak self] in
+        actChain = Task { [weak self] in
+            await previous?.value
             let recently = quiet && Date().timeIntervalSince(w.inFrontAt) < 1
             // A companion in front (the Open panel a service draws over it, a sheet) counts as the window.
             let frontPid = NSWorkspace.shared.frontmostApplication?.processIdentifier

@@ -52,7 +52,7 @@ extension LinkClient {
     @discardableResult
     public func alertWatch(_ ref: TargetRef, on: Bool) -> Bool {
         guard macCanAlert, let s = currentSession else { return false }
-        Task { try? await s.send(.alertWatch(AlertWatchRequest(ref: ref, on: on))) }
+        s.post(.alertWatch(AlertWatchRequest(ref: ref, on: on)))
         return true
     }
 
@@ -66,7 +66,7 @@ extension LinkClient {
         features.removeAll { $0 == ChatAnswers.onWord || $0 == ChatAnswers.offWord }
         features.append(on ? ChatAnswers.onWord : ChatAnswers.offWord)
         guard macFollowsChats, let s = currentSession else { return false }
-        Task { try? await s.send(.chatAnswers(on: on)) }
+        s.post(.chatAnswers(on: on))
         return true
     }
 

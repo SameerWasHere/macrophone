@@ -425,15 +425,3 @@ enum Haptics {
         feel()
     }
 }
-
-/// The page background: ground ink with a faint cool glow at the top.
-struct GroundBackground: View {
-    var glow: Color = Light.cyan
-    var body: some View {
-        ZStack {
-            Ink.ground
-            RadialGradient(colors: [glow.opacity(0.10), .clear], center: .init(x: 0.5, y: 0.0), startRadius: 10, endRadius: 520)
-        }
-        .ignoresSafeArea()
-    }
-}

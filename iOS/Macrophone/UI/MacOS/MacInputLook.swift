@@ -17,39 +17,6 @@ enum MagicKeyboard {
     static let keyShadow = Color.adaptive(light: Color.black.opacity(0.22), dark: Color.black.opacity(0.7))
 }
 
-/// A Magic Keyboard key: a rounded top with the legend printed in SF Pro, a hairline shadow under
-/// it on the deck, pressed down a point; a modifier waiting lights its own little lamp, as caps
-/// lock does on a Mac.
-struct MagicKey<Label: View>: View {
-    var width: CGFloat
-    var height: CGFloat
-    var lit = false
-    var pressed = false
-    var small = false
-    @ViewBuilder var label: () -> Label
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: small ? 5 : 7, style: .continuous)
-        label()
-            .font(small ? .system(size: 9, weight: .semibold) : .system(size: 14, weight: .medium))
-            .foregroundStyle(MagicKeyboard.legend)
-            .frame(width: width, height: height)
-            .background {
-                shape.fill(pressed ? MagicKeyboard.keyDown : MagicKeyboard.key)
-                    .shadow(color: MagicKeyboard.keyShadow, radius: pressed ? 0 : 0.5, y: pressed ? 0 : 1)
-            }
-            .overlay(alignment: .topLeading) {
-                // A lamp, as caps lock's: green on a Mac, here the accent.
-                if lit {
-                    Capsule().fill(Light.cyan).frame(width: 6, height: 3).padding(5)
-                        .shadow(color: Light.cyan.opacity(0.8), radius: 3)
-                }
-            }
-            .offset(y: pressed ? 1 : 0)
-            .contentShape(shape)
-    }
-}
-
 /// A Force Touch trackpad's glass: a soft gradient of aluminium (or space black), a hairline edge,
 /// the faintest sheen across the top.
 struct ForceTouchSurface: View {

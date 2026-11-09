@@ -47,34 +47,6 @@ struct MenuExtraStyle: ButtonStyle {
     }
 }
 
-/// The bold name at the menu bar's left: a symbol, the name, and a chevron when it opens a menu.
-struct MenuBarName: View {
-    var symbol: String?
-    var name: String
-    var detail: String?
-    var chevron = true
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if let symbol {
-                Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).accessibilityHidden(true)
-            }
-            Text(name).font(.system(size: 15, weight: .bold)).lineLimit(1)
-            if let detail {
-                Text(detail).font(.system(size: 13, weight: .regular)).foregroundStyle(Ink.secondary).lineLimit(1)
-            }
-            if chevron {
-                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(Ink.secondary)
-                    .accessibilityHidden(true)
-            }
-        }
-        .foregroundStyle(Ink.ink)
-        .padding(.horizontal, 8)
-        .frame(minHeight: MacOSLook.menuBar)
-        .contentShape(Rectangle())
-    }
-}
-
 /// The menu bar's left item pressed: the same rounded highlight as an extra's.
 struct MenuBarNameStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

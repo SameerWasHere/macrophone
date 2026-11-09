@@ -184,6 +184,7 @@ public final class SecureSession: @unchecked Sendable {
     private var sealer: FrameSealer
     private var opener: FrameOpener
     private let sendLock = AsyncLock()
+    private let outbox: AsyncStream<Message>.Continuation
     /// The video lane's secrets (VideoLane.swift) and the lane, once one joins.
     let laneSecrets: LaneSecrets?
     let laneSlot = LaneSlot()
@@ -197,7 +198,28 @@ public final class SecureSession: @unchecked Sendable {
         self.sealer = FrameSealer(key: sendKey)
         self.opener = FrameOpener(key: receiveKey)
         self.laneSecrets = laneSecrets
+        let (stream, outbox) = AsyncStream<Message>.makeStream(bufferingPolicy: .unbounded)
+        self.outbox = outbox
+        // One task sends what's posted, in the order it was posted.
+        Task.detached { [weak self] in
+            for await m in stream {
+                guard let self else { return }
+                try? await self.send(m)
+            }
+        }
     }
+
+    deinit { outbox.finish() }
+
+    /// Sends without waiting, **in the order posted** — for everything fired from the UI: a key
+    /// down and its up, a mouse press, drag and release, typed characters, a watch and the shape
+    /// that follows it, live shapes and their final one. Each of these used to go in a task of
+    /// its own, and tasks don't run in the order they're made: under load two could swap on the
+    /// wire (the live-shape test caught the final shape arriving before the one before it) — a
+    /// release before its press, letters out of order, a shape meant for the next window given
+    /// to the one before. A failed send is dropped, as it was; the session's own loops notice a
+    /// dead link.
+    public func post(_ message: Message) { outbox.yield(message) }
 
     public func send(_ message: Message) async throws {
         // The window's pictures go on the video lane when there is one; if it fails they come
@@ -223,6 +245,7 @@ public final class SecureSession: @unchecked Sendable {
     }
 
     public func close() {
+        outbox.finish()
         laneSlot.closeAll()
         connection.cancel()
     }

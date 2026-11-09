@@ -43,7 +43,7 @@ extension LinkClient {
     @discardableResult
     public func keepAwake(_ request: KeepAwakeRequest) -> Bool {
         guard macCanKeepAwake, request.isValid, let s = currentSession else { return false }
-        Task { try? await s.send(.keepAwakeSet(request)) }
+        s.post(.keepAwakeSet(request))
         return true
     }
 

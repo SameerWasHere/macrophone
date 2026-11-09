@@ -38,7 +38,7 @@ extension LinkClient {
     @discardableResult
     public func undoPaste(_ id: UUID) -> Bool {
         guard macCanUndo, let s = currentSession else { return false }
-        Task { try? await s.send(.undoPaste(id: id)) }
+        s.post(.undoPaste(id: id))
         return true
     }
 
