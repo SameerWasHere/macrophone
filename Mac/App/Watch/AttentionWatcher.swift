@@ -113,9 +113,10 @@ final class AttentionWatcher {
             }
             guard asked[key] != p.id else { continue }
             asked[key] = p.id
-            let a = MacAlert(ref: t.ref, appName: t.appName, title: t.title, kind: .asking,
+            var a = MacAlert(ref: t.ref, appName: t.appName, title: t.title, kind: .asking,
                              headline: AlertWords.headline(.asking, app: t.appName, newLines: []),
                              detail: p.question, promptID: p.id)
+            a.answers = p.choices.map(\.label)
             await app.alerts.send(a, windowID: wid)
         }
         // Still windows earn longer rests; a change brings the looks back to every five seconds.

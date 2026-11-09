@@ -151,9 +151,10 @@ final class ServeDelegate: LinkServerDelegate {
                 let a = Attention(ref: codex.ref, appName: "Terminal", title: codex.title, question: p.question, promptID: p.id)
                 if server.phones(with: MacAlerts.feature).contains(peer.id) {
                     // Every alert one way, with a picture (the Mac's AlertCenter).
-                    let m = MacAlert(ref: codex.ref, appName: "Terminal", title: codex.title, kind: .asking,
+                    var m = MacAlert(ref: codex.ref, appName: "Terminal", title: codex.title, kind: .asking,
                                      headline: AlertWords.headline(.asking, app: "Terminal", newLines: []),
                                      detail: p.question, promptID: p.id, jpeg: MacAlerts.jpeg(image))
+                    m.answers = p.choices.map(\.label)
                     await server.send(.macAlert(m), to: peer.id)
                 } else {
                     await server.send(.attention(a), to: peer.id)
@@ -838,6 +839,7 @@ func run() async -> Int32 {
         server.macFeatures.append(WatchWindowMask.feature)
         // Undo the last paste (Undo.swift): answers as the Mac does, presses nothing.
         if !has("--no-undo") { server.macFeatures.append(UndoPaste.feature) }
+        if !has("--no-alert-answer") { server.macFeatures.append(AlertAnswers.feature) }
         if !has("--no-alerts") { server.macFeatures.append(MacAlerts.feature) }
         // Live shapes while the finger drags the window's corner (Nov 9 2026): --no-live-shape is
         // a Mac from before (one `watchShape` on release).

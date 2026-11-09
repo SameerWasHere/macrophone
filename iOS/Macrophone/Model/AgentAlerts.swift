@@ -122,7 +122,9 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
     // MARK: Through iCloud, for when the app is closed
 
     static let container = "iCloud.com.sameer.macrophone"
-    static let subscriptionID = "ask"
+    static let subscriptionID = "alerts-zone"
+    /// The query subscription from before (never accepted; removed if one ever was).
+    static let oldSubscriptionID = "ask"
     /// Only a build signed with the iCloud entitlement may touch CloudKit; that build sets this.
     static var cloudAvailable: Bool { Bundle.main.object(forInfoDictionaryKey: "MacrophoneCloudAlerts") as? String == "YES" }
     /// The subscription is in place: the hello tells the Mac to keep looking while the app is closed.
@@ -185,25 +187,27 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
         cloudState = .trying
         tryingSince = Date()
         UIApplication.shared.registerForRemoteNotifications()
-        let sub = CKQuerySubscription(recordType: CloudAlertRecord.recordType, predicate: NSPredicate(value: true), subscriptionID: Self.subscriptionID,
-                                      options: [.firesOnRecordCreation, .firesOnRecordUpdate])
+        // A zone subscription (Nov 9 2026). The query subscription this used was refused by the
+        // Production container every time ("attempting to create a subscription in a production
+        // container": its type has to be made in Development and deployed first) — the reason no
+        // alert ever reached a closed app. A zone subscription needs nothing deployed (proven
+        // from the Mac, same container and account). Its push can't carry the record's own words,
+        // so it says a plain line and the notification extension fills in the rest — the
+        // headline, the line under it, the picture, the answers' buttons.
+        let db = CKContainer(identifier: Self.container).privateCloudDatabase
+        let zoneID = CKRecordZone.ID(zoneName: AlertAnswers.zone, ownerName: CKCurrentUserDefaultName)
+        _ = try? await db.save(CKRecordZone(zoneID: zoneID))
+        let sub = CKRecordZoneSubscription(zoneID: zoneID, subscriptionID: Self.subscriptionID)
         let info = CKSubscription.NotificationInfo()
-        info.titleLocalizationKey = "%1$@"
-        info.titleLocalizationArgs = ["line"]
-        info.subtitleLocalizationKey = "%1$@"
-        info.subtitleLocalizationArgs = ["window"]
-        info.alertBody = "Tap to see it."
+        info.alertBody = "Something on your Mac needs you. Tap to see it."
         info.soundName = "default"
-        info.desiredKeys = ["ref"]
-        // The notification extension (MacrophoneAlerts) fills in the line under it and the picture
-        // of the window, and deletes the record (Nov 6 2026).
         info.shouldSendMutableContent = true
-        info.category = "macAlert"
         sub.notificationInfo = info
         // A new container (or a busy iCloud) asks for patience: wait as long as it says, a few times.
         for attempt in 1...4 {
             do {
-                _ = try await CKContainer(identifier: Self.container).privateCloudDatabase.save(sub)
+                _ = try await db.save(sub)
+                _ = try? await db.deleteSubscription(withID: Self.oldSubscriptionID)
                 if !Self.cloudReady { model?.log.add("alerts: set up through iCloud") }
                 UserDefaults.standard.set(true, forKey: "alerts.cloud")
                 confirmed = true
@@ -306,12 +310,42 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
     /// Every alert from the Mac, one look (AlertNotification): the headline, the window's title,
     /// the line, and the picture of the window. One per window: a newer one replaces it.
     func post(_ a: MacAlert) {
+        Task {
+            let c = UNMutableNotificationContent()
+            // Its buttons too (the answers, Reply), registered before it shows.
+            await AlertNotification.prepare(c, with: a)
+            c.sound = .default
+            let request = UNNotificationRequest(identifier: a.notificationID, content: c, trigger: nil)
+            try? await UNUserNotificationCenter.current().add(request)
+            await AlertNotification.removeOlder(window: MacAlert.windowKey(a.ref), except: a.notificationID)
+            #if DEBUG
+            // MACROPHONE_ALERT_ANSWER=<index> / MACROPHONE_ALERT_REPLY=<words>: what the system has
+            // for this notification's buttons, then what a tap on one does (the simulator's long
+            // press on a notification can't be driven from a test).
+            let env = DebugHooks.env
+            guard env["MACROPHONE_ALERT_ANSWER"] != nil || env["MACROPHONE_ALERT_REPLY"] != nil else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            let center = UNUserNotificationCenter.current()
+            let shown = await center.deliveredNotifications().first { $0.request.identifier == a.notificationID }
+            let category = await center.notificationCategories().first { $0.identifier == shown?.request.content.categoryIdentifier }
+            model?.log.add("alert buttons: \(category?.actions.map(\.title).joined(separator: " | ") ?? "none")")
+            if let i = env["MACROPHONE_ALERT_ANSWER"].flatMap(Int.init), let id = shown?.request.content.userInfo["promptID"] as? String {
+                await model?.answerFromNotification(ref: a.ref, promptID: id, index: i)
+            }
+            if let words = env["MACROPHONE_ALERT_REPLY"] { await model?.replyFromNotification(ref: a.ref, text: words) }
+            #endif
+        }
+    }
+
+    /// A line of our own (an answer that couldn't be given): tapping it opens that window.
+    func say(_ title: String, body: String, ref: TargetRef) {
         let c = UNMutableNotificationContent()
-        AlertNotification.fill(c, with: a)
+        c.title = title
+        c.body = body
         c.sound = .default
-        let request = UNNotificationRequest(identifier: a.notificationID, content: c, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
-        Task { await AlertNotification.removeOlder(window: MacAlert.windowKey(a.ref), except: a.notificationID) }
+        c.threadIdentifier = AlertNotification.thread
+        if let data = try? JSONEncoder().encode(ref) { c.userInfo = ["ref": String(decoding: data, as: UTF8.self)] }
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "answer-\(UUID().uuidString)", content: c, trigger: nil))
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
@@ -324,6 +358,18 @@ final class AgentAlerts: NSObject, UNUserNotificationCenterDelegate, ObservableO
         let s = info["ref"] as? String
             ?? (CKNotification(fromRemoteNotificationDictionary: info) as? CKQueryNotification)?.recordFields?["ref"] as? String
         guard let s, let ref = try? JSONDecoder().decode(TargetRef.self, from: Data(s.utf8)) else { return }
+        // A button on the notification (Nov 9 2026): answered or replied without opening the app.
+        let action = response.actionIdentifier
+        if action.hasPrefix(AlertNotification.answerPrefix), let index = Int(action.dropFirst(AlertNotification.answerPrefix.count)),
+           let promptID = info["promptID"] as? String {
+            await self.model?.answerFromNotification(ref: ref, promptID: promptID, index: index)
+            return
+        }
+        if action == AlertNotification.replyAction, let typed = (response as? UNTextInputNotificationResponse)?.userText {
+            await self.model?.replyFromNotification(ref: ref, text: typed)
+            return
+        }
+        guard action == UNNotificationDefaultActionIdentifier else { return }
         await MainActor.run { self.model?.openAttention(ref) }
     }
 }

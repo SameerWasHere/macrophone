@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the app forced dark before). The popup and the listening pill keep their own looks.
         appearanceWatch = model.settings.$appearance.sink { AppAppearance.apply($0) }
         Notifier.shared.setUp()
+        Task { await CloudAlerts.probeIfAsked(log: self.model.log) }
         statusItem = StatusItemController(model: model, updater: updater)
         model.popup.statusItemFrame = { [weak self] in self?.statusItem.visibleFrame }
         model.flashStatusItem = { [weak self] in self?.statusItem.flashReceived() }

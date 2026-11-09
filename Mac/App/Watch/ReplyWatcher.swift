@@ -202,9 +202,10 @@ final class ReplyWatcher {
             return
         }
         let detail = prompt?.question ?? AlertWords.reply(new)
-        let a = MacAlert(ref: ref, appName: appName, title: title, kind: kind,
+        var a = MacAlert(ref: ref, appName: appName, title: title, kind: kind,
                          headline: AlertWords.headline(kind, app: appName, newLines: new),
                          detail: detail, promptID: prompt?.id, jpeg: jpeg, chat: true)
+        a.answers = prompt?.choices.map(\.label)
         app.log.add("chat answers: a chat \(kind == .asking ? "is asking" : "answered") — alert \(c.follower.told) of \(ChatAnswers.maxAnswers) "
                     + "(\(new.count) new lines read\(jpeg == nil ? ", no picture" : ""))")
         await app.alerts.send(a)

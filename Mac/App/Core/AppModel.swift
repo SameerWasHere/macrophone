@@ -162,6 +162,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         // The watched window's real corners, read once per size (Nov 9 2026, Watch/WindowMask.swift).
         server.macFeatures.append(WatchWindowMask.feature)
         server.macFeatures.append(UndoPaste.feature)
+        server.macFeatures.append(AlertAnswers.feature)
         // Windows on watch, and every alert with a picture (Nov 6 2026, Watch/WindowAlerts.swift).
         server.macFeatures.append(MacAlerts.feature)
         // A chat the phone wrote to alerts when it answers (Nov 8 2026, Watch/ReplyWatcher.swift).
@@ -880,6 +881,12 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 extension AppModel: LinkServerUndoDelegate {
     func linkServer(_ server: LinkServer, undoPaste id: UUID, from peerID: UUID) async -> UndoResult {
         await delivery.undo(id)
+    }
+}
+
+extension AppModel: LinkServerAlertAnswerDelegate {
+    func linkServer(_ server: LinkServer, answer: AlertAnswer, from peerID: UUID) async -> AlertAnswerResult {
+        await AlertAnswerer.answer(answer, app: self)
     }
 }
 

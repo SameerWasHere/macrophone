@@ -747,6 +747,8 @@ public final class LinkServer: @unchecked Sendable {
                 notifyPermissions { $0.linkServerShowPermissions(self, from: phoneID) }
             case let .undoPaste(id):
                 handleUndo(id, from: phoneID, on: session)
+            case let .alertAnswer(answer):
+                handleAlertAnswer(answer, from: phoneID, on: session)
             case let .alertWatch(request):
                 handleAlertWatch(request, from: phoneID)
             case let .keepAwakeSet(request):
@@ -757,7 +759,7 @@ public final class LinkServer: @unchecked Sendable {
                 handleChatAnswers(on, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .watchMask, .undoDone, .alertWatches, .macAlert, .frontWindow, .keepAwake:
+            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .watchMask, .undoDone, .alertAnswerDone, .alertWatches, .macAlert, .frontWindow, .keepAwake:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

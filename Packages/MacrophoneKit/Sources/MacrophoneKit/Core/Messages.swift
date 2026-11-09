@@ -247,6 +247,11 @@ public enum Message: Codable, Sendable {
     case undoPaste(id: UUID)
     /// Mac → phone: what that undo did.
     case undoDone(UndoResult)
+    /// Phone → Mac (only to a Mac naming AlertAnswers.feature): answer this window's question
+    /// (from a notification's button — the phone isn't watching it).
+    case alertAnswer(AlertAnswer)
+    /// Mac → phone: how that answer went.
+    case alertAnswerDone(AlertAnswerResult)
     /// Phone → Mac (only to a Mac naming MacAlerts.feature): put a window on watch, or take it off.
     case alertWatch(AlertWatchRequest)
     /// Mac → phone (only to a phone naming MacAlerts.feature): the windows on watch — after the

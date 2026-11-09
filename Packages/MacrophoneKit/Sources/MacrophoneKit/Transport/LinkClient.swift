@@ -142,6 +142,7 @@ public final class LinkClient: @unchecked Sendable {
     private var pending: [UUID: CheckedContinuation<Ack, Error>] = [:]
     /// Waiting for the Mac's next pong (`roundTrip`).
     private var pongWaiters: [(Date) -> Void] = []
+    let answerWaiters = AnswerWaiters()
     private var pingTask: Task<Void, Never>?
     /// When anything last arrived from the Mac on the session (the silence watchdog, `startLoops`).
     private var lastHeard = Date()
@@ -894,6 +895,8 @@ public final class LinkClient: @unchecked Sendable {
             deliverMask(m)
         case let .undoDone(r):
             deliverUndo(r)
+        case let .alertAnswerDone(r):
+            deliverAlertAnswer(r)
         case let .alertWatches(list):
             deliverAlertWatches(list)
         case let .macAlert(a):
@@ -905,7 +908,7 @@ public final class LinkClient: @unchecked Sendable {
         case .showPermissions:
             break
         case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape, .watchShapeLive,
-             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertWatch, .keepAwakeSet, .chatAnswers:
+             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertAnswer, .alertWatch, .keepAwakeSet, .chatAnswers:
             break
         }
     }

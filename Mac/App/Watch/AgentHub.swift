@@ -69,7 +69,7 @@ final class AgentHub {
             let isNew = sessions[key] == nil
             sessions[key] = entry
             if isNew { app.log.add("agents: \(e.agentName) session started (\(sessions.count) now)") }
-            if state == .waiting, was != .waiting || detail != nil { alert(entry.session, windowID: entry.windowID) }
+            if state == .waiting, was != .waiting || detail != nil { alert(entry.session, windowID: entry.windowID, pid: entry.pid) }
         }
         sweep()
     }
@@ -118,12 +118,24 @@ final class AgentHub {
 
     /// The same alert as every other (AlertCenter): "Claude Code is asking you something", the
     /// question under it, and a picture of its window.
-    private func alert(_ s: AgentSession, windowID: CGWindowID?) {
+    private func alert(_ s: AgentSession, windowID: CGWindowID?, pid: pid_t?) {
         guard let ref = s.ref else { return }
-        let a = MacAlert(ref: ref, appName: s.agent, title: s.project ?? s.appName, kind: .asking,
+        var a = MacAlert(ref: ref, appName: s.agent, title: s.project ?? s.appName, kind: .asking,
                          headline: AlertWords.headline(.asking, app: s.agent, newLines: []),
                          detail: s.detail, promptID: Self.promptID(s))
-        Task { await app.alerts.send(a, windowID: windowID) }
+        Task {
+            // The question's answers, read off its window once it has drawn (Nov 9 2026): the
+            // notification offers them as buttons, and the id is the window's own so the answer
+            // can be checked against what's still asked.
+            if let windowID, let pid {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                if let p = await AlertAnswerer.read(pid: pid, windowID: windowID).1, p.choices.count >= 2 {
+                    a.promptID = p.id
+                    a.answers = p.choices.map(\.label)
+                }
+            }
+            await app.alerts.send(a, windowID: windowID)
+        }
     }
 
     /// Short and stable for one question of one session.

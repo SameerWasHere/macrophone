@@ -50,6 +50,9 @@ public struct MacAlert: Codable, Sendable, Equatable, Identifiable {
     /// lets it through by its "When a chat answers you" switch. Nil from a Mac from before, and
     /// an older phone ignores it.
     public var chat: Bool?
+    /// A question's answers as the window words them, in order ("Yes", "Yes, and don't ask
+    /// again", "No…") — the notification's buttons (Nov 9 2026). Nil: none read, or a Mac from before.
+    public var answers: [String]?
 
     public enum Kind: String, Sendable, CaseIterable {
         /// It was busy a while and went still.
@@ -584,6 +587,8 @@ public enum CloudAlertRecord {
         public var at: Date
         /// The picture (base64 in the JSON).
         public var jpeg: Data?
+        public var answers: [String]?
+        public var chat: Bool?
     }
 
     /// The record's name for a window: one per window, overwritten.
@@ -593,7 +598,7 @@ public enum CloudAlertRecord {
     public static func fields(_ a: MacAlert) -> [String: String]? {
         guard let ref = try? JSONEncoder.sorted.encode(a.ref),
               let payload = try? JSONEncoder.sorted.encode(Payload(id: a.id, kind: a.kind, appName: a.appName, detail: a.detail,
-                                                                   promptID: a.promptID, at: a.at, jpeg: a.jpeg)) else { return nil }
+                                                                   promptID: a.promptID, at: a.at, jpeg: a.jpeg, answers: a.answers, chat: a.chat)) else { return nil }
         return ["line": a.headline, "window": a.title, "ref": String(decoding: ref, as: UTF8.self),
                 "promptID": String(decoding: payload, as: UTF8.self)]
     }
@@ -606,6 +611,8 @@ public enum CloudAlertRecord {
         var a = MacAlert(id: p.id, ref: r, appName: p.appName, title: window ?? p.appName, kind: .updated,
                          headline: line ?? p.appName, detail: p.detail, promptID: p.promptID, at: p.at, jpeg: p.jpeg)
         a.kind = p.kind
+        a.answers = p.answers
+        a.chat = p.chat
         return a
     }
 }

@@ -8,6 +8,55 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## Alerts that reach a closed app, answered from the notification (Nov 9 2026) — wins over the older alert sections where they differ
+
+Sameer's loop is dictate → pocket the phone → come back for the answer; the second half never
+worked with the app closed, and a question needed the app opened to answer.
+- **Why no alert ever reached a closed app:** the phone's `CKQuerySubscription` was refused by the
+  Production container every time — CKError 12, "attempting to create a subscription in a production
+  container" (a query subscription's type has to be made in Development and deployed). Found with a
+  one-shot probe in the Mac app (`CloudAlerts.probeIfAsked`, `defaults write
+  com.sameer.macrophone.mac cloud.probe -bool YES`, then relaunch; it logs "cloud probe: …" for five
+  subscription shapes and removes them): every query shape refused, **zone and database
+  subscriptions taken**. Nothing in the CloudKit Console is needed.
+- **Now:** alerts live in a private zone `Alerts` (`AlertAnswers.zone`). The Mac writes each record
+  there (`CloudAlerts.zoneID`, the zone made on first use); the phone saves a
+  `CKRecordZoneSubscription` (`AgentAlerts.subscriptionID` "alerts-zone"; the old "ask" is deleted if
+  it ever existed) whose push says a plain line with mutable content; the notification extension
+  (`NotificationService`) reads the zone's records (`recordZoneChanges`, no index needed), shows the
+  newest — headline, line, picture, buttons — and deletes that one. A push that finds the zone empty
+  shows "Your Mac" and the plain line. **Both apps must be on this build** (an older Mac writes to
+  the default zone, which nothing pushes).
+- **Answer from the notification** (MacrophoneKit `Core/AlertAnswer.swift`, `Transport/AlertAnswerLink.swift`,
+  feature `alertAnswer`): `MacAlert.answers` (the question's answers as the window words them; in
+  the cloud payload too) → `AlertNotification.category(for:)`: up to three answer buttons ("1. Yes"…,
+  cut to ~36 letters) and **Reply…** (a text field; the keyboard's mic dictates) for a question, Reply
+  alone for a chat's answer, nothing for anything else. Categories are made per set of buttons
+  (`mac-<hash>`) and registered just before the notification shows (`AlertNotification.prepare`, in the
+  app and in the extension). A tap (`AgentAlerts.userNotificationCenter(_:didReceive:)`) →
+  `AppModel.answerFromNotification`: connects in the background (9 s at most), `.alertAnswer` → the Mac
+  (`Watch/AlertAnswerer.swift`) finds the window, reads what it asks **now** (`AXPrompt`, else
+  `PromptVision`) and only if it's still that question (`prompt.id`) brings it forward and gives the
+  answer — the card's controls, or the same keys as the window view's chips — and marks the window a
+  chat so its reply is told. Anything else answers nothing: "‹App› isn't asking that any more". A
+  miss posts "Not answered" with why; a tap on it opens the window. Reply →
+  `replyFromNotification`: a dictation to that window with send, through `deliver` (queued if the Mac
+  can't be reached). Claude Code's hook alerts read their window's answers 0.7 s after it asks
+  (`AgentHub.alert`) so they carry buttons, with the window's own prompt id.
+- **Proven:** `swift test` 355 (`AlertAnswerTests`: the record and the wire; the category tests are
+  iOS-only). Simulator against `mpctl serve --attention-after 3` (it names the feature, puts answers
+  on its question and prints `ALERT ANSWER 1 for …`): iOS holds "1. Yes | 2. Yes, and don't ask again
+  this sess… | 3. No, and tell Claude what to do ins… | Reply…" for the notification; answer 1 reached
+  the Mac; "use the smaller change" was sent into the asking window
+  (`AlertNotificationUITests.testAnAnswerAndAReplyFromTheNotification`, `TEST_RUNNER_MACROPHONE_ANSWER_TEST=1`;
+  hooks `MACROPHONE_ALERT_ANSWER=<index>`, `MACROPHONE_ALERT_REPLY=<words>` — the simulator's long
+  press on a notification turns into a sideways swipe, so the buttons are read from the system's
+  registry and the tap's handler is called).
+- **Needs his phone and Mac (nothing here could prove these):** a push from the zone subscription
+  arriving with the app closed, and the extension filling it; the buttons as iOS draws them on a
+  long press; `AlertAnswerer` on a real Claude / Terminal question (the stand-in presses nothing);
+  an answer tapped with the phone away from home (the background connect over Tailscale in 9 s).
+
 ## The reliability review (Nov 9 2026)
 
 Sameer: "Review this app and make the improvements you think are needed to deliver the value prop."

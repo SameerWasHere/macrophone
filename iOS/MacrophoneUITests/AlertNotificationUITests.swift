@@ -37,4 +37,37 @@ final class AlertNotificationUITests: XCTestCase {
         }
         shot("3-expanded")
     }
+
+    /// Answering from the notification (Nov 9 2026): the stand-in Mac's Terminal asks its question
+    /// (`mpctl serve --attention-after 3`); the app says which buttons iOS holds for the
+    /// notification and does what a tap on "1." and a Reply do (`MACROPHONE_ALERT_ANSWER`,
+    /// `MACROPHONE_ALERT_REPLY` — the simulator's long press on a notification can't be driven from
+    /// a test: it turns into a sideways swipe). The Mac hears both.
+    /// `TEST_RUNNER_MACROPHONE_ANSWER_TEST=1`, `TEST_RUNNER_MACROPHONE_SERVE_LOG=<serve's output>`.
+    func testAnAnswerAndAReplyFromTheNotification() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["MACROPHONE_ANSWER_TEST"] == "1", "needs a paired mpctl serve --attention-after 3")
+        let logPath = ProcessInfo.processInfo.environment["MACROPHONE_SERVE_LOG"] ?? ""
+        func serveLog() -> String { (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? "" }
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        // The first window opened is when the app asks for notifications: answer that once.
+        let app = XCUIApplication()
+        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_WATCH": "1"]
+        app.launch()
+        let allow = springboard.buttons["Allow"]
+        if allow.waitForExistence(timeout: 12) { allow.tap() }
+        sleep(1)
+        app.terminate()
+        let answersBefore = serveLog().components(separatedBy: "ALERT ANSWER 1").count
+        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_ALERT_ANSWER": "0", "MACROPHONE_ALERT_REPLY": "use the smaller change"]
+        app.launch()
+        var answered = false, replied = false
+        for _ in 0..<50 where !(answered && replied) {
+            usleep(500_000)
+            let log = serveLog()
+            answered = log.components(separatedBy: "ALERT ANSWER 1").count > answersBefore
+            replied = log.contains("use the smaller change")
+        }
+        XCTAssertTrue(answered, "the Mac was given answer 1")
+        XCTAssertTrue(replied, "the reply was sent into the asking window")
+    }
 }

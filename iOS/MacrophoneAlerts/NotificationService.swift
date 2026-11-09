@@ -18,21 +18,33 @@ final class NotificationService: UNNotificationServiceExtension {
         handler = contentHandler
         let content = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
         self.content = content
-        guard let note = CKNotification(fromRemoteNotificationDictionary: request.content.userInfo) as? CKQueryNotification,
-              let id = note.recordID, id.recordName.hasPrefix(CloudAlertRecord.namePrefix) else {
-            // A question from a Mac from before: as it came.
+        let note = CKNotification(fromRemoteNotificationDictionary: request.content.userInfo)
+        guard note is CKRecordZoneNotification || note is CKQueryNotification else {
             contentHandler(content)
             return
         }
         work = Task {
             let db = CKContainer(identifier: Self.container).privateCloudDatabase
-            if let record = try? await db.record(for: id),
-               let alert = CloudAlertRecord.alert(line: record["line"] as? String, window: record["window"] as? String,
-                                                  ref: record["ref"] as? String, payload: record["promptID"] as? String) {
-                AlertNotification.fill(content, with: alert)
+            // The push says only that the Alerts zone changed: take what's in it (one record per
+            // window, a handful at most) and show the newest.
+            let zoneID = CKRecordZone.ID(zoneName: AlertAnswers.zone, ownerName: CKCurrentUserDefaultName)
+            var alerts: [(CKRecord.ID, MacAlert)] = []
+            if let changes = try? await db.recordZoneChanges(inZoneWith: zoneID, since: nil) {
+                for (id, result) in changes.modificationResultsByID {
+                    guard id.recordName.hasPrefix(CloudAlertRecord.namePrefix), let record = try? result.get().record,
+                          let alert = CloudAlertRecord.alert(line: record["line"] as? String, window: record["window"] as? String,
+                                                             ref: record["ref"] as? String, payload: record["promptID"] as? String) else { continue }
+                    alerts.append((id, alert))
+                }
+            }
+            // One push per record written: this one shows the newest and takes only that one, so
+            // the next push still finds its own.
+            if let (id, alert) = alerts.max(by: { $0.1.at < $1.1.at }) {
+                await AlertNotification.prepare(content, with: alert)
                 await AlertNotification.removeOlder(window: MacAlert.windowKey(alert.ref))
-                // The phone has it now: the record (and its picture) goes.
-                _ = try? await db.deleteRecord(withID: id)
+                _ = try? await db.modifyRecords(saving: [], deleting: [id])
+            } else {
+                content.title = "Your Mac"
             }
             self.finish()
         }

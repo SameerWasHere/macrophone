@@ -2417,6 +2417,58 @@ extension AppModel: LinkClientDelegate {
 
     /// A tapped alert: watch that window (and send there), where its answers wait — at the
     /// bottom, where an answer is (Nov 8 2026: the zoom you left it at stays).
+    // MARK: Answering from the notification (Nov 9 2026)
+
+    /// The link, for something asked while the app isn't on screen (a notification's button may
+    /// have launched it in the background): up to nine seconds to connect.
+    private func connectForBackgroundWork() async -> Bool {
+        guard isPaired else { return false }
+        client.start()
+        for _ in 0..<60 where !client.isConnected { try? await Task.sleep(nanoseconds: 150_000_000) }
+        return client.isConnected
+    }
+
+    /// …and let go of again once it's done, if the app never came to the front.
+    private func backgroundWorkDone() async {
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        if !sceneActive, !recorder.isActive, inFlight == 0 { client.stop() }
+    }
+
+    /// An answer's button: the Mac gives it to the window if it still asks that question. A miss
+    /// says so in a notification of its own (a tap on it opens the window).
+    func answerFromNotification(ref: TargetRef, promptID: String, index: Int) async {
+        var result: AlertAnswerResult?
+        if await connectForBackgroundWork() {
+            result = await client.answerAlert(AlertAnswer(ref: ref, promptID: promptID, index: index))
+        }
+        log.add("notification answer: \(result?.ok == true ? "given" : (result == nil ? "no word from the Mac" : "not given"))")
+        if result?.ok != true {
+            let why = result?.detail ?? (client.isConnected && !client.macCanAnswerAlerts
+                ? "Update Macrophone on \(macName) to answer from a notification."
+                : "\(macName) couldn't be reached. Open Macrophone to answer.")
+            AgentAlerts.shared.say("Not answered", body: why, ref: ref)
+        }
+        await backgroundWorkDone()
+    }
+
+    /// Reply: the words go into that window and are sent, as a dictation would be.
+    func replyFromNotification(ref: TargetRef, text: String) async {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        _ = await connectForBackgroundWork()
+        let d = Dictation(raw: body, language: settings.language, target: ref, send: ref.canSend, sourceDevice: settings.deviceName)
+        history.add(HistoryItem(dictation: d, delivery: .sending))
+        refreshHistory()
+        log.add("notification reply: \(Self.kind(ref))")
+        await deliver(d, resend: false)
+        switch item(d.id)?.delivery {
+        case .queued?: AgentAlerts.shared.say("Reply waiting", body: "\(macName) isn't reachable. It'll go when it is.", ref: ref)
+        case .failed?: AgentAlerts.shared.say("Reply not delivered", body: "\(macName) couldn't put it in that window. It's in History.", ref: ref)
+        default: break
+        }
+        await backgroundWorkDone()
+    }
+
     func openAttention(_ ref: TargetRef) {
         if case .app = ref, ref != settings.selection.target { pick(ref) }
         let already = watcher.isShowing && watcher.target == ref

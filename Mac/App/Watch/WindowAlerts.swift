@@ -467,9 +467,11 @@ final class WindowAlertWatcher {
         let new = fresh.isEmpty ? tail : fresh
         w.lines = now
         if let p = await PromptVision.read(image) {
-            return MacAlert(ref: w.ref, appName: w.appName, title: w.title, kind: .asking,
-                            headline: AlertWords.headline(.asking, app: w.appName, newLines: []),
-                            detail: p.question, promptID: p.id)
+            var asking = MacAlert(ref: w.ref, appName: w.appName, title: w.title, kind: .asking,
+                                  headline: AlertWords.headline(.asking, app: w.appName, newLines: []),
+                                  detail: p.question, promptID: p.id)
+            asking.answers = p.choices.map(\.label)
+            return asking
         }
         if kind == .asking {
             return MacAlert(ref: w.ref, appName: w.appName, title: w.title, kind: .asking,
