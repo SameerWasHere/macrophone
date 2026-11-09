@@ -80,7 +80,9 @@ struct ResizableWindow<Content: View>: View {
                         if handleShown, measured {
                             // (Its 34 pt touch square centred 3 pt in from the corner: 20 in, 14 out.)
                             handle
-                                .position(x: corner.x - 3, y: corner.y - 3)
+                                // (A window that runs to the screen's side keeps the arc on screen:
+                                // tucked into the wedge its own rounded corner leaves.)
+                                .position(x: min(corner.x - 3, room.width - 10), y: corner.y - 3)
                                 .transition(.opacity)
                         }
                     }

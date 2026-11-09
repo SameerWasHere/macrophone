@@ -630,7 +630,7 @@ final class Watcher: ObservableObject {
         // Kept per pose (Nov 8 2026, round 2): the shape ahead needs a measure from this pose,
         // and the first open after every launch had none — it came in at the Mac's own shape and
         // jumped to the view's 1.3 s later.
-        if !fullScreen, size.width > 40, size.height > 40 {
+        if !fullScreen, Self.plausible(size) {
             UserDefaults.standard.set([size.width, size.height], forKey: Self.viewSizeKey(input.pose, fill: fill))
         }
         // (Nov 9 2026: the round-2 rule here — a measure off the shape just sent re-arms the
@@ -641,6 +641,18 @@ final class Watcher: ObservableObject {
         measuredAt = Date()
         autoFitSoon()
     }
+    /// A resting window view's shape (Nov 9 2026): at least 150 pt tall and between 0.3 and 3 wide
+    /// for its height — every real layout is (the phone 402×576, the cover 382×424, the Duo's
+    /// halves and pages, full screen on its side 1.42, a window shrunk to its smallest). Once, flat
+    /// upright on a fresh Duo simulator, the view measured 645×117 mid-layout and that 5.5:1 strip
+    /// was sent to the Mac and remembered for the next opens; it couldn't be reproduced, so
+    /// anything that far from a window's shape is never sent or kept, and the log says it came.
+    static func plausible(_ size: CGSize) -> Bool {
+        guard size.width > 40, size.height >= 150 else { return false }
+        let aspect = size.width / size.height
+        return aspect >= 0.3 && aspect <= 3
+    }
+
     /// When the last shape went to the Mac.
     private var shapeSentAt: Date?
     /// When the view's size last changed, and when a shape was last asked for (a new window, a
@@ -738,6 +750,11 @@ final class Watcher: ObservableObject {
         // Folded, the half's own measure, never the phone layout's still fading out.
         guard !fillsView || viewerFills, viewerSize.width > 40, viewerSize.height > 40 else { return }
         let size = viewerSize
+        guard Self.plausible(size) else {
+            // Still owed: the next measure may be the real one.
+            log?.add("watching: a view of \(Int(size.width))×\(Int(size.height)) isn't a window's shape — not sent")
+            return
+        }
         wantsAutoFit = false
         if let was = shapeSent {
             let aspect = size.width / size.height, before = was.width / was.height
@@ -773,7 +790,7 @@ final class Watcher: ObservableObject {
             size = CGSize(width: kept[0], height: kept[1])
             remembered = true
         }
-        guard size.width > 40, size.height > 40, sendShape(size) else { return }
+        guard Self.plausible(size), sendShape(size) else { return }
         shapeSent = size
         shapeSentAt = Date()
         if !askedForFit { autoFitted = true }

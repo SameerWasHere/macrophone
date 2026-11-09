@@ -80,6 +80,28 @@ final class ResizableWindowUITests: XCTestCase {
         shot("duo-\(pose)-3-full-again")
     }
 
+    /// The window runs to the screen's sides (Nov 9 2026), and a swipe in from the screen's edge
+    /// still flips to the next window and back — with nothing over the window's own edge.
+    func testTheWindowIsEdgeToEdgeAndTheScreenEdgeFlips() {
+        let app = launch()
+        let menu = app.buttons["watch-sessions"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 25))
+        XCTAssertTrue(app.descendants(matching: .any)["watch-resize"].waitForExistence(timeout: 25))
+        let win = settled(window(app))
+        XCTAssertEqual(win.minX, 0, accuracy: 1, "the window starts at the screen's left side")
+        XCTAssertEqual(win.width, app.frame.width, accuracy: 1, "and runs to its right")
+        XCTAssertTrue(menu.label.contains("Claude"))
+        let y = win.midY / app.frame.height
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.999, dy: y))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: y)))
+        sleep(3)
+        XCTAssertFalse(menu.label.contains("Claude"), "a swipe in from the right edge shows the next window: \(menu.label)")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: y))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: y)))
+        sleep(3)
+        XCTAssertTrue(menu.label.contains("Claude"), "and from the left edge, back: \(menu.label)")
+    }
+
     func testTheCornerResizesTheWindowAndEveryOpenIsFull() {
         let app = launch()
         let handle = app.descendants(matching: .any)["watch-resize"]

@@ -200,7 +200,8 @@ final class WindowZoom: ObservableObject {
     /// breath, the header, the row gap, then the bezel), its foot where the viewer at rest ends:
     /// fitted whole in that room, as the viewer opens every picture.
     static func estimate(image: CGSize, area: CGRect, compact: Bool) -> WindowZoomPlace {
-        let inset = WatchLook.sideMargin + WatchLook.bezelWidth
+        // (The window runs to the panel's sides — Nov 9 2026.)
+        let inset: CGFloat = 0
         let top = area.minY + 4 + WatchLook.header + (compact ? 6 : 8) + WatchLook.bezelWidth
         let foot = viewerPlace(in: area).map { $0.clip.maxY } ?? (area.maxY - 60)
         let clip = CGRect(x: area.minX + inset, y: top, width: max(1, area.width - 2 * inset), height: max(1, foot - top))

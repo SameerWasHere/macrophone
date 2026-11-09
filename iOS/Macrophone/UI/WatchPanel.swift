@@ -72,6 +72,9 @@ struct WatchPanel: View {
     /// The window slides in from the side it came from (a swipe's direction, or the menu's).
     @State private var slide: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.watchWindowHidden) private var hidden
+    /// The controls' margin; the window itself runs to the sides.
+    private var margin: CGFloat { WatchLook.sideMargin }
 
     var body: some View {
         let floats = duo || cover
@@ -80,8 +83,12 @@ struct WatchPanel: View {
             // overlaid over the window because it blocks UI elements"): the name is a row above it
             // everywhere — on the cover too, where it had floated over the window's corner — and
             // the answers and the tips are rows under it.
-            if !bare { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce) }
-            // All the room by default; his to resize from the corner (Nov 8 2026).
+            if !bare { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce).padding(.horizontal, margin) }
+            // All the room by default; his to resize from the corner (Nov 8 2026). Edge to edge
+            // (Nov 9 2026, Sameer: "more like a Mac app window running natively on the iPhone"):
+            // an app on an iPhone runs to the screen's sides — the window had sat 10 pt in with
+            // wallpaper down both of them, which read as a picture being shown. Its controls keep
+            // their margin, as a bar's buttons do over full-width content.
             ResizableWindow(watcher: watcher, enabled: !bare && !dormant && !watcher.isDesktop) {
                 WatchWindow(watcher: watcher, interactive: true, dormant: dormant)
                     // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
@@ -92,7 +99,7 @@ struct WatchPanel: View {
             // The first times: what a tap, a hold, a pinch and the side swipe do — a strip under
             // the window, never a card over it.
             if !bare, !dormant {
-                WatchTipCard(watcher: watcher, sessions: sessions.count, inline: true)
+                WatchTipCard(watcher: watcher, sessions: sessions.count, inline: true).padding(.horizontal, margin)
             }
             // The Duo (inner screen or cover): the question's answers on a row of their own under
             // the window, the key row under them (on the cover the key row steps aside while a
@@ -100,21 +107,22 @@ struct WatchPanel: View {
             if floats, watcher.answers != nil {
                 WatchActions(watcher: watcher, floating: true, oneLine: cover)
                     .watchLive(watcher.phase)
+                    .padding(.horizontal, margin)
                     .transition(.opacity)
             }
             if !deck, !(cover && watcher.answers != nil) {
                 WatchActions(watcher: watcher, keysOnly: floats, dragElsewhere: cover)
                     .watchLive(watcher.phase)
+                    .padding(.horizontal, margin)
             }
         }
         .animation(reduceMotion ? nil : Motion.settle, value: watcher.answers?.id)
-        .padding(.horizontal, WatchLook.sideMargin)
         .padding(.top, 4)
         .padding(.bottom, compact ? 6 : 8)
-        // Swipe in from a side edge (in the margin beside the window, under a thumb) for the
-        // previous or next window; the menu on the name is the visible way to the same thing.
-        .overlay(alignment: .leading) { edge(step: -1) }
-        .overlay(alignment: .trailing) { edge(step: 1) }
+        // Swipe in from the screen's side edge for the previous or next window (the menu on the
+        // name is the visible way to the same thing). The system's own edge gesture, on the
+        // screen's real edge: nothing lies over the window's sides to take its taps.
+        .background(EdgeFlips(enabled: !hidden && !dormant && !bare && sessions.count > 1) { go($0) })
         .overlay(alignment: .top) {
             if let switchedTo {
                 WatchNote(symbol: "arrow.left.and.right", words: switchedTo)
@@ -151,21 +159,71 @@ struct WatchPanel: View {
         // two titles); the header's name says where you are, and VoiceOver hears it.
         UIAccessibility.post(notification: .announcement, argument: t.title)
     }
+}
 
-    /// A strip in the margin beside the window: a swipe in from it flips to the next window.
-    private func edge(step: Int) -> some View {
-        Color.clear
-            .frame(width: 14)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 12).onEnded { v in
-                let dx = v.translation.width
-                guard abs(dx) > 40, abs(dx) > abs(v.translation.height) else { return }
-                // From the right edge, a swipe to the left is the next; from the left, to the right, the previous.
-                if (step > 0 && dx < 0) || (step < 0 && dx > 0) { go(step) }
-            })
-            .accessibilityHidden(true)
-            // Clear of the window's resize corner and the key row under it (Nov 8 2026).
-            .padding(.bottom, 110)
+/// Swipes in from the screen's left and right edges while the window view shows (Nov 9 2026):
+/// `UIScreenEdgePanGestureRecognizer`s on the app's window, only for touches that start level with
+/// the panel. A swipe from the right edge is the next window, from the left the previous. Pans
+/// under them wait for the edge to say no (a moment, and only for a touch that began on the edge).
+private struct EdgeFlips: UIViewRepresentable {
+    var enabled: Bool
+    var go: (Int) -> Void
+
+    func makeUIView(context: Context) -> Catcher { Catcher() }
+    func updateUIView(_ v: Catcher, context: Context) {
+        v.go = go
+        v.enabled = enabled
+    }
+
+    final class Catcher: UIView, UIGestureRecognizerDelegate {
+        var go: (Int) -> Void = { _ in }
+        var enabled = false { didSet { pans.forEach { $0.isEnabled = enabled } } }
+        private var pans: [UIScreenEdgePanGestureRecognizer] = []
+        private weak var host: UIWindow?
+        private var fired = false
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            for edges in [UIRectEdge.left, .right] {
+                let p = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(panned(_:)))
+                p.edges = edges
+                p.delegate = self
+                p.isEnabled = false
+                pans.append(p)
+            }
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let host { pans.forEach(host.removeGestureRecognizer) }
+            host = window
+            if let window { pans.forEach(window.addGestureRecognizer) }
+        }
+
+        @objc private func panned(_ p: UIScreenEdgePanGestureRecognizer) {
+            switch p.state {
+            case .began: fired = false
+            case .changed, .ended:
+                let dx = p.translation(in: p.view).x, dy = p.translation(in: p.view).y
+                guard !fired, abs(dx) > 40, abs(dx) > abs(dy) else { return }
+                fired = true
+                go(p.edges == .right ? 1 : -1)
+            default: break
+            }
+        }
+
+        /// Only a touch level with the panel (not the bars above it or the mic under it).
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard enabled, window != nil else { return false }
+            let y = touch.location(in: self).y
+            return y >= 0 && y <= bounds.height
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+            other is UIPanGestureRecognizer && !(other is UIScreenEdgePanGestureRecognizer)
+        }
     }
 }
 

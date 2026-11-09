@@ -8,6 +8,33 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The window runs edge to edge (Nov 9 2026)
+
+Sameer: "make the UI feel more like a Mac app window running natively on the iPhone." What still read
+as a picture being shown was the 10 pt of wallpaper down both sides of the window: an app on an
+iPhone runs to the screen's sides.
+- **`WatchPanel`: the window has no side margin** (the regular iPhone and the cover); the header, the
+  tip strip, the answers and the key row keep `WatchLook.sideMargin`, as a bar's buttons do over
+  full-width content. A Pro's window is 402 pt wide (was 382), its text ~5% larger. `WindowZoom
+  .estimate` insets nothing. The resize arc is kept on screen at full width, tucked into the wedge
+  the window's own rounded corner leaves (`ResizableWindow`, `min(corner.x − 3, room.width − 10)`).
+- **The side swipe is the screen's own edge gesture** (`EdgeFlips`: two
+  `UIScreenEdgePanGestureRecognizer`s on the app's window while the panel shows, only for touches level
+  with it, only with two or more windows; pans under them wait for the edge to fail). The 14 pt
+  SwiftUI strips beside the window are gone — nothing lies over the window's sides.
+- **A shape that isn't a window's is never sent or remembered** (`Watcher.plausible`: ≥ 150 pt tall,
+  0.3–3 wide for its height): once, flat upright on a fresh Duo simulator, the view measured 645×117
+  mid-layout and the Mac was asked for a 5.5:1 strip, which was then remembered for the next opens
+  (and the round-2 re-arm that used to correct it is gone). Not reproduced in four more tries; the log
+  says "a view of W×H isn't a window's shape — not sent" if it comes again.
+- Tests: `ResizableWindowUITests.testTheWindowIsEdgeToEdgeAndTheScreenEdgeFlips` (the window's frame
+  is the screen's width; a swipe in from the right edge shows the next window, from the left the one
+  before), with Resizable (2), InputCarousel (4), FullScreen (3), DesktopWindow and Stability passing.
+  Seen on the Duo's cover (full width beside the vertical bar). The inner screen's halves were already
+  edge to edge.
+- **Needs his phone:** the edge swipe against iOS's own gestures on a real screen; whether a tap on a
+  Mac window's close button at the very edge is slower to register (pans wait for the edge, taps don't).
+
 ## Alerts that reach a closed app, answered from the notification (Nov 9 2026) — wins over the older alert sections where they differ
 
 Sameer's loop is dictate → pocket the phone → come back for the answer; the second half never
