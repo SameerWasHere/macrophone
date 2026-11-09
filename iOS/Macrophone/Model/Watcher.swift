@@ -115,6 +115,14 @@ final class Watcher: ObservableObject {
     /// The Mac sent the window's corners for the picture size it names.
     func maskArrived(_ m: WatchWindowMask) {
         guard isOpen, !isDesktop else { return }
+        // A read that found no corners mid-reshape (a window's frame caught between two sizes
+        // reads opaque to the edge) never squares a window that had them: the last radius stands
+        // until a real read for the new size comes (Nov 9 2026, seen on a live resize: "0 px …
+        // radius only" for half a second, then 48 again).
+        if m.radius == 0, m.corners == nil, let had = mask, had.radius > 0 {
+            log?.add("watching: a cornerless read at \(m.width)×\(m.height) — keeping \(Int(had.radius)) px")
+            return
+        }
         mask = m
         log?.add("watching: the window's corners from the Mac — \(Int(m.radius)) px at \(m.width)×\(m.height)\(m.corners == nil ? " (radius only)" : "")")
     }

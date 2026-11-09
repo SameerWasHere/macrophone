@@ -7,6 +7,149 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+## The window illusion (Nov 9 2026) — wins over every native-window section below where they differ
+
+Sameer, on his Duo with build 28: "app windows are buggy as hell! It ends up getting scrunched up
+and weird in quite a few modes. This doesn't feel like bring[ing] live Mac windows to iPhone", "the
+resizing also is not super responsive", "I still see black in the corners too", "Why do you need to
+match radius. Can't you just take the window recording and plop that straight in", and the goal:
+"It's more of an illusion I'm going after … it should look and feel like we pulled the window of the
+app directly from the Mac and ran it on the iPhone. To sell the illusion the window needs no borders
+and the resizing needs to be as responsive as possible." Three streams, merged: the rendering rule
+(the viewer), the window's real corners (the Mac), live shapes while the corner is dragged (the
+wire). Frames: `docs/screens/window-illusion-nov9/` (`before/` build 28's code, `after/`, `real/`
+the real pipeline; its README says what each shows). **The Mac app changed** — it needs installing:
+`Mac/App/Watch/WatchService.swift`, `Mac/App/Watch/WindowMask.swift` (new), `Mac/App/Watch/VideoPipe.swift`,
+`Mac/App/Core/AppModel.swift`, and the kit.
+- **The rule, in one sentence** (`ViewerScrollView`, the MARK "One window, one picture, always its
+  own shape"): the window on the phone is the Mac's latest frame at its own aspect, fitted whole
+  inside the room it has — never stretched, never cropped or "covered" by the app (only his own
+  pinch zooms in) — and the shadow, the hairline and the resize arc hug exactly the picture shown.
+  `ViewerScrollView.fittedRect(_:in:)` is the one place the fitted rect comes from: the viewer's zoom
+  and insets (`configureZoom` + `centerIfSmall`), the arc's corner mid-drag (`ResizableWindow
+  .arcCorner`) and the flights (`WindowZoom.fit`, `FullScreenZoom.enter` / `exit`) all read it.
+  When the Mac's window changes shape (an open, full screen in or out, a fold, a resize) the phone
+  keeps showing the frame it has, fitted, until the frame at the new shape arrives, then shows that
+  one fitted in its place under **one 0.15 s cross-fade**: the old frame as a still exactly where it
+  was (`makeStill`: aspect-fit in the old canvas rect, clipped to what showed, the window's corners),
+  **the canvas hidden under it** (`hold`: `canvas.alpha = 0`) until a frame at the new size has
+  displayed (`VideoCanvas.holding` / `release` stand) — so nothing of the old frame is ever drawn at
+  the new geometry. That double drawing (the layer's old frame fitted into the *new* canvas under the
+  still) was the "double exposure of two windows" of build 28.
+- **What went** (the choreography that showed a window at another shape than its own): covering a
+  view from its top-left (`otherShape`, `coverScale`, `coverCap`, `fromCorner`, `fitsOtherShapes` on
+  `WatchWindow` / `WindowViewer`, `keptOtherShape`), filling a folded half by zoom (`fill` zooms
+  nothing now — the laptop's half, the glance and full screen letterbox a window of another shape
+  on the veiled wallpaper until the Mac's reshaped frame lands; `fill` still means "edge to edge, no
+  shadow, the half's measure"), zooming onto the column you type in at an open (`startScale`'s focus
+  rule, `fillCap`), the drag's cover-and-anchor (`keepZoomResizing` fits now, keeping his zoom ratio
+  over fit and the top-left when zoomed in), `resizeSettle` (the release fits at once — the Mac has
+  taken every size already), `imageView` and every snapshot at `.scaleAspectFill` (all `.scaleAspectFit`).
+  `ViewerScrollView.Mode`: `.fit` everywhere, `.foot` for the words' strip (`WatchStrip`: the
+  window's width across, its foot at the strip's foot). `opensWhole` is true unless he left the app's
+  window zoomed. Full screen's flights (`FullScreenZoom`, `prepare` / `takePrepared`, the windowed
+  viewer hidden under the flight) stay — their start is the viewer's shown picture and their end is
+  `fit(picture, in: screen | frame)`, which is exactly where the viewer under them opens it, so they
+  land pixel-exact; the Dock/card flight (`WindowZoom`) the same (`estimate` fits).
+- **The arc on the picture, mid-drag too** (`ResizableWindow.arcCorner`): during the drag the
+  fitted rect is computed in the same SwiftUI pass from the picture's aspect, so the arc sits on the
+  picture's corner with no frame of lag; a window he had zoomed in (`zoomedAtStart`) covers the
+  frame, so the frame's corner then; at rest the viewer's `onPictureShown`.
+- **No borders: the window's real corners, from the Mac, once per size** (MacrophoneKit
+  `Core/WindowMask.swift`: `WatchWindowMask` — `width`/`height` the picture pixels it was read at,
+  `radius` where the arc meets the edge (not a circle fitted to the diagonal: Tahoe's corner reads
+  ~10 px transparent on the diagonal and opaque only from 48 px along the edge), `corners` a PNG of
+  side 2·(r+1)+2 whose quadrants are the four corners' own alpha with a 2 px opaque cross between
+  them; `WindowMaskReader.make` / `radius` pure, `WindowMaskTests`; `Transport/WindowMaskLink.swift`,
+  `.watchMask` Mac → phone, feature `windowMask` in hello and welcome — an old phone or Mac keeps
+  today's stream and the pixel guess). **Mac** (`Watch/WindowMask.swift`, `WindowMaskCapture`): on
+  every change of the stream's pixel size (start, resize, reshape, companions) one BGRA frame with
+  alpha — `SCScreenshotManager.captureImage` with `ignoreShadowsSingleWindow` **does** carry alpha on
+  macOS 27, for the single window and the display-area filter alike; a one-frame BGRA `SCStream` and
+  `CGWindowListCreateImage` are fallbacks never reached — read off the main thread, debounced 150 ms,
+  never the same twice, never for the whole screen; log "window mask: 48 px round at 1850×2168,
+  read in 121 ms (screenshot(alpha), 1738 bytes, with 2 companions)". **Phone**: `Watcher.mask`
+  (cleared on a switch / close; `maskArrived` keeps the last radius when a read mid-reshape found no
+  corners — "0 px … radius only" showed square corners for half a second on a live resize),
+  `ViewerScrollView.applyClip`: a mask for this picture's size is a 9-slice `CALayer` mask on the
+  canvas (`contentsCenter`, one mask pixel per picture pixel, so it zooms with the canvas) and
+  `pictureCorner = radius` (the shadow, hairline, arc, stills and flights all take it); a mask for
+  another size scales the radius with the width when the shape is the same (a remote-narrowed
+  picture), keeps it as read when the shape differs; no mask → the Nov 8 pixel guess, unchanged.
+  `mpctl serve --rounded` draws the demo with transparent corners and sends the mask (`WATCH MASK`);
+  `--rounded-black` paints them black with no mask (the fallback); `mpctl listen --features windowMask`
+  prints `MASK 53 px at 1192×1084`. **Why not HEVC with alpha** (measured, `mpctl alpha-bench`: 60
+  frames of the demo at 1400 × 900 BGRA — HEVC 10.1 ms / 11 KB a frame, HEVC-with-alpha 10.0 ms /
+  12 KB, "Apple Muxed Alpha" supported): the encoder is free, but it needs BGRA capture at 30 fps
+  (4 bytes a pixel against 1.5 for 420f) and a display path on iOS nobody has proven, for four
+  corners that change only when the size does. The mask is 1.2–2.2 KB once per size.
+- **Resizing: the Mac's window follows the finger** (MacrophoneKit `Core/Messages.swift`
+  `.watchShapeLive(width:height:final:)`, feature `WatchShape.liveFeature` = "fitPhoneLive" in the
+  Mac's welcome; `WatchShape.liveShapeDue` pure, `LiveShapeTests`; `LinkClient.watchShape(_:live:
+  final:)` — to a Mac from before a live shape sends nothing and the final one is today's
+  `watchShape`). Phone: `ResizableWindow`'s drag → `Watcher.resizingShape` sends when due (every 90
+  ms at most, only when the aspect moved > 1%, the newest pending one on the next tick); the release
+  → `resizedHere` sends `final: true` the same way (the Mac's AX reshape is aspect-only, so a drag
+  that shrinks both sides alike sends few). Mac (`WatchService.fitToPhoneLive` → `applyLiveShape`):
+  applied **at once**, one AX resize per 80 ms with the newest pending, **no `holdForReshape`** (kept
+  for the non-interactive `watchShape` path — a pose change, an open), and `stream.resize(to:)`
+  straight after the AX set (the loop's `look` is 0.25–1.5 s away), then `hurry` + `wake`; each
+  size is a new encoder and a keyframe; log "watch live shape: 925 → 661 px wide, 5 shapes in 1.4 s
+  · 2 keyframes, 1008 KB streamed". `mpctl serve --reshape` applies live shapes at once (`WATCH
+  SHAPE live 0.55 · RESHAPED 492×900`, `… final … · N shapes this drag`), `--reshape-delay <ms>` for
+  the old path (500), `--no-live-shape` a Mac from before; `--busy` no longer overlaps its columns.
+- **Measured.** *Shapes per action*: open, full screen in, full screen out — one each (serve
+  `WATCH SHAPE` ×3; the real pipeline's log `watch fit to iPhone` ×3: 656×422 → 925×1084,
+  → 745×1084, → 925×1084), a fold between the laptop and flat upright none, a flip one (ahead) and
+  one restore. Build 28's log had sixteen in a minute. *The drag, real pipeline* (a Debug copy of the
+  Mac app, the Duo's cover, XCUITest's slow drag — one event every ~170 ms, a finger gives ~11/s):
+  5 shapes in 1.4 s, 2 keyframes, 1008 KB; the first new-size frame on the phone **102 ms** after
+  its shape went, the second 817 ms (an AX resize the app took its time over); the Mac copy's CPU
+  through the watch and the drag median 4.4%, max 18.1%. *On serve* (the live fork's runs):
+  finger → shape → `RESHAPED` → new-size frame 60 / 81 / 106 / 96 / 192 / 270 ms, median ~100; one
+  18 KB keyframe per size at 422–596 × 900. *The phone's main thread through the drag* (xctrace Time
+  Profiler, 100 ms buckets, the Pro against serve): before the still was changed, 43–94 ms busy per
+  100 ms for ~1 s (9 buckets ≥ 50 ms) — `makeStill` → `WindowSnapshots.image` (a `CIContext` render)
+  + `preparingForDisplay()` on the main thread per size change; now the still comes through
+  `VideoDecoder.image` (VideoToolbox, a bitmap at once) — see the line under "The phone's main
+  thread, after" in the commit for the after numbers. *The mask*: 108–197 ms per read on real windows
+  (off the main thread), 1187–2190 bytes; a Debug copy watching a still window 30 s: 3.2% → 4.0% CPU
+  (the one read; noisy ±2).
+- **Tests:** `swift test` (352, `WindowMaskTests` 6, `LiveShapeTests` new); `ResizableWindowUITests`
+  (2 — the slow drag counts live shapes then one final; `TEST_RUNNER_MACROPHONE_SEND_TO=<app>` picks
+  another window), `FullScreenUITests` (3), `WatchHeaderUITests` (2 — the question test against a
+  plain `serve --rounded`, no `--reshape`/`--busy`), `InputCarouselUITests` (4), `StabilityUITests`,
+  `DesktopWindowUITests`, `HardwareKeyboardUITests` (2) pass on an iPhone 17 Pro.
+- **Seen frame by frame** (10 fps sheets in `docs/screens/window-illusion-nov9/after/`): the Pro,
+  the Duo flat upright, the laptop, on its side, the book and the cover — full screen in is one
+  flight from the window's picture to the picture fitted in the screen, the reshaped frame a single
+  cross-fade in place (one frame at 10 fps shows both), out the same into the window's frame; a
+  window in hand through tabletop → flat upright → on its side → tabletop; the laptop's trackpad,
+  keyboard (its foot gives way as designed), a flip and back, the mic opening. The real pipeline on
+  the cover (`real/cover-fs/`): the same three steps on a TextEdit document, 48 px corners from the Mac.
+- **Hooks:** `TEST_RUNNER_MACROPHONE_SEND_TO`; serve `--rounded-black`, `--no-live-shape`,
+  `--reshape-delay`; `mpctl alpha-bench [--frames N]`; Mac DEBUG `MACROPHONE_MASK_DUMP=<dir>` (the
+  captured frame and its alpha runs). Log lines: "viewer: picture W×H → W×H in W×H — the old one held
+  as a still", "watch: a frame at W×H arrived N ms after the shape went", "watching: N shapes went
+  during the resize (N s)", "watching: a cornerless read at W×H — keeping N px".
+- **Seen and left / needs his phone and Mac:** the first open on a pose with no remembered view size
+  still arrives at the Mac's own shape and reshapes ~1 s in (the cover's first open on a fresh sim;
+  every later open goes ahead); on the laptop with the keyboard up the window's foot is under the
+  keyboard by design (the fix-up pass's rule — not a transition); the real-pipeline drag's second
+  size took 817 ms to come back — whether that's TextEdit's reflow or the AX set needs his Mac with a
+  finger's event rate; a translucent window (an edge that never reaches alpha 250) falls back to the
+  diagonal circle; the window server lists an app's own layer-0 windows as companions during and
+  after a reshape ("with 3 companion windows (TextEdit@0 ×3)", "Calculator@0") — the area stays the
+  window's, the mask is read off the same filter, but `WatchCompanions` should learn to tell a sheet
+  from a sibling document; `pictureCorner` is drawn `.circular` by the shadow, hairline and stills
+  (a `.continuous` curve would hug Tahoe's corner closer); the `.scaleAspectFit` kept picture under a
+  window whose Mac can't take the shape letterboxes on the wallpaper (the window is the app).
+  **A note on the test runs:** three of my recordings against the Debug copy watched his real Claude
+  window (the Duo's active Mac had switched to the copy; `TEST_RUNNER_MACROPHONE_SEND_TO` didn't reach
+  a `test-without-building` run) — each reshaped it to the phone's shape and put it back
+  (`watch window restore`, the 45 s grace); nothing was typed or sent; those recordings were deleted,
+  not published.
+
 ## The window is the app, round 3 of review (Nov 8 2026) — wins over the three sections below where they differ
 
 A third reviewer walked build 27 (`docs/screens/native-review-r3/`: Pro light/dark/SE/xxxLarge/Reduce
@@ -116,21 +259,14 @@ hadn't held. Frames: `docs/screens/native-window-nov8/r2/` (`before/` the review
   (`ViewerScrollView.onCanvasAdopted` → `Watcher.canvasMoved`) the renderer a move may have
   failed is reset and a keyframe asked for, so the next frame stands on its own.
 - **A size change holds the old picture as a still** (`ViewerScrollView.makeStill` / `hold` /
-  `thaw`): the displayed frame (or the picture), clipped to what showed, with the window's
-  corners, pinned in the host over the viewer while the canvas takes the new size under it;
-  it fades (0.18 s) once a frame at the new size has displayed (`displayedPixelBuffer`'s size;
-  1.2 s at most), or at once for a picture. Before: `UIView.transition`'s cross-dissolve
+  `thaw`) **[amended Nov 9 2026: the canvas is hidden under the still until the new-size frame
+  displays, the still is aspect-fit, 0.15 s — "The window illusion"]**: the displayed frame (or
+  the picture), clipped to what showed, with the window's corners, pinned in the host over the
+  viewer while the canvas takes the new size under it. Before: `UIView.transition`'s cross-dissolve
   snapshotted the image view but not the video layer, which was resized to the new canvas and
   aspect-fitted its old frame — a black band and a shifted copy on entry, a thumbnail on exit.
-- **A picture of another shape covers its view from the top-left** (`otherShape` in `reset`,
-  `WindowZoom.estimate`, `FullScreenZoom.exit`): the window's outline is final the moment the
-  flight lands, and the Mac's reshaped picture only reflows the content inside it (round 1's
-  "whole" left a narrow pillar-boxed window for 0.8–2 s, then the width arrived; the double tap
-  on the arc grew the width first and the height half a second later for the same reason).
-  Capped at `coverCap` × fitting whole — 1.5 in a window view, **1.3 on a screen it fills**
-  (`startScale(window:)` for a window, the whole screen keeps 1.8× the width): on its side a
-  0.7 window had covered a 1.42 screen at twice its size for a second; now it sits top-left on
-  the dark ground at 1.3× until the landscape picture lands.
+- **[gone Nov 9 2026 — a picture is fitted whole, never covered; `otherShape`, `coverScale`,
+  `coverCap` are deleted]** ~~A picture of another shape covers its view from the top-left~~.
 - **The shape ahead from memory** (`Watcher.viewSizeKey`): the view's size is kept per pose and
   fill, so the first open after a launch — the card, the Dock, a widget, an alert — sends the
   shape before the first picture ("opens at the view's shape … remembered from last time"); it
@@ -180,11 +316,9 @@ illusion and what was rough, fixed in this order. Frames: `docs/screens/native-w
   `fitsOtherShapes: false`), the windowed viewer opens the full-screen-shaped picture whole, and
   the Mac's reshaped picture is the one 0.22 s dissolve left, in place. Before: a cross-fade of two
   viewers at two zooms with a cropped state between, ~1 s each way, then a second dissolve.
-- **A picture shaped unlike the view opens whole — live too** (`otherShape`, `fitsOtherShapes`):
-  the windowed viewer and the in-hand halves (the Mac is about to reshape; a window it can't
-  reshape shows whole and small on the wallpaper, never cropped mid-word); not the words' strip
-  (the window's foot), the glance (fills its half) or full screen (covers). Leaving full screen on
-  the Duo no longer leaves the window cropped at full screen's zoom until Done.
+- **[superseded Nov 9 2026: every picture opens fitted whole, everywhere — `fitsOtherShapes` is
+  gone; the strip alone is `ViewerScrollView.Mode.foot`]** ~~A picture shaped unlike the view
+  opens whole — live too~~.
 - **A dictation keeps the watch** (`Watcher.samePlace`, `follow`, `open`): a landing's
   `follow(target)` compared refs by `==`, and the dictation's name carried the window's title
   where the watch had the app's — every landing was a switch: `WATCH WINDOW restore` → a new
@@ -198,9 +332,9 @@ illusion and what was rough, fixed in this order. Frames: `docs/screens/native-w
   check in `layoutSubviews`): the "never steal from a live viewer" rule had the glance refuse the
   canvas from the window in hand at the very moment it was handing it over — the hand-over is
   forced, and a canvas whose holder left the window is taken on the next layout.
-- **The corner drag anchors top-left** (`keepZoomResizing`: the picture's point under the frame's
-  top-left is kept, as macOS and Stage Manager do): the traffic lights and every line's start stay
-  through the drag and the wait for the reshaped picture. The frame still shrinks round the middle.
+- **The corner drag** **[amended Nov 9 2026: the picture is re-fitted in the frame each pass, his
+  zoom ratio over fit kept, the top-left kept only when zoomed in; the Mac takes live shapes
+  through the drag]** (`keepZoomResizing`). The frame still shrinks round the middle.
 - **A flip shows the next window's kept picture at once** (`open`: the old picture goes, `stale`
   is never set) with "Opening …" only in the name; the box with a spinner appears only with no
   picture of any kind. **The shape goes ahead on a flip too** (`shapeAhead` on a switch) — the
@@ -244,7 +378,9 @@ the app, with its own corners and nothing that reads as a feed. Then: "I should 
 full screen takeover of any app in both landscape and portrait in the inner screen … on [the] outer
 screen too." Frames: `docs/screens/native-window-nov8/` (`before/` build 24, `after/`; the drag
 frame by frame in `slow-drag-frames-*.txt`).
-- **The window's own corners, nothing black** (`ViewerScrollView`, "The window's own corners"): a
+- **The window's own corners, nothing black** (`ViewerScrollView`, "The window's own corners")
+  **[Nov 9 2026: the Mac sends the real corners as a mask — `WatchWindowMask`; what follows is the
+  fallback for a Mac from before]**: a
   Mac window's rounded corners arrive black (a single-window capture's transparent corners have no
   alpha once they're HEVC or JPEG). The radius is **read off the picture itself** — the two top
   corners' diagonals, counting near-black pixels from the corner (a circle's arc meets the diagonal
@@ -264,24 +400,13 @@ frame by frame in `slow-drag-frames-*.txt`).
   0.14 dark / 0.18 light); both set in one `CATransaction` with actions off, in the same layout
   pass as the picture. The Dock/card flight's corner at the viewer end is the window's own
   (`WindowZoom.viewerPlace`: `pictureCorner × zoomScale`), the card's 12 pt opening into it.
-- **The resize follows the finger, and nothing moves after it** (`ResizableWindow`,
-  `ViewerScrollView.resizing`): during the drag the picture **scales with the frame in the same
-  layout pass** — covering it (times whatever zoom it had over covering when the drag began), the
-  point under the frame's top middle kept — so the window shrinks and grows under the finger
-  (title bar 364 → 230 px as the frame went 1110 → 723 px wide: lockstep). The arc is placed by its
-  centre at the frame's corner in that pass (never a frame behind), and at rest at **the picture's
-  own corner** (`WindowPictureKey` from the viewer's `onPictureShown`), so a window smaller than
-  its frame wears the arc on itself, not on the frame. Let go: **nothing re-fits**; the picture
-  holds until the Mac's reshaped picture arrives (a new size → the viewer's usual dissolve + fit),
-  or `resizeSettle` 1.5 s with no new size (a window the Mac can't reshape, or the same aspect) →
-  one fit. Measured on a 13 fps recording of a slow drag (`drag-frames2.py`): before, the window
-  moved twice after the finger over 2.5 s (the old picture re-fitted at +0.4–1.4 s — letterboxed
-  in the frame, the arc 26–31 px off the picture —, the Mac's reshaped picture at +2.5 s); after,
-  **zero moves after the finger**, the reshaped picture a 0.22 s dissolve in place. Shapes are
-  still sent once, on release (not throttled during the drag: the Mac holds frames 0.3–0.9 s per
-  reshape, so a live stream of shapes would stutter the picture; the stand-in can't prove either
-  way — measure on a real Mac before changing it). `mpctl serve --reshape` makes the demo take the
-  shape half a second after `WATCH SHAPE` (`WATCH RESHAPED 596×900`) and go back on `restore`.
+- **The resize follows the finger** (`ResizableWindow`, `ViewerScrollView.resizing`)
+  **[amended Nov 9 2026: the picture is fitted in the frame each pass, the arc on the fitted
+  picture's corner, shapes stream to the Mac through the drag (`watchShapeLive`, applied with no
+  hold) and the release fits at once — `resizeSettle` is gone; see "The window illusion"]**. At
+  rest the arc sits at **the picture's own corner** (`WindowPictureKey` from the viewer's
+  `onPictureShown`), so a window smaller than its frame wears the arc on itself, not on the frame.
+  `mpctl serve --reshape` makes the demo take the shape (`WATCH RESHAPED 596×900`) and go back on `restore`.
 - **Full screen on every screen** (`Watcher.allowsFullScreen` is true for every pose;
   `MainView.inFullScreen` drops the pose check; `DuoFullScreen` as it was — the floating mic trio,
   the hold-for-trackpad, edge to edge, no status bar or home indicator): upright inside (flat
@@ -313,12 +438,8 @@ frame by frame in `slow-drag-frames-*.txt`).
   with a black band beside it. Two rules in `ViewerScrollView.adopt` back it: a viewer that isn't
   live never takes the canvas from a live one on screen, and one leaving the window with it hands
   it to any other that wants it (`wanting`), not only the "newest".
-- **A kept picture shaped unlike the view opens whole** (`reset`, `keptOtherShape`): the window's
-  last picture may be from full screen or a resize (412 × 900 after a phone full screen); at its
-  own width-fit it opened zoomed onto its column, then dissolved into the live, reshaped window at
-  another zoom (seen in the flight recording). Now, when its aspect is more than 15% off the view's
-  and no view is saved, it opens at the fit — the zoom the reshaped window arrives at — so the
-  flight lands and the live picture only widens the window. (Not on a folded half, which fills.)
+- **[superseded Nov 9 2026: every picture, kept or live, opens fitted whole — `keptOtherShape`
+  is gone]** ~~A kept picture shaped unlike the view opens whole~~.
 - **Tests:** `ResizableWindowUITests` (the drag, the next open full, the double tap;
   `testASlowDragForTheRecording` drives the measured drag: one `WATCH SHAPE`, sent on release),
   `FullScreenUITests.testFullScreenFromTheWindowOnThisScreen` (any screen: the button or bar item →

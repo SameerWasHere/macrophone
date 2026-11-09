@@ -2618,8 +2618,11 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
 
     /// What this viewer shows this moment as a picture: the displayed video frame, else its image.
     func pictureNow() -> UIImage? {
-        // Decoded now: an image view handed an undecoded image draws nothing for its first frame.
-        if let v = wantedVideo, v.superview === canvas, v.hasFrame, let pb = v.displayedFrame() { return WindowSnapshots.image(from: pb).flatMap { $0.preparingForDisplay() ?? $0 } }
+        // Through VideoToolbox (`VideoDecoder.image`), a bitmap at once — not Core Image's render
+        // and a `preparingForDisplay` copy after it, which held the main thread 150–200 ms per
+        // size change on a 1850 × 2168 frame (the drag's profile, Nov 9 2026: the main thread
+        // 96–98% busy for 0.4 s as each new-size frame landed).
+        if let v = wantedVideo, v.superview === canvas, v.hasFrame, let pb = v.displayedFrame(), let cg = VideoDecoder.image(pb) { return UIImage(cgImage: cg) }
         return imageView.image
     }
 
@@ -2704,8 +2707,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         // fade as the window in hand took the canvas).
         if let old = video.superview {
             let snap: UIView
-            if video.hasFrame, let pb = video.displayedFrame(), let image = WindowSnapshots.image(from: pb) {
-                let iv = UIImageView(image: image)
+            if video.hasFrame, let pb = video.displayedFrame(), let cg = VideoDecoder.image(pb) {
+                let iv = UIImageView(image: UIImage(cgImage: cg))
                 iv.contentMode = .scaleAspectFit
                 iv.clipsToBounds = true
                 snap = iv

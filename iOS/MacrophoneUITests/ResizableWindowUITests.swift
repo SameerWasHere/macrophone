@@ -10,7 +10,10 @@ final class ResizableWindowUITests: XCTestCase {
 
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": "Claude", "MACROPHONE_WATCH": "1"]
+        // `TEST_RUNNER_MACROPHONE_SEND_TO=<app>` picks another window (a TextEdit document of your
+        // own against a Debug copy of the Mac app — never someone's real Claude window).
+        let pick = ProcessInfo.processInfo.environment["MACROPHONE_SEND_TO"] ?? "Claude"
+        app.launchEnvironment = ["MACROPHONE_SCREEN": "main", "MACROPHONE_SEND_TO": pick, "MACROPHONE_WATCH": "1"]
         app.launch()
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
         if allow.waitForExistence(timeout: 2) { allow.tap() }
