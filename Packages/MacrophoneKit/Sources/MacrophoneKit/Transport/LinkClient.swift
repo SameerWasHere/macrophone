@@ -143,6 +143,15 @@ public final class LinkClient: @unchecked Sendable {
     /// Waiting for the Mac's next pong (`roundTrip`).
     private var pongWaiters: [(Date) -> Void] = []
     private var pingTask: Task<Void, Never>?
+    /// When anything last arrived from the Mac on the session (the silence watchdog, `startLoops`).
+    private var lastHeard = Date()
+    /// How often the phone pings, and how long the Mac has to say anything after one. A Mac that
+    /// went to sleep (or a network that swallowed the link) sends no goodbye: the connection
+    /// stays "open" for minutes, the phone read Ready, and a dictation waited its whole timeout
+    /// before being queued. Silence after a ping ends the session, so the phone says what's true
+    /// and looks for the Mac again.
+    public static let pingEvery: TimeInterval = 15
+    public static let silenceLimit: TimeInterval = 10
     private var retryTask: Task<Void, Never>?
     private var retryDelay: TimeInterval = 1
     private var wantsConnection = false
@@ -725,6 +734,7 @@ public final class LinkClient: @unchecked Sendable {
             do {
                 while true {
                     let m = try await s.receive()
+                    self?.lock.sync { self?.lastHeard = Date() }
                     self?.handle(m, from: s, macID: macID)
                 }
             } catch {
@@ -734,9 +744,20 @@ public final class LinkClient: @unchecked Sendable {
         pingTask?.cancel()
         pingTask = Task { [weak self, weak s] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
-                guard let s else { return }
+                try? await Task.sleep(nanoseconds: UInt64(Self.pingEvery * 1e9))
+                guard let s, !Task.isCancelled else { return }
+                let asked = Date()
                 do { try await s.send(.ping) } catch { self?.sessionEnded(s, error: error); return }
+                try? await Task.sleep(nanoseconds: UInt64(Self.silenceLimit * 1e9))
+                guard let self, !Task.isCancelled else { return }
+                // (A wait that ran long — the app was suspended meanwhile — proves nothing.)
+                let waited = Date().timeIntervalSince(asked)
+                let heard = self.lock.sync { self.lastHeard }
+                if heard < asked, waited < Self.silenceLimit + 5 {
+                    self.log?.add("nothing from the Mac for \(Int(waited)) s after a ping — the link is taken as gone")
+                    self.sessionEnded(s, error: LinkError.timedOut)
+                    return
+                }
             }
         }
     }
