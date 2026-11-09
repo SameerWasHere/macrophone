@@ -442,7 +442,9 @@ final class AppModel: ObservableObject {
 
     /// A remembered app that isn't open on the Mac (it'll copy instead).
     func isNotOpen(_ ref: TargetRef) -> Bool {
-        guard case let .app(bid, _, _) = ref, targetsCurrent || !liveTargets.isEmpty else { return false }
+        // The Whole Screen is never "not open" (Nov 8 2026, round 3: the status line said
+        // "Whole Screen isn't open on your Mac — it'll be copied instead").
+        guard case let .app(bid, _, _) = ref, !DesktopWatch.isDesktop(ref), targetsCurrent || !liveTargets.isEmpty else { return false }
         // Just opened from here: its window may take a moment to show up.
         if isOpening(bid) { return false }
         return liveTarget(for: ref) == nil

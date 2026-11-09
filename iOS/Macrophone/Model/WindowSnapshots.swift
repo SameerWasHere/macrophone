@@ -50,6 +50,14 @@ enum WindowSnapshots {
         return c
     }()
 
+    /// Every kept picture gone (DEBUG `MACROPHONE_FORGET_WINDOWS`, Nov 8 2026: the first open's state).
+    static func forgetAll() {
+        memory.removeAllObjects()
+        smallMemory.removeAllObjects()
+        sizes.removeAllObjects()
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     /// A window's picture was kept (posted on the main thread, the key as the object): the
     /// desktop's card draws the new one.
     static let didKeep = Notification.Name("WindowSnapshots.didKeep")

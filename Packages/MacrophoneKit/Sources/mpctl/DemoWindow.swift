@@ -66,6 +66,9 @@ final class DemoWindow: @unchecked Sendable {
     /// `mpctl serve --reshape`: the window takes the shape the phone sends (`watchShape`), as the
     /// Mac app gives a real window the view's shape — at the width it had, or the height, whichever
     /// keeps it inside 1400 × 900 — and goes back on `.restore`.
+    /// The window is at a shape the phone gave it (not its own 1400 × 900).
+    var reshaped: Bool { lock.sync { width != 1400 || height != 900 } }
+
     func reshape(aspect: CGFloat?) {
         lock.sync {
             guard let aspect, aspect > 0 else { width = 1400; height = 900; version += 1; return }

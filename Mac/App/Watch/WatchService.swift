@@ -229,6 +229,13 @@ final class WatchService {
 
     func set(_ target: TargetRef?, for peer: UUID) {
         guard let target else { stop(peer); return }
+        // The same window, watched again within the grace (the phone back from the background, a
+        // link that blipped — Nov 8 2026, round 3): its sizes carry over, so Done still puts it back.
+        var carried: Parked?
+        if let p = parked.removeValue(forKey: peer) {
+            p.task?.cancel()
+            if p.target == target { carried = p } else { putBack(p) }
+        }
         if let w = watches[peer] {
             if w.target != target {
                 w.restoreFit()
@@ -244,6 +251,11 @@ final class WatchService {
             return
         }
         let w = Watch(peer: peer, target: target, timing: timing)
+        if let carried {
+            w.fit = carried.fit
+            w.beforeWindowChanges = carried.before
+            app.log.add("watching: the same window again within \(Int(Self.restoreGrace)) s — its size carries over")
+        }
         // Video to a phone that decodes it (Oct 17 2026) — a busy chip turns a watch to pictures
         // by itself. `defaults write com.sameer.macrophone.mac watch.video -bool NO` keeps pictures.
         w.wantsVideo = app.server.phones(with: WatchVideo.feature).contains(peer) && (AppPaths.defaults.object(forKey: "watch.video") as? Bool ?? true)
@@ -314,14 +326,13 @@ final class WatchService {
         if w.input.clicks + w.input.moves + w.input.typed > 0 {
             app.log.add("watch input: \(w.input.clicks) clicks, \(w.input.moves) pointer moves (\(w.input.missed) didn't land, warped there), \(w.input.typed) characters typed")
         }
-        if w.fit != nil { app.log.add("watch fit: the window goes back to its own size") }
         let v = w.pipe?.snapshot() ?? VideoPipe.Stats()
         let ms = (w.frameMs + v.frameMs).sorted()
         if !ms.isEmpty {
             func median(_ a: [Int]) -> Int { let s = a.sorted(); return s.isEmpty ? 0 : s[s.count / 2] }
             app.log.add("watching: \(ms.count) frames (\(v.videoFrames) video) · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[ms.count * 9 / 10]) ms to make · peak \(Self.peakPerSecond(w.sentAt + v.sentAt)) a second · \(w.poster.steps) scroll steps in \(w.poster.gestures) swipes · window gave \(v.given) (\(v.givenChanged) changed), held \(v.heldForPace) for pace, \(v.heldForWire) for the wire, sending median \(median(v.sendMs)) ms")
         }
-        w.restoreFit()
+        park(w)
         w.dropStream()
         w.wake()
         watching[peer] = nil
@@ -329,7 +340,57 @@ final class WatchService {
         app.log.add("watching stopped")
     }
 
-    func stopAll() { watches.keys.forEach(stop) }
+    /// Quitting: every window back now.
+    func stopAll() {
+        watches.keys.forEach(stop)
+        for p in parked.values { p.task?.cancel(); putBack(p) }
+        parked = [:]
+    }
+
+    // MARK: The window's size through a pause (Nov 8 2026, round 3)
+
+    // Every stop put the window back at once — the phone's Done, but also its pause when the app
+    // left the screen and a link that blipped, each a `watch(nil)` or a disconnect. A pocket-and-
+    // return or a Wi-Fi blip moved the Mac's window twice and the phone came back to a window at
+    // the Mac's own shape. Now a stop parks the sizes for a grace: the same window watched again
+    // carries them over (Done after that still puts it back — `beforeWindowChanges` lives on);
+    // another window, the grace running out, or quitting puts it back.
+
+    /// A stopped watch's sizes, kept for `restoreGrace`.
+    struct Parked {
+        let target: TargetRef
+        let pid: pid_t
+        let windowID: CGWindowID?
+        let fit: WindowFit.Record?
+        let before: CGRect?
+        var task: Task<Void, Never>?
+    }
+    private var parked: [UUID: Parked] = [:]
+    static let restoreGrace: TimeInterval = 45
+
+    private func park(_ w: Watch) {
+        guard w.fit != nil || w.beforeWindowChanges != nil else { return }
+        var p = Parked(target: w.target, pid: w.pid, windowID: w.windowID, fit: w.fit, before: w.beforeWindowChanges, task: nil)
+        w.fit = nil
+        w.beforeWindowChanges = nil
+        let peer = w.peer
+        p.task = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.restoreGrace * 1e9))
+            guard !Task.isCancelled, let self, let kept = self.parked.removeValue(forKey: peer) else { return }
+            self.putBack(kept)
+            self.app.log.add("watching: the window goes back to its own size (\(Int(Self.restoreGrace)) s after the watch stopped)")
+        }
+        parked[peer] = p
+        app.log.add("watch fit: the window keeps its size for \(Int(Self.restoreGrace)) s")
+    }
+
+    /// Puts a parked window back: the Aa size first, then the frame from before the view shaped it.
+    private func putBack(_ p: Parked) {
+        if let r = p.fit { WindowFit.restore(r) }
+        guard let f = p.before, let wid = p.windowID, wid != WindowServer.desktopID, Paster.isTrusted,
+              let win = AX.window(in: AX.app(p.pid), id: wid), AX.isAlive(win), !AX.bool(win, "AXFullScreen") else { return }
+        _ = WindowFit.set(win, frame: f)
+    }
 
     /// The windows phones are looking at now.
     var watchedWindows: Set<CGWindowID> { Set(watches.values.compactMap(\.windowID)) }

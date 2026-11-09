@@ -161,6 +161,8 @@ struct StatusLine: View {
                 return ("", Light.cyan)
             // The link dropped (Nov 5 2026): one message until it's back, whatever it goes
             // through meanwhile — never "Looking for" → "Connecting to" → "not found" in a blip.
+            // Said once (Nov 8 2026, round 3): while a window shows, its own capsule says it.
+            case _ where model.reconnecting && model.watcher.isShowing && model.watcher.phase == .reconnecting: return ("", Ink.tertiary)
             case _ where model.reconnecting: return ("Reconnecting to \(model.macName)…", Ink.tertiary)
             case .connecting(let name): return ("Connecting to \(name)", Ink.tertiary)
             // The first moments after the app comes up: one message until it's ready or something's

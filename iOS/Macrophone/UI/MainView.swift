@@ -255,7 +255,11 @@ struct MainView: View {
             if inFullScreen {
                 // In under the flight's picture; out at once (the picture shrinks over the layout
                 // coming back — a fade of the full-screen view would double under it).
-                DuoFullScreen(main: self).transition(.asymmetric(insertion: .opacity, removal: .identity))
+                // Removed at once under the flight (no fade to double under the shrinking picture);
+                // with Reduce Motion there is no flight, so it fades out under the window fading
+                // in (Nov 8 2026, round 3: gone at once, one frame showed the window at half
+                // opacity over the wallpaper).
+                DuoFullScreen(main: self).transition(.asymmetric(insertion: .opacity, removal: reduceMotion ? .opacity : .identity))
             }
         }
         .onChange(of: inFullScreen) { _, on in
@@ -1736,17 +1740,28 @@ extension MainView {
     /// in; the spring keeps its speed).
     func fullScreenFlight(entering: Bool) {
         let zoom = FullScreenZoom.shared
-        guard !reduceMotion, let image = windowPictureNow,
+        // The start, read before the layouts changed (`Watcher.setFullScreen` → `prepare`, round
+        // 3): by now the full-screen viewer may be the one on screen.
+        let prepared = zoom.takePrepared()
+        guard !reduceMotion, let image = prepared?.image ?? windowPictureNow,
               let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds else { zoom.cancel(); return }
-        let from = WindowZoom.viewerPlace(in: screen)
+        let from = prepared?.place ?? WindowZoom.viewerPlace(in: screen)
         // The window's corner per picture pixel (the place's is at the viewer's zoom).
         let corner = from.map { $0.picture.width > 0 ? $0.corner / ($0.picture.width / max(1, image.size.width)) : 0 } ?? 0
+        #if DEBUG
+        model.log.add("full screen flight \(entering ? "in" : "out"): from \(from.map { "\(Int($0.clip.width))×\(Int($0.clip.height)) at \(Int($0.clip.minX)),\(Int($0.clip.minY))" } ?? "nowhere")\(prepared != nil ? " (prepared)" : "")")
+        #endif
         if entering {
             zoom.enter(image: image, from: from, screen: screen, corner: corner)
             return
         }
         let phone = regularPhone || isCover
+        // The landing: the phone's layout says it; the inner screen's window in hand reports its
+        // place (`InnerWindowSpot`, round 3 — the flight had landed at near full-screen size and
+        // re-laid to the page); else a guess the viewer corrects once laid out.
+        let inner = InnerWindowSpot.shared.frame
         let to = phone && watchArea.width > 0 ? WindowZoom.estimate(image: image.size, area: watchArea, compact: compact).clip
+            : !phone && inner.width > 40 && inner.height > 40 && (inner.height < screen.height - 40 || inner.width < screen.width - 40) ? inner
             : (from?.clip ?? screen).insetBy(dx: screen.width * 0.08, dy: screen.height * 0.08)
         zoom.exit(image: image, from: from, to: to, corner: corner)
         for delay in [0.06, 0.16] {
