@@ -114,6 +114,12 @@ final class Watcher: ObservableObject {
     /// Keeps what's on screen now as this window's last picture.
     func keepPicture() {
         guard let target, hasPicture, !stale, let key = WindowSnapshots.key(mac: macID(), target: target) else { return }
+        // Not the window at full screen's shape, nor one still shaped for it (Nov 8 2026): the
+        // desktop card showed a sliver of a thumbnail after full screen or a resize. The last
+        // picture at the window's own shape stays until a picture at the view's shape comes.
+        if fullScreen { return }
+        if let size = videoSize ?? image?.size, viewerSize.width > 40, viewerSize.height > 40,
+           abs((size.width / size.height) / (viewerSize.width / viewerSize.height) - 1) > 0.15 { return }
         if videoSize != nil, let frame = video.displayedFrame() { WindowSnapshots.save(frame, key: key) }
         else if let image { WindowSnapshots.save(image, key: key) }
         WindowSnapshots.keep(focus: focus, key: key)
@@ -248,7 +254,15 @@ final class Watcher: ObservableObject {
 
     func open(_ target: TargetRef) {
         guard target != .clipboard else { return }
-        let switching = self.target != target
+        // The same window under another name isn't a switch (`samePlace`); the ref it keeps is
+        // the one with the window named, or the newer.
+        let switching = !(isOpen && Self.samePlace(self.target, target))
+        if !switching, let t = self.target, case let .app(_, key, _) = t, key != nil, case let .app(_, nk, _) = target, nk == nil {
+            // A watch of the window keeps its window: the new ref would lose it.
+            start()
+            log?.add("watching opened (the same window)")
+            return
+        }
         // The window it leaves keeps its picture for next time.
         if switching, isOpen { keepPicture() }
         if !isOpen { watchCount &+= 1 }
@@ -265,9 +279,12 @@ final class Watcher: ObservableObject {
         // hears of the next one).
         if switching || !isOpen { putBackAutoFit() }
         if switching {
-            // The last window's picture stays on screen, dimmed, until the new one's first frame:
-            // the viewer never tears down to an empty plate between two windows.
-            stale = hasPicture
+            // The next window's kept picture takes the view at once (Nov 8 2026, the review: the
+            // last window's picture stayed, dimmed, under a box with a spinner — a remote
+            // viewer's loading dialog). Nothing kept: the quiet pane, and "Opening …" in the name.
+            stale = false
+            image = nil
+            if videoSize != nil { video.clear(); videoSize = nil }
             windowSeq &+= 1
             appName = ""
             bundleID = target.bundleID
@@ -296,8 +313,12 @@ final class Watcher: ObservableObject {
         isOpen = true
         if glancing { glancing = false; wantsAutoFit = true }
         start()
-        // A window switched to may be passed through: its shape waits for the dwell, never ahead.
-        if wantsAutoFit, switchedAt == nil { shapeAhead() }
+        // A window switched to takes the view's shape ahead too (Nov 8 2026: it arrived at the
+        // Mac's own wide shape and reshaped a second later — the review's flip). The Nov 7 rule
+        // (a window flipped past is never reshaped) gives way: the Mac puts each back as the
+        // view leaves it (`putBackAutoFit` on the next switch), so a pass-through costs the Mac
+        // a reshape and a restore, and the phone nothing.
+        if wantsAutoFit { shapeAhead() }
         // The mic, every time the window view opens (a switch keeps the page).
         if opening { input.opened() }
         log?.add("watching opened")
@@ -345,6 +366,8 @@ final class Watcher: ObservableObject {
     /// (no pointer or keyboard without the deck) and the deck picks its own on the way back.
     func setFullScreen(_ on: Bool) {
         guard on != fullScreen, !on || isShowing else { return }
+        // Going in: the window at its own shape is what the card and the next open should hold.
+        if on { keepPicture() }
         fullScreen = on
         if isDesktop { wholeWindow = on ? false : !fillsView }
         if on, input.page != .mic { input.show(.mic, quiet: true) }
@@ -541,8 +564,19 @@ final class Watcher: ObservableObject {
         viewerSize = size
         viewerFills = fill
         viewerPose = input.pose
+        // A room still settling when its shape went (Nov 8 2026, the review: the Duo's side page
+        // measured half its height at the first Show it here, and the Mac's window became 2:1
+        // until a full-screen round trip): a measure that disagrees with the shape just sent by a
+        // tenth or more, within a few seconds of it, owes the window its shape again.
+        if let was = shapeSent, let at = shapeSentAt, Date().timeIntervalSince(at) < 3, !sizedByHand, !wantsAutoFit,
+           size.width > 40, size.height > 40, abs((size.width / size.height) / (was.width / was.height) - 1) > 0.1 {
+            wantsAutoFit = true
+            log?.add("watching: the view settled at another shape — the window takes it again")
+        }
         autoFitSoon()
     }
+    /// When the last shape went to the Mac.
+    private var shapeSentAt: Date?
 
     // MARK: The window takes the view's shape (Oct 31 2026)
 
@@ -632,6 +666,7 @@ final class Watcher: ObservableObject {
         }
         guard sendShape(size) else { return }
         shapeSent = size
+        shapeSentAt = Date()
         if !askedForFit { autoFitted = true }
         if wholeWindow { wholeWindow = false }
         if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
@@ -653,6 +688,7 @@ final class Watcher: ObservableObject {
               !fullScreen, viewerPose == input.pose, viewerFills == fillsView,
               viewerSize.width > 40, viewerSize.height > 40, sendShape(viewerSize) else { return }
         shapeSent = viewerSize
+        shapeSentAt = Date()
         if !askedForFit { autoFitted = true }
         if wholeWindow { wholeWindow = false }
         if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
@@ -1205,7 +1241,21 @@ final class Watcher: ObservableObject {
 
     /// After a dictation lands somewhere else, the view follows it.
     func follow(_ target: TargetRef) {
-        if isOpen, self.target == target, !phase.isPaused { recenter &+= 1; return }
+        if isOpen, Self.samePlace(self.target, target), !phase.isPaused { recenter &+= 1; return }
         open(target)
+    }
+
+    /// The same window on the Mac (Nov 8 2026): the app and the window, never the name — a
+    /// dictation's target carries the window's title as its name ("Claude — Fix the login bug")
+    /// where the watch has the app's ("Claude"), and `==` took that for another window: every
+    /// landing with Show the app after sending put the window back to its own size, asked for it
+    /// again and reshaped it (`WATCH WINDOW restore` · `WATCH TARGET` · `WATCH SHAPE` in serve's
+    /// log), and the phone grew it out of the card again. An app named with no window is the
+    /// window of it that's showing.
+    static func samePlace(_ a: TargetRef?, _ b: TargetRef) -> Bool {
+        guard let a else { return false }
+        if a == b { return true }
+        guard case let .app(ab, ak, _) = a, case let .app(bb, bk, _) = b, ab == bb else { return false }
+        return ak == bk || ak == nil || bk == nil
     }
 }
