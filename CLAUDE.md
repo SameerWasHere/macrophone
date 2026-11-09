@@ -108,11 +108,16 @@ the real pipeline; its README says what each shows). **The Mac app changed** —
   through the watch and the drag median 4.4%, max 18.1%. *On serve* (the live fork's runs):
   finger → shape → `RESHAPED` → new-size frame 60 / 81 / 106 / 96 / 192 / 270 ms, median ~100; one
   18 KB keyframe per size at 422–596 × 900. *The phone's main thread through the drag* (xctrace Time
-  Profiler, 100 ms buckets, the Pro against serve): before the still was changed, 43–94 ms busy per
-  100 ms for ~1 s (9 buckets ≥ 50 ms) — `makeStill` → `WindowSnapshots.image` (a `CIContext` render)
-  + `preparingForDisplay()` on the main thread per size change; now the still comes through
-  `VideoDecoder.image` (VideoToolbox, a bitmap at once) — see the line under "The phone's main
-  thread, after" in the commit for the after numbers. *The mask*: 108–197 ms per read on real windows
+  Profiler, 100 ms buckets, the Pro against serve, XCUITest's slow drag): at first 56–95 ms busy
+  per 100 ms through the drag, 0.4 s of it at 89–95% (9 buckets ≥ 50 ms over the run); the
+  symbolised samples were SwiftUI's own graph (`AG::Graph`, body re-evaluations of MainView,
+  WatchPanel, WatchWindow per drag event) and, as the app's own hottest frame,
+  `Watcher.viewerMeasured` — every drag frame wrote the pose's view size to UserDefaults and
+  re-armed auto-fit. Now `viewerMeasured` skips the drag (`resizingHere`) and the still comes
+  through `VideoDecoder.image` (VideoToolbox) instead of a `CIContext` render + `preparingForDisplay`
+  on the main thread: 30–63 ms busy per 100 ms through the drag, no bucket over 63 (5 ≥ 50 ms over
+  the run, two of them the launch). What's left is SwiftUI laying the frame out per event; a
+  device in Release is the real number. *The mask*: 108–197 ms per read on real windows
   (off the main thread), 1187–2190 bytes; a Debug copy watching a still window 30 s: 3.2% → 4.0% CPU
   (the one read; noisy ±2).
 - **Tests:** `swift test` (352, `WindowMaskTests` 6, `LiveShapeTests` new); `ResizableWindowUITests`

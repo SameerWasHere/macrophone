@@ -620,7 +620,10 @@ final class Watcher: ObservableObject {
     func viewerMeasured(_ size: CGSize, fill: Bool = false, interactive: Bool = true) {
         // A window he made smaller on the phone measures smaller; the view's own room is what
         // the next open is shaped to (every window opens as big as it can be, Nov 8 2026).
-        guard interactive, !shrunkHere, size != viewerSize || fill != viewerFills || viewerPose != input.pose else { return }
+        // Not while his finger is on the corner (Nov 9 2026): every drag frame measured, wrote
+        // the pose's size to UserDefaults and re-armed auto-fit — `viewerMeasured` was the
+        // app's own hottest frame in the drag's profile; the live shapes carry the frame's size.
+        guard interactive, !shrunkHere, !resizingHere, size != viewerSize || fill != viewerFills || viewerPose != input.pose else { return }
         viewerSize = size
         viewerFills = fill
         viewerPose = input.pose
