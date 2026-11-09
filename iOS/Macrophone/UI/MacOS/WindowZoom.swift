@@ -189,36 +189,22 @@ final class WindowZoom: ObservableObject {
         return screen.contains(r)
     }
 
-    /// A picture of this size, whole and centred in a rect.
+    /// A picture of this size, whole and centred in a rect — the viewer's own rule (Nov 9 2026:
+    /// one place, `ViewerScrollView.fittedRect`), so a flight lands on the viewer's pixels.
     static func fit(_ size: CGSize, in r: CGRect) -> CGRect {
-        guard size.width > 0, size.height > 0 else { return r }
-        let s = min(r.width / size.width, r.height / size.height)
-        let w = size.width * s, h = size.height * s
-        return CGRect(x: r.midX - w / 2, y: r.midY - h / 2, width: w, height: h)
+        let f = ViewerScrollView.fittedRect(size, in: r)
+        return f == .zero ? r : f
     }
 
     /// Where the window view puts its picture, from its known layout (`WatchPanel`: a 4 pt
-    /// breath, the header, the row gap, then the bezel), its foot where the viewer at rest ends.
+    /// breath, the header, the row gap, then the bezel), its foot where the viewer at rest ends:
+    /// fitted whole in that room, as the viewer opens every picture.
     static func estimate(image: CGSize, area: CGRect, compact: Bool) -> WindowZoomPlace {
         let inset = WatchLook.sideMargin + WatchLook.bezelWidth
         let top = area.minY + 4 + WatchLook.header + (compact ? 6 : 8) + WatchLook.bezelWidth
         let foot = viewerPlace(in: area).map { $0.clip.maxY } ?? (area.maxY - 60)
         let clip = CGRect(x: area.minX + inset, y: top, width: max(1, area.width - 2 * inset), height: max(1, foot - top))
-        let fitAll = min(clip.width / max(1, image.width), clip.height / max(1, image.height))
-        // A kept picture shaped unlike the view opens whole (the viewer's `keptOtherShape` rule,
-        // Nov 8 2026): the aim says so too, or the flight overshot and shrank back in its first
-        // 50 ms.
-        let otherShape = abs((image.width / max(1, image.height)) / (clip.width / max(1, clip.height)) - 1) > 0.15
-        // (Round 2: a picture of another shape covers the frame from its top-left, as the viewer
-        // opens it.)
-        let s = otherShape ? ViewerScrollView.coverScale(image: image, width: clip.width, visibleHeight: clip.height, cap: ViewerScrollView.coverCap(fill: false))
-            : ViewerScrollView.startScale(image: image, width: clip.width, visibleHeight: clip.height, focus: nil, fill: false, maxZoom: max(1, fitAll * 2))
-        let w = image.width * s, h = image.height * s
-        // Narrower than the view: centred; taller: its foot (the newest) at the view's foot —
-        // another shape: the top-left.
-        let x = otherShape ? clip.minX : w < clip.width ? clip.midX - w / 2 : clip.minX
-        let y = otherShape ? clip.minY : h < clip.height ? clip.midY - h / 2 : clip.maxY - h
-        return WindowZoomPlace(clip: clip, picture: CGRect(x: x, y: y, width: w, height: h), corner: WatchLook.screen)
+        return WindowZoomPlace(clip: clip, picture: fit(image, in: clip), corner: WatchLook.screen)
     }
 
     /// The window view's viewer as it is now: what of it shows, and where the whole picture lies
@@ -311,23 +297,22 @@ final class FullScreenZoom: ObservableObject {
         return (p.place, p.image)
     }
 
-    /// Into full screen: from where the window's viewer shows its picture to the screen.
+    /// Into full screen: from where the window's viewer shows its picture to the picture fitted
+    /// whole in the screen — exactly where the full-screen viewer opens it (Nov 9 2026: the same
+    /// window at its own shape, never covering the screen from a corner).
     func enter(image: UIImage?, from: WindowZoomPlace?, screen: CGRect, corner: CGFloat) {
         guard let image, let from else { return }
-        // Covering from the top-left, capped (round 2: a 0.7 window on a 1.42 screen covered it
-        // at twice its size); past the cap the picture sits top-left on the dark ground.
-        let s = ViewerScrollView.coverScale(image: image.size, width: screen.width, visibleHeight: screen.height, cap: ViewerScrollView.coverCap(fill: true))
-        let picture = CGRect(x: screen.minX, y: screen.minY, width: image.size.width * s, height: image.size.height * s)
+        let picture = WindowZoom.fit(image.size, in: screen)
+        let s = picture.width / max(1, image.size.width)
         fly(image: image, from: from, to: WindowZoomPlace(clip: screen, picture: picture, corner: corner * s))
     }
 
-    /// Out of full screen: from the screen to the window's frame, the picture covering it from
-    /// its top-left (the windowed viewer opens it so too — `otherShape` — until the Mac's
-    /// reshaped picture reflows the content inside the same outline).
+    /// Out of full screen: from the screen to the picture fitted whole in the window's frame,
+    /// where the windowed viewer opens it (the Mac's reshaped picture lands fitted there after).
     func exit(image: UIImage?, from: WindowZoomPlace?, to frame: CGRect, corner: CGFloat) {
         guard let image, let from, frame.width > 1 else { return }
-        let s = ViewerScrollView.coverScale(image: image.size, width: frame.width, visibleHeight: frame.height, cap: ViewerScrollView.coverCap(fill: false))
-        let picture = CGRect(x: frame.minX, y: frame.minY, width: image.size.width * s, height: image.size.height * s)
+        let picture = WindowZoom.fit(image.size, in: frame)
+        let s = picture.width / max(1, image.size.width)
         fly(image: image, from: from, to: WindowZoomPlace(clip: frame, picture: picture, corner: corner * s))
     }
 

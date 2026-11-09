@@ -1025,7 +1025,7 @@ final class Watcher: ObservableObject {
         if isDesktop, wholeWindow {
             whole = true
         } else if let picture = lastPicture, viewerSize.width > 40, viewerSize.height > 40, viewerPose == input.pose, viewerFills == fillsView {
-            whole = ViewerScrollView.opensWhole(image: picture.size, view: viewerSize, focus: focus, fill: fillsView, viewKey: viewKey)
+            whole = ViewerScrollView.opensWhole(image: picture.size, view: viewerSize, viewKey: viewKey)
         } else {
             whole = false
         }
