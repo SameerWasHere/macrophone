@@ -943,38 +943,6 @@ private struct CleanupMenuLook: ViewModifier {
     }
 }
 
-struct SendAfterPastingRow: View {
-    @EnvironmentObject var model: AppModel
-    var target: TargetRef
-    var compact = false
-
-    var body: some View {
-        let enabled = target.canSend
-        let on = enabled && model.sendSetting(for: target)
-        let detail = Places.sendDetail(target, in: model)
-        // One line only: a second line that changed with the place made the panel jump.
-        Toggle(isOn: Binding(get: { on }, set: { set($0) })) {
-            Text("Send after pasting")
-                .font(.body)
-                .foregroundStyle(enabled ? Ink.ink : Ink.tertiary)
-        }
-        .accessibilityHint(detail)
-        .toggleStyle(.switch)
-        .tint(Light.cyan)
-        .disabled(!enabled)
-        .padding(.horizontal, Space.inset)
-        .padding(.vertical, compact ? 8 : 11)
-        // VoiceOver reads the switch with both lines: what it is, and what it does here (or why not).
-        .accessibilityIdentifier("send-toggle")
-    }
-
-    private func set(_ new: Bool) {
-        Haptics.pick()
-        withAnimation(Motion.snap) { model.setSend(new, for: target) }
-        model.explain(Places.sentence(for: target, send: new))
-    }
-}
-
 // MARK: Cleanup
 
 /// The five levels as a native segmented control (by the mic and in Settings).
@@ -999,61 +967,6 @@ struct CleanupPicker: View {
         model.setCleanupLevel(l)
         model.explain(CleanupWords.sentence(for: l, edited: model.customInstructionsEdited))
     }
-}
-
-/// "Cleanup", the five levels, and one line saying what the picked one does (with Edit
-/// instructions beside it for Custom).
-struct CleanupRow: View {
-    @EnvironmentObject var model: AppModel
-    @ObservedObject var settings: Settings
-    var compact = false
-    /// Opens the Custom instructions.
-    var onEditCustom: () -> Void
-
-    var body: some View {
-        let available = CleanupWords.available(model, settings)
-        let level = available ? settings.cleanupLevel : .off
-        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
-            // Edit instructions sits beside the kicker, as Watch sits beside Send to — so the
-            // line under the picker keeps the whole width and never runs to a third line past
-            // the panel's foot (it did on an SE, Oct 18 2026). The row keeps the button's
-            // height whether or not it's there, so a level change can't make the panel jump.
-            HStack(alignment: .center, spacing: 10) {
-                Kicker("Cleanup")
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                if available, level == .custom {
-                    Button("Edit instructions", action: onEditCustom)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Ink.ink)
-                        .controlSize(.small)
-                        .nativeGlassButton()
-                        .transition(.opacity)
-                        .accessibilityIdentifier("edit-custom")
-                }
-            }
-            .frame(minHeight: buttonRow)
-            CleanupPicker(settings: settings)
-            Text(available ? CleanupWords.line(level, edited: model.customInstructionsEdited)
-                           : CleanupWords.unavailableReason(model, settings))
-                .font(.footnote)
-                .foregroundStyle(available ? Ink.secondary : Light.ochre)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentTransition(.opacity)
-                // Room for two lines either way.
-                .frame(minHeight: twoLines, alignment: .topLeading)
-        }
-        .animation(.easeInOut(duration: 0.2), value: level)
-        .padding(.horizontal, Space.inset)
-        .padding(.top, compact ? 10 : 12)
-        .padding(.bottom, compact ? 6 : 8)
-    }
-
-    /// Two footnote lines (18pt each at the default size).
-    @ScaledMetric(relativeTo: .footnote) private var twoLines: CGFloat = 36
-    /// A small glass button's height — the kicker row's, with or without the button.
-    @ScaledMetric(relativeTo: .footnote) private var buttonRow: CGFloat = 30
 }
 
 /// The words for cleanup.

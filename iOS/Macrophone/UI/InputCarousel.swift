@@ -41,8 +41,8 @@ struct InputCarousel<Mic: View, Thread: View>: View {
     /// The Duo's deck (Oct 25 2026): the room the whole carousel has — the pages take all of it
     /// (the trackpad whole, the mic in the middle of it). Nil: the pages size themselves.
     var fill: CGFloat? = nil
-    /// The page row isn't drawn here (a folded Duo's deck draws the switcher in a corner,
-    /// `InputCornerSwitcher`, so the trackpad is the whole half).
+    /// The page row isn't drawn here (the Duo's deck has `DuoModeBar`; the cover and a phone
+    /// watching a window have buttons beside the mic).
     var rowHidden = false
     /// The Duo's cover (Oct 31 2026, Sameer: "there's no way to close the trackpad") and every
     /// iPhone while a window shows (Nov 7 2026, round 5): the trackpad
@@ -359,42 +359,6 @@ struct TrackpadBar: View {
         .circleGlassButton()
         .accessibilityLabel(label)
         .accessibilityIdentifier(id)
-    }
-}
-
-/// A folded Duo's deck (Oct 25 2026): the three pages as one small cluster of glass cells in the
-/// deck's corner — the keyboard, the mic, the trackpad — so the trackpad can be the whole half.
-/// The same one adjustable element for VoiceOver as the row.
-struct InputCornerSwitcher: View {
-    @ObservedObject var input: MacInput
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(input.pages.enumerated()), id: \.element.id) { i, page in
-                if i > 0 { WatchCellDivider() }
-                let on = page == input.page
-                Button { input.show(page) } label: {
-                    Image(systemName: page.symbol)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(on ? Light.cyan : Ink.secondary)
-                        .frame(width: 44, height: 34)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityHidden(true)
-            }
-        }
-        .watchGlass(Capsule())
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: input.page)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Input")
-        .accessibilityValue(input.page.title)
-        .accessibilityHint("Swipe up or down for \(input.pages.map { $0.title.lowercased() }.joined(separator: ", ")).")
-        .accessibilityAdjustableAction { direction in
-            input.step(direction == .increment ? 1 : -1)
-        }
-        .accessibilityIdentifier("input-pages")
     }
 }
 
