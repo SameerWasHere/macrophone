@@ -204,6 +204,7 @@ final class AppModel: ObservableObject {
         watcher.sendWindow = { [weak self] c in self?.client.watchWindow(c) ?? false }
         watcher.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
         watcher.sendShape = { [weak self] s in self?.client.watchShape(s) ?? false }
+        watcher.sendLiveShape = { [weak self] s, final in self?.client.watchShape(s, live: true, final: final) ?? false }
         watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         watcher.sendScrollPhase = { [weak self] phase, p in self?.client.watchScrollPhase(phase, at: p) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }
@@ -291,6 +292,8 @@ final class AppModel: ObservableObject {
         c.features.append(KeepAwakeStatus.feature)
         // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).
         c.features.append(MacWallpaper.feature)
+        // The watched window's real corners, read on the Mac (Nov 9 2026, UI/WatchPanel.swift).
+        c.features.append(WatchWindowMask.feature)
         // Windows on watch, and every alert with a picture of its window (Nov 6 2026).
         c.features.append(MacAlerts.feature)
         // "When a chat answers you", and how it stands (Nov 8 2026): the Mac follows the chats this

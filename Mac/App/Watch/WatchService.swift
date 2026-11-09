@@ -81,12 +81,32 @@ final class WatchService {
         /// While the pointer is up, the Mac's pointer shape is read and sent on each change
         /// (Nov 1 2026, `MacCursor`), to a phone that draws it.
         var cursorTask: Task<Void, Never>?
+        /// The window's real corners, read once per picture size and sent to a phone that clips
+        /// with them (Nov 9 2026, `WindowMaskCapture`): the size last asked for, the mask last
+        /// sent, and the read under way.
+        var maskFor: CGSize?
+        var maskSent: WatchWindowMask?
+        var maskTask: Task<Void, Never>?
+        /// With companions: what the stream shows (the display's filter and the area in it), so
+        /// the mask is read off the same picture.
+        var maskFilter: SCContentFilter?
+        var maskSource: CGRect?
         /// A window was found and shown at least once: only then can it be "closed".
         var sawWindow = false
         /// When the window it showed was first found gone: a beat later, still gone, it's closed.
         var goneAt: Date?
         /// The phone asked to close the window: gone right after that needs no beat.
         var closeAskedAt = Date.distantPast
+        /// Live shapes while the finger drags the window's corner (Nov 9 2026): the newest one
+        /// waiting for the throttle's next slot, when the last was applied, and the drag's
+        /// counts for the one log line at its end.
+        var liveShapePending: CGFloat?
+        var liveShapeTask: Task<Void, Never>?
+        var liveShapeAppliedAt = Date.distantPast
+        var liveShapes = 0
+        var liveShapesSince: Date?
+        var liveShapeFirstWidth: CGFloat?
+        var liveShapeStats: VideoPipe.Stats?
         /// When typing was last logged (a line per sentence, not per keystroke).
         var typedLogAt = Date.distantPast
         /// The whole screen: the app in front, as last told.
@@ -175,6 +195,8 @@ final class WatchService {
             settle.reset()
             companions = []
             area = nil
+            maskFilter = nil
+            maskSource = nil
             poster.area = nil
             input.set(area: nil)
         }
@@ -323,6 +345,8 @@ final class WatchService {
         w.poster.stop()
         w.input.stop()
         w.cursorTask?.cancel()
+        w.maskTask?.cancel()
+        w.liveShapeTask?.cancel()
         if w.input.clicks + w.input.moves + w.input.typed > 0 {
             app.log.add("watch input: \(w.input.clicks) clicks, \(w.input.moves) pointer moves (\(w.input.missed) didn't land, warped there), \(w.input.typed) characters typed")
         }
@@ -574,7 +598,47 @@ final class WatchService {
             tellPipe(w)
         }
         if w.poster.window != wid { w.poster.window = wid; w.input.set(window: wid, pid: w.pid) }
+        // The picture's size changed (the stream started, the window was resized, companions came
+        // or went): the phone gets the window's corners at that size (Nov 9 2026).
+        if let s = w.stream, wid != WindowServer.desktopID {
+            let px = CGSize(width: s.size.width, height: s.size.height)
+            if px != w.maskFor { w.maskFor = px; refreshMask(w, wid: wid, pixels: px) }
+        }
         return .live(appName: w.appName)
+    }
+
+    // MARK: The window's corners (Nov 9 2026)
+
+    /// Reads the window's corners off one frame with alpha and sends them to the phone — a beat
+    /// after the size settles (a resize passes through sizes), never the same mask twice. With
+    /// companions the picture is a piece of the display (square); the whole screen never asks.
+    private func refreshMask(_ w: Watch, wid: CGWindowID, pixels: CGSize) {
+        w.maskTask?.cancel()
+        guard app.server.phones(with: WatchWindowMask.feature).contains(w.peer) else { return }
+        let size = (width: Int(pixels.width), height: Int(pixels.height))
+        w.maskTask = Task { @MainActor [weak self, weak w] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard let self, let w, !Task.isCancelled, let s = w.stream, s.size.width == size.width, s.size.height == size.height else { return }
+            // Off the very picture the stream shows: the window alone, or — with companions (a
+            // sheet, a panel, an app's own child window inside it) — the display's area with them.
+            let read: (mask: WatchWindowMask?, ms: Int, how: String)
+            if let filter = w.maskFilter, let source = w.maskSource {
+                read = await WindowMaskCapture.read(filter: filter, source: source, windowID: nil, size: size)
+            } else {
+                guard let scw = await self.scWindow(wid), !Task.isCancelled else { return }
+                read = await WindowMaskCapture.read(filter: SCContentFilter(desktopIndependentWindow: scw), source: nil, windowID: wid, size: size)
+            }
+            guard !Task.isCancelled, w.stream === s else { return }
+            let with = w.companions.isEmpty ? "" : ", with \(w.companions.count) companions"
+            if let m = read.mask {
+                self.app.log.add("window mask: \(Int(m.radius)) px round at \(m.width)×\(m.height), read in \(read.ms) ms (\(read.how)\(m.corners == nil ? ", radius only" : ", \(m.corners!.count) bytes")\(with))")
+            } else {
+                self.app.log.add("window mask: nothing to read at \(size.width)×\(size.height) (\(read.how), \(read.ms) ms\(with)) — the phone keeps its own guess")
+            }
+            guard let mask = read.mask, mask != w.maskSent else { return }
+            w.maskSent = mask
+            await self.app.server.sendMask(mask, to: w.peer)
+        }
     }
 
     /// The windows laid over the watched one right now (`WatchCompanions`, one window list): when
@@ -603,6 +667,8 @@ final class WatchService {
             guard w.stream === s else { return }
             w.companions = found
             w.area = p.area
+            w.maskFilter = SCContentFilter(display: display, including: [host] + others)
+            w.maskSource = p.area.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
             w.poster.area = p.area
             w.input.set(area: p.area)
         case .alone:
@@ -611,7 +677,11 @@ final class WatchService {
             guard w.stream === s else { return }
             w.alone()
         }
-        if w.companions.count != before { app.log.add("watch: with \(w.companions.count) companion windows") }
+        if w.companions.count != before {
+            // Which (owner and layer only — never a title), so a false companion can be told apart.
+            let kinds = w.companions.map { "\($0.owner ?? "?")@\($0.layer)" }.joined(separator: ", ")
+            app.log.add("watch: with \(w.companions.count) companion windows\(kinds.isEmpty ? "" : " (\(kinds))")")
+        }
         tellPipe(w)
         w.hurry()
     }
@@ -1125,10 +1195,83 @@ final class WatchService {
         w.wake()
     }
 
+    // MARK: The window under the finger (Nov 9 2026)
+
+    // Sameer: "the resizing needs to be as responsive as possible … it should look and feel like
+    // we pulled the window of the app directly from the Mac and ran it on the iPhone". While his
+    // finger drags the window's corner the phone sends the frame's shape every ~90 ms
+    // (`watchShapeLive`); each is applied at once — no `holdForReshape`: every size in between
+    // is streamed, the phone fits whatever arrives, so the app reflows under the finger as it
+    // does under a Mac's pointer. At most one Accessibility resize per `WatchShape.macLiveInterval`
+    // (an Electron window takes tens of milliseconds to take a size): a shape that comes sooner
+    // waits as the one pending, the newest replacing it, and goes at the slot's end. The final
+    // one (the release) goes the same way, and the drag gets one log line of numbers.
+
+    /// A shape from the finger: applied now, or the newest waiting for the throttle's next slot.
+    func fitToPhoneLive(aspect: CGFloat, final: Bool, for peer: UUID) {
+        guard let w = watches[peer] else { return }
+        guard let wid = w.windowID, w.stream != nil else { w.wantedShape = aspect; w.wake(); return }
+        guard wid != WindowServer.desktopID else { return }
+        if w.liveShapesSince == nil {
+            w.liveShapesSince = Date()
+            w.liveShapeStats = w.pipe?.snapshot()
+        }
+        w.liveShapes += 1
+        let wait = WatchShape.macLiveInterval - Date().timeIntervalSince(w.liveShapeAppliedAt)
+        if wait <= 0 {
+            applyLiveShape(w, aspect: aspect)
+        } else {
+            w.liveShapePending = aspect
+            if w.liveShapeTask == nil {
+                w.liveShapeTask = Task { @MainActor [weak self, weak w] in
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, wait) * 1e9))
+                    guard let self, let w, !Task.isCancelled else { return }
+                    w.liveShapeTask = nil
+                    if let p = w.liveShapePending { w.liveShapePending = nil; self.applyLiveShape(w, aspect: p) }
+                }
+            }
+        }
+        guard final else { return }
+        // The release: the drag's one line, numbers only.
+        let n = w.liveShapes, since = w.liveShapesSince.map { Date().timeIntervalSince($0) } ?? 0
+        let from = w.liveShapeFirstWidth.map { Int($0) } ?? 0
+        let to = w.windowBounds.map { Int($0.width) } ?? 0
+        var streamed = ""
+        if let before = w.liveShapeStats, let now = w.pipe?.snapshot() {
+            streamed = " · \(now.keyframes - before.keyframes) keyframes, \(max(0, now.bytes - before.bytes) / 1024) KB streamed"
+        }
+        app.log.add("watch live shape: \(from) → \(to) px wide, \(n) shapes in \(String(format: "%.1f", since)) s\(streamed)")
+        w.liveShapes = 0
+        w.liveShapesSince = nil
+        w.liveShapeFirstWidth = nil
+        w.liveShapeStats = nil
+    }
+
+    /// One live shape onto the window, and the stream onto the size it took, straight away — not
+    /// at the loop's next look (a quarter second to a second and a half away).
+    private func applyLiveShape(_ w: Watch, aspect: CGFloat) {
+        w.liveShapeAppliedAt = Date()
+        if w.liveShapeFirstWidth == nil { w.liveShapeFirstWidth = w.windowBounds?.width }
+        guard let (_, took) = reshape(w, aspect: aspect, quiet: true) else { return }
+        w.windowBounds = CGRect(origin: w.windowBounds?.origin ?? took.origin, size: took.size)
+        if let s = w.stream, w.area == nil {
+            let width = maxWidth(for: w)
+            Task { await s.resize(to: took.size, maxWidth: width) }
+        }
+        w.focusAt = .distantPast
+        w.hurry()
+        w.wake()
+    }
+
     /// The window takes the phone's view's shape, as tall as the screen allows; returns the frame
     /// asked for (nil when it couldn't be).
     @discardableResult
     private func reshape(_ w: Watch, aspect: CGFloat) -> CGRect? {
+        reshape(w, aspect: aspect, quiet: false)?.asked
+    }
+
+    /// `quiet`: a live shape — no log line per shape (the drag gets one at its end).
+    private func reshape(_ w: Watch, aspect: CGFloat, quiet: Bool) -> (asked: CGRect, took: CGRect)? {
         guard let wid = w.windowID, wid != WindowServer.desktopID else { return nil }
         guard Paster.isTrusted else { app.log.add("watch fit to iPhone skipped: Accessibility not granted"); return nil }
         guard let win = AX.window(in: AX.app(w.pid), id: wid), AX.isAlive(win), !AX.bool(win, "AXFullScreen") else {
@@ -1145,8 +1288,8 @@ final class WatchService {
         // What the window took (an app with a smallest size keeps it): a shape off the phone's shows
         // as bars beside the picture, so the log says both.
         let took = AX.frame(win)
-        app.log.add("watch fit to iPhone: \(Int(now.width))×\(Int(now.height)) → \(Int(target.width))×\(Int(target.height)), took \(Int(took.width))×\(Int(took.height))")
-        return target
+        if !quiet { app.log.add("watch fit to iPhone: \(Int(now.width))×\(Int(now.height)) → \(Int(target.width))×\(Int(target.height)), took \(Int(took.width))×\(Int(took.height))") }
+        return (target, took)
     }
 
     /// A press and hold (or a two-finger tap) on the phone's picture: a right-click there. (A

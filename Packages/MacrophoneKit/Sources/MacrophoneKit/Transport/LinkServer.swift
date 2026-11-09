@@ -40,6 +40,9 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID)
     /// Fit to iPhone: the watched window takes this shape (width ÷ height), as big as it goes.
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID)
+    /// The window's shape while the finger drags its corner (only from a phone that heard
+    /// WatchShape.liveFeature): applied at once; `final` is the release.
+    func linkServer(_ server: LinkServer, watchShapeLive aspect: CGFloat, final: Bool, from peerID: UUID)
     /// The chats that answered, sent to a phone naming NeedsYou.feature right after its welcome.
     func liveNeeds(_ server: LinkServer) -> [NeedsYou]
     /// A dictation for this place has started on that phone: get it ready.
@@ -98,6 +101,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchWindow command: WatchWindowCommand, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKey key: WatchKey, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchShapeLive aspect: CGFloat, final: Bool, from peerID: UUID) {}
     func liveNeeds(_ server: LinkServer) -> [NeedsYou] { [] }
     func linkServer(_ server: LinkServer, prepare target: TargetRef, from peerID: UUID) {}
     func clipboard(_ server: LinkServer) async -> (ClipboardItem?, String) { (nil, "") }
@@ -715,6 +719,9 @@ public final class LinkServer: @unchecked Sendable {
             case let .watchShape(w, h):
                 guard w > 0, h > 0, w < 10_000, h < 10_000 else { break }
                 notify { $0.linkServer(self, watchShape: CGFloat(w / h), from: phoneID) }
+            case let .watchShapeLive(w, h, final):
+                guard w > 0, h > 0, w < 10_000, h < 10_000 else { break }
+                notify { $0.linkServer(self, watchShapeLive: CGFloat(w / h), final: final, from: phoneID) }
             case let .watchKey(key):
                 guard key.key.count <= 12 else { break }
                 notify { $0.linkServer(self, watchKey: key, from: phoneID) }
@@ -750,7 +757,7 @@ public final class LinkServer: @unchecked Sendable {
                 handleChatAnswers(on, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .undoDone, .alertWatches, .macAlert, .frontWindow, .keepAwake:
+            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .watchMask, .undoDone, .alertWatches, .macAlert, .frontWindow, .keepAwake:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

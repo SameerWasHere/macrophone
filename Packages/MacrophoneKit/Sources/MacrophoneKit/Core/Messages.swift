@@ -157,6 +157,10 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: give the watched window this shape (the phone's view of it, in points), as
     /// big as the screen allows — Fit to iPhone (only to a Mac naming WatchShape.feature).
     case watchShape(width: Double, height: Double)
+    /// Phone → Mac: the window's shape while his finger drags its corner (Nov 9 2026, only to a
+    /// Mac naming WatchShape.liveFeature): applied at once, the frames in between streamed, so
+    /// the app reflows under the finger; `final` is the shape at the release.
+    case watchShapeLive(width: Double, height: Double, final: Bool)
     /// Mac → phone: every window on screen (only to a phone naming AllWindows.feature), as it changes.
     case windows([LiveTarget])
     /// Phone → Mac: a dictation for this place has started — get it ready (only to a Mac naming
@@ -236,6 +240,9 @@ public enum Message: Codable, Sendable {
     /// Mac → phone (only to a phone naming MacCursor.feature): the Mac's pointer as it looks now,
     /// while the phone's trackpad pointer is up — when it shows and on each change.
     case macCursor(MacCursor)
+    /// Mac → phone (only to a phone naming WatchWindowMask.feature): the watched window's real
+    /// corner shape, read off one frame with alpha — once per picture size (Nov 9 2026).
+    case watchMask(WatchWindowMask)
     /// Phone → Mac (only to a Mac naming UndoPaste.feature): undo this dictation's paste.
     case undoPaste(id: UUID)
     /// Mac → phone: what that undo did.

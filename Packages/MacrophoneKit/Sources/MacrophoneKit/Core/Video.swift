@@ -204,13 +204,19 @@ public final class VideoEncoder: @unchecked Sendable {
         max(2_000_000, min(40_000_000, width * height * 2 * rate / 10))
     }
 
-    public init(width: Int, height: Int, rate: Int = 30, software: Bool = false) throws {
+    /// Encoding HEVC with an alpha channel (`kCMVideoCodecType_HEVCWithAlpha`): measured by
+    /// `mpctl alpha-bench` (Nov 9 2026) and not used for the window — its transparent corners go
+    /// as a mask once per size instead (`WatchWindowMask`).
+    public let alpha: Bool
+
+    public init(width: Int, height: Int, rate: Int = 30, software: Bool = false, alpha: Bool = false) throws {
         // HEVC wants even sizes.
         self.width = width & ~1
         self.height = height & ~1
         self.rate = rate
         self.software = software
-        session = try Self.makeSession(width: self.width, height: self.height, rate: rate, software: software)
+        self.alpha = alpha
+        session = try Self.makeSession(width: self.width, height: self.height, rate: rate, software: software, alpha: alpha)
         let t = DispatchSource.makeTimerSource(queue: watchdogQueue)
         t.schedule(deadline: .now() + 0.5, repeating: 0.5, leeway: .milliseconds(100))
         t.setEventHandler { [weak self] in self?.checkWatchdog() }
@@ -218,7 +224,7 @@ public final class VideoEncoder: @unchecked Sendable {
         watchdog = t
     }
 
-    private static func makeSession(width: Int, height: Int, rate: Int, software: Bool) throws -> VTCompressionSession {
+    private static func makeSession(width: Int, height: Int, rate: Int, software: Bool, alpha: Bool = false) throws -> VTCompressionSession {
         var s: VTCompressionSession?
         // The choice of encoder is the Mac's (the phone only decodes); the key is macOS's.
         var spec: [CFString: Any] = [:]
@@ -226,11 +232,12 @@ public final class VideoEncoder: @unchecked Sendable {
         spec[kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder] = !software
         #endif
         let status = VTCompressionSessionCreate(allocator: nil, width: Int32(width), height: Int32(height),
-                                                codecType: kCMVideoCodecType_HEVC, encoderSpecification: spec.isEmpty ? nil : spec as CFDictionary,
+                                                codecType: alpha ? kCMVideoCodecType_HEVCWithAlpha : kCMVideoCodecType_HEVC, encoderSpecification: spec.isEmpty ? nil : spec as CFDictionary,
                                                 imageBufferAttributes: nil, compressedDataAllocator: nil,
                                                 outputCallback: nil, refcon: nil, compressionSessionOut: &s)
         guard status == noErr, let session = s else { throw VideoError.encoder(status) }
         func set(_ key: CFString, _ value: CFTypeRef) { VTSessionSetProperty(session, key: key, value: value) }
+        if alpha { set(kVTCompressionPropertyKey_AlphaChannelMode, kVTAlphaChannelMode_PremultipliedAlpha) }
         set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
         set(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel)
         set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)

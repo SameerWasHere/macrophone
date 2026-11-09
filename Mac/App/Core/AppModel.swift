@@ -148,7 +148,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         server.log = log
         server.delegate = self
         // What this Mac can do beyond the first version, for phones that can too.
-        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature, WatchShape.aheadFeature,
+        server.macFeatures = [WatchVideo.feature, WatchVideo.fitFeature, WatchScroll.feature, MacAppQuit.feature, WatchRightClick.feature, WatchWindowCommand.feature, WatchKey.feature, WatchShape.feature, WatchShape.aheadFeature, WatchShape.liveFeature,
                               ClipboardItem.feature, AttachmentChunk.feature, DictationPrepare.feature, DesktopWatch.feature,
                               SaveToDownloads.feature, MacSound.feature,
                               WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature]
@@ -159,6 +159,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         watchWallpaper()
         // The pointer's shape on the phone's trackpad pointer (Nov 1 2026, Watch/WatchService.swift).
         server.macFeatures.append(MacCursor.feature)
+        // The watched window's real corners, read once per size (Nov 9 2026, Watch/WindowMask.swift).
+        server.macFeatures.append(WatchWindowMask.feature)
         server.macFeatures.append(UndoPaste.feature)
         // Windows on watch, and every alert with a picture (Nov 6 2026, Watch/WindowAlerts.swift).
         server.macFeatures.append(MacAlerts.feature)
@@ -829,6 +831,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, watchShape aspect: CGFloat, from peerID: UUID) {
         watch.fitToPhone(aspect: aspect, for: peerID)
+    }
+
+    func linkServer(_ server: LinkServer, watchShapeLive aspect: CGFloat, final: Bool, from peerID: UUID) {
+        watch.fitToPhoneLive(aspect: aspect, final: final, for: peerID)
     }
 
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {

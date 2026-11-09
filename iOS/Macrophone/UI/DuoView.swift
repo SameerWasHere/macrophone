@@ -688,7 +688,7 @@ struct DuoFullScreen: View {
 
     var body: some View {
         GeometryReader { geo in
-            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true, fitsOtherShapes: false, onHold: summonPad,
+            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true, onHold: summonPad,
                         // The finger that held is already a trackpad finger: no lifting first.
                         onHoldMoved: { [padClock] d, dt in padClock.last = Date(); input.pointerMoved(by: d, dt: dt) },
                         onHoldEnded: { [padClock] in padClock.last = Date(); padClock.holding = false })
@@ -1145,14 +1145,14 @@ struct DuoMacHalf: View {
     }
 
     /// The picture's height when it can't fill the half — a window shaped nothing like it (one
-    /// the Mac can't reshape, or hasn't yet; the whole screen) on the book's tall page: the
-    /// width-fit scale times the fill's cap, the bezel round it. Nil when it fills the half (the
-    /// cap doesn't bite), or when what's left under it would be too little to use.
+    /// the Mac can't reshape, or hasn't yet; the whole screen) on the book's tall page: fitted
+    /// across the page's width, the bezel round it (Nov 9 2026: fitted, never zoomed past the
+    /// width). Nil when that fills the half, or when what's left under it would be too little.
     private var shortPicture: CGFloat? {
-        // The laptop's screen is the picture, whatever its shape (it fills, scrolling).
+        // The laptop's screen is the picture, whatever its shape (fitted in the half).
         guard !edge, watcher.hasPicture, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 else { return nil }
         let width = room.width - 2 * DuoLook.halfBezel
-        let h = width * ViewerScrollView.fillCap * size.height / size.width + 2 * DuoLook.halfBezel
+        let h = width * size.height / size.width + 2 * DuoLook.halfBezel
         // The header's rows above it, the answers and the keys under it.
         return h < room.height - (vertical ? 250 : 200) ? (h / 2).rounded() * 2 : nil
     }
@@ -1370,7 +1370,7 @@ struct DuoGlance: View {
             if watcher.isOpen, watcher.hasPicture || watcher.lastPicture != nil {
                 // Live, the pictures still coming: the same screen, without its controls.
                 pictured(watcher.videoSize ?? watcher.image?.size ?? watcher.lastPicture?.size, connecting: false) {
-                    WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: true, dormant: dormant, fitsOtherShapes: false)
+                    WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: true, dormant: dormant)
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("\(watcher.name)'s window on your Mac, live")

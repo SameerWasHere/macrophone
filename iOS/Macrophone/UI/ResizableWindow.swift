@@ -46,16 +46,25 @@ struct ResizableWindow<Content: View>: View {
     /// What of the picture shows inside the frame (the viewer says): the arc sits on its corner
     /// when the window sits smaller than its frame (one the Mac can't reshape to it).
     @State private var picture: CGRect = .zero
+    /// The picture covered the frame as the drag began (he had zoomed in): the arc keeps to the
+    /// frame's corner through the drag.
+    @State private var zoomedAtStart = false
+    /// The picture's own shape, for the fitted corner mid-drag.
+    private var pictureAspect: CGSize? {
+        let s = watcher.videoSize ?? watcher.image?.size ?? watcher.lastPicture?.size
+        return s.map { $0.width > 0 && $0.height > 0 } == true ? s : nil
+    }
 
     var body: some View {
         let f = shown
         let measured = room.width > 0 && room.height > 0
         let frame = CGSize(width: measured ? room.width * f.width : 0, height: measured ? room.height * f.height : 0)
-        // Where the arc goes: the window's own bottom-right corner. During the drag the picture
-        // covers the frame, so that's the frame's corner — placed in the same pass as the frame,
-        // never a frame behind the finger; at rest, the picture's corner as the viewer reports it.
-        let corner = live != nil || picture == .zero ? CGPoint(x: frame.width, y: frame.height)
-            : CGPoint(x: min(picture.maxX, frame.width), y: min(picture.maxY, frame.height))
+        // Where the arc goes: the window's own bottom-right corner — the picture's, never the
+        // frame's (Nov 9 2026: the outline hugs the picture shown). During the drag the picture
+        // is fitted in the frame (`ViewerScrollView.fittedRect`, the viewer's own rule), so its
+        // corner is known in this very pass — never a frame behind the finger; a window he had
+        // zoomed in covers the frame, so the frame's corner then. At rest, the viewer reports it.
+        let corner = arcCorner(frame: frame)
         Color.clear
             .onGeometryChange(for: CGSize.self) { $0.size } action: { room = $0 }
             .overlay(alignment: .top) {
@@ -82,6 +91,16 @@ struct ResizableWindow<Content: View>: View {
     }
 
     // MARK: The corner
+
+    /// The window's bottom-right corner inside a frame of this size (see `body`).
+    private func arcCorner(frame: CGSize) -> CGPoint {
+        if live != nil, let aspect = pictureAspect, !zoomedAtStart {
+            let fitted = ViewerScrollView.fittedRect(aspect, in: CGRect(origin: .zero, size: frame))
+            return fitted == .zero ? CGPoint(x: frame.width, y: frame.height) : CGPoint(x: fitted.maxX, y: fitted.maxY)
+        }
+        if live != nil || picture == .zero { return CGPoint(x: frame.width, y: frame.height) }
+        return CGPoint(x: min(picture.maxX, frame.width), y: min(picture.maxY, frame.height))
+    }
 
     /// The arc, its touch area centred on the window's corner: placed by its centre (`position`).
     private var handle: some View {
@@ -115,6 +134,9 @@ struct ResizableWindow<Content: View>: View {
                 if start == nil {
                     start = share
                     snapped = share == CGSize(width: 1, height: 1)
+                    // Zoomed in: the picture reaches the frame's edges (within a point or two).
+                    let f = CGSize(width: room.width * share.width, height: room.height * share.height)
+                    zoomedAtStart = picture != .zero && picture.width >= f.width - 2 && picture.height >= f.height - 2
                     Haptics.grab()
                 }
                 guard let s = start, room.width > 0, room.height > 0 else { return }
@@ -127,6 +149,9 @@ struct ResizableWindow<Content: View>: View {
                 if full { next = CGSize(width: 1, height: 1) }
                 if full != snapped { snapped = full; if full { Haptics.pick() } }
                 live = next
+                // The Mac's window follows the finger (Nov 9 2026): the frame's shape goes every
+                // ~90 ms while it moves, applied at once there, so the app reflows under the finger.
+                watcher.resizingShape(CGSize(width: room.width * next.width, height: room.height * next.height))
             }
             .onEnded { _ in
                 let final = live ?? share

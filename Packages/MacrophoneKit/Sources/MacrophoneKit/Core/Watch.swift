@@ -325,6 +325,27 @@ public enum WatchShape {
     /// before the first picture (Nov 4 2026). A Mac from before drops it: the phone then waits for
     /// the view's own measure, as it always did.
     public static let aheadFeature = "fitPhoneAhead"
+    /// The Mac takes shapes while the finger drags the window's corner (`watchShapeLive`, Nov 9
+    /// 2026): each applied at once, no frames held, so the app reflows under the finger; the one
+    /// marked final is the release. A Mac from before gets one `watchShape` on release instead.
+    public static let liveFeature = "fitPhoneLive"
+    /// Live shapes go at most this often (the phone's throttle), and only when the aspect moved
+    /// more than `liveTolerance`.
+    public static let liveInterval: TimeInterval = 0.09
+    public static let liveTolerance: CGFloat = 0.01
+    /// The Mac resizes the window at most this often for live shapes (an Accessibility resize of
+    /// an Electron window takes tens of milliseconds); the newest shape waits for the next slot.
+    public static let macLiveInterval: TimeInterval = 0.08
+
+    /// Whether a live shape is worth sending now (pure): `interval` since the last one went and
+    /// the aspect moved more than the tolerance from the last one sent.
+    public static func liveShapeDue(size: CGSize, lastSent: CGSize?, lastAt: Date?, now: Date = Date()) -> Bool {
+        guard size.width > 40, size.height > 40 else { return false }
+        if let lastAt, now.timeIntervalSince(lastAt) < liveInterval { return false }
+        guard let lastSent, lastSent.width > 0, lastSent.height > 0 else { return true }
+        let a = size.width / size.height, b = lastSent.width / lastSent.height
+        return abs(a - b) / b > liveTolerance
+    }
 
     /// The window's new frame: `aspect` (width ÷ height, the phone's view) at the full height of
     /// `area` (the screen's visible frame, top-left origin), or its full width when that's what

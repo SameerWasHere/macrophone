@@ -685,6 +685,13 @@ extension AppModel: LinkClientCursorDelegate {
     }
 }
 
+extension AppModel: LinkClientMaskDelegate {
+    /// The watched window's real corners (Nov 9 2026): the viewer clips with them.
+    func linkClient(_ client: LinkClient, watchMask: WatchWindowMask) {
+        watcher.maskArrived(watchMask)
+    }
+}
+
 /// The sprite in the window's own stack, above everything drawn over the picture.
 struct PointerOverlay: UIViewRepresentable {
     let sprite: PointerSpriteView
