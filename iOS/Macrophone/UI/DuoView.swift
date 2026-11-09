@@ -683,7 +683,7 @@ struct DuoFullScreen: View {
 
     var body: some View {
         GeometryReader { geo in
-            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true, onHold: summonPad,
+            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true, fitsOtherShapes: false, onHold: summonPad,
                         // The finger that held is already a trackpad finger: no lifting first.
                         onHoldMoved: { [padClock] d, dt in padClock.last = Date(); input.pointerMoved(by: d, dt: dt) },
                         onHoldEnded: { [padClock] in padClock.last = Date(); padClock.holding = false })
@@ -867,11 +867,17 @@ struct FloatingMic<Exit: View, Trackpad: View>: View {
     @ViewBuilder var exit: () -> Exit
     /// The trackpad toggle, right of the disc; given the disc's centre (where its pad goes).
     @ViewBuilder var trackpad: (CGPoint) -> Trackpad
-    // First at the right edge, halfway down (Nov 7 2026): bottom-right sat on a chat's Send button.
+    // First at the right edge, low (Nov 8 2026 — 0.72: under the laptop's fold, which halfway
+    // down sat exactly on; above a chat's Send button, which bottom-right sat on, Nov 7 2026).
     @AppStorage("duo.fullscreen.mic.x") private var fx = 1.0
-    @AppStorage("duo.fullscreen.mic.y") private var fy = 0.5
+    @AppStorage("duo.fullscreen.mic.y") private var fy = 0.72
     @State private var drag: CGSize = .zero
     @State private var dragging = false
+    /// Idle (Nov 8 2026, the review: "permanently over content"): after 3 s untouched the trio
+    /// dims — the way out stays visible, as Sameer asked, but quiet — and any touch of it, or
+    /// the mic opening, brings it back.
+    @State private var idle = false
+    @State private var idleTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     static var size: CGFloat { 52 }
@@ -913,6 +919,27 @@ struct FloatingMic<Exit: View, Trackpad: View>: View {
                     .position(x: disc.x + gap, y: disc.y)
                     .transition(.opacity)
             }
+        }
+        .opacity(idle && !main.isRecording ? 0.45 : 1)
+        .animation(.easeInOut(duration: 0.4), value: idle)
+        // Any touch on the trio wakes it (the buttons' own taps still land).
+        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in wake() }.onEnded { _ in wake() })
+        .onAppear { rest() }
+        .onChange(of: main.isRecording) { _, _ in wake() }
+        .onDisappear { idleTask?.cancel() }
+    }
+
+    private func wake() {
+        if idle { idle = false }
+        rest()
+    }
+
+    private func rest() {
+        idleTask?.cancel()
+        idleTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            idle = true
         }
     }
 
@@ -1326,7 +1353,7 @@ struct DuoGlance: View {
             if watcher.isOpen, watcher.hasPicture || watcher.lastPicture != nil {
                 // Live, the pictures still coming: the same screen, without its controls.
                 pictured(watcher.videoSize ?? watcher.image?.size ?? watcher.lastPicture?.size, connecting: false) {
-                    WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: true, dormant: dormant)
+                    WatchWindow(watcher: watcher, interactive: false, bezelWidth: bezelWidth, corner: corner, fill: true, dormant: dormant, fitsOtherShapes: false)
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("\(watcher.name)'s window on your Mac, live")

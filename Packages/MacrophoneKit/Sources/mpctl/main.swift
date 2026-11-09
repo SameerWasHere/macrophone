@@ -307,6 +307,10 @@ final class ServeDelegate: LinkServerDelegate {
             let seqs = Counter()
             var sender: Task<Void, Never>?
             defer { sender?.cancel() }
+            // --reshape: the shape ahead comes right behind the watch; the Mac app reshapes the
+            // window before its first picture, so the first frame waits a moment for it here too
+            // (the phone never sees the old shape — Nov 8 2026).
+            if has("--reshape") { try? await Task.sleep(nanoseconds: 250_000_000) }
             while !Task.isCancelled {
                 n += 1
                 // A line of the answer every second; the window is looked at thirty times a second

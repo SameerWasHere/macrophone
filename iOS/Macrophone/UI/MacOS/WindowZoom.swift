@@ -243,6 +243,101 @@ final class WindowZoom: ObservableObject {
     }
 }
 
+// MARK: - Full screen: one continuous grow (Nov 8 2026)
+
+// The review: "Full screen in/out is a dissolve between two differently-zoomed copies with a
+// cropped state between … A Mac app going full screen is one continuous grow." The windowed view
+// and `DuoFullScreen` have a viewer each and used to cross-fade. Now the picture flies: in, from
+// the window's frame to the screen (covering it, anchored top-left as a Mac window's content is
+// while it zooms); out, from the screen back to the window's frame, whole. The viewers swap
+// underneath, each starting where the flight ends, and the status bar stays hidden until the
+// window has shrunk.
+
+@MainActor
+final class FullScreenZoom: ObservableObject {
+    static let shared = FullScreenZoom()
+    @Published private(set) var image: UIImage?
+    @Published private(set) var place: WindowZoomPlace?
+    /// A flight is up (the status bar waits for it; the layouts under it swap meanwhile).
+    @Published private(set) var flying = false
+    /// The flight has arrived and is fading out: the viewer under it fades in.
+    @Published private(set) var landing = false
+    private var generation = 0
+    static let duration: TimeInterval = 0.42
+
+    /// Into full screen: from where the window's viewer shows its picture to the screen.
+    func enter(image: UIImage?, from: WindowZoomPlace?, screen: CGRect, corner: CGFloat) {
+        guard let image, let from else { return }
+        let s = max(screen.width / max(1, image.size.width), screen.height / max(1, image.size.height))
+        let picture = CGRect(x: screen.minX, y: screen.minY, width: image.size.width * s, height: image.size.height * s)
+        fly(image: image, from: from, to: WindowZoomPlace(clip: screen, picture: picture, corner: corner * s))
+    }
+
+    /// Out of full screen: from the screen to the window's frame, the picture whole in it (the
+    /// windowed viewer opens it whole too — `otherShape` — until the Mac's reshaped picture lands).
+    func exit(image: UIImage?, from: WindowZoomPlace?, to frame: CGRect, corner: CGFloat) {
+        guard let image, let from, frame.width > 1 else { return }
+        let fit = WindowZoom.fit(image.size, in: frame)
+        let s = fit.width / max(1, image.size.width)
+        fly(image: image, from: from, to: WindowZoomPlace(clip: fit, picture: fit, corner: corner * s))
+    }
+
+    /// The window's viewer has laid out (after an exit): the flight lands on it exactly.
+    func aim(_ to: WindowZoomPlace) {
+        guard flying else { return }
+        withAnimation(Motion.settle) { place = to }
+    }
+
+    private func fly(image: UIImage, from: WindowZoomPlace, to: WindowZoomPlace) {
+        generation &+= 1
+        let g = generation
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { self.image = image; self.place = from; self.flying = true; self.landing = false }
+        withAnimation(Motion.settle) { self.place = to }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.duration) { [weak self] in
+            guard let self, self.generation == g else { return }
+            // The viewer under it shows the same pixels now: a short fade hands over.
+            self.landing = true
+            withAnimation(.easeOut(duration: 0.12)) { self.place?.opacity = 0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) { [weak self] in
+                guard let self, self.generation == g else { return }
+                var t = Transaction(); t.disablesAnimations = true
+                withTransaction(t) { self.image = nil; self.place = nil; self.flying = false; self.landing = false }
+            }
+        }
+    }
+
+    func cancel() {
+        generation &+= 1
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { image = nil; place = nil; flying = false; landing = false }
+    }
+}
+
+/// The full-screen flight, drawn over everything at the root (global coordinates).
+struct FullScreenZoomFlight: View {
+    @ObservedObject var zoom = FullScreenZoom.shared
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let image = zoom.image, let p = zoom.place {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: p.picture.width, height: p.picture.height)
+                    .offset(x: p.picture.minX - p.clip.minX, y: p.picture.minY - p.clip.minY)
+                    .frame(width: p.clip.width, height: p.clip.height, alignment: .topLeading)
+                    .clipShape(RoundedRectangle(cornerRadius: p.corner, style: .circular))
+                    .offset(x: p.clip.minX, y: p.clip.minY)
+                    .opacity(p.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 /// Hands its content the flight's state, observed (the window view's fade and header follow it).
 struct WithWindowZoom<Content: View>: View {
     @ObservedObject private var zoom = WindowZoom.shared

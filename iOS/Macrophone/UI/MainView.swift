@@ -58,6 +58,8 @@ struct MainView: View {
     /// The pose's layout lies under full screen: its windows have no viewer (`poseBody`).
     @State var innerAsleep = false
     @State var innerAsleepTask: Task<Void, Never>?
+    /// The picture's flight into and out of full screen (Nov 8 2026): the status bar waits for it.
+    @ObservedObject var fullScreenZoom = FullScreenZoom.shared
     /// The mic is one thing wherever a layout puts it (Nov 4 2026): as one layout gives way to
     /// another (a window coming into hand on the Duo's inner screen, a pose) it moves to its new
     /// place instead of one fading out where it was while another fades in somewhere else.
@@ -158,9 +160,14 @@ struct MainView: View {
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: inFullScreen)
         // Full screen has the whole screen. (Upright on the inner screen the status bar stays —
         // see `hidesStatusBar`.)
-        .statusBarHidden(hidesStatusBar)
-        .preference(key: StatusBarHiddenKey.self, value: hidesStatusBar)
-        .persistentSystemOverlays(inFullScreen ? .hidden : .automatic)
+        // (And through the picture's flight out of full screen, until the window has shrunk.)
+        .statusBarHidden(hidesStatusBar || fullScreenZoom.flying)
+        .preference(key: StatusBarHiddenKey.self, value: hidesStatusBar || fullScreenZoom.flying)
+        .persistentSystemOverlays(inFullScreen || fullScreenZoom.flying ? .hidden : .automatic)
+        // Full screen is one continuous grow (Nov 8 2026): the picture flies between the window's
+        // frame and the screen while the two layouts swap under it.
+        .onChange(of: watcher.fullScreen) { _, on in fullScreenFlight(entering: on) }
+        .overlay { FullScreenZoomFlight() }
         // The sky answers the state: cool when ready, ember while the mic is open, mint when it lands.
         // The Mac's own wallpaper behind everything; the state's light washes in from the foot —
         // orange while the mic is open, green when the words land; nothing at rest.
@@ -246,7 +253,9 @@ struct MainView: View {
                 // frames (Nov 7 2026).
                 .environment(\.threadPaused, inFullScreen || model.sheet?.coversScreen == true)
             if inFullScreen {
-                DuoFullScreen(main: self).transition(.opacity)
+                // In under the flight's picture; out at once (the picture shrinks over the layout
+                // coming back — a fade of the full-screen view would double under it).
+                DuoFullScreen(main: self).transition(.asymmetric(insertion: .opacity, removal: .identity))
             }
         }
         .onChange(of: inFullScreen) { _, on in
@@ -427,8 +436,11 @@ struct MainView: View {
                         WithWindowZoom { zoom in
                             // (Done's flight keeps the header while the view fades: laid out
                             // without it, the picture under the flying one jumped.)
+                            // The header stays through the fade to the words (Nov 8 2026: it
+                            // went at once and the picture jumped up 40 pt before the fade);
+                            // bare once the panel sleeps.
                             WatchPanel(watcher: watcher, compact: compact, cover: isCover,
-                                       bare: isCover && input.keysUp || !panelShown && !zoom.leaving && !panelWarm,
+                                       bare: isCover && input.keysUp || !panelShown && panelDormant && !zoom.leaving && !panelWarm,
                                        // Under full screen (Nov 8 2026) the panel sleeps as the
                                        // inner screen's halves do: no viewer of its own.
                                        dormant: panelDormant && !panelShown && windowHere || innerAsleep)
@@ -579,6 +591,10 @@ struct MainView: View {
             // stands alone.
             .onChange(of: showLiveWords) { _, live in
                 if live, input.page != .mic { input.show(.mic, quiet: true) }
+                // The words take a window in place — never a flight into the card and out of it
+                // again after (Nov 8 2026: a dictation started by a hook, a Shortcut or a Siri
+                // request never passed the mic's own touch, which was the only thing that set this).
+                if live, windowHere { windowViaDock = false }
                 // Back from the words (the window faded in): Done takes it into the Dock again.
                 if !live, !windowViaDock { Task { @MainActor in windowViaDock = true } }
             }
@@ -1709,6 +1725,37 @@ extension MainView {
     /// inner screen, or with Reduce Motion, the view only fades.
     var flightAllowed: Bool {
         !reduceMotion && windowViaDock && !(barUsed || posture.pose.isInner) && watchArea.width > 0 && watchArea.height > 0
+    }
+
+    /// Into or out of full screen: the window's picture flies between the window's frame and the
+    /// screen (`FullScreenZoom`) while the layouts swap under it — every screen, every pose.
+    /// In, it covers the screen from its top-left (a Mac window's content while it zooms); out,
+    /// it lands whole in the window's frame, where the windowed viewer opens it whole too until
+    /// the Mac's reshaped picture lands. On the phone the landing frame is known from the layout;
+    /// on the inner screen it's read off the window's viewer once it has laid out (a re-aim 60 ms
+    /// in; the spring keeps its speed).
+    func fullScreenFlight(entering: Bool) {
+        let zoom = FullScreenZoom.shared
+        guard !reduceMotion, let image = windowPictureNow,
+              let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds else { zoom.cancel(); return }
+        let from = WindowZoom.viewerPlace(in: screen)
+        // The window's corner per picture pixel (the place's is at the viewer's zoom).
+        let corner = from.map { $0.picture.width > 0 ? $0.corner / ($0.picture.width / max(1, image.size.width)) : 0 } ?? 0
+        if entering {
+            zoom.enter(image: image, from: from, screen: screen, corner: corner)
+            return
+        }
+        let phone = regularPhone || isCover
+        let to = phone && watchArea.width > 0 ? WindowZoom.estimate(image: image.size, area: watchArea, compact: compact).clip
+            : (from?.clip ?? screen).insetBy(dx: screen.width * 0.08, dy: screen.height * 0.08)
+        zoom.exit(image: image, from: from, to: to, corner: corner)
+        for delay in [0.06, 0.16] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard zoom.flying, let real = WindowZoom.viewerPlace(in: screen), real.clip.height < screen.height - 40 else { return }
+                // The windowed viewer, laid out: its picture whole (`otherShape`) is the landing.
+                zoom.aim(WindowZoomPlace(clip: real.picture.intersection(real.clip), picture: real.picture, corner: real.corner))
+            }
+        }
     }
 
     func flyWindow(shown: Bool) {

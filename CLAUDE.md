@@ -7,6 +7,77 @@ a small local API / CLI / MCP. Simplified to that core on Oct 13 2026 (automatio
 templates and the Delivery pane were removed on purpose — don't bring them back unasked).
 The original spec is `docs/SPEC.md`. Push to `main`.
 
+## The window is the app, refined (Nov 8 2026, round 1 of review) — wins over the section below where they differ
+
+A fresh reviewer walked build 25 frame by frame (`docs/screens/native-review-r1/`); what broke the
+illusion and what was rough, fixed in this order. Frames: `docs/screens/native-window-nov8/r1/`
+(`before/` the reviewer's tiles, `after/` 10 fps tiles of the same transitions on this build).
+- **Full screen is one continuous grow** (`FullScreenZoom`, WindowZoom.swift; `MainView
+  .fullScreenFlight`): the window's picture flies from the window's frame to the screen (covering
+  it from its top-left, as a Mac window's content sits while it zooms) and back (landing whole in
+  the frame), 0.42 s on the settle spring, over everything; the two layouts swap under it —
+  `DuoFullScreen` arrives under the picture and is removed at once on the way out (no fade of its
+  own to double under the shrinking picture), the windowed viewer waits hidden until the flight
+  lands (`FullScreenZoom.landing`), the status bar and home indicator stay hidden through the
+  flight. The full-screen viewer starts the old picture where the flight ends (cover, top-left:
+  `fitsOtherShapes: false`), the windowed viewer opens the full-screen-shaped picture whole, and
+  the Mac's reshaped picture is the one 0.22 s dissolve left, in place. Before: a cross-fade of two
+  viewers at two zooms with a cropped state between, ~1 s each way, then a second dissolve.
+- **A picture shaped unlike the view opens whole — live too** (`otherShape`, `fitsOtherShapes`):
+  the windowed viewer and the in-hand halves (the Mac is about to reshape; a window it can't
+  reshape shows whole and small on the wallpaper, never cropped mid-word); not the words' strip
+  (the window's foot), the glance (fills its half) or full screen (covers). Leaving full screen on
+  the Duo no longer leaves the window cropped at full screen's zoom until Done.
+- **A dictation keeps the watch** (`Watcher.samePlace`, `follow`, `open`): a landing's
+  `follow(target)` compared refs by `==`, and the dictation's name carried the window's title
+  where the watch had the app's — every landing was a switch: `WATCH WINDOW restore` → a new
+  `WATCH TARGET` + `WATCH SHAPE`, the Mac window jumping twice and the phone growing it out of the
+  card again. Same app and window (a window-less ref is the showing window) is the same place.
+  The words take a window in place (`windowViaDock` off when the words come, whatever started
+  them — a hook, Siri, a Shortcut), the header stays through the fade (`bare` waits for
+  `panelDormant`), the strip's top fades in over 52 pt. Serve after a landing now: `LANDED` and
+  nothing else.
+- **The glance's picture after Done** (`ViewerScrollView.adopt(force:)`, `leaving`, the orphan
+  check in `layoutSubviews`): the "never steal from a live viewer" rule had the glance refuse the
+  canvas from the window in hand at the very moment it was handing it over — the hand-over is
+  forced, and a canvas whose holder left the window is taken on the next layout.
+- **The corner drag anchors top-left** (`keepZoomResizing`: the picture's point under the frame's
+  top-left is kept, as macOS and Stage Manager do): the traffic lights and every line's start stay
+  through the drag and the wait for the reshaped picture. The frame still shrinks round the middle.
+- **A flip shows the next window's kept picture at once** (`open`: the old picture goes, `stale`
+  is never set) with "Opening …" only in the name; the box with a spinner appears only with no
+  picture of any kind. **The shape goes ahead on a flip too** (`shapeAhead` on a switch) — the
+  Nov 7 "never reshape a window flipped past" rule gives way: the Mac puts each back as the view
+  leaves it, so a pass-through costs the Mac a reshape and a restore and the phone nothing
+  (serve on a flip: `WATCH SHAPE 0.66 · RESHAPED 596×900 (ahead)`, no wide first frame).
+- **A room still settling re-sends its shape** (`viewerMeasured`, `shapeSentAt`): a measure more
+  than a tenth off the shape sent within 3 s re-arms auto-fit (the side page's half-height first
+  measure made the Mac window 2:1 until a full-screen round trip).
+- **Zoomed or scrolled, the window keeps its rounded corners** (`roundView`: the scroll view
+  itself is clipped at `pictureCorner × zoom`, all four corners; the shadow and hairline follow);
+  **Newest is the Window menu's first item** ("Scroll to Newest"), nothing over the window.
+- **The floating trio starts lower** (y 0.72: under the laptop's fold, above a chat's Send) and
+  **dims to 45% after 3 s untouched**; any touch of it, or the mic opening, brings it back — the
+  way out stays visible, as Sameer asked, but quiet.
+- **The desktop card keeps a window-shaped picture**: `keepPicture` skips full screen and any
+  picture more than 15% off the view's shape (the card had a 0.46-aspect sliver after full screen).
+- **No keyboard pops on the Duo entering full screen**: `HardwareKeysView` never claims first
+  responder for a second after `fullScreen` changes (with the simulator's hardware keyboard
+  connected it did, and the keyboard rose over the screen).
+- **Stand-in:** `serve --reshape` waits 250 ms before a watch's first frame so the shape ahead
+  applies before it, as the Mac app does (`RESHAPED … (ahead)`).
+- **Left as found (judged, not fixed):** the keyboard page's room still moves on
+  `keyboardWillChangeFrame`'s spring and can lead the keys by a frame or two on the simulator
+  (no safe blind change; measure on a device); folding laptop ↔ flat upright in hand still
+  reshapes the Mac window (flat upright's 372 pt deck vs the half — making them equal is a layout
+  decision for Sameer); flat upright with the keyboard up, the keyboard bar's hide is the way out
+  (accepted); the Mac's reshaped picture still lands as a 0.22 s dissolve (the reviewer accepted it
+  on its own).
+- **Tests:** `ResizableWindowUITests` (2), `FullScreenUITests` (3 on the Pro; the any-screen test
+  on the Duo flat upright and on its side), `WatchHeaderUITests` (2, against serve without
+  `--reshape`: with it the demo wraps "se ssion" and Vision reads the break — the stand-in),
+  `InputCarouselUITests` (4), `StabilityUITests`, `DesktopWindowUITests`.
+
 ## The window is the app (Nov 8 2026, the second pass) — wins over "The Mac's window, on your iPhone" where they differ
 
 Sameer, on build 24: "the resize arrow in the corner kinda moves first and the window catches up

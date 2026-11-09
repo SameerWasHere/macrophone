@@ -49,8 +49,20 @@ final class HardwareKeysView: UIView, UIKeyInput {
 
     private func decide() {
         guard let watcher else { wanted = false; return }
+        // Not across the swap into or out of full screen (Nov 8 2026): claiming the keyboard
+        // while the layouts change under it brought the keyboard up over the screen on the Duo.
+        if watcher.fullScreen != lastFullScreen {
+            lastFullScreen = watcher.fullScreen
+            swapUntil = Date().addingTimeInterval(1.0)
+            wanted = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) { [weak self] in self?.decide() }
+            return
+        }
+        if Date() < swapUntil { wanted = false; return }
         wanted = watcher.isShowing && watcher.input.page != .keyboard && HardwareKeyboard.shared.connected
     }
+    private var lastFullScreen = false
+    private var swapUntil = Date.distantPast
 
     /// Should hear the keyboard now (acted on the next turn, never inside a SwiftUI update).
     var wanted = false {
