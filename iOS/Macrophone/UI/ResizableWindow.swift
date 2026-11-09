@@ -35,6 +35,11 @@ struct ResizableWindow<Content: View>: View {
     @State private var start: CGSize?
     @State private var live: CGSize?
     @State private var snapped = true
+    /// A finger is on the arc. SwiftUI resets it when the drag ends *or is cancelled* (the system
+    /// took the touch, the arc left mid-drag) — `onEnded` alone never hears a cancel, which left
+    /// `live` set and the watcher believing a resize was still under way: nothing reshaped the
+    /// window again until the next drag.
+    @GestureState private var touching = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static var minWidth: CGFloat { 0.5 }
@@ -72,7 +77,7 @@ struct ResizableWindow<Content: View>: View {
                 content
                     .frame(width: measured ? frame.width : nil, height: measured ? frame.height : nil)
                     .overlay(alignment: .topLeading) {
-                        if enabled, measured, watcher.phase == .live || watcher.phase == .reconnecting {
+                        if handleShown, measured {
                             // (Its 34 pt touch square centred 3 pt in from the corner: 20 in, 14 out.)
                             handle
                                 .position(x: corner.x - 3, y: corner.y - 3)
@@ -87,8 +92,23 @@ struct ResizableWindow<Content: View>: View {
                 watcher.shrunkHere = false
             }
             .onChange(of: live != nil) { _, on in watcher.resizingHere = on }
+            .onChange(of: touching) { _, on in if !on { endDrag() } }
+            .onChange(of: handleShown) { _, on in if !on { endDrag() } }
+            .onDisappear { if live != nil { watcher.resizingHere = false } }
             .animation(.easeOut(duration: 0.2), value: watcher.phase == .live)
             .animation(live != nil || reduceMotion ? nil : .easeInOut(duration: 0.25), value: picture)
+    }
+
+    /// The arc shows on a live (or held) window where it may be resized.
+    private var handleShown: Bool { enabled && (watcher.phase == .live || watcher.phase == .reconnecting) }
+
+    /// The drag is over — let go, or cancelled: the size it reached is the window's.
+    private func endDrag() {
+        guard start != nil || live != nil else { return }
+        let final = live ?? share
+        start = nil
+        live = nil
+        commit(final, haptic: false)
     }
 
     // MARK: The corner
@@ -131,6 +151,7 @@ struct ResizableWindow<Content: View>: View {
 
     private var resize: some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .global)
+            .updating($touching) { _, on, _ in on = true }
             .onChanged { v in
                 if start == nil {
                     start = share
@@ -154,12 +175,7 @@ struct ResizableWindow<Content: View>: View {
                 // ~90 ms while it moves, applied at once there, so the app reflows under the finger.
                 watcher.resizingShape(CGSize(width: room.width * next.width, height: room.height * next.height))
             }
-            .onEnded { _ in
-                let final = live ?? share
-                start = nil
-                live = nil
-                commit(final, haptic: false)
-            }
+            .onEnded { _ in endDrag() }
     }
 
     private func clamp(_ s: CGSize) -> CGSize {
