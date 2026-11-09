@@ -8,6 +8,16 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## On its side, the window's name heads the right page (Nov 9 2026)
+
+Sameer: "move these controls in landscape mode to the top of the right screen so that there is more
+room on the left for the window". On the inner screen on its side (flat landscape, the book) the
+window's header — the app's icon and name menu, the page dots, the paperclip — is the first row of
+the right page's deck (`DuoDeck.modes`, `vertical`), above the mode's room; the left page is the
+window alone from the page's top (lined up with the deck at `DuoLook.edgeInset`), its answers row
+under it. The window's other buttons stay in the vertical bar. Frames checked on a duo-sim open and
+folded pose; `DuoUITests` book and open-landscape pass.
+
 ## The corner arc on the inner screen too (Nov 9 2026)
 
 Sameer: "The resize arrow should be available on the inner display as well and the window should

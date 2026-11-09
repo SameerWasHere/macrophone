@@ -1089,11 +1089,7 @@ struct DuoMacHalf: View {
             // it — the answers with Esc · Keys and Pan | Scroll (or the keys), the words you're
             // saying. No black above or below.
             VStack(spacing: 10) {
-                // The header has room of its own here, above the picture, as on the open screen
-                // (never over its first lines).
-                WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
+                // (The window's name heads the right page on its side — Nov 9 2026.)
                 ResizableWindow(watcher: watcher, enabled: resizable) {
                     screen(footInset: 0, floating: false)
                 }
@@ -1114,9 +1110,7 @@ struct DuoMacHalf: View {
             // over the window"): the name on a row of its own above the picture and the answers
             // on one under it; the picture takes what's between (auto-fit gives it that shape).
             VStack(spacing: 8) {
-                WatchHeaderBar(watcher: watcher, twoRows: vertical, dragSwitch: true) { t, _ in watcher.say(t.title, symbol: "arrow.left.and.right") }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
+                // The window from the page's top: its name heads the right page now (Nov 9 2026).
                 ResizableWindow(watcher: watcher, enabled: resizable) {
                     screen(footInset: 0, floating: true)
                 }
@@ -1175,7 +1169,7 @@ struct DuoMacHalf: View {
         let width = room.width - 2 * DuoLook.halfBezel
         let h = width * size.height / size.width + 2 * DuoLook.halfBezel
         // The header's rows above it, the answers and the keys under it.
-        return h < room.height - (vertical ? 250 : 200) ? (h / 2).rounded() * 2 : nil
+        return h < room.height - 200 ? (h / 2).rounded() * 2 : nil
     }
 }
 
@@ -1258,6 +1252,17 @@ struct DuoDeck: View {
     /// the Thread and the mic under them, lit to stop; the modes stay in their place, dimmed.
     private var modes: some View {
         VStack(spacing: 6) {
+            if vertical {
+                // On its side the window's name, its page dots and the paperclip head the right page
+                // (Nov 9 2026, Sameer: "move these controls in landscape mode to the top of the right
+                // screen so that there is more room on the left for the window"); the left page is
+                // the window alone, its answers under it. The rest of its buttons are in the
+                // vertical bar, as before.
+                WatchHeaderBar(watcher: watcher, dragSwitch: true) { t, _ in
+                    watcher.say(t.title, symbol: "arrow.left.and.right")
+                }
+                .padding(.horizontal, 12)
+            }
             // (Held, dimmed, while the link comes back: the deck under them never moves for a blip.)
             if answersShown {
                 WatchActions(watcher: watcher, floating: true, oneLine: true)
