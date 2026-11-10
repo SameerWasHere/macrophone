@@ -2385,9 +2385,28 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             // The keyboard's way down settles within a second; after that a height change is
             // the view's own again.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                if self?.keyboardUp == false { self?.heightBeforeKeyboard = nil }
+                guard let self, self.keyboardUp == false else { return }
+                self.heightBeforeKeyboard = nil
+                self.fillAfterKeyboard()
             }
         }
+    }
+
+    /// The keyboard (or trackpad) has gone and the view is back at its height: a picture left
+    /// smaller than its room fills it again (Nov 9 2026, Sameer: "After opening and closing
+    /// keyboard, windows not taking up full space" — a picture that changed size while the view
+    /// was short had been fitted to the short view, and the held zoom kept it that small).
+    private func fillAfterKeyboard() {
+        guard imageSize != .zero, bounds.width > 0, !frozen else { return }
+        configureZoom()
+        guard zoomScale < minimumZoomScale - 0.001 else { return }
+        let fit = minimumZoomScale
+        onLog?(String(format: "viewer: smaller than its room after the keyboard (zoom %.3f, fit %.3f) — filled", zoomScale, fit))
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+            self.setZoomScale(fit, animated: false)
+            self.centerIfSmall()
+        }
+        reportWhole()
     }
     /// The view's height before the keyboard came, while it's up or on its way down.
     private var heightBeforeKeyboard: CGFloat?

@@ -8,6 +8,18 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## After the keyboard, the picture fills its room again (Nov 9 2026)
+
+Sameer's cover screenshot: after the keyboard opened and closed the window sat small in its room.
+A picture that changed size while the view was short (the keyboard or trackpad up) was fitted to
+the short view, and the keyboard's zoom hold (`keepZoom`) kept that small zoom on the way down.
+`ViewerScrollView.fillAfterKeyboard` (1 s after `keyboardUp` goes false): a zoom under fit goes to
+fit ("viewer: smaller than its room after the keyboard … filled"). Not reproduced on the
+simulator (the stand-in doesn't change size mid-keyboard) — reasoned from the code and his frame.
+Test note: `InputCarouselUITests.testSwipesBesideTheMicChangeThePage` is 6 pt off on a simulator
+whose pick is Where I'm typing — serve's front window rotates every 20 s and the answers row comes
+and goes; pick Claude first (`MACROPHONE_SEND_TO=Claude`) or run serve with `--front-every 0`.
+
 ## A second document of the same app isn't a sheet (Nov 9 2026)
 
 Sameer's cover screenshot: TextEdit's small document drawn on top of its bigger one in one picture
