@@ -1258,7 +1258,11 @@ struct DuoDeck: View {
             GeometryReader { g in room(g.size) }
             modeRow
                 .padding(.horizontal, 12)
-            if !vertical {
+                .padding(.bottom, !vertical && input.keysUp ? 8 : 0)
+            // (Gone while the keyboard is up — Nov 9 2026, Sameer's flat-upright screenshot: the
+            // deck ends at the keyboard's top, so the row was squeezed out under the modes with
+            // its tops showing over the keyboard's bar. Done and the rest are back with hide.)
+            if !vertical, !input.keysUp {
                 // The window's controls at the deck's foot (Nov 1 2026, Sameer: "move all of the Mac
                 // controls and … window selection tools to the bottom so that they don't
                 // interfere"): the keyboard rises over them, and nothing sits between the window and
