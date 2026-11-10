@@ -338,6 +338,7 @@ final class Watcher: ObservableObject {
             decideDragAhead()
         }
         isOpen = true
+        if switching || opening { beginArranging(fresh: true) }
         if glancing { glancing = false; wantsAutoFit = true }
         start()
         // A window switched to takes the view's shape ahead too (Nov 8 2026: it arrived at the
@@ -418,11 +419,13 @@ final class Watcher: ObservableObject {
             withTransaction(t) { input.show(page, quiet: true) }
         }
         fullScreen = on
+        endArranging()
         if isDesktop { wholeWindow = on ? false : !fillsView }
         if on { pageBeforeFullScreen = input.page; if input.page != .mic { input.show(.mic, quiet: true) } }
         Haptics.arrived()
         log?.add("watching: full screen \(on ? "on" : "off")")
-        poseSettled()
+        // (Full screen has its own flight; no cover over it.)
+        poseSettled(arrange: false)
     }
 
     func close() {
@@ -431,6 +434,7 @@ final class Watcher: ObservableObject {
         keepTask?.cancel()
         putBackAutoFit()
         isOpen = false
+        endArranging()
         mask = nil
         // Closed while the link was away: the next open asks afresh (and holds again if it must).
         if phase == .reconnecting { phase = .offline }
@@ -617,6 +621,10 @@ final class Watcher: ObservableObject {
     /// glance are other sizes for a moment.
     func viewerMeasured(_ size: CGSize, fill: Bool = false, interactive: Bool = true) {
         guard interactive, size != viewerSize || fill != viewerFills || viewerPose != input.pose else { return }
+        // A measure that isn't a window's shape is a layout on its way out or in (a turn: the
+        // leaving layout squeezed to 92×805 *after* the arriving one had measured, and as the last
+        // word it left the window unshaped for good — Nov 9 2026). Never kept.
+        guard Self.plausible(size) else { return }
         viewerSize = size
         viewerFills = fill
         viewerPose = input.pose
@@ -690,11 +698,91 @@ final class Watcher: ObservableObject {
 
     /// The Duo's pose changed (the laptop, the book, flat, turned): the window takes the new
     /// layout's shape once the view settles.
-    func poseSettled() {
+    func poseSettled(arrange: Bool = true) {
         guard isOpen else { return }
         wantsAutoFit = true
         shapeAskedAt = Date()
+        if arrange, !fullScreen { beginArranging(fresh: false) }
         autoFitSoon()
+    }
+
+    // MARK: Arranging (Nov 9 2026)
+
+    // Sameer: "windows not appropriate resizing to fill up the space and often stutter and
+    // glitching there way to the right window size in a jarring way … The app should instead
+    // almost have a beautiful and elegant loading visual as the window selected is resized to fill
+    // the space rather then render the window as it resizes." While a window is being given this
+    // view's shape — an open, a switch, a fold or a turn — `arranging` is true, and a window view
+    // whose picture isn't the room's shape shows a cover (`ArrangingCover`) instead of the
+    // picture; it ends the moment a frame at the shape sent has arrived, or when it's clear none
+    // will (an app that can't take the shape: 1.5 s once, then remembered for this launch), and
+    // never lasts past `arrangeLimit`.
+
+    /// The window is being fitted to this view: its picture may be at another shape meanwhile.
+    @Published private(set) var arranging = false
+    private var arrangeBegan = Date.distantPast
+    private var arrangeTask: Task<Void, Never>?
+    /// A picture has arrived since the arranging began (a fresh window has none until then).
+    private var arrangeHasPicture = false
+    /// An open or a switch (the shape went ahead with it); else a pose change, whose shape goes
+    /// only once the new layout has held still — what was sent before says nothing till then.
+    private var arrangeFresh = true
+    /// Apps that didn't take the view's shape this launch: their next opens don't wait for it.
+    private var keepsOwnShape: Set<String> = []
+    private static let arrangeLimit: TimeInterval = 3.5
+    private static let reshapeWait: TimeInterval = 1.5
+
+    private func beginArranging(fresh: Bool) {
+        guard isOpen, !isDesktop else { endArranging(); return }
+        arrangeBegan = Date()
+        arrangeHasPicture = !fresh && hasPicture
+        arrangeFresh = fresh
+        if !arranging { arranging = true }
+        arrangeTask?.cancel()
+        arrangeTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                guard let self, !Task.isCancelled else { return }
+                if self.isArranged() { self.endArranging(); return }
+            }
+        }
+    }
+
+    private func endArranging() {
+        arrangeTask?.cancel(); arrangeTask = nil
+        guard arranging else { return }
+        arranging = false
+        log?.add("watching: the window was arranged in \(Int(Date().timeIntervalSince(arrangeBegan) * 1000)) ms")
+    }
+
+    private static func sameShape(_ a: CGSize, _ b: CGSize) -> Bool {
+        guard a.width > 0, a.height > 0, b.width > 0, b.height > 0 else { return false }
+        let x = a.width / a.height, y = b.width / b.height
+        return abs(x - y) / y < 0.05
+    }
+
+    private func isArranged() -> Bool {
+        guard isOpen, let target, Date().timeIntervalSince(arrangeBegan) < Self.arrangeLimit else { return true }
+        switch phase {
+        case .live, .starting, .reconnecting: break
+        default: return true
+        }
+        guard arrangeHasPicture, let picture = videoSize ?? image?.size else { return false }
+        // Nothing will reshape it: what's there is what there is.
+        if glancing || !viewAtRest || sizedByHand || !canFitToPhone || Self.keepsOwnSize(target) { return true }
+        if let id = target.bundleID, keepsOwnShape.contains(id) { return true }
+        if let sent = shapeSent {
+            // The frame at the shape sent, and the view still that shape.
+            if Self.sameShape(picture, sent), !wantsAutoFit || (arrangeFresh && Self.sameShape(viewerSize, sent)) { return true }
+            if !wantsAutoFit, let at = shapeSentAt, Date().timeIntervalSince(at) > Self.reshapeWait {
+                if let id = target.bundleID { keepsOwnShape.insert(id) }
+                log?.add("watching: the window didn't take the view's shape — shown as it is")
+                return true
+            }
+            return false
+        }
+        // No shape sent yet: one is owed (wait for it), or none is needed.
+        return !wantsAutoFit
     }
 
     /// The view at rest: the window in hand with nothing up that's only there for a moment — not
@@ -1110,6 +1198,7 @@ final class Watcher: ObservableObject {
             guard let img, self.isOpen, !self.phase.isPaused, frame.seq == 1 || frame.seq >= self.newestSeq else { return }
             // A picture after video (the Mac's chip got busy): the picture is what shows now.
             if self.videoSize != nil { self.video.clear(); self.videoSize = nil }
+            self.arrangeHasPicture = true
             self.show(img, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: data.count, how: "picture", points: frame.points, cursor: frame.cursor)
         }
     }
@@ -1156,6 +1245,7 @@ final class Watcher: ObservableObject {
             return
         }
         waitingForKeyframe = false
+        arrangeHasPicture = true
         countFrame()
         videoBytes += frame.data.count
         // The first frame of a new window (a switch, a resize): the stale picture goes, the

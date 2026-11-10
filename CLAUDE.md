@@ -8,6 +8,39 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## A loading cover while the window is fitted; a turn always reshapes (Nov 9 2026)
+
+Sameer: "tons of bugs on the inner screen … windows not appropriate resizing to fill up the space
+and often stutter and glitching there way to the right window size … The app should instead almost
+have a beautiful and elegant loading visual as the window selected is resized to fill the space
+rather then render the window as it resizes." Frames: `docs/screens/arranging-nov9/`.
+- **`Watcher.arranging`** (Watcher.swift, "Arranging"): true from an open, a switch or a pose change
+  (`beginArranging(fresh:)` from `open` and `poseSettled`; not full screen — its flight is its own,
+  not the Whole Screen) until `isArranged()`: a picture has arrived and it's the shape sent (5%),
+  or nothing will reshape it (the glance, the keyboard up, an app that keeps its own size, an old
+  Mac), or the app didn't take the shape within 1.5 s of it going (`reshapeWait`; remembered per
+  bundle for the launch in `keepsOwnShape`, so Calculator waits once), or 3.5 s (`arrangeLimit`).
+  On a pose change the shape sent before says nothing until the new one has gone (`arrangeFresh`).
+  Log: "watching: the window was arranged in N ms".
+- **`ArrangingCover`** (UI/ArrangingCover.swift): a pane of glass the room's size, the app's icon
+  (breathing) and name, the Intelligence colours travelling round its edge (a turning gradient
+  masked by the hairline; still under Reduce Motion). `WatchWindow` puts it up (`covered`) when
+  `arranging` and what shows isn't the room's shape (`pictureFitsRoom`, 5% — so a kept picture
+  already at the right shape opens with no cover), keeps it until arranging ends (never flickers),
+  hides the viewer under it (opacity 0) and fades it out in 0.3 s. Not on the words' strip, a hidden
+  or dormant panel.
+- **The real "doesn't fill" bug:** on a turn the leaving layout measured 92×805 *after* the
+  arriving one had measured; `viewerMeasured` kept it, `applyAutoFit` refused it ("isn't a window's
+  shape — not sent") and nothing measured again, so the Mac's window kept the last pose's shape for
+  good. `viewerMeasured` now drops a measure that isn't `plausible`. Seen on a Duo sim against
+  `serve --reshape --reshape-delay 600 --front-every 0`: open folded, then portrait → laptop → book
+  → flat on its side → portrait, each one `WATCH SHAPE` where the shape changes and the window
+  filling its room; cover then window in the bursts. Pro: Resizable, FullScreen (3), InputCarousel
+  (4), Stability, DesktopWindow pass.
+- **Not seen:** the cover over the Dock/card flight on a regular iPhone with a kept picture at
+  another shape (flight, then cover — may want the flight skipped then); the cover on his real Mac's
+  timing (the real pipe holds 0.3–0.9 s); the cover's look in dark.
+
 ## The sharing pill is not a companion (Nov 9 2026)
 
 Sameer's Calculator screenshot (a magnified corner of the window). Measured with a bare SCStream

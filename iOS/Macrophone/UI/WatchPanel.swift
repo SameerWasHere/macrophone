@@ -908,9 +908,32 @@ struct WatchWindow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
+    @EnvironmentObject private var model: AppModel
+    /// This view's own room, and whether the cover is up (Nov 9 2026: while the window is being
+    /// fitted to the view its picture — at another shape — isn't shown; `Watcher.arranging`).
+    @State private var room: CGSize = .zero
+    @State private var covered = false
+
+    /// What shows now is the room's shape (within 5%): nothing to hide.
+    private var pictureFitsRoom: Bool {
+        guard let p = watcher.videoSize ?? watcher.image?.size ?? watcher.lastPicture?.size,
+              p.width > 0, p.height > 0, room.width > 0, room.height > 0 else { return false }
+        let a = p.width / p.height, b = room.width / room.height
+        return abs(a - b) / b < 0.05
+    }
+    private var wantsCover: Bool { watcher.arranging && mode == .fit && !hidden && !dormant && !pictureFitsRoom }
+    private var appIcon: Data? {
+        guard let id = watcher.bundleID ?? watcher.target?.bundleID else { return nil }
+        return model.liveTargets.first { $0.bundleID == id && $0.icon != nil }?.icon
+    }
 
     var body: some View {
         ZStack {
+            if covered {
+                ArrangingCover(icon: appIcon, name: watcher.name, corner: fill ? 0 : 12, still: reduceMotion)
+                    .transition(.opacity)
+                    .zIndex(5)
+            }
             // No plate under the picture (Nov 8 2026): what's around a window that doesn't fill
             // the view is the Mac's wallpaper, as round a window on the Mac's desktop. Only while
             // there's no picture at all does a quiet pane of glass hold the window's place.
@@ -968,7 +991,9 @@ struct WatchWindow: View {
                     // viewers: the one full screen is leaving and the one it's arriving at.
                     .opacity(interactive && fullScreenZoom.flying && !fullScreenZoom.landing ? 0 : 1)
                     .animation(.easeOut(duration: 0.12), value: fullScreenZoom.landing)
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill, interactive: live) }
+                    // Under the cover the picture isn't shown at all; it fades in as the cover goes.
+                    .opacity(covered ? 0 : 1)
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { room = $0; watcher.viewerMeasured($0, fill: fill, interactive: live) }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
@@ -1024,6 +1049,15 @@ struct WatchWindow: View {
         // each key are gone — they made it a screen showing the Mac, not the Mac's window. The
         // key's own press, the click's ring at the finger and the next frame are the answer.)
         .padding(bezelWidth)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { if room == .zero { room = $0 } }
+        // The cover comes at once and stays until the window is arranged (never flickering as
+        // pictures at other shapes pass under it); it goes in a short fade, the picture under it.
+        .onChange(of: wantsCover, initial: true) { _, want in
+            if want, !covered { covered = true }
+        }
+        .onChange(of: watcher.arranging) { _, on in
+            if !on, covered { withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.3)) { covered = false } }
+        }
         .onChange(of: watcher.cameAlive) { _, _ in if interactive { Haptics.arrived() } }
         .onChange(of: watcher.noteSeq) { _, _ in
             guard interactive else { return }
