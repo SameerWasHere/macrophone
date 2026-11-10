@@ -125,7 +125,8 @@ enum WindowServer {
                   let rect = CGRect(dictionaryRepresentation: b as CFDictionary) else { continue }
             let p = process(pid)
             out.append(.init(id: id, pid: pid, layer: layer, bounds: rect, alpha: w[kCGWindowAlpha as String] as? Double ?? 1,
-                             owner: w[kCGWindowOwnerName as String] as? String, bundleID: p.bundleID, regularApp: p.regular))
+                             owner: w[kCGWindowOwnerName as String] as? String, bundleID: p.bundleID, regularApp: p.regular,
+                             titled: !((w[kCGWindowName as String] as? String) ?? "").isEmpty))
         }
         return out
     }

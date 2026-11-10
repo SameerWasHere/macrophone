@@ -31,8 +31,12 @@ public enum WatchCompanions {
         public var bundleID: String?
         /// The owning process is an ordinary app (in the Dock).
         public var regularApp: Bool
+        /// The window has a title of its own (a document, a settings window): a window in its own
+        /// right, never a sheet of another (a sheet has none).
+        public var titled: Bool
 
-        public init(id: UInt32, pid: Int32, layer: Int, bounds: CGRect, alpha: Double = 1, owner: String? = nil, bundleID: String? = nil, regularApp: Bool) {
+        public init(id: UInt32, pid: Int32, layer: Int, bounds: CGRect, alpha: Double = 1, owner: String? = nil, bundleID: String? = nil, regularApp: Bool, titled: Bool = false) {
+            self.titled = titled
             self.id = id; self.pid = pid; self.layer = layer; self.bounds = bounds
             self.alpha = alpha; self.owner = owner; self.bundleID = bundleID; self.regularApp = regularApp
         }
@@ -84,7 +88,9 @@ public enum WatchCompanions {
         if c.pid == host.pid {
             // Menus, popovers, panels, tooltips; at the normal level only a sheet (inside it, smaller).
             if c.layer > 0 { return true }
-            return inside >= 0.9 && size < area(host.bounds) * 0.95
+            // A titled window is another window of the app (a second document lying over a
+            // bigger one — Sameer, Nov 9 2026: "both windows come up if they are the same app").
+            return !c.titled && inside >= 0.9 && size < area(host.bounds) * 0.95
         }
         if c.owner == "Window Server" { return c.layer >= popUpMenuLevel && inside >= 0.5 }
         if c.regularApp { return false }

@@ -37,6 +37,14 @@ final class WatchCompanionsTests: XCTestCase {
         XCTAssertEqual(WatchCompanions.select(watched: 500, in: list, hostInFront: true).map(\.id), [523, 520, 521, 526, 522])
     }
 
+    /// A second document of the same app lying inside a bigger one is a window of its own (it
+    /// has a title), not a sheet (Nov 9 2026).
+    func testASmallerDocumentOverABiggerOneIsNotASheet() {
+        let small = W(id: 530, pid: textEdit, layer: 0, bounds: CGRect(x: 350, y: 180, width: 500, height: 300), regularApp: true, titled: true)
+        XCTAssertEqual(WatchCompanions.select(watched: 500, in: [small, host], hostInFront: true).map(\.id), [])
+        XCTAssertEqual(WatchCompanions.spot(CGPoint(x: 400, y: 200), watched: 500, in: [small, host], hostInFront: true), .covered)
+    }
+
     func testStrangersStayOut() {
         // Another app's window over it, Notification Center's full-screen layer, a screen-wide
         // overlay from an accessory app made after it, Macrophone's own popup.

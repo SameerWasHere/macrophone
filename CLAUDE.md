@@ -8,6 +8,17 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## A second document of the same app isn't a sheet (Nov 9 2026)
+
+Sameer's cover screenshot: TextEdit's small document drawn on top of its bigger one in one picture
+("both windows come up if they are the same app"). `WatchCompanions.isCompanion` took any same-app
+layer-0 window lying inside the watched one and smaller for a sheet. `WatchCompanions.Window.titled`
+(the window server's `kCGWindowName` non-empty, `WindowServer.companionList`): a titled window is a
+window of its own, never a sheet; a click where it covers the watched one is `.covered` (the
+watched window is raised first). Mac 1.1.19. `WatchCompanionsTests
+.testASmallerDocumentOverABiggerOneIsNotASheet`. Not seen: a real sheet (assumed untitled, as
+AppKit's are) still showing after this — check a Save sheet on his Mac.
+
 ## No resize handle: the window is always all the room (Nov 9 2026) — wins over every resize section below
 
 Sameer: "I actually don't like the window resizer. It makes thing complicated. The app should just
