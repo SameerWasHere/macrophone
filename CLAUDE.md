@@ -8,6 +8,33 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The window never shows narrow: the view is the newest layout's, not the last to speak (Nov 9 2026, later) — amends the section below
+
+Sameer on build 39: "once it loads the window still shows up as narrow and takes a moment to resize
+and settle … The window should not show until it is the right size", and the cover "can look much
+nicer". His Mac's log had it: "watch fit to iPhone: 925×1084 → 468×1084" then "→ 925×1084" 0.9 s
+later, and "→ 394×1084, took 600×1084" then "→ 824×1084" — **the shape sent ahead was a narrow
+one**, from a layout passing through (a leaving layout's measure was "the view", and was also
+remembered per pose for the next opens), and the cover lifted on it because picture, shape sent and
+`viewerSize` all agreed.
+- **`Watcher.measures`**: each `WatchWindow` measures under its own id (`viewerMeasured(…, id:)`,
+  `viewerGone` on disappear or when it stops being live); the view is the **newest** one still
+  there (`adoptMeasure`), whatever order they speak in. The size is remembered for the pose only in
+  `applyAutoFit` (it held still and the window was shaped to it), under a new key
+  (`watch.viewSize2.…` — the old remembered sizes on his phone were bad).
+- **`isArranged`** on an open ends early only when the view has held the sent shape 0.4 s
+  (`viewAgrees`); `reshapeWait` 2.5 s, `arrangeLimit` 4.5 s; the glance taken in hand keeps its
+  picture (`fresh` only for a switch or an open from closed). The cover lifts 0.28 s after
+  arranging ends (the viewer's own still and cross-fade of the old shape happen under it).
+- **`ArrangingCover` v2**: a Mac window taking shape — the three lights in its corner, an aurora of
+  the Intelligence colours drifting behind the glass, the icon in a turning halo with its name, a
+  sheen crossing, the light round the edge, a soft shadow. Frames `cover-v2-*.png`.
+- Seen on a Duo sim (dark, `serve --reshape --reshape-delay 1200`): open flat upright and a turn —
+  cover, then the window at its shape, no narrow frame in the bursts; reopening in portrait, on its
+  side and tabletop each sends one right shape ahead (1.48 / 0.84 / 1.48). Pro tests pass (11).
+  **Needs his phone:** the same on the real Mac (its log should show one "watch fit to iPhone" per
+  open now).
+
 ## A loading cover while the window is fitted; a turn always reshapes (Nov 9 2026)
 
 Sameer: "tons of bugs on the inner screen … windows not appropriate resizing to fill up the space

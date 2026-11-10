@@ -913,6 +913,8 @@ struct WatchWindow: View {
     /// fitted to the view its picture — at another shape — isn't shown; `Watcher.arranging`).
     @State private var room: CGSize = .zero
     @State private var covered = false
+    /// This view, to the watcher's measures.
+    @State private var viewID = UUID()
 
     /// What shows now is the room's shape (within 5%): nothing to hide.
     private var pictureFitsRoom: Bool {
@@ -993,7 +995,9 @@ struct WatchWindow: View {
                     .animation(.easeOut(duration: 0.12), value: fullScreenZoom.landing)
                     // Under the cover the picture isn't shown at all; it fades in as the cover goes.
                     .opacity(covered ? 0 : 1)
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { room = $0; watcher.viewerMeasured($0, fill: fill, interactive: live) }
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { room = $0; watcher.viewerMeasured($0, fill: fill, interactive: live, id: viewID) }
+                    .onChange(of: live) { _, on in if !on { watcher.viewerGone(viewID) } }
+                    .onDisappear { watcher.viewerGone(viewID) }
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
@@ -1056,7 +1060,14 @@ struct WatchWindow: View {
             if want, !covered { covered = true }
         }
         .onChange(of: watcher.arranging) { _, on in
-            if !on, covered { withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.3)) { covered = false } }
+            guard !on, covered else { return }
+            // A beat for the viewer under it to lay the arrived picture out (its own still and
+            // cross-fade of the old shape happen unseen), then the cover lifts.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 280_000_000)
+                guard !watcher.arranging else { return }
+                withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.35)) { covered = false }
+            }
         }
         .onChange(of: watcher.cameAlive) { _, _ in if interactive { Haptics.arrived() } }
         .onChange(of: watcher.noteSeq) { _, _ in

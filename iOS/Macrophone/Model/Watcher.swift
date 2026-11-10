@@ -323,6 +323,7 @@ final class Watcher: ObservableObject {
             autoFitTask?.cancel()
         }
         let opening = !isOpen || glancing
+        let wasOpen = isOpen
         if switching || !isOpen {
             let key = WindowSnapshots.key(mac: macID(), target: target)
             lastPicture = WindowSnapshots.cached(key)
@@ -338,7 +339,8 @@ final class Watcher: ObservableObject {
             decideDragAhead()
         }
         isOpen = true
-        if switching || opening { beginArranging(fresh: true) }
+        // (The glance taken in hand is the same window, its picture already here.)
+        if switching || opening { beginArranging(fresh: switching || !wasOpen) }
         if glancing { glancing = false; wantsAutoFit = true }
         start()
         // A window switched to takes the view's shape ahead too (Nov 8 2026: it arrived at the
@@ -615,30 +617,42 @@ final class Watcher: ObservableObject {
     /// The pose the view was last measured in: its size stands for the next window's there only.
     private var viewerPose: FoldPose?
 
+    /// Every window view on screen that measures, by its own id, in the order they came (Nov 9
+    /// 2026). While two layouts cross — a turn, a fold, full screen — both measure, and whichever
+    /// spoke last used to be "the view": a leaving layout's squeezed size was sent to the Mac as
+    /// the window's shape ahead and remembered for the pose (the Mac's log on his Duo: "925×1084 →
+    /// 468×1084", then the right one 0.9 s later — the window came up narrow and resized). The
+    /// view is the newest one still there; one that leaves or goes hidden stops counting.
+    private var measures: [(id: UUID, size: CGSize, fill: Bool)] = []
+
     /// A view of the window has its size. `fill`: it is a folded half's (the half's shape is what
     /// the Mac is given, never the phone layout's that may still be on screen as the poses
     /// cross-fade). Only the window in hand measures: the strip over the live words and the
     /// glance are other sizes for a moment.
-    func viewerMeasured(_ size: CGSize, fill: Bool = false, interactive: Bool = true) {
-        guard interactive, size != viewerSize || fill != viewerFills || viewerPose != input.pose else { return }
-        // A measure that isn't a window's shape is a layout on its way out or in (a turn: the
-        // leaving layout squeezed to 92×805 *after* the arriving one had measured, and as the last
-        // word it left the window unshaped for good — Nov 9 2026). Never kept.
+    func viewerMeasured(_ size: CGSize, fill: Bool = false, interactive: Bool = true, id: UUID) {
+        guard interactive else { viewerGone(id); return }
+        // A measure that isn't a window's shape is a layout on its way out or in. Never kept.
         guard Self.plausible(size) else { return }
-        viewerSize = size
-        viewerFills = fill
+        if let k = measures.firstIndex(where: { $0.id == id }) { measures[k].size = size; measures[k].fill = fill }
+        else { measures.append((id, size, fill)) }
+        adoptMeasure()
+    }
+
+    /// That view left the screen (or went hidden): the one before it, if still there, is the view.
+    func viewerGone(_ id: UUID) {
+        guard let k = measures.firstIndex(where: { $0.id == id }) else { return }
+        measures.remove(at: k)
+        adoptMeasure()
+    }
+
+    private func adoptMeasure() {
+        guard let m = measures.last else { return }
+        guard m.size != viewerSize || m.fill != viewerFills || viewerPose != input.pose else { return }
+        viewerSize = m.size
+        viewerFills = m.fill
         viewerPose = input.pose
-        // Kept per pose (Nov 8 2026, round 2): the shape ahead needs a measure from this pose,
-        // and the first open after every launch had none — it came in at the Mac's own shape and
-        // jumped to the view's 1.3 s later.
-        if !fullScreen, Self.plausible(size) {
-            UserDefaults.standard.set([size.width, size.height], forKey: Self.viewSizeKey(input.pose, fill: fill))
-        }
-        // (Nov 9 2026: the round-2 rule here — a measure off the shape just sent re-arms the
-        // shape — is gone. On his Duo it made every mode change two reshapes of the real window:
-        // a layout passing through was sent, then "corrected" (the Mac's log: 925 → 790 → 925 →
-        // 912 → 596 → 925 … sixteen in a minute). A shape now goes only once the view has held
-        // still — `settle` — so the first one is the right one.)
+        // (The size is remembered for the pose only once it has held still and the window was
+        // shaped to it — `applyAutoFit` — never on a measure passing through.)
         measuredAt = Date()
         autoFitSoon()
     }
@@ -729,8 +743,8 @@ final class Watcher: ObservableObject {
     private var arrangeFresh = true
     /// Apps that didn't take the view's shape this launch: their next opens don't wait for it.
     private var keepsOwnShape: Set<String> = []
-    private static let arrangeLimit: TimeInterval = 3.5
-    private static let reshapeWait: TimeInterval = 1.5
+    private static let arrangeLimit: TimeInterval = 4.5
+    private static let reshapeWait: TimeInterval = 2.5
 
     private func beginArranging(fresh: Bool) {
         guard isOpen, !isDesktop else { endArranging(); return }
@@ -773,7 +787,9 @@ final class Watcher: ObservableObject {
         if let id = target.bundleID, keepsOwnShape.contains(id) { return true }
         if let sent = shapeSent {
             // The frame at the shape sent, and the view still that shape.
-            if Self.sameShape(picture, sent), !wantsAutoFit || (arrangeFresh && Self.sameShape(viewerSize, sent)) { return true }
+            // (Or, on an open, the view has held this shape a moment: the shape ahead was right.)
+            let viewAgrees = arrangeFresh && viewerPose == input.pose && Self.sameShape(viewerSize, sent) && Date().timeIntervalSince(measuredAt) > 0.4
+            if Self.sameShape(picture, sent), !wantsAutoFit || viewAgrees { return true }
             if !wantsAutoFit, let at = shapeSentAt, Date().timeIntervalSince(at) > Self.reshapeWait {
                 if let id = target.bundleID { keepsOwnShape.insert(id) }
                 log?.add("watching: the window didn't take the view's shape — shown as it is")
@@ -837,6 +853,8 @@ final class Watcher: ObservableObject {
             return
         }
         wantsAutoFit = false
+        // Held still, in this pose: what the next open here sends ahead.
+        if !fullScreen { UserDefaults.standard.set([size.width, size.height], forKey: Self.viewSizeKey(input.pose, fill: viewerFills)) }
         if let was = shapeSent {
             let aspect = size.width / size.height, before = was.width / was.height
             guard abs(aspect - before) / before > 0.04 else { return }
@@ -883,7 +901,7 @@ final class Watcher: ObservableObject {
     }
 
     /// Where the view's size in a pose is kept between launches (for the shape ahead).
-    private static func viewSizeKey(_ pose: FoldPose, fill: Bool) -> String { "watch.viewSize.\(pose.name).\(fill ? "fill" : "fit")" }
+    private static func viewSizeKey(_ pose: FoldPose, fill: Bool) -> String { "watch.viewSize2.\(pose.name).\(fill ? "fill" : "fit")" }
 
     /// The view leaves a window it shaped by itself: the Mac puts it back as it was.
     private func putBackAutoFit() {
