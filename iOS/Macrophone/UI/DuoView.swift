@@ -1075,13 +1075,7 @@ struct DuoMacHalf: View {
             // keys to all be the bottom half … so that nothing blocks the view window"): the
             // picture is the whole half and nothing lies over it — the header, the answers and the
             // words you're saying are on the deck.
-            // Resizable from its corner on the inner screen too (Nov 9 2026, Sameer: "The resize
-            // arrow should be available on the inner display as well … The only place it is not
-            // needed is laptop mode where it should default to always take half the screen"):
-            // flat upright has the arc; the laptop's half is the Mac's screen, whole.
-            ResizableWindow(watcher: watcher, enabled: resizable) {
-                screen(footInset: 0, floating: false)
-            }
+            screen(footInset: 0, floating: false)
         } else if let short = shortPicture {
             // A window that can't fill the half (the fourth pass — the Mac can't reshape it, or
             // hasn't yet: the whole screen, a window on the book's tall page): the picture at the
@@ -1090,9 +1084,7 @@ struct DuoMacHalf: View {
             // saying. No black above or below.
             VStack(spacing: 10) {
                 // (The window's name heads the right page on its side — Nov 9 2026.)
-                ResizableWindow(watcher: watcher, enabled: resizable) {
-                    screen(footInset: 0, floating: false)
-                }
+                screen(footInset: 0, floating: false)
                 .frame(height: short)
                 if main.showLiveWords {
                     DuoLiveWords(main: main, room: room, below: true)
@@ -1111,9 +1103,7 @@ struct DuoMacHalf: View {
             // on one under it; the picture takes what's between (auto-fit gives it that shape).
             VStack(spacing: 8) {
                 // The window from the page's top: its name heads the right page now (Nov 9 2026).
-                ResizableWindow(watcher: watcher, enabled: resizable) {
-                    screen(footInset: 0, floating: true)
-                }
+                screen(footInset: 0, floating: true)
                 if watcher.answers != nil, !main.showLiveWords {
                     // One row while typing: the keyboard has the rest.
                     WatchActions(watcher: watcher, floating: true, oneLine: main.typingOver)
@@ -1125,12 +1115,6 @@ struct DuoMacHalf: View {
             }
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: watcher.answers?.id)
         }
-    }
-
-    /// The corner arc: every inner pose but the laptop (its half is the Mac's screen, always the
-    /// whole half), never the Whole Screen (a display can't change shape), never hidden.
-    private var resizable: Bool {
-        watcher.input.pose != .laptop && !watcher.isDesktop && !handDormant && !asleep
     }
 
     /// The glance.

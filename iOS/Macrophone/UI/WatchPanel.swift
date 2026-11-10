@@ -86,16 +86,16 @@ struct WatchPanel: View {
             // everywhere — on the cover too, where it had floated over the window's corner — and
             // the answers and the tips are rows under it.
             if !bare { WatchHeaderBar(watcher: watcher, dragSwitch: deck, onSwitched: announce).padding(.horizontal, margin) }
-            // All the room by default; his to resize from the corner (Nov 8 2026). Edge to edge
+            // All the room, always. Edge to edge
             // (Nov 9 2026, Sameer: "more like a Mac app window running natively on the iPhone"):
             // an app on an iPhone runs to the screen's sides — the window had sat 10 pt in with
             // wallpaper down both of them, which read as a picture being shown. Its controls keep
             // their margin, as a bar's buttons do over full-width content.
-            ResizableWindow(watcher: watcher, enabled: !bare && !dormant && !watcher.isDesktop, bleeds: bleeds) {
-                WatchWindow(watcher: watcher, interactive: true, dormant: dormant)
-                    // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
-                    .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
-            }
+            // (No resize handle — Nov 9 2026, Sameer: "The app should just have the window take
+            // the max view available in any orientation".)
+            WatchWindow(watcher: watcher, interactive: true, dormant: dormant)
+                // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
+                .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
             // The Duo's cover keeps its margin (build 35 ran the window to the sides there too:
             // against the vertical bar its shadow was cut, the arc sat on the window's corner and
             // the edge swipe fought the bar — Sameer, Nov 9 2026).
@@ -892,7 +892,6 @@ struct WatchWindow: View {
     /// watcher nothing (not its size either: the panel is laid out without its header meanwhile).
     @Environment(\.watchWindowHidden) private var hidden
     @Environment(\.watchRestPicture) private var restPicture
-    @Environment(\.watchResizing) private var resizing
     private var live: Bool { interactive && !hidden }
     /// A moment of words after the Pan | Scroll switch flips or Aa changes: what happens now.
     @State private var dragNote: String?
@@ -901,8 +900,6 @@ struct WatchWindow: View {
     @State private var opening = false
     /// The link has been gone a moment (`WatchReconnect.quietFor`): the held picture's shade shows.
     @State private var heldShown = false
-    /// What of the picture shows, in the viewer's space (`WindowPictureKey`: the resize arc's corner).
-    @State private var shown: CGRect = .zero
     /// The picture's flight into or out of full screen (the viewer waits under it).
     @ObservedObject private var fullScreenZoom = FullScreenZoom.shared
     /// The pointer's sprite and the viewer that places it (the trackpad's pointer, drawn above
@@ -962,15 +959,8 @@ struct WatchWindow: View {
                              },
                              onCanvasAdopted: { watcher.canvasMoved() },
                              floats: !fill && !reduceTransparency,
-                             resizing: resizing,
                              readsCorners: !watcher.isDesktop,
                              windowMask: watcher.mask,
-                             onPictureShown: { r in
-                                 // The resize arc follows the window's own corner (never the
-                                 // frame's when the picture sits smaller than it).
-                                 guard interactive, r != shown else { return }
-                                 Task { @MainActor in shown = r }
-                             },
                              frozen: hidden)
                     // Under the picture's flight into or out of full screen the window's own
                     // viewer waits (it would show at its landing place under the flying copy —
@@ -979,7 +969,6 @@ struct WatchWindow: View {
                     .opacity(interactive && fullScreenZoom.flying && !fullScreenZoom.landing ? 0 : 1)
                     .animation(.easeOut(duration: 0.12), value: fullScreenZoom.landing)
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { watcher.viewerMeasured($0, fill: fill, interactive: live) }
-                    .preference(key: WindowPictureKey.self, value: interactive ? shown : .zero)
                     .accessibilityLabel("\(watcher.name)'s window on your Mac")
                     .accessibilityHint(interactive ? (watcher.drag == .pan
                         ? "Tap to click there on your Mac; hold, or tap with two fingers, to right-click. Drag to look around the window; pinch to zoom. Switch to Scroll to scroll the window on your Mac."
@@ -1200,15 +1189,6 @@ struct WatchWindow: View {
     }
 }
 
-/// What of the window's picture shows, in the window view's own space (zero: none) — the
-/// resize arc sits on its bottom-right corner (Nov 8 2026).
-struct WindowPictureKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let n = nextValue()
-        if n != .zero { value = n }
-    }
-}
 
 /// A sentence over the window for a moment — what just changed, or the window just switched to.
 struct WatchNote: View {

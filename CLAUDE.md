@@ -8,6 +8,17 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## No resize handle: the window is always all the room (Nov 9 2026) — wins over every resize section below
+
+Sameer: "I actually don't like the window resizer. It makes thing complicated. The app should just
+have the window take the max view available in any orientation." `ResizableWindow.swift`, the
+corner arc (`watch-resize`), the live-shape drag (`Watcher.resizingShape` / `resizedHere` /
+`shrunkHere` / `resizingHere`, `sendLiveShape`), `WindowPictureKey` and `\.watchResizing` are
+deleted on the phone, cover and every inner pose. A window opens at all its room and auto-fit gives
+the Mac's window that shape, as before; pinch to zoom is untouched. The wire (`watchShapeLive`,
+`fitPhoneLive`) and the Mac's side stay (unused by this phone). Don't bring a resizer back unasked.
+`ResizableWindowUITests` is now just the edge-to-edge + edge-flip test (and "no handle").
+
 ## The window runs edge to edge (Nov 9 2026)
 
 **Amended the same day (build 36), after Sameer's Duo cover screenshot** ("the animation getting cut on
