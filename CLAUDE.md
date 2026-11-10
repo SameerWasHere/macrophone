@@ -8,6 +8,25 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The inner screen's keyboard, upright (Nov 9 2026) — wins over "The laptop's keyboard" in the fix-up pass
+
+Two of Sameer's screenshots from his Duo. Frames: `docs/screens/duo/nov9-keyboard/`.
+- **Flat upright, keyboard up:** the deck's control row (`WatchHeaderBar` under the mode bar) was
+  squeezed out of the deck — which ends at the keyboard's top — and its pills' tops showed between
+  the mode bar and the keyboard's bar. `DuoDeck.modes` leaves it out while `input.keysUp` (upright
+  only); the mode bar sits just over the keyboard's bar, the row is back with hide.
+- **The laptop, keyboard up:** "the additional keyboard controls and close button block the bottom
+  of the full screen Mac view." The bar, as an accessory, sat above the hinge's ~50 pt empty band,
+  over the Mac half's foot. **`KeyboardBarHost.drop`** (laptop pose, iOS's keys and Mac Keys): the
+  accessory is a 2 pt sliver and the bar's hosted view hangs down from it into the band — it's
+  still inside the keyboard's own window, so its touches arrive (`point(inside:)` covers the hung
+  bar; the system's wrappers are told not to clip). The Nov 7 try that failed drew the bar in the
+  app's window. The Mac's half keeps its foot: the Whole Screen shows whole.
+- Seen on a Duo sim (tabletop and flat upright, a paired `serve`): `DuoTypingUITests` passes in
+  both (it taps hide on the bar), iOS's keys and Mac Keys, a window and the Whole Screen.
+  **Needs his Duo:** the bar's taps in the band on hardware, and that the band there is as tall as
+  the simulator's (the bar is 44 pt; a shorter band would put its foot on the predictions row).
+
 ## The window never shows narrow: the view is the newest layout's, not the last to speak (Nov 9 2026, later) — amends the section below
 
 Sameer on build 39: "once it loads the window still shows up as narrow and takes a moment to resize

@@ -173,6 +173,9 @@ final class KeyboardTextView: UITextView {
         // lower — and the keyboard's window takes every touch in that band, so a bar drawn there
         // by the layout can't be tapped. On the accessory it sits just above the band.)
         if inputAccessoryView !== bar { inputAccessoryView = bar; reload = true }
+        // The laptop, iOS's keys: the bar goes down into the hinge's band (`KeyboardBarHost.drop`).
+        let drop: CGFloat = pose == .laptop ? KeyboardBarHost.height - 2 : 0
+        if let bar, bar.drop != drop { bar.drop = drop; reload = true }
         if inputView !== keys { inputView = keys; reload = true }
         // Upright on the inner screen the deck is short: no shortcuts groups beside the predictions.
         // The predictions stay (Nov 7 2026, Sameer's newest word wins over the Nov 1 "suppress the
@@ -426,13 +429,38 @@ final class KeyboardBarHost: UIView {
             host.view.leadingAnchor.constraint(equalTo: leadingAnchor),
             host.view.trailingAnchor.constraint(equalTo: trailingAnchor),
             host.view.topAnchor.constraint(equalTo: topAnchor),
-            host.view.bottomAnchor.constraint(equalTo: bottomAnchor),
+            host.view.heightAnchor.constraint(equalToConstant: Self.height),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: Self.height) }
+    /// How far the bar hangs below its own slot (Nov 9 2026, Sameer's laptop screenshot: "the
+    /// additional keyboard controls and close button block the bottom of the full screen Mac
+    /// view"). Folded as a laptop iOS keeps ~50 pt of the keyboard's frame empty above its keys
+    /// (the hinge's band); as an accessory of full height the bar sat above that band, over the
+    /// foot of the Mac's half. With a drop the accessory is a sliver and the bar is drawn down in
+    /// the band — inside the keyboard's own window, so its touches arrive.
+    var drop: CGFloat = 0 {
+        didSet {
+            guard drop != oldValue else { return }
+            frame.size.height = Self.height - drop
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: Self.height - drop) }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        CGRect(x: 0, y: 0, width: bounds.width, height: Self.height).contains(point)
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        // The system's wrapper is the accessory's own size: it mustn't clip what hangs below.
+        var v = superview
+        for _ in 0..<3 { v?.clipsToBounds = false; v = v?.superview }
+    }
 }
 
 /// The keys a phone's keyboard lacks — one row on every screen (Nov 7 2026; it was two, 94 pt,
