@@ -8,6 +8,19 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The sharing pill is not a companion (Nov 9 2026)
+
+Sameer's Calculator screenshot (a magnified corner of the window). Measured with a bare SCStream
+on Calculator: while a window is captured, macOS adds **a window of the app's own** — layer 0,
+66 × 20, named "Window" — on its traffic lights (the purple pill). `WatchCompanions` took it for a
+sheet, so every watch switched to the display-area filter ~2 s in ("with 1 companion windows
+(Calculator@0)", "Muse@0", "Claude@0", TextEdit ×3 for two documents), the pill then left and came
+back, and the stream flipped (also "the stream stopped (code -3815)"). Now a same-app layer-0
+window ≤ 110 × 32 is never a companion, and `WindowServer.hasOwnTitle` doesn't count AppKit's
+default "Window" as a title. Mac 1.1.20. This also explains the pill itself (the earlier "Open: his
+red / yellow / green buttons" note): it's in the single-window capture by the system's hand.
+Not seen on a phone after the install.
+
 ## After the keyboard, the picture fills its room again (Nov 9 2026)
 
 Sameer's cover screenshot: after the keyboard opened and closed the window sat small in its room.

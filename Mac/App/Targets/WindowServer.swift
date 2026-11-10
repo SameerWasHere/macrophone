@@ -110,6 +110,13 @@ enum WindowServer {
         return false
     }
 
+    /// A title of its own: not empty, and not AppKit's default for a window never given one
+    /// ("Window" — a sheet or panel may carry it).
+    static func hasOwnTitle(_ name: String?) -> Bool {
+        guard let name, !name.isEmpty else { return false }
+        return name != "Window"
+    }
+
     /// Every on-screen window, front to back, as `WatchCompanions` reads them (Oct 19 2026): one
     /// list a look, with whether each owner is an ordinary app and its bundle id (an XPC service —
     /// the Open and Save Panel Service — has no running-app entry: its bundle is found from its path).
@@ -126,7 +133,7 @@ enum WindowServer {
             let p = process(pid)
             out.append(.init(id: id, pid: pid, layer: layer, bounds: rect, alpha: w[kCGWindowAlpha as String] as? Double ?? 1,
                              owner: w[kCGWindowOwnerName as String] as? String, bundleID: p.bundleID, regularApp: p.regular,
-                             titled: !((w[kCGWindowName as String] as? String) ?? "").isEmpty))
+                             titled: Self.hasOwnTitle(w[kCGWindowName as String] as? String)))
         }
         return out
     }

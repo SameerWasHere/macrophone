@@ -45,6 +45,13 @@ final class WatchCompanionsTests: XCTestCase {
         XCTAssertEqual(WatchCompanions.spot(CGPoint(x: 400, y: 200), watched: 500, in: [small, host], hostInFront: true), .covered)
     }
 
+    /// The system's sharing pill over the captured window's traffic lights is the app's own tiny
+    /// window: never a companion (Nov 9 2026).
+    func testTheSharingPillIsNotACompanion() {
+        let pill = W(id: 540, pid: textEdit, layer: 0, bounds: CGRect(x: 216, y: 116, width: 66, height: 20), regularApp: true)
+        XCTAssertEqual(WatchCompanions.select(watched: 500, in: [pill, host], hostInFront: true).map(\.id), [])
+    }
+
     func testStrangersStayOut() {
         // Another app's window over it, Notification Center's full-screen layer, a screen-wide
         // overlay from an accessory app made after it, Macrophone's own popup.

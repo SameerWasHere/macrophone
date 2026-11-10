@@ -88,6 +88,12 @@ public enum WatchCompanions {
         if c.pid == host.pid {
             // Menus, popovers, panels, tooltips; at the normal level only a sheet (inside it, smaller).
             if c.layer > 0 { return true }
+            // macOS's "this window is being shared" pill is a window of the app's own (66 × 20,
+            // layer 0, named "Window") laid on the captured window's traffic lights — and it's
+            // already drawn into a single-window capture. Taken for a sheet it switched the
+            // stream to the display-area filter and back, over and over (Calculator's picture
+            // came out as a magnified corner — Sameer, Nov 9 2026). Nothing that small is a sheet.
+            if c.bounds.width <= 110, c.bounds.height <= 32 { return false }
             // A titled window is another window of the app (a second document lying over a
             // bigger one — Sameer, Nov 9 2026: "both windows come up if they are the same app").
             return !c.titled && inside >= 0.9 && size < area(host.bounds) * 0.95
