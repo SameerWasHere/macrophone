@@ -26,7 +26,7 @@ the right … the gray bar … overlapping with the window … the swipe gesture
 - Seen on a Duo cover and an iPhone 17 Pro against `mpctl serve --rounded --reshape`:
   ResizableWindow (3 on the Pro, 2 on the cover), InputCarousel (4), FullScreen (3), Stability,
   DesktopWindow pass.
-- **Open: his red / yellow / green buttons.** On his Mac the watched Claude window shows a purple
+- **Left as is (Sameer, Nov 9: "No it's okay. The dots are useful here") — don't change the capture for it: his red / yellow / green buttons.** On his Mac the watched Claude window shows a purple
   pill where the traffic lights are — macOS's own "this window is being shared" marker, drawn into
   the window and so into the stream. ScreenCaptureKit's headers have no switch for it
   (`presenterOverlayPrivacyAlertSetting` is the alert, not the pill). To try: whether the
