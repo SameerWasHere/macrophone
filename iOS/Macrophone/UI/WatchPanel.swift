@@ -75,6 +75,8 @@ struct WatchPanel: View {
     @Environment(\.watchWindowHidden) private var hidden
     /// The controls' margin; the window itself runs to the sides.
     private var margin: CGFloat { WatchLook.sideMargin }
+    /// The window runs to the screen's sides: a regular iPhone only.
+    private var bleeds: Bool { !cover && !duo }
 
     var body: some View {
         let floats = duo || cover
@@ -89,11 +91,15 @@ struct WatchPanel: View {
             // an app on an iPhone runs to the screen's sides — the window had sat 10 pt in with
             // wallpaper down both of them, which read as a picture being shown. Its controls keep
             // their margin, as a bar's buttons do over full-width content.
-            ResizableWindow(watcher: watcher, enabled: !bare && !dormant && !watcher.isDesktop) {
+            ResizableWindow(watcher: watcher, enabled: !bare && !dormant && !watcher.isDesktop, bleeds: bleeds) {
                 WatchWindow(watcher: watcher, interactive: true, dormant: dormant)
                     // The Mac can't take taps or keys yet (Accessibility off): say so, and how.
                     .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
             }
+            // The Duo's cover keeps its margin (build 35 ran the window to the sides there too:
+            // against the vertical bar its shadow was cut, the arc sat on the window's corner and
+            // the edge swipe fought the bar — Sameer, Nov 9 2026).
+            .padding(.horizontal, bleeds ? 0 : margin)
             .frame(maxHeight: .infinity)
             .offset(x: slide)
             // The first times: what a tap, a hold, a pinch and the side swipe do — a strip under
@@ -122,7 +128,10 @@ struct WatchPanel: View {
         // Swipe in from the screen's side edge for the previous or next window (the menu on the
         // name is the visible way to the same thing). The system's own edge gesture, on the
         // screen's real edge: nothing lies over the window's sides to take its taps.
-        .background(EdgeFlips(enabled: !hidden && !dormant && !bare && sessions.count > 1) { go($0) })
+        .background(EdgeFlips(enabled: bleeds && !hidden && !dormant && !bare && sessions.count > 1) { go($0) })
+        // Where the window keeps its margin (the cover), the swipe starts in that margin, as before.
+        .overlay(alignment: .leading) { if !bleeds { edge(step: -1) } }
+        .overlay(alignment: .trailing) { if !bleeds { edge(step: 1) } }
         .overlay(alignment: .top) {
             if let switchedTo {
                 WatchNote(symbol: "arrow.left.and.right", words: switchedTo)
@@ -159,12 +168,26 @@ struct WatchPanel: View {
         // two titles); the header's name says where you are, and VoiceOver hears it.
         UIAccessibility.post(notification: .announcement, argument: t.title)
     }
+
+    /// A strip in the margin beside the window (the cover): a swipe in from it flips to the next window.
+    private func edge(step: Int) -> some View {
+        Color.clear
+            .frame(width: 14)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 12).onEnded { v in
+                let dx = v.translation.width
+                guard abs(dx) > 40, abs(dx) > abs(v.translation.height) else { return }
+                if (step > 0 && dx < 0) || (step < 0 && dx > 0) { go(step) }
+            })
+            .accessibilityHidden(true)
+            // Clear of the window's resize corner and the key row under it.
+            .padding(.bottom, 110)
+    }
 }
 
 /// Swipes in from the screen's left and right edges while the window view shows (Nov 9 2026):
 /// `UIScreenEdgePanGestureRecognizer`s on the app's window, only for touches that start level with
-/// the panel. A swipe from the right edge is the next window, from the left the previous. Pans
-/// under them wait for the edge to say no (a moment, and only for a touch that began on the edge).
+/// the panel. A swipe from the right edge is the next window, from the left the previous.
 private struct EdgeFlips: UIViewRepresentable {
     var enabled: Bool
     var go: (Int) -> Void
@@ -221,9 +244,9 @@ private struct EdgeFlips: UIViewRepresentable {
             return y >= 0 && y <= bounds.height
         }
 
-        func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
-            other is UIPanGestureRecognizer && !(other is UIScreenEdgePanGestureRecognizer)
-        }
+        /// Beside the window's own gestures, never ahead of them: making its pans wait for the
+        /// edge to fail made every scroll that began near a side start late (build 35).
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
     }
 }
 

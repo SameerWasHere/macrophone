@@ -25,6 +25,9 @@ struct ResizableWindow<Content: View>: View {
     @ObservedObject var watcher: Watcher
     /// Off where the window must fill its room (the keyboard up on the cover, a hidden panel).
     var enabled: Bool
+    /// The room runs to the screen's side (a regular iPhone): there's nowhere outside the
+    /// window's corner, so at full width the handle is a short grabber under it instead.
+    var bleeds = false
     @ViewBuilder var content: Content
 
     /// The room the window may take.
@@ -79,10 +82,12 @@ struct ResizableWindow<Content: View>: View {
                     .overlay(alignment: .topLeading) {
                         if handleShown, measured {
                             // (Its 34 pt touch square centred 3 pt in from the corner: 20 in, 14 out.)
-                            handle
-                                // (A window that runs to the screen's side keeps the arc on screen:
-                                // tucked into the wedge its own rounded corner leaves.)
-                                .position(x: min(corner.x - 3, room.width - 10), y: corner.y - 3)
+                            // Never over the window (tucked into the corner it sat on real
+                            // windows — build 35). Against the screen's side there's no room for
+                            // the upright leg: the foot alone, whole, under the corner.
+                            let edge = bleeds && corner.x > room.width - 8
+                            handle(footOnly: edge)
+                                .position(x: edge ? room.width - 22 : corner.x - 3, y: corner.y - 3)
                                 .transition(.opacity)
                         }
                     }
@@ -126,8 +131,8 @@ struct ResizableWindow<Content: View>: View {
     }
 
     /// The arc, its touch area centred on the window's corner: placed by its centre (`position`).
-    private var handle: some View {
-        CornerArc()
+    private func handle(footOnly: Bool) -> some View {
+        CornerArc(footOnly: footOnly)
             .stroke(Ink.ink.opacity(live != nil ? 0.55 : 0.32), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
             .frame(width: 22, height: 22)
             .shadow(color: Color.black.opacity(0.18), radius: 2, y: 1)
@@ -201,10 +206,15 @@ struct ResizableWindow<Content: View>: View {
 
 /// Stage Manager's handle: an L round the window's corner, its bend rounded.
 private struct CornerArc: Shape {
+    var footOnly = false
     func path(in r: CGRect) -> Path {
         var p = Path()
         let bend: CGFloat = 8
         p.move(to: CGPoint(x: r.minX, y: r.maxY))
+        if footOnly {
+            p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+            return p
+        }
         p.addLine(to: CGPoint(x: r.maxX - bend, y: r.maxY))
         p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.maxY - bend), control: CGPoint(x: r.maxX, y: r.maxY))
         p.addLine(to: CGPoint(x: r.maxX, y: r.minY))

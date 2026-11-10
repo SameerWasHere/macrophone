@@ -10,6 +10,29 @@ The original spec is `docs/SPEC.md`. Push to `main`.
 
 ## The window runs edge to edge (Nov 9 2026)
 
+**Amended the same day (build 36), after Sameer's Duo cover screenshot** ("the animation getting cut on
+the right … the gray bar … overlapping with the window … the swipe gesture is a little laggy"):
+- **Edge to edge is the regular iPhone only** (`WatchPanel.bleeds` = not the cover, not the Duo). The
+  cover keeps `WatchLook.sideMargin` round the window and its 14 pt swipe strips in that margin
+  (`edge(step:)`): against the vertical bar's column the shadow was cut and the screen-edge swipe
+  fought the bar.
+- **The arc is never over the window.** Tucked into the corner (`min(corner.x − 3, room.width − 10)`)
+  it sat on any real window, whose corner is ~8 pt at phone scale. Now it's always outside the corner;
+  where the window is at the screen's side (`ResizableWindow(bleeds:)`, corner within 8 pt of the
+  room's edge) it's a short whole grabber under the corner (`CornerArc(footOnly:)`), the L again as
+  soon as the window is narrower.
+- **`EdgeFlips` recognises beside the window's gestures** (`shouldRecognizeSimultaneouslyWith`), it no
+  longer makes every pan wait for the edge to fail — that delay was the laggy scroll.
+- Seen on a Duo cover and an iPhone 17 Pro against `mpctl serve --rounded --reshape`:
+  ResizableWindow (3 on the Pro, 2 on the cover), InputCarousel (4), FullScreen (3), Stability,
+  DesktopWindow pass.
+- **Open: his red / yellow / green buttons.** On his Mac the watched Claude window shows a purple
+  pill where the traffic lights are — macOS's own "this window is being shared" marker, drawn into
+  the window and so into the stream. ScreenCaptureKit's headers have no switch for it
+  (`presenterOverlayPrivacyAlertSetting` is the alert, not the pill). To try: whether the
+  display-area filter (`SCContentFilter(display:including:)`, already used with companions) avoids
+  it where the single-window filter doesn't.
+
 Sameer: "make the UI feel more like a Mac app window running natively on the iPhone." What still read
 as a picture being shown was the 10 pt of wallpaper down both sides of the window: an app on an
 iPhone runs to the screen's sides.
