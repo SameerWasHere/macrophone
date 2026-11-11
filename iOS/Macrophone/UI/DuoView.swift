@@ -929,9 +929,12 @@ struct FloatingMic<Exit: View, Trackpad: View>: View {
                 exit()
                     .position(x: disc.x - gap, y: disc.y)
                     .transition(.opacity)
-                trackpad(disc)
-                    .position(x: disc.x + gap, y: disc.y)
-                    .transition(.opacity)
+                // (While the mic is open its place is the mic's × — cancel.)
+                if !main.isRecording {
+                    trackpad(disc)
+                        .position(x: disc.x + gap, y: disc.y)
+                        .transition(.opacity)
+                }
             }
         }
         .opacity(idle && !main.isRecording ? 0.45 : 1)
@@ -1130,12 +1133,8 @@ struct DuoMacHalf: View {
             // 2026, round 3 — it had landed near full-screen size and re-laid to the page).
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { InnerWindowSpot.shared.frame = $0 }
             .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
-            .overlay(alignment: .bottom) {
-                if floating, main.showLiveWords {
-                    DuoLiveWords(main: main, room: room)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
-            }
+        // (Nov 10 2026: the words you're saying are on the deck, over the mic, once — they had
+        // also been laid over the window here, the same card twice on one screen.)
     }
 
     /// The picture's height when it can't fill the half — a window shaped nothing like it (one
@@ -1308,8 +1307,12 @@ struct DuoDeck: View {
             }
             .overlay(alignment: .top) {
                 if main.showLiveWords {
+                    // The room above the mic, which sits in the middle of the mode's room with
+                    // its Thread (`carousel`): the card ends over the disc, never under it.
+                    let fit = DuoLook.deckMicFit(size.height)
+                    let threadTop = max(DuoLook.deckThreadTop, (size.height - fit.slot - DuoLook.micGroup(fit.mic)) / 2)
                     DuoLiveWords(main: main, room: size, below: true)
-                        .frame(height: max(72, size.height - DuoLook.micGroup(mic) - 4))
+                        .frame(height: max(72, threadTop + fit.slot + 6))
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }

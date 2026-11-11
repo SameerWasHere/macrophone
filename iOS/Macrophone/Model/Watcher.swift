@@ -665,7 +665,13 @@ final class Watcher: ObservableObject {
     static func plausible(_ size: CGSize) -> Bool {
         guard size.width > 40, size.height >= 150 else { return false }
         let aspect = size.width / size.height
-        return aspect >= 0.3 && aspect <= 3
+        // Never bigger than the screen (a layout pass offered no height: 362 × ~1,170 on his
+        // cover, sent to the Mac as a 0.31 strip — "340×1084, took 600×1084" — Nov 10 2026), and
+        // never narrower than a phone held upright in full screen (0.46).
+        let screen = UIScreen.main.bounds.size
+        let long = max(screen.width, screen.height) + 1
+        guard size.width <= long, size.height <= long else { return false }
+        return aspect >= 0.42 && aspect <= 3
     }
 
     /// When the last shape went to the Mac.

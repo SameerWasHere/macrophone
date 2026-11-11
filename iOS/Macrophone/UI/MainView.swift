@@ -679,7 +679,10 @@ struct MainView: View {
     /// own mic under it (Nov 8 2026: on the phone and the cover the layout stays built under full
     /// screen, and two sources of one matched id put the floating one at the hidden one's place).
     func floatingMicButton(size: CGFloat) -> some View {
-        micCore(size: size)
+        // (Its × takes the trackpad button's place in the trio while the mic is open.)
+        var mic = micCore(size: size)
+        mic.cancelDistance = 59
+        return mic
             .landedPill(on: true, size: size, namespace: micSpace)
     }
 
@@ -696,7 +699,8 @@ struct MainView: View {
                       if watcher.isShowing, !isRecording { windowViaDock = false }
                       model.toggleRecording()
                   },
-                  size: size)
+                  size: size,
+                  onCancel: { holding = false; stopOnRelease = false; startedByPress = false; model.cancelRecording() })
     }
 
     /// A window shows on the cover or a regular iPhone (not while the mic is open over it): the

@@ -8,6 +8,34 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## Cancel a dictation; the words once on the Duo; errors in full; no impossible shapes (Nov 10 2026)
+
+Sameer on build 42. Frames: `docs/screens/cancel-nov10/`.
+- **Cancel** (`MicButton(onCancel:cancelDistance:)`, id `mic-cancel`): while the mic is open a round
+  × sits to the disc's right (48 pt glass; default `size/2 + 20 + 24` from the middle) on every
+  mic — phone, cover, the Duo's one mic, full screen's trio (there it takes the trackpad button's
+  slot, `cancelDistance` 59, the trackpad button gone while recording). A tap cancels; a finger
+  holding the mic slides onto it (it swells and turns rose, a tick) and lets go there.
+  `AppModel.cancelRecording()` → `cancelling` → `recordingFinished` returns before anything is
+  cleaned, written, queued or sent: "Cancelled — nothing was sent" for 2.5 s. Hook
+  `MACROPHONE_WATCH_ACTIONS=…,cancelrecord`; on a Duo sim against serve: no `RECEIVED` after it.
+- **The words you're saying show once on the inner screen's side pose**: the card over the window
+  (`DuoMacHalf.screen`'s floating overlay) is gone — nothing over the window — and the deck's card
+  ends above the mic (`DuoDeck.room`: its height is the room over the disc, `threadTop + slot`; it
+  had been sized as if the mic sat at the room's foot, so the disc covered its last lines).
+- **Trouble is never cut with "…"** (`StatusLine.trouble`: a miss, a `.problem`, a `.notice`): no
+  line limit and `fixedSize` vertically — it grows down out of its slot. Not seen on a real miss.
+- **A view bigger than the screen is never a window's shape** (`Watcher.plausible`: no side past
+  the screen's long side; aspect ≥ 0.42, was 0.3): his Mac's log on the cover — "watch fit to
+  iPhone: 925×1084 → 340×1084, took 600×1084" 0.5 s after a right shape ahead — is a 362 × ~1,170
+  measure (a layout pass with no height offered) that the 0.3 bound let through, so Claude came up
+  narrow. Not reproduced on a Duo sim cover (three opens, with and without a dictation: one 0.85
+  shape each); the fix is the bound. If it shows again the phone's log says "isn't a window's shape".
+- **Open: "sometimes the text doesn't start appearing right away" when recording.** Not looked
+  into (the simulator has no SpeechTranscriber). Suspects: the analyzer not made ahead (the log's
+  "SpeechAnalyzer, made now" and "first words N ms after the tap") — needs his phone's log.
+- Pro: Resizable, FullScreen (3), InputCarousel (4), Stability, DesktopWindow, UndoChip (7) pass.
+
 ## The inner screen's keyboard, upright (Nov 9 2026) — wins over "The laptop's keyboard" in the fix-up pass
 
 Two of Sameer's screenshots from his Duo. Frames: `docs/screens/duo/nov9-keyboard/`.

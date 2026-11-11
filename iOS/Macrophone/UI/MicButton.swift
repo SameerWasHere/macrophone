@@ -43,9 +43,19 @@ struct MicButton: View {
     /// The disc's size: the phone's 92, or larger on the iPhone Duo's deck (Oct 25 2026), where
     /// the mic has a half of the inner screen to itself.
     var size: CGFloat = 92
+    /// Throw the recording away (Nov 10 2026, Sameer: "not a clear way to cancel my send … a cancel
+    /// button that appears on like the right of the mic that I can like either swipe to or tap"):
+    /// while the mic is open a round × sits to the disc's right — a tap cancels, and a finger
+    /// holding the mic can slide onto it and let go there. Nil: no way to cancel here.
+    var onCancel: (() -> Void)? = nil
+    /// The ×'s middle, from the disc's (the default clears the ring; full screen's trio has a slot).
+    var cancelDistance: CGFloat? = nil
 
     static let holdThreshold: TimeInterval = 0.3
+    static let cancelSize: CGFloat = 48
     @State private var pressedAt: Date?
+    /// The holding finger is over the ×: letting go there cancels.
+    @State private var overCancel = false
     /// Resets itself if the system cancels the touch (a permission alert, a call banner),
     /// which never reaches onEnded — without it the button would stay "held" forever.
     @GestureState private var touching = false
@@ -75,7 +85,7 @@ struct MicButton: View {
             glyph
         }
         .frame(width: size * 1.3, height: size * 1.25)
-        .scaleEffect(pressed ? 0.93 : 1)
+        .scaleEffect(pressed && !overCancel ? 0.93 : 1)
         .animation(Motion.pick(Motion.snap, reduce: reduceMotion), value: pressed)
         .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: recording)
         .animation(.easeInOut(duration: 0.25), value: finishing)
@@ -86,7 +96,12 @@ struct MicButton: View {
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .local)
                 .updating($touching) { _, state, _ in state = true }
-                .onChanged { _ in
+                .onChanged { v in
+                    if pressedAt != nil, onCancel != nil {
+                        // Sliding onto the × (a generous reach round it).
+                        let over = recording && hypot(v.location.x - cancelSpot.x, v.location.y - cancelSpot.y) < Self.cancelSize * 0.85
+                        if over != overCancel { overCancel = over; if over { Haptics.pick() } }
+                    }
                     guard pressedAt == nil, !disabled else { return }
                     pressedAt = Date()
                     onDown()
@@ -95,15 +110,46 @@ struct MicButton: View {
                     guard pressedAt != nil else { return }
                     let held = pressedAt.map { Date().timeIntervalSince($0) } ?? 0
                     pressedAt = nil
+                    if overCancel, let onCancel {
+                        overCancel = false
+                        onUp(0)        // the press is over (as a tap: nothing is sent by it)…
+                        onCancel()     // …and the recording is thrown away
+                        return
+                    }
                     onUp(held)
                 }
         )
+        .overlay {
+            if let onCancel, recording, !finishing {
+                Button {
+                    onCancel()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(overCancel ? Color.white : Ink.ink)
+                        .frame(width: Self.cancelSize, height: Self.cancelSize)
+                        .background(Circle().fill(Light.rose).opacity(overCancel ? 1 : 0))
+                        .background(.regularMaterial, in: Circle())
+                        .overlay(Circle().strokeBorder(Ink.line, lineWidth: 0.5))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .scaleEffect(overCancel ? 1.18 : 1)
+                .animation(.spring(response: 0.22, dampingFraction: 0.7), value: overCancel)
+                .position(cancelSpot)
+                .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                .accessibilityLabel("Cancel dictation")
+                .accessibilityHint("Throws away what you said. Nothing is sent.")
+                .accessibilityIdentifier("mic-cancel")
+            }
+        }
         .onChange(of: touching) { _, now in
             guard !now else { return }
             // Give onEnded the first word; if it never came, the touch was cancelled.
             DispatchQueue.main.async {
                 guard pressedAt != nil else { return }
                 pressedAt = nil
+                overCancel = false
                 onUp(0)   // treated as a tap: a recording it started keeps going
             }
         }
@@ -118,6 +164,11 @@ struct MicButton: View {
         .disabled(disabled)
         .accessibilityShowsLargeContentViewer { Label(accessibilityLabel, systemImage: largeContentSymbol) }
         .accessibilityIdentifier("mic-button")
+    }
+
+    /// Where the × sits, in the button's own frame.
+    private var cancelSpot: CGPoint {
+        CGPoint(x: size * 0.65 + (cancelDistance ?? size / 2 + 20 + Self.cancelSize / 2), y: size * 0.625)
     }
 
     // MARK: The glyph

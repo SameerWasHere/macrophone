@@ -769,6 +769,22 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The recording is thrown away: nothing is cleaned, sent, queued or kept (Nov 10 2026).
+    private var cancelling = false
+    func cancelRecording() {
+        #if DEBUG
+        let simulating = debugSimulating
+        #else
+        let simulating = false
+        #endif
+        guard recorder.isActive || simulating else { return }
+        cancelling = true
+        fixDraft = nil
+        heldOutcome = nil
+        log.add("recording cancelled")
+        stopRecording()
+    }
+
     func stopRecording() {
         #if DEBUG
         if debugSimulating {
@@ -946,6 +962,15 @@ final class AppModel: ObservableObject {
     }
 
     private func recordingFinished(_ o: Recorder.Outcome) {
+        if cancelling {
+            cancelling = false
+            wordFixes = []
+            recordingOverride = nil
+            resolveTextWaiters(nil)
+            status = .notice("Cancelled — nothing was sent")
+            scheduleStatusReset(after: 2.5)
+            return
+        }
         // A word's card is up: the words wait until it's done.
         if fixDraft != nil {
             heldOutcome = o

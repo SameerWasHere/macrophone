@@ -519,6 +519,9 @@ enum DebugHooks {
                         ShakeToUndo.shaken()
                     } else if a.hasPrefix("fixopen@"), let i = Int(a.dropFirst(8)) {
                         model.beginFix(i)
+                    } else if a == "cancelrecord" {
+                        // The mic's ×: the recording thrown away.
+                        model.cancelRecording()
                     } else if a == "record" || a == "stoprecord" {
                         // The mic button's tap, as pressed (with MACROPHONE_SIM_RECORD's words).
                         if a == "record" { Task { await model.startRecording() } } else { model.stopRecording() }

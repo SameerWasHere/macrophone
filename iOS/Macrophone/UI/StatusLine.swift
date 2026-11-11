@@ -102,6 +102,11 @@ struct StatusLine: View {
             .foregroundStyle(legible ? Ink.ink : Ink.secondary)
             .multilineTextAlignment(.center)
             .minimumScaleFactor(0.6)
+            // Something went wrong: every word shows, on as many lines as it takes — it grows
+            // down out of its slot rather than end in "…" (Nov 10 2026, Sameer: "We should never
+            // have ellipses. I should always be able to see the full text when there's an error").
+            .lineLimit(trouble ? nil : lineLimit)
+            .fixedSize(horizontal: false, vertical: trouble)
             .shadow(color: legible ? Ink.ground.opacity(0.7) : color.opacity(0.25), radius: legible ? 5 : 6)
     }
 
@@ -111,6 +116,17 @@ struct StatusLine: View {
         if case .landed(let l) = model.status { return l.isSuccess }
         return false
     }
+
+    /// A miss, a problem or a caution is showing: never cut short.
+    private var trouble: Bool {
+        if landedMiss { return true }
+        if recorder.phase == .recording || recorder.phase == .starting { return false }
+        switch model.status {
+        case .problem, .notice: return true
+        default: return false
+        }
+    }
+    @Environment(\.lineLimit) private var lineLimit
 
     private var landedMiss: Bool {
         if model.note != nil { return false }
