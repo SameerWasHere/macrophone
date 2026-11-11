@@ -272,6 +272,9 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac (only to a Mac naming ChatAnswers.feature): "When a chat answers you" turned
     /// on or off on the phone (its hello says how it stands at each connect).
     case chatAnswers(on: Bool)
+    /// Phone → Mac (only to a Mac naming LiveTyping.feature): a step of a dictation typed as he
+    /// speaks, or its cancel (Core/LiveTyping.swift).
+    case livePiece(LivePiece)
     // Either way
     case ping
     case pong

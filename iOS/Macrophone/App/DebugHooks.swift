@@ -41,6 +41,8 @@ import UIKit
 /// MACROPHONE_CLEANUP_AVAILABLE=1             treat on-device cleanup as available (the simulator may not have it)
 /// MACROPHONE_FAKE_CLEANUP=1                  a stand-in cleaner: the words come back as spoken, marked cleaned at the
 ///                                            level, so the route (and the Mac) see the level the real model would run
+/// MACROPHONE_FAKE_EDIT=1                     the final words edited as cleanup would (Type as I speak's correction)
+/// MACROPHONE_TYPE_LIVE=1|0                   Type as I speak on / off for this run (not saved)
 /// MACROPHONE_ROUTE_PROBE=1                   a hidden "debug-route" element reads the last dictation's target/send/cleanup
 ///                                            (and, at Custom, the instructions the cleaner was given)
 /// MACROPHONE_INTENT_TARGET=clipboard|front|<name>  runs Start Dictation the way a Shortcut / control does, with that
@@ -201,6 +203,15 @@ enum DebugHooks {
         if let text = env["MACROPHONE_CUSTOM_INSTRUCTIONS"] {
             if text == "default" { d.removeObject(forKey: Settings.K.customInstructions) } else { d.set(text, forKey: Settings.K.customInstructions) }
         }
+    }
+
+    /// `MACROPHONE_FAKE_EDIT=1`: a stand-in cleanup that changes the words the way Medium often does
+    /// (filler out, a capital, a full stop), so Type as I speak's correction at the end shows.
+    static func fakeEdit(_ raw: String) -> String {
+        var words = raw.split(separator: " ").map(String.init).filter { !["um", "uh"].contains($0.lowercased()) }
+        if let f = words.first { words[0] = f.prefix(1).uppercased() + f.dropFirst() }
+        let s = words.joined(separator: " ")
+        return s.hasSuffix(".") ? s : s + "."
     }
 
     /// The stand-in cleaner (`MACROPHONE_FAKE_CLEANUP`): what the real one would be told, without the model.

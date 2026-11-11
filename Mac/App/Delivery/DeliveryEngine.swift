@@ -18,6 +18,9 @@ final class DeliveryEngine {
 
     init(app: AppModel) { self.app = app }
 
+    /// Type as I speak: the pieces typed while he talks, and the end that puts them right.
+    private(set) lazy var live = LiveTyper(app: app, engine: self)
+
     private var settings: Settings { app.settings }
     private var popup: PopupController { app.popup }
     private var log: DiagnosticLog { app.log }
@@ -83,7 +86,13 @@ final class DeliveryEngine {
         var early: PasteFailure?
         if !delayed, case .paste(let t, _, _) = route { early = Paster.precheck(t) }
         app.statusItemCue(.arriving(d.id))
-        deliver(d.text, id: d.id, route: route, delayed: delayed, source: source, early: early)
+        if let pieces = d.livePieces, case .paste = route, early == nil {
+            // The end of a dictation typed as he spoke: what was typed is put right (LiveTyper).
+            live.finish(d, pieces: pieces, route: route, delayed: delayed, source: source)
+        } else {
+            if d.livePieces != nil { live.close(d.id) }
+            deliver(d.text, id: d.id, route: route, delayed: delayed, source: source, early: early)
+        }
         return (.delivered, ack(route, delayed: delayed, early: early))
     }
 
@@ -99,6 +108,11 @@ final class DeliveryEngine {
     }
 
     // MARK: Clipboard, Where I'm typing, an app
+
+    /// The usual way (Type as I speak falls back here for anything it can't do safely).
+    func deliverNow(_ text: String, id: UUID, route: Route, delayed: Bool, source: String, early: PasteFailure?) {
+        deliver(text, id: id, route: route, delayed: delayed, source: source, early: early)
+    }
 
     private func deliver(_ text: String, id: UUID, route: Route, delayed: Bool, source: String, early: PasteFailure?) {
         if delayed {
@@ -257,6 +271,9 @@ final class DeliveryEngine {
     /// The last paste that wasn't sent: what the phone's Undo can take back.
     private struct LastPaste { var id: UUID; var pid: pid_t; var windowID: CGWindowID?; var appName: String; var at: Date }
     private var lastPaste: LastPaste?
+
+    /// A newer landing that can't be undone (typed live): the one before can't be either.
+    func forgetLastPaste() { lastPaste = nil }
 
     /// The phone's Undo: only this Mac's last paste, not sent, a moment ago — its app (and window)
     /// brought forward, then ⌘Z, the way the person would take it back here.

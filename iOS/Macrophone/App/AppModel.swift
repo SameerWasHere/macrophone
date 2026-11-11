@@ -266,6 +266,12 @@ final class AppModel: ObservableObject {
             .debounce(for: .milliseconds(350), scheduler: RunLoop.main)
             .sink { [weak self] settled in self?.cleanAhead(settled) }
             .store(in: &bag)
+        // Type as I speak: each change of the settled words is a piece for the Mac (LiveTyping).
+        recorder.words.$parts
+            .map(\.settled)
+            .removeDuplicates()
+            .sink { [weak self] settled in self?.typeLive(settled) }
+            .store(in: &bag)
         recorder.$softCapReached.filter { $0 }.sink { [weak self] _ in
             Haptics.caution()
             self?.objectWillChange.send()
@@ -732,6 +738,7 @@ final class AppModel: ObservableObject {
         let override = asked ?? (watcher.fullScreen && watcher.isShowing
             ? SendSelection(target: .frontApp, send: false) : watchedPlace)
         recordingOverride = override
+        beginLiveTyping(place: override?.target ?? selection.target)
         #if DEBUG
         // UI tests drive the real button and gestures with a stand-in recognizer
         // (the simulator can't load speech assets).
@@ -964,6 +971,7 @@ final class AppModel: ObservableObject {
     private func recordingFinished(_ o: Recorder.Outcome) {
         if cancelling {
             cancelling = false
+            takeBackLiveTyping("cancelled")
             wordFixes = []
             recordingOverride = nil
             resolveTextWaiters(nil)
@@ -979,6 +987,7 @@ final class AppModel: ObservableObject {
         }
         let raw = WordFixes.apply(wordFixes, to: o.raw.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !raw.isEmpty else {
+            takeBackLiveTyping("nothing to send")
             if o.reason == .recognizerFailed {
                 status = .problem("Speech recognition couldn't start on this iPhone. Try again in a moment.", openSettings: false)
                 Haptics.failed()
@@ -1005,16 +1014,23 @@ final class AppModel: ObservableObject {
         // recording may set its own before the task below runs).
         let route = route(for: raw)
         recordingOverride = nil
-        let id = UUID()
+        // Typed live: the same id as its pieces, and how many went, so the Mac puts them right
+        // (and a recovered copy after a kill is reconciled, not pasted twice).
+        let live = typist.flatMap { $0.typedAny ? $0 : nil }
+        typist = nil
+        let id = live?.id ?? UUID()
+        let livePieces = live?.seq
+        if let live { typedLive.insert(id); log.add("live: \(live.seq) pieces, \(live.characters) characters typed, \(live.deleted) taken back") }
         if let mac = client.activeMac {
             inFlightWords.append(Dictation(id: id, raw: route.body, language: o.language, target: route.target, send: route.send,
                                            targetSpoken: route.spokenTarget ? true : nil, stoppedEarly: o.reason.isEarly,
-                                           duration: o.duration, sourceDevice: settings.deviceName), delayed: true, mac: mac.id)
+                                           duration: o.duration, sourceDevice: settings.deviceName, livePieces: livePieces),
+                                 delayed: true, mac: mac.id)
         }
-        Task { await finish(id: id, raw: raw, route: route, outcome: o) }
+        Task { await finish(id: id, raw: raw, route: route, outcome: o, livePieces: livePieces) }
     }
 
-    private func finish(id: UUID, raw: String, route: Route, outcome o: Recorder.Outcome) async {
+    private func finish(id: UUID, raw: String, route: Route, outcome o: Recorder.Outcome, livePieces: Int? = nil) async {
         processing = true
         inFlight += 1
         defer { processing = false; inFlight -= 1 }
@@ -1038,13 +1054,18 @@ final class AppModel: ObservableObject {
             let outcome = result == nil ? "timed out, kept raw" : (cleaned == nil ? "kept raw (\(result?.skipped ?? "unchanged"))" : (partial ? "partly applied (deadline)" : "applied"))
             log.add("cleanup \(level.rawValue): \(outcome) in \(Int(Date().timeIntervalSince(t0) * 1000))ms, \(route.body.count) chars")
         }
+        #if DEBUG
+        // A stand-in edit the simulator can show (no model there): "so um i think" → "So I think."
+        if DebugHooks.env["MACROPHONE_FAKE_EDIT"] == "1" { cleaned = DebugHooks.fakeEdit(route.body) }
+        #endif
         let cleanupRan = cleaned != nil
         if cleaned == nil, route.body != raw { cleaned = route.body }
         // Every dictation carries where it goes, so the Mac routes each one exactly (a sync race
         // can't misroute it).
         let d = Dictation(id: id, raw: raw, cleaned: cleaned, cleanupLevel: cleanupRan ? level : .off, language: o.language,
                           target: route.target, send: route.send, targetSpoken: route.spokenTarget ? true : nil,
-                          stoppedEarly: o.reason.isEarly, duration: o.duration, sourceDevice: settings.deviceName)
+                          stoppedEarly: o.reason.isEarly, duration: o.duration, sourceDevice: settings.deviceName,
+                          livePieces: livePieces)
         #if DEBUG
         routeProbe = "target=\(route.target.storageKey) send=\(route.send ? 1 : 0) cleanup=\(level.rawValue) said=\(route.spokenTarget ? 1 : 0) text=\(d.text)"
             + (level == .custom ? " | instructions=\(CleanupPrompts.customInstructions.prefix(80).replacingOccurrences(of: "\n", with: " "))" : "")
@@ -1057,6 +1078,55 @@ final class AppModel: ObservableObject {
         resolveTextWaiters(d.text)
         await deliver(d, resend: false)
         if o.reason == .hardCap { status = .notice("Stopped at 10:00, the limit for one dictation — it was sent") }
+    }
+
+    // MARK: Type as I speak (Nov 10 2026)
+
+    /// This recording's words typed on the Mac as they settle (nil = not typing live).
+    private var typist: LiveTypist?
+    /// Dictations that were typed live (no Undo for them: History, the pill and a shake agree).
+    private var typedLive: Set<UUID> = []
+    /// The next recording was started by Siri / Shortcuts / the Action Button.
+    private var startedByIntent = false
+
+    /// A recording starts: type it live if he asked for it and this Mac can, and the words go to an
+    /// app or where he's typing (never the Clipboard), and he started it here.
+    private func beginLiveTyping(place: TargetRef) {
+        typist = nil
+        let byIntent = startedByIntent
+        startedByIntent = false
+        var on = settings.typeAsISpeak
+        #if DEBUG
+        if let v = DebugHooks.env["MACROPHONE_TYPE_LIVE"] { on = v == "1" }
+        #endif
+        guard on else { return }
+        let queued = client.activeMac.map { queue.hasEntries(for: $0.id) } ?? true
+        let why: String? = byIntent ? "started by a shortcut" : place == .clipboard ? "the Clipboard"
+            : !isConnected ? "not connected" : !client.macTypesLive ? "the Mac can't" : queued ? "earlier dictations queued" : nil
+        if let why { log.add("live: not this time (\(why))"); return }
+        typist = LiveTypist(id: UUID(), target: place)
+    }
+
+    /// The settled words changed while recording: the next piece, if there is one.
+    private func typeLive(_ settled: String) {
+        guard var t = typist, !t.stoodDown, recorder.isActive else { return }
+        defer { typist = t }
+        // A word's card is up: what's typed waits for the end (the fix goes in with the cleanup).
+        if fixDraft != nil { t.standDown(); log.add("live: stood down for a word's card"); return }
+        let r = route(for: settled.trimmingCharacters(in: .whitespacesAndNewlines))
+        // An app's name said first picks another place: nothing more goes here.
+        if r.target != t.target { t.standDown(); log.add("live: stood down — the place changed by voice"); return }
+        guard let p = t.next(settled: r.body) else { return }
+        if !client.sendLivePiece(p) { t.standDown(); log.add("live: stood down — the link went") }
+    }
+
+    /// The recording was thrown away (or heard nothing): the Mac takes back what it typed for it.
+    private func takeBackLiveTyping(_ why: String) {
+        guard var t = typist else { return }
+        typist = nil
+        guard t.typedAny else { return }
+        let ok = client.sendLivePiece(t.cancelPiece())
+        log.add("live: \(why) — \(ok ? "the Mac takes back" : "couldn't reach the Mac to take back") \(t.characters - t.deleted) characters")
     }
 
     // MARK: Cleanup while you talk (Oct 18 2026, the speed pass)
@@ -1323,7 +1393,8 @@ final class AppModel: ObservableObject {
         if l.isSuccess { Haptics.landed() } else { Haptics.failed() }
         if l.isSuccess {
             // Every landing is the Mac's newest paste: the one before can't be taken back any more.
-            let canUndo = result == .pasted && !late && client.macCanUndo
+            // Typed live: many keystrokes, which one ⌘Z can't take back — no Undo offered.
+            let canUndo = result == .pasted && !late && client.macCanUndo && !typedLive.contains(id)
             let now = Date()
             rememberUndoable(canUndo ? Undoable(id: id, landedAt: now, appName: l.chipWords.replacingOccurrences(of: "Pasted into ", with: "")) : nil)
             showChip(LandedChip(id: id, words: l.chipWords, ok: true, canUndo: canUndo, sent: result == .sent, landedAt: now))
@@ -1771,6 +1842,8 @@ final class AppModel: ObservableObject {
         sheet = nil
         showOnboarding = false
         guard !recorder.isActive else { return }
+        // Siri, Shortcuts, the Action Button: the usual path at the end, never typed live.
+        startedByIntent = true
         if UIApplication.shared.applicationState == .active {
             await startRecording(override: override)
         } else {
