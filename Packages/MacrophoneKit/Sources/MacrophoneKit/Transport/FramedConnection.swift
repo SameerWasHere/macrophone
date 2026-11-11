@@ -188,6 +188,8 @@ public final class SecureSession: @unchecked Sendable {
     /// The video lane's secrets (VideoLane.swift) and the lane, once one joins.
     let laneSecrets: LaneSecrets?
     let laneSlot = LaneSlot()
+    /// The video datagram path, once one opens (VideoDatagramPath.swift): ahead of the lane.
+    let datagramSlot = DatagramSlot()
 
     init(connection: FramedConnection, peerID: UUID, sendKey: SymmetricKey, receiveKey: SymmetricKey, isRemote: Bool = false,
          laneSecrets: LaneSecrets? = nil) {
@@ -224,6 +226,7 @@ public final class SecureSession: @unchecked Sendable {
     public func send(_ message: Message) async throws {
         // The window's pictures go on the video lane when there is one; if it fails they come
         // back here (the phone asks for a keyframe for any it missed).
+        if VideoLane.rides(message), let path = datagramSlot.get(), await path.send(message) { return }
         if VideoLane.rides(message), let lane = laneSlot.get() {
             do { try await lane.send(message); return } catch { detachLane(lane) }
         }
@@ -246,6 +249,7 @@ public final class SecureSession: @unchecked Sendable {
 
     public func close() {
         outbox.finish()
+        datagramSlot.closeAll()
         laneSlot.closeAll()
         connection.cancel()
     }

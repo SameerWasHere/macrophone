@@ -145,6 +145,11 @@ public final class LinkServer: @unchecked Sendable {
     /// Away from home, a phone that can may move the window's pictures to a connection of their
     /// own (VideoLane.swift); the welcome names it. Off only to prove the fallback (mpctl --no-lane).
     public var laneEnabled = true
+    /// Away from home, the video may go in UDP datagrams beside the lane (VideoDatagrams.swift);
+    /// the welcome names it. Off by default (`VideoDatagrams.enabledByDefault`, a defaults key).
+    /// Set before `start()`.
+    public var datagramsEnabled = VideoDatagrams.enabledByDefault
+    let datagramDoor = DatagramDoor()
     /// A swipe's steps and phases, handed on from the receive loop itself — sixty a second during
     /// a swipe, none of them through the main actor. Set once at start; while set, the delegate
     /// doesn't hear them.
@@ -220,6 +225,7 @@ public final class LinkServer: @unchecked Sendable {
         let params = Self.parameters()
         let config = lock.sync { remote }
         if let config { startAway(port: config.port) }
+        if let config, datagramsEnabled { datagramDoor.start(port: config.port, server: self) } else { datagramDoor.stop() }
         do {
             let l = try NWListener(using: params)
             let txt = NWTXTRecord(["id": identity.id.uuidString, "v": String(Product.protocolVersion)])
@@ -299,6 +305,7 @@ public final class LinkServer: @unchecked Sendable {
         let away = awayListener
         awayListener = nil
         away?.cancel()
+        datagramDoor.stop()
         let all = Array(sessions.values)
         sessions.removeAll()
         lock.unlock()
@@ -588,7 +595,7 @@ public final class LinkServer: @unchecked Sendable {
                 }
                 let p = peer
                 try await session.send(.welcome(macName: identity.name, appVersion: self.appVersion,
-                                                features: macFeatures + (laneEnabled ? [VideoLane.feature] : [])))
+                                                features: macFeatures + (laneEnabled ? [VideoLane.feature] : []) + (datagramsEnabled ? [VideoDatagrams.feature] : [])))
                 try await session.send(.targets(EveryApp.list(await targetsOnMain(), for: Set(phoneFeatures ?? []))))
                 // Only a phone that named "remote" gets the addresses (an unknown message would end
                 // an older phone's session).

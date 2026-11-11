@@ -169,7 +169,7 @@ final class Rig: @unchecked Sendable {
     }
 
     @MainActor
-    static func make(port: UInt16) async throws -> Rig {
+    static func make(port: UInt16, datagrams: Bool = false, dial: UInt16? = nil) async throws -> Rig {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lane-\(UUID().uuidString)")
         let key = SymmetricKey(size: .bits256)
         let macID = UUID(), phoneID = UUID()
@@ -181,12 +181,15 @@ final class Rig: @unchecked Sendable {
         let mac = MacSide()
         server.delegate = mac
         server.macFeatures = [WatchVideo.feature]
+        server.datagramsEnabled = datagrams
         server.setRemote(RemoteConfig(port: port))
         server.start()
         let client = LinkClient(identity: DeviceIdentity(id: phoneID, name: "Test iPhone"), store: phoneStore, appVersion: "test", osDescription: "test")
         let phone = PhoneSide()
         client.delegate = phone
         client.browsesBonjour = false
+        client.datagramsEnabled = datagrams
+        client.datagramPort = dial
         client.features = [WatchVideo.feature, MacPermissions.feature]
         // The away door takes a moment to open.
         try await Task.sleep(nanoseconds: 300_000_000)

@@ -42,10 +42,17 @@ enum LossyRelay {
         }
         l.stateUpdateHandler = { s in if case .ready = s { stdout("RELAY on \(listen) → \(to.display) · loss \(model.loss * 100)% · round trip \(Int(model.rtt * 1000)) ms") } }
         l.start(queue: queue)
+        // UDP on the same port (video datagrams): each datagram on its own — lost, or late by
+        // the one-way trip (plus --jitter, or --reorder's extra 5–25 ms that lets later ones pass).
+        let udpModel = LinkModel(loss: model.loss, rtt: model.rtt, seed: (UInt64(flag("--seed") ?? "1") ?? 1) &+ 7)
+        let udp = UDPRelay(listen: port, to: to.endpoint, model: udpModel, queue: queue,
+                           reorder: Double(flag("--reorder") ?? "0") ?? 0, jitter: (Double(flag("--jitter") ?? "0") ?? 0) / 1000)
+        udp?.start()
         while true {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             let (s, lost) = queue.sync { (model.segments, model.lost) }
-            if has("--verbose") { stdout("RELAY \(s) segments, \(lost) lost") }
+            let (d, dl) = queue.sync { (udpModel.segments, udpModel.lost) }
+            if has("--verbose") { stdout("RELAY \(s) segments, \(lost) lost · \(d) datagrams, \(dl) lost") }
         }
     }
 }
@@ -67,6 +74,20 @@ final class LinkModel: @unchecked Sendable {
         self.rng = seed &* 0x9E37_79B9_7F4A_7C15 | 1
     }
 
+    /// A uniform number in [0, 1) from the same seeded generator.
+    func unit() -> Double {
+        rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17
+        return Double(rng % 1_000_000) / 1_000_000
+    }
+
+    /// For a datagram: whether it's lost (the same chance as a TCP segment).
+    func drops() -> Bool {
+        segments += 1
+        guard unit() < loss else { return false }
+        lost += 1
+        return true
+    }
+
     /// How late this segment arrives past its one-way trip (0, or a round trip if it's lost).
     func extraDelay() -> TimeInterval {
         segments += 1
@@ -74,6 +95,67 @@ final class LinkModel: @unchecked Sendable {
         guard Double(rng % 1_000_000) / 1_000_000 < loss else { return 0 }
         lost += 1
         return rtt
+    }
+}
+
+/// The relay's UDP side: per sender address, a connection to the Mac's port; each datagram dropped
+/// (`LinkModel.drops`) or held to its arrival time — no order kept, as a real path keeps none.
+final class UDPRelay: @unchecked Sendable {
+    let listener: NWListener
+    let to: NWEndpoint
+    let model: LinkModel
+    let queue: DispatchQueue
+    let reorder: Double
+    let jitter: TimeInterval
+    private var flows: [NWConnection] = []
+    private var waiting: [(due: DispatchTime, data: Data, to: NWConnection)] = []
+    private lazy var timer: DispatchSourceTimer = {
+        let t = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
+        t.setEventHandler { [weak self] in self?.deliver() }
+        t.schedule(deadline: .distantFuture, leeway: .nanoseconds(0))
+        t.activate()
+        return t
+    }()
+
+    init?(listen: NWEndpoint.Port, to: NWEndpoint, model: LinkModel, queue: DispatchQueue, reorder: Double, jitter: TimeInterval) {
+        guard let l = try? NWListener(using: .udp, on: listen) else { return nil }
+        listener = l; self.to = to; self.model = model; self.queue = queue; self.reorder = reorder; self.jitter = jitter
+    }
+
+    func start() {
+        listener.newConnectionHandler = { [weak self] inbound in
+            guard let self else { return }
+            let out = NWConnection(to: self.to, using: .udp)
+            self.flows += [inbound, out]
+            inbound.start(queue: self.queue); out.start(queue: self.queue)
+            self.read(inbound, out); self.read(out, inbound)
+            stdout("RELAY datagram flow \(self.flows.count / 2)")
+        }
+        listener.start(queue: queue)
+    }
+
+    private func read(_ from: NWConnection, _ to: NWConnection) {
+        from.receiveMessage { [weak self] data, _, _, error in
+            guard let self else { return }
+            if let data, !self.model.drops() {
+                var late = self.model.rtt / 2 + self.jitter * self.model.unit()
+                if self.model.unit() < self.reorder { late += 0.005 + 0.02 * self.model.unit() }
+                let due = DispatchTime.now() + late
+                let i = self.waiting.firstIndex { $0.due > due } ?? self.waiting.count
+                self.waiting.insert((due, data, to), at: i)
+                if i == 0 { self.timer.schedule(deadline: due, leeway: .nanoseconds(0)) }
+            }
+            if error == nil { self.read(from, to) }
+        }
+    }
+
+    private func deliver() {
+        let now = DispatchTime.now()
+        while let first = waiting.first, first.due <= now {
+            first.to.send(content: first.data, completion: .idempotent)
+            waiting.removeFirst()
+        }
+        timer.schedule(deadline: waiting.first?.due ?? .distantFuture, leeway: .nanoseconds(0))
     }
 }
 
@@ -194,6 +276,9 @@ enum Probe {
         let seconds = Double(flag("--seconds") ?? "20") ?? 20
         let every = Double(flag("--every") ?? "0.1") ?? 0.1
         let framesBefore = d.frames, bytesBefore = d.bytes
+        let decodedBefore = d.decoded, asksBefore = d.keyframeAsks
+        d.deliveryMs = []
+        let dgBefore = client.videoDatagramStats
         var times: [Double] = []
         var missed = 0
         let end = Date().addingTimeInterval(seconds)
@@ -205,6 +290,10 @@ enum Probe {
         }
         let frames = d.frames - framesBefore, kb = (d.bytes - bytesBefore) / 1024
         let lane = client.hasVideoLane
+        let datagrams = client.hasVideoDatagrams
+        let dg = client.videoDatagramStats
+        let decoded = d.decoded - decodedBefore, asks = d.keyframeAsks - asksBefore
+        let delivery = d.deliveryMs.sorted()
         client.watch(nil)
         try? await Task.sleep(nanoseconds: 200_000_000)
         client.stop()
@@ -217,6 +306,18 @@ enum Probe {
         stdout("PROBE \(times.count) round trips (\(missed) unanswered) · lane \(lane ? "yes" : "no") · "
                + "mean \(Int(mean.rounded())) ms · over \(Int(slow)) ms \(String(format: "%.1f", late))% · median \(pct(0.5)) ms · p95 \(pct(0.95)) ms · p99 \(pct(0.99)) ms · max \(Int(times.last ?? -1)) ms · "
                + "video \(frames) frames, \(kb) KB (\(String(format: "%.1f", Double(frames) / seconds)) a second)")
+        func dpct(_ p: Double) -> Int { delivery.isEmpty ? -1 : Int(delivery[min(delivery.count - 1, Int(Double(delivery.count) * p))].rounded()) }
+        stdout("FRAMES \(String(format: "%.1f", Double(decoded) / seconds)) decoded a second (\(decoded) of \(frames) received) · keyframes asked \(asks) · "
+               + "delivery p50 \(dpct(0.5)) ms · p95 \(dpct(0.95)) ms · max \(Int(delivery.last ?? -1)) ms (\(delivery.count) stamped)")
+        if let dg {
+            let b = dgBefore ?? VideoDatagramStats()
+            let payload = dg.payload - b.payload, wire = dg.bytesIn - b.bytesIn
+            stdout("DATAGRAMS \(datagrams ? "on" : "off") · \(dg.datagramsIn - b.datagramsIn) in · overhead \(payload > 0 ? String(format: "%.1f", Double(wire - payload) / Double(payload) * 100) : "-")% · "
+                   + "\(dg.framesDelivered - b.framesDelivered) frames, \(dg.framesSkipped - b.framesSkipped) given up · \(dg.recoveredByParity - b.recoveredByParity) rebuilt from parity · "
+                   + "\(dg.nacks - b.nacks) NACKs · \(dg.resends - b.resends) resends used · rtt \(dg.rttMillis) ms")
+        } else {
+            stdout("DATAGRAMS none")
+        }
         return times.isEmpty ? 1 : 0
     }
 }
