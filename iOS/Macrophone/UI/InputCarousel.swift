@@ -334,8 +334,7 @@ struct TrackpadBar: View {
             Text("Two fingers scroll")
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(Ink.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .oneLine(shrink: 0.7)
                 .frame(width: 96)
                 .accessibilityHidden(true)
             button("xmark", "Close the trackpad", "trackpad-bar-close") { go(.mic) }

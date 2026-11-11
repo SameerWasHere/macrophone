@@ -1537,8 +1537,8 @@ struct DuoGlance: View {
 
     private var connectingWords: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(Places.appName(model.selection.target, in: model)).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
-            Text(model.reconnecting ? "Reconnecting to \(model.macName)…" : "Connecting to \(model.macName)…").font(.caption).foregroundStyle(Ink.secondary).lineLimit(1)
+            Text(Places.appName(model.selection.target, in: model)).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).oneLine()
+            Text(model.reconnecting ? "Reconnecting to \(model.macName)…" : "Connecting to \(model.macName)…").font(.caption).foregroundStyle(Ink.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1554,17 +1554,19 @@ struct DuoGlance: View {
 
     private var liveWords: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(watcher.name).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
+            Text(watcher.name).font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink).oneLine()
             Group {
                 switch watcher.phase {
-                case .paused: Text("Paused · Show it here to go on").foregroundStyle(Light.ochre)
+                // (Just the word: the button beside it says how to go on — the longer line was cut.)
+                case .paused: Text("Paused").foregroundStyle(Light.ochre)
                 // The link dropped: the picture holds, and says so calmly (Nov 5 2026).
                 case .reconnecting: Text(watcher.firstConnect && !watcher.appReconnecting ? "Connecting to \(model.macName)…" : "Reconnecting to \(model.macName)…").foregroundStyle(Ink.secondary)
                 case .offline: Text("\(model.macName) isn't connected").foregroundStyle(Light.ochre)
                 default: Text("Live on your Mac").foregroundStyle(Ink.secondary)
                 }
             }
-            .font(.caption).lineLimit(1)
+            // Whole, on a second line when a long Mac name needs one: never cut.
+            .font(.caption).fixedSize(horizontal: false, vertical: true)
         }
     }
 

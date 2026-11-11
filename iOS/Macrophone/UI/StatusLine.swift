@@ -97,17 +97,25 @@ struct StatusLine: View {
         // (on a page; over a wallpaper its mark does that).
         var t = mark + Text("\u{2002}") + (miss && !legible ? Text(text).foregroundColor(color) : Text(text))
         if link { t = t + Text("  Open Settings").foregroundColor(legible ? Ink.ink : Light.cyan).fontWeight(.semibold) }
-        return t
-            .font(font)
+        let styled = t
             .foregroundStyle(legible ? Ink.ink : Ink.secondary)
             .multilineTextAlignment(.center)
-            .minimumScaleFactor(0.6)
-            // Something went wrong: every word shows, on as many lines as it takes — it grows
-            // down out of its slot rather than end in "…" (Nov 10 2026, Sameer: "We should never
-            // have ellipses. I should always be able to see the full text when there's an error").
-            .lineLimit(trouble ? nil : lineLimit)
-            .fixedSize(horizontal: false, vertical: trouble)
             .shadow(color: legible ? Ink.ground.opacity(0.7) : color.opacity(0.25), radius: legible ? 5 : 6)
+        // Never cut with "…" (Nov 10 2026, Sameer: "The dot dot dot should never happen anywhere
+        // in the app"): every word shows, on as many lines as it takes. A line too long for its
+        // slot steps down a size or two to fit whole; if it still doesn't — or something went
+        // wrong, which is read at full size — it grows down out of the slot.
+        return Group {
+            if trouble {
+                styled.font(font).fixedSize(horizontal: false, vertical: true)
+            } else {
+                ViewThatFits(in: .vertical) {
+                    styled.font(font).fixedSize(horizontal: false, vertical: true)
+                    styled.font(.caption).fixedSize(horizontal: false, vertical: true)
+                    styled.font(.caption2).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     private var landedWell: Bool {
@@ -126,7 +134,6 @@ struct StatusLine: View {
         default: return false
         }
     }
-    @Environment(\.lineLimit) private var lineLimit
 
     private var landedMiss: Bool {
         if model.note != nil { return false }

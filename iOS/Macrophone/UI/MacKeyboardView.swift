@@ -549,18 +549,17 @@ struct MacKeyboardBar: View {
         return Group {
             if showing {
                 // The newest letters at the right edge; the oldest go first.
-                Text(words).truncationMode(.head)
+                Text(words).oneLine(fading: .leading, shrink: 1)
             } else {
                 // Where it goes, shortened to the app's name where the row is narrow.
                 ViewThatFits(in: .horizontal) {
-                    Text(words)
-                    Text(waiting ? words : watcher.name).truncationMode(.tail)
+                    Text(words).lineLimit(1).fixedSize()
+                    Text(waiting ? words : watcher.name).oneLine()
                 }
             }
         }
             .font(.footnote.weight(waiting ? .semibold : .regular))
             .foregroundStyle(waiting ? Light.cyan : showing ? Ink.secondary : Ink.tertiary)
-            .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
             .animation(.easeOut(duration: 0.25), value: showing)

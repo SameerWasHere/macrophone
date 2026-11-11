@@ -544,10 +544,9 @@ struct MainView: View {
                             // One line in its 18 pt: a longer one (the trackpad's how-to) ran
                             // over the mic and its buttons above (Nov 4 2026).
                             StatusLine(recorder: recorder, holding: holding || look == "holding", font: .caption2, swap: true, legible: true)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
+                                // (Never cut: a longer one grows down, toward the screen's foot.)
                                 .padding(.horizontal, 12)
-                                .frame(height: 18)
+                                .frame(height: 18, alignment: .top)
                                 // The landed pill sits here while it shows: centred on the line,
                                 // clear of the mic and the buttons beside it (hung from the mic's
                                 // frame it rode up over the disc and both buttons — Nov 4 2026);
@@ -1228,10 +1227,8 @@ struct DestinationLine: View {
         return Text(parts.joined(separator: " · "))
             .font(.footnote.weight(.medium))
             .foregroundStyle(live.byVoice ? Light.ember : Ink.tertiary)
-            // A long window name wraps to a second line rather than being cut with "…".
-            .lineLimit(2)
-            .minimumScaleFactor(0.7)
-            .fixedSize(horizontal: false, vertical: true)
+            // A long window name wraps to a second line; past that it fades, never "…".
+            .lines(2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(parts.joined(separator: ", "))
     }
@@ -1575,10 +1572,8 @@ struct RollingName: View {
         Text(shown?.name ?? name)
             .font(font)
             .foregroundStyle(color)
-            .lineLimit(oneLine ? 1 : nil)
-            .minimumScaleFactor(oneLine ? 0.85 : 1)
-            .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
+            .oneLine(if: oneLine)
             .opacity(rolling ? (reduceMotion ? Double(progress) : Double(0.2 + 0.8 * progress)) : 1)
             .offset(y: rolling && !reduceMotion ? (1 - progress) * travel * (leaving?.up == true ? 1 : -1) : 0)
             .overlay(alignment: .leading) {
@@ -1647,7 +1642,7 @@ struct MacAppNudge: View {
                     ViewThatFits(in: .horizontal) {
                         Text("Want it on your Mac? Get the free app").lineLimit(1).fixedSize()
                         Text("Get the free Mac app").lineLimit(1).fixedSize()
-                        Text("Get the free Mac app").font(.caption.weight(.semibold)).lineLimit(2)
+                        Text("Get the free Mac app").font(.caption.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                     }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Ink.ink)
@@ -1920,7 +1915,7 @@ struct LandedPill: View {
     private func pill(_ c: AppModel.LandedChip) -> some View {
         HStack(spacing: 8) {
             LandedGlyph(chip: c)
-            Text(c.words).font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
+            Text(c.words).font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink).oneLine(shrink: 0.75)
             if c.undoing {
                 ProgressView().controlSize(.small)
             } else if c.canUndo {

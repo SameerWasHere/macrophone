@@ -52,8 +52,7 @@ struct TrackpadPage: View {
                     }
                 }
                 .font(.footnote.weight(.medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .oneLine(shrink: 0.7)
                 .padding(.horizontal, 16)
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .allowsHitTesting(false)

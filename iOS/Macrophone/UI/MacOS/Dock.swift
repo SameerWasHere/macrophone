@@ -390,8 +390,7 @@ struct DockLabel: View {
             Text(text)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Ink.ink)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .oneLine()
                 .frame(maxWidth: 230)
             if let warning {
                 Text(warning).font(.system(size: 12, weight: .semibold)).foregroundStyle(Light.ochre)

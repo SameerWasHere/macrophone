@@ -211,7 +211,7 @@ struct PlacesRow: View {
             if cover {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     kicker.fixedSize()
-                    title(current, notOpen: notOpen, answered: answered).lineLimit(1).truncationMode(.middle)
+                    title(current, notOpen: notOpen, answered: answered).oneLine()
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, inset)
@@ -499,9 +499,8 @@ private struct PlaceButton: View {
                     Text(place.shortName)
                         .font(.caption2.weight(selected ? .semibold : .regular))
                         .foregroundStyle(selected ? Ink.onTint : Ink.secondary)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
                         .multilineTextAlignment(.center)
+                        .lines(2)
                         .frame(width: PlacesLook.namedWidth - 4)
                         .accessibilityHidden(true)
                 }

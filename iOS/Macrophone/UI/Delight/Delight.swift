@@ -81,7 +81,8 @@ final class Delight: ObservableObject {
         guard !words.isEmpty else { return "" }
         var out = ""
         for w in words {
-            if out.count + w.count > 26 { return out.isEmpty ? String(w.prefix(24)) + "…" : out + "…" }
+            // (No "…": the chip carries the first words, whole — Nov 10 2026.)
+            if out.count + w.count > 26 { return out.isEmpty ? String(w.prefix(24)) : out }
             out += out.isEmpty ? String(w) : " " + w
         }
         return out

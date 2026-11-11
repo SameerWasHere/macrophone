@@ -110,7 +110,7 @@ struct DockWindowsPopover: View {
             Text(place.shortName)
                 .font(.headline)
                 .foregroundStyle(Ink.ink)
-                .lineLimit(1)
+                .oneLine()
             Spacer(minLength: 8)
             if windows.count > 1 {
                 Text("\(windows.count) windows")
@@ -213,8 +213,7 @@ private struct DockWindowCard: View {
                         .font(.footnote.weight(picked ? .semibold : .medium))
                         .foregroundStyle(Ink.ink)
                         .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
+                        .lines(2)
                     if let needs {
                         Text(needs.asking ? "Asking you" : "Answered you")
                             .font(.caption2.weight(.semibold))

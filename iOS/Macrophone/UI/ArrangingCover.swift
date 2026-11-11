@@ -73,7 +73,7 @@ struct ArrangingCover: View {
                         .scaleEffect(still ? 1 : breathe ? 1.05 : 0.97)
                     }
                     if !name.isEmpty {
-                        Text(name).font(.headline).foregroundStyle(.primary.opacity(0.85)).lineLimit(1)
+                        Text(name).font(.headline).foregroundStyle(.primary.opacity(0.85)).oneLine()
                     }
                 }
                 .padding(16)

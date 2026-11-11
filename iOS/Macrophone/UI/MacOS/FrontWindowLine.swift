@@ -52,8 +52,7 @@ struct FrontWindowLine: View {
         Text(window.line)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(Ink.ink)
-            .lineLimit(1)
-            .truncationMode(.tail)
+            .oneLine()
     }
 
     var body: some View {

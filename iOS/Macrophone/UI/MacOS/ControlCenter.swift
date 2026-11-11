@@ -23,7 +23,7 @@ struct MacControlCenter: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Control Center").font(.footnote.weight(.semibold)).foregroundStyle(Ink.secondary)
-                    Text(model.macName).font(.title2.weight(.bold)).foregroundStyle(Ink.ink).lineLimit(1)
+                    Text(model.macName).font(.title2.weight(.bold)).foregroundStyle(Ink.ink).oneLine(shrink: 0.7)
                 }
                 Spacer(minLength: 8)
                 Button("Done") { dismiss() }

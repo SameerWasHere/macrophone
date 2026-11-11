@@ -52,7 +52,7 @@ struct KeepAwakeModule: View {
                     Text(line)
                         .font(.caption)
                         .foregroundStyle(status.blocked != nil && !status.on ? Light.ochre : Ink.secondary)
-                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                         .contentTransition(.opacity)
                         .accessibilityIdentifier("cc-keep-awake-line")
                 }
@@ -73,7 +73,7 @@ struct KeepAwakeModule: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(shownDisplaysOff ? "Displays off" : "Displays on").font(.subheadline.weight(.semibold)).foregroundStyle(Ink.ink)
                         Text(shownDisplaysOff ? "They turn on with a key or the mouse on your Mac" : "They turn off by themselves when nobody's at your Mac")
-                            .font(.caption).foregroundStyle(Ink.secondary).lineLimit(2)
+                            .font(.caption).foregroundStyle(Ink.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
                 }

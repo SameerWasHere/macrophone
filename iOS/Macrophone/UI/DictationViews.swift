@@ -194,9 +194,7 @@ struct LastDictationCard: View {
         return (isTemplate ? Text("A\nB") : glyph + Text(" " + shortKicker))
             .font(.caption.weight(.medium))
             .foregroundStyle(Ink.tertiary)
-            .lineLimit(2)
-            .minimumScaleFactor(0.8)
-            .fixedSize(horizontal: false, vertical: true)
+            .lines(2)
             .accessibilityLabel(kicker)
     }
 

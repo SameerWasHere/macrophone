@@ -218,7 +218,7 @@ struct DesktopWindowCard: View {
             Text(name)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Ink.ink)
-                .lineLimit(1)
+                .oneLine()
                 .layoutPriority(1)
             if let w = model.alertWatch(for: target) {
                 AlertWatchBadge(calm: w.calm).scaleEffect(0.8).frame(width: 15, height: 15)
@@ -226,15 +226,14 @@ struct DesktopWindowCard: View {
             if let words = needsWords {
                 HStack(spacing: 4) {
                     Circle().fill(Light.ember).frame(width: 7, height: 7)
-                    Text(words).font(.system(size: 12, weight: .semibold)).foregroundStyle(Light.ember).lineLimit(1)
+                    Text(words).font(.system(size: 12, weight: .semibold)).foregroundStyle(Light.ember).lineLimit(1).fixedSize()
                 }
                 .fixedSize()
             } else if let detail {
                 Text(detail)
                     .font(.system(size: 12))
                     .foregroundStyle(Ink.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .oneLine()
             }
         }
         .frame(height: DesktopWindowLook.caption)
