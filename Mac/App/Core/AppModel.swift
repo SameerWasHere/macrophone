@@ -162,6 +162,8 @@ final class AppModel: ObservableObject, LinkServerDelegate {
         // The watched window's real corners, read once per size (Nov 9 2026, Watch/WindowMask.swift).
         server.macFeatures.append(WatchWindowMask.feature)
         server.macFeatures.append(UndoPaste.feature)
+        // Type as I speak (Nov 10 2026, Delivery/LiveTyper.swift).
+        server.macFeatures.append(LiveTyping.feature)
         server.macFeatures.append(AlertAnswers.feature)
         // Windows on watch, and every alert with a picture (Nov 6 2026, Watch/WindowAlerts.swift).
         server.macFeatures.append(MacAlerts.feature)
@@ -875,6 +877,12 @@ final class AppModel: ObservableObject, LinkServerDelegate {
     func stopWatching(_ peerID: UUID) {
         watch.stop(peerID)
         Task { await server.send(.watchState(.stopped), to: peerID) }
+    }
+}
+
+extension AppModel: LinkServerLiveDelegate {
+    func linkServer(_ server: LinkServer, livePiece: LivePiece, from peerID: UUID) {
+        delivery.live.piece(livePiece, from: peerID)
     }
 }
 

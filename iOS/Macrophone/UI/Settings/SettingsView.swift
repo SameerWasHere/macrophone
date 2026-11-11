@@ -252,6 +252,10 @@ struct SettingsView: View {
                         .disabled(!target.canSend)
                 }
                 .accessibilityElement(children: .combine)
+                Toggle(isOn: $settings.typeAsISpeak) {
+                    Label { Text("Type as I speak") } icon: { SettingsIcon(symbol: "character.cursor.ibeam", color: Color(uiColor: .systemIndigo)) }
+                }
+                .accessibilityIdentifier("type-as-i-speak")
             }
             NavigationLink(value: SettingsRoute.language) {
                 LabeledContent { Text(Languages.displayName(settings.language)) } label: {
@@ -285,6 +289,11 @@ struct SettingsView: View {
             words.append(target.canSend
                          ? "Send after pasting presses the app's send key for you. Send to is shared with your Mac."
                          : "\(target.displayName) can't send — sending after pasting is for apps.")
+        }
+        if model.isPaired, settings.typeAsISpeak {
+            words.append("Type as I speak types your words on your Mac as you say them; when you stop, the cleaned-up version replaces them, and only then is anything sent. Not for the Clipboard, or a dictation started by Siri or a Shortcut.")
+        } else if model.isPaired {
+            words.append("Type as I speak puts your words on your Mac while you're still talking.")
         }
         if settings.autoStop { words.append("Quiet counts only after you start talking.") }
         return words.isEmpty ? "Hold the mic while you talk, or tap to start and tap again to send." : words.joined(separator: " ")

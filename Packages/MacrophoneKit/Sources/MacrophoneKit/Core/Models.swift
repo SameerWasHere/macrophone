@@ -50,12 +50,15 @@ public struct Dictation: Codable, Sendable, Identifiable, Hashable {
     public var stoppedEarly: Bool
     public var duration: TimeInterval
     public var sourceDevice: String
+    /// Type as I speak (LiveTyping): this dictation ends one typed live, after this many pieces.
+    /// Nil = an ordinary dictation (and always nil to a Mac that doesn't name the feature).
+    public var livePieces: Int?
 
     public init(id: UUID = UUID(), createdAt: Date = Date(), raw: String, cleaned: String? = nil,
                 cleanupLevel: CleanupLevel = .off, language: String = "en-US",
                 profileName: String? = nil, target: TargetRef? = nil,
                 send: Bool? = nil, targetSpoken: Bool? = nil, stoppedEarly: Bool = false,
-                duration: TimeInterval = 0, sourceDevice: String = "") {
+                duration: TimeInterval = 0, sourceDevice: String = "", livePieces: Int? = nil) {
         self.id = id
         self.createdAt = createdAt
         self.raw = raw
@@ -69,6 +72,7 @@ public struct Dictation: Codable, Sendable, Identifiable, Hashable {
         self.stoppedEarly = stoppedEarly
         self.duration = duration
         self.sourceDevice = sourceDevice
+        self.livePieces = livePieces
     }
 
     /// What gets delivered: the cleaned text when there is one, else the raw transcript.

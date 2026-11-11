@@ -22,6 +22,9 @@ final class Settings: ObservableObject {
     /// A notification when a chat you wrote to from the phone answers (Nov 8 2026): the Mac follows
     /// it (ReplyWatcher) and tells this phone, through iCloud when the app is closed. On by default.
     @Published var chatAnswers: Bool { didSet { d.set(chatAnswers, forKey: K.chatAnswers) } }
+    /// Type as I speak (Nov 10 2026, LiveTyping): the settled words typed on the Mac while he
+    /// talks, the cleaned ones swapped in at the end. Off by default.
+    @Published var typeAsISpeak: Bool { didSet { d.set(typeAsISpeak, forKey: K.typeAsISpeak) } }
     /// The Custom cleanup level's instructions as the person wrote them. Empty = the default
     /// (exactly Medium's). Applied to the cleaner the moment it changes, and at launch.
     @Published var customInstructions: String {
@@ -75,6 +78,7 @@ final class Settings: ObservableObject {
         watchAfterSending = defaults.object(forKey: K.watchAfterSending) as? Bool ?? true
         agentAlerts = defaults.object(forKey: K.agentAlerts) as? Bool ?? true
         chatAnswers = defaults.object(forKey: K.chatAnswers) as? Bool ?? true
+        typeAsISpeak = defaults.object(forKey: K.typeAsISpeak) as? Bool ?? false
         let custom = defaults.string(forKey: K.customInstructions) ?? ""
         customInstructions = custom
         CleanupPrompts.setCustomInstructions(custom)
@@ -142,6 +146,7 @@ final class Settings: ObservableObject {
         static let watchAfterSending = "settings.watchAfterSending"
         static let agentAlerts = "settings.agentAlerts"
         static let chatAnswers = "settings.chatAnswers"
+        static let typeAsISpeak = "settings.typeAsISpeak"
         static let deviceName = "settings.deviceName"
         static let appearance = "settings.appearance"
         static let macWallpaper = "settings.macWallpaper"

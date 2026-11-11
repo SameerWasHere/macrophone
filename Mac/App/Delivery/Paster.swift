@@ -214,6 +214,24 @@ enum Paster {
     ///   5. the send key if asked, then check the box emptied,
     ///   6. the clipboard put back.
     static func deliver(_ req: Request, scanner: TargetScanner) async throws -> Result {
+        let place = try await locate(req.target, scanner: scanner)
+        return try await paste(req, into: place)
+    }
+
+    /// Steps 1–3 of a paste: the place in front, its place to type found and focused, and not a
+    /// password field. Type as I speak (LiveTyper) brings its place forward the same way.
+    struct Located {
+        var running: NSRunningApplication
+        var window: AXUIElement?
+        var box: AXUIElement?
+        var isDocument: Bool
+        var terminal: Bool
+        var appName: String
+        var bundleID: String?
+        var ax: AXUIElement
+    }
+
+    static func locate(_ target: Target, scanner: TargetScanner) async throws -> Located {
         guard isTrusted else { throw PasteFailure.accessibilityMissing }
 
         // 1. The app (and window) in front.
@@ -221,7 +239,7 @@ enum Paster {
         var window: AXUIElement?
         var remembered: AXUIElement?
         var ready: Prepared?
-        switch req.target {
+        switch target {
         case .front:
             guard let f = NSWorkspace.shared.frontmostApplication else { throw PasteFailure.nowhereToType(app: "the app in front") }
             if f.bundleIdentifier == Bundle.main.bundleIdentifier { throw PasteFailure.nowhereToType(app: "Macrophone") }
@@ -264,7 +282,7 @@ enum Paster {
         var box: AXUIElement?
         var isDocument = false
         if !terminal && !hiddenComposer {
-            switch req.target {
+            switch target {
             case .front:
                 var f = AX.focused(in: ax)
                 if f == nil && chromium {
@@ -324,6 +342,14 @@ enum Paster {
         if SecureInput.isActive(frontPID: running.processIdentifier) || SecureInput.focusedElementIsSecure() {
             throw PasteFailure.secureField(app: appName)
         }
+        return Located(running: running, window: window, box: box, isDocument: isDocument, terminal: terminal,
+                       appName: appName, bundleID: bid, ax: ax)
+    }
+
+    /// Steps 4–6: the words pasted where `locate` left the cursor, the send key, the clipboard back.
+    static func paste(_ req: Request, into place: Located) async throws -> Result {
+        let running = place.running, window = place.window, box = place.box, isDocument = place.isDocument
+        let terminal = place.terminal, appName = place.appName, bid = place.bundleID, ax = place.ax
 
         // 4. Our words on the clipboard, the old contents kept aside; ⌘V.
         let probe = Composer.probe(req.text)
@@ -410,6 +436,32 @@ enum Paster {
             if pb.changeCount == ours { saved.restore(to: pb) }
         }
         return result
+    }
+
+    /// Just the words, pasted where the cursor is (over a selection, if one is up), the clipboard
+    /// put back after — Type as I speak's correction at the end.
+    static func pasteText(_ text: String) async {
+        let pb = NSPasteboard.general
+        let saved = PasteboardSnapshot(pb)
+        let ours = writeTransient(text, to: pb)
+        try? await Task.sleep(nanoseconds: 25_000_000)
+        Keys.press(Keys.code(for: "v") ?? CGKeyCode(kVK_ANSI_V), flags: .maskCommand)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if pb.changeCount == ours { saved.restore(to: pb) }
+        }
+    }
+
+    /// The app's send key, pressed (AppQuirks says which).
+    @discardableResult
+    static func pressSend(for bid: String?) -> SendKey {
+        let key = AppQuirks.sendKey(for: bid)
+        switch key {
+        case .return: Keys.press(CGKeyCode(kVK_Return), flags: [])
+        case .commandReturn: Keys.press(CGKeyCode(kVK_Return), flags: .maskCommand)
+        case .commandShiftD: Keys.press(Keys.code(for: "d") ?? CGKeyCode(kVK_ANSI_D), flags: [.maskCommand, .maskShift])
+        }
+        return key
     }
 
     /// The text box the cursor is in, in this window: he tapped or clicked into it. Any visible

@@ -170,6 +170,8 @@ final class ServeDelegate: LinkServerDelegate {
     func linkServer(_ server: LinkServer, peerDisconnected peerID: UUID) { stdout("DISCONNECTED") }
     func linkServer(_ server: LinkServer, deliver dictation: Dictation, delayed: Bool, from peer: PairedPeer) async -> (DeliveryOutcome, String?) {
         received += 1
+        // The end of a dictation typed live: pieces still on their way first, then the plan.
+        if dictation.livePieces != nil { await LiveDemo.waitAndFinish(dictation) }
         let route = dictation.target.map { " → \($0.displayName)\(dictation.send == true ? " + send" : "")\(dictation.targetSpoken == true ? " (said)" : "")" } ?? ""
         stdout("RECEIVED #\(received)\(delayed ? " (delayed)" : "")\(route) [\(dictation.cleanupLevel.rawValue)]: \(dictation.text)")
         // Then, like the Mac after its countdown and paste: where it landed (--land <result> forces one).
@@ -839,6 +841,8 @@ func run() async -> Int32 {
         server.macFeatures.append(WatchWindowMask.feature)
         // Undo the last paste (Undo.swift): answers as the Mac does, presses nothing.
         if !has("--no-undo") { server.macFeatures.append(UndoPaste.feature) }
+        // Type as I speak (LiveDemo.swift): counts of what it would type; --no-live is a Mac from before.
+        if !has("--no-live") { server.macFeatures.append(LiveTyping.feature) }
         if !has("--no-alert-answer") { server.macFeatures.append(AlertAnswers.feature) }
         if !has("--no-alerts") { server.macFeatures.append(MacAlerts.feature) }
         // Live shapes while the finger drags the window's corner (Nov 9 2026): --no-live-shape is
