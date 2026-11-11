@@ -43,6 +43,7 @@ import MacrophoneKit
 //                                             # send (Nov 9 2026: WATCH MASK 53 px at 1400×900); the window takes the shape the phone sends
 //   mpctl serve --rounded-black               # the corners painted black, no mask (the phone's pixel-guess fallback)
 //   mpctl listen --features windowMask        # prints MASK 53 px at 1192×1084 · N bytes when the window's corners come
+//   mpctl encode-bench [--frames 120] [--widths 2560,1600,1000] [--tunings standard,zeroDelay,lowLatency]   # the encoder's tunings: session cost, encode ms, KB, 60 Hz throughput
 //   mpctl alpha-bench [--frames 60]           # HEVC vs HEVC-with-alpha on the demo window: encode ms and KB a frame (the mask's alternative)
 //   mpctl serve --reshape --reshape-delay 500 # the old `watchShape` path waits that many ms (the Mac's hold); live shapes (a drag) apply at once
 //   mpctl serve --no-live-shape               # a Mac from before live shapes: one `watchShape` on release
@@ -733,6 +734,41 @@ final class PhoneDelegate: LinkClientDelegate {
         }
     }
 
+    /// `--type-each` (Nov 10 2026): each character's time from being sent to the first decoded
+    /// frame that differs from the one on screen when it went — the input-to-picture latency as
+    /// the phone would see it (a frame sent before the Mac redrew doesn't count).
+    var lastSample: [UInt32]?
+    var probeBaseline: [UInt32]?
+    var probeSent: Date?
+    var probeMs: [Int] = []
+    var probeMissed = 0
+    /// `--changes <period>`: a window that changes on the wall clock's multiples of `period` (the
+    /// latency probe app) — each decoded frame that differs from the last, and how long after the
+    /// change it came.
+    var changesPeriod: Double?
+    var changesMs: [Int] = []
+    func startProbe() {
+        if probeSent != nil { probeMissed += 1 }
+        probeBaseline = lastSample
+        probeSent = Date()
+    }
+    private func probe(_ pixels: CVPixelBuffer) {
+        CVPixelBufferLockBaseAddress(pixels, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixels) else { return }
+        let sample = WatchChange.sample(base: UnsafeRawPointer(base), width: CVPixelBufferGetWidth(pixels), height: CVPixelBufferGetHeight(pixels),
+                                        bytesPerRow: CVPixelBufferGetBytesPerRow(pixels), bytesPerPixel: 4, step: 2)
+        if let period = changesPeriod, let last = lastSample, WatchChange.changedShare(last, sample, tolerance: 40) > 0 {
+            let now = Date().timeIntervalSince1970
+            changesMs.append(Int((now - floor(now / period) * period) * 1000))
+        }
+        lastSample = sample
+        guard let sent = probeSent else { return }
+        if let b = probeBaseline, WatchChange.changedShare(b, sample, tolerance: 40) == 0 { return }
+        probeMs.append(Int(Date().timeIntervalSince(sent) * 1000))
+        probeSent = nil
+    }
+
     /// Video, decoded here like the phone does (the same decoder); a frame that can't be decoded
     /// asks for a keyframe and the ones until it comes are dropped.
     let decoder = VideoDecoder()
@@ -744,6 +780,8 @@ final class PhoneDelegate: LinkClientDelegate {
         if !f.isWordsOnly { frameTimes.append(Date()) }
         let t = timing()
         if f.isWordsOnly {
+            // Words count in the sequence, as on the phone (Watcher.received): the next frame follows them.
+            if !waitingForKeyframe { newestVideo = f.seq }
             stdout("WATCH VIDEO #\(f.seq) words only\(f.prompt.map { " prompt \($0.choices.count) answers" } ?? "")\(t)")
             return
         }
@@ -757,6 +795,7 @@ final class PhoneDelegate: LinkClientDelegate {
             let pixels = try decoder.decode(f)
             newestVideo = f.seq
             waitingForKeyframe = false
+            probe(pixels)
             if !quietFrames { stdout("WATCH VIDEO #\(f.seq) \(f.width)x\(f.height) \(f.data.count / 1024) KB\(f.keyframe ? " key" : "") decoded in \(Int(Date().timeIntervalSince(t0) * 1000)) ms\(f.focus.map { " focus \($0)" } ?? "")\(t)") }
             if let dir = flag("--save"), let image = VideoDecoder.image(pixels) {
                 let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(f.seq).png")
@@ -1145,6 +1184,49 @@ func run() async -> Int32 {
             d.lastAction = Date()
             client.watchAction(a)
             try? await Task.sleep(nanoseconds: UInt64(seconds / 2 * 1e9))
+        } else if let period = flag("--changes").flatMap(Double.init) {
+            // A window that changes by itself every `period` s on the wall clock (the latency probe):
+            // how many of its changes reached here, and each one's delay. --poke-every S sends the
+            // pointer shown / hidden that often (input that moves nothing on the Mac), so the window
+            // counts as touched.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            d.changesPeriod = period
+            let start = Date()
+            let poke = flag("--poke-every").flatMap(Double.init)
+            var shown = false
+            while Date().timeIntervalSince(start) < seconds {
+                if let poke {
+                    shown.toggle()
+                    client.watchMouse(WatchMouseEvent(shown ? .show : .hide, at: CGPoint(x: 0.5, y: 0.5)))
+                    try? await Task.sleep(nanoseconds: UInt64(poke * 1e9))
+                } else {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                }
+            }
+            d.changesPeriod = nil
+            let ms = d.changesMs.sorted()
+            let expected = Int(seconds / period)
+            if ms.isEmpty { stdout("CHANGES none seen") } else {
+                stdout("CHANGES \(ms.count) of ~\(expected) seen\(poke.map { " (poked every \($0) s)" } ?? " (no input)") · delay median \(ms[ms.count / 2]) ms · slowest tenth \(ms[min(ms.count - 1, ms.count * 9 / 10)]) ms · max \(ms.last!) ms")
+                stdout("CHANGES all: \(d.changesMs.map(String.init).joined(separator: " "))")
+            }
+        } else if let text = flag("--type-each") {
+            // One character at a time (--every seconds apart), each timed to the first frame that
+            // shows a change: median and slowest tenth, and how many never showed before the next.
+            let every = Double(flag("--every") ?? "0.4") ?? 0.4
+            try? await Task.sleep(nanoseconds: UInt64(seconds / 3 * 1e9))
+            for ch in text {
+                d.startProbe()
+                client.watchType(WatchTyping(delete: 0, text: String(ch)))
+                try? await Task.sleep(nanoseconds: UInt64(every * 1e9))
+            }
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if d.probeSent != nil { d.probeMissed += 1; d.probeSent = nil }
+            let ms = d.probeMs.sorted()
+            if ms.isEmpty { stdout("TYPE-EACH nothing showed (\(d.probeMissed) missed)") } else {
+                stdout("TYPE-EACH \(ms.count) of \(text.count) showed · median \(ms[ms.count / 2]) ms · slowest tenth \(ms[min(ms.count - 1, ms.count * 9 / 10)]) ms · max \(ms.last!) ms · \(d.probeMissed) never showed within \(Int(every * 1000)) ms")
+                stdout("TYPE-EACH all: \(d.probeMs.map(String.init).joined(separator: " "))")
+            }
         } else if has("--double-click") || has("--drag") || has("--type") || has("--key") || has("--hold") || has("--app-switch") || has("--hover") {
             // The pointer, typing and held keys as the phone sends them (Oct 19 2026) — against
             // `mpctl serve` or the real Mac app, to prove each on a real window.
@@ -1269,6 +1351,9 @@ func run() async -> Int32 {
 
     case "alpha-bench":
         return await AlphaBench.run()
+
+    case "encode-bench":
+        return await EncodeBench.run()
 
     case "wake-testset":
         return await WakeBench.generate(dir: args.count > 1 ? args[1] : "wake-testset")

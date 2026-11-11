@@ -209,14 +209,50 @@ public final class VideoEncoder: @unchecked Sendable {
     /// as a mask once per size instead (`WatchWindowMask`).
     public let alpha: Bool
 
-    public init(width: Int, height: Int, rate: Int = 30, software: Bool = false, alpha: Bool = false) throws {
+    /// How the session is set up (Nov 10 2026, the latency pass).
+    public enum Tuning: String, Sendable, CaseIterable {
+        /// The Oct 17 2026 session: real time, no reordering, an average bit rate under a cap.
+        case standard
+        /// The same plus no frame held inside the encoder (`MaxFrameDelayCount` 0).
+        case zeroDelay
+        /// VideoToolbox's low-latency rate control (`EnableLowLatencyRateControl`, the conferencing
+        /// mode) with zero frame delay. Falls back to `zeroDelay` where the encoder refuses it.
+        case lowLatency
+    }
+
+    /// What the session really runs as (a refused `lowLatency` reads `zeroDelay`).
+    public let tuning: Tuning
+    /// How long making the session took (seconds) — what each new size costs before its keyframe.
+    public let madeIn: TimeInterval
+
+    /// The tuning new encoders get: `standard`. Measured Nov 10 2026 on this Mac's HEVC hardware
+    /// encoder (`mpctl encode-bench`, the demo window as 420f at 2560 / 1600 / 1000 px): it refuses
+    /// `MaxFrameDelayCount` (kVTPropertyNotSupportedErr), so `zeroDelay` is `standard` (no frame is
+    /// held anyway: no reordering, one frame inside at a time); it takes `lowLatency`'s spec for HEVC
+    /// but then refuses `PrioritizeEncodingSpeedOverQuality`, and encodes slower (2560: 16 vs 10 ms
+    /// median for a typed character, 15 vs 11 for a scroll; 1000: 10 vs 7) with keyframes 30–50%
+    /// bigger. Kept selectable for the bench.
+    nonisolated(unsafe) public static var defaultTuning: Tuning = .standard
+
+    public init(width: Int, height: Int, rate: Int = 30, software: Bool = false, alpha: Bool = false, tuning: Tuning? = nil) throws {
         // HEVC wants even sizes.
         self.width = width & ~1
         self.height = height & ~1
         self.rate = rate
         self.software = software
         self.alpha = alpha
-        session = try Self.makeSession(width: self.width, height: self.height, rate: rate, software: software, alpha: alpha)
+        let t0 = CACurrentMediaTime()
+        let wanted = tuning ?? Self.defaultTuning
+        if wanted == .lowLatency, !software, !alpha,
+           let s = try? Self.makeSession(width: self.width, height: self.height, rate: rate, software: false, alpha: false, tuning: .lowLatency) {
+            session = s
+            self.tuning = .lowLatency
+        } else {
+            let fallback: Tuning = wanted == .standard ? .standard : .zeroDelay
+            session = try Self.makeSession(width: self.width, height: self.height, rate: rate, software: software, alpha: alpha, tuning: fallback)
+            self.tuning = fallback
+        }
+        madeIn = CACurrentMediaTime() - t0
         let t = DispatchSource.makeTimerSource(queue: watchdogQueue)
         t.schedule(deadline: .now() + 0.5, repeating: 0.5, leeway: .milliseconds(100))
         t.setEventHandler { [weak self] in self?.checkWatchdog() }
@@ -224,23 +260,31 @@ public final class VideoEncoder: @unchecked Sendable {
         watchdog = t
     }
 
-    private static func makeSession(width: Int, height: Int, rate: Int, software: Bool, alpha: Bool = false) throws -> VTCompressionSession {
+    private static func makeSession(width: Int, height: Int, rate: Int, software: Bool, alpha: Bool = false, tuning: Tuning) throws -> VTCompressionSession {
         var s: VTCompressionSession?
         // The choice of encoder is the Mac's (the phone only decodes); the key is macOS's.
         var spec: [CFString: Any] = [:]
         #if os(macOS)
         spec[kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder] = !software
         #endif
+        if tuning == .lowLatency { spec[kVTVideoEncoderSpecification_EnableLowLatencyRateControl] = kCFBooleanTrue }
         let status = VTCompressionSessionCreate(allocator: nil, width: Int32(width), height: Int32(height),
                                                 codecType: alpha ? kCMVideoCodecType_HEVCWithAlpha : kCMVideoCodecType_HEVC, encoderSpecification: spec.isEmpty ? nil : spec as CFDictionary,
                                                 imageBufferAttributes: nil, compressedDataAllocator: nil,
                                                 outputCallback: nil, refcon: nil, compressionSessionOut: &s)
         guard status == noErr, let session = s else { throw VideoError.encoder(status) }
-        func set(_ key: CFString, _ value: CFTypeRef) { VTSessionSetProperty(session, key: key, value: value) }
+        var refused: [String] = []
+        func set(_ key: CFString, _ value: CFTypeRef) {
+            let st = VTSessionSetProperty(session, key: key, value: value)
+            if st != noErr { refused.append("\(key) (\(st))") }
+        }
+        defer { refusedLock.lock(); lastRefused = refused; refusedLock.unlock() }
         if alpha { set(kVTCompressionPropertyKey_AlphaChannelMode, kVTAlphaChannelMode_PremultipliedAlpha) }
         set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
-        set(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel)
+        if tuning != .lowLatency { set(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel) }
         set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
+        // Zero frame delay: every frame's bytes come back before the next is asked for.
+        if tuning != .standard { set(kVTCompressionPropertyKey_MaxFrameDelayCount, 0 as CFNumber) }
         // Latency over polish: a frame out sooner beats a slightly smaller one.
         set(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanTrue)
         // A keyframe every few seconds of frames, besides the ones asked for. Frames are stamped
@@ -251,10 +295,15 @@ public final class VideoEncoder: @unchecked Sendable {
         set(kVTCompressionPropertyKey_ExpectedFrameRate, rate as CFNumber)
         let bitrate = Self.bitrate(width: width, height: height, rate: rate)
         set(kVTCompressionPropertyKey_AverageBitRate, bitrate as CFNumber)
-        set(kVTCompressionPropertyKey_DataRateLimits, [bitrate / 8 * 3 / 2, 1] as CFArray)
+        if tuning != .lowLatency { set(kVTCompressionPropertyKey_DataRateLimits, [bitrate / 8 * 3 / 2, 1] as CFArray) }
         VTCompressionSessionPrepareToEncodeFrames(session)
         return session
     }
+
+    /// The properties the last session made refused (key and status) — for `mpctl encode-bench`.
+    public static var lastRefusedProperties: [String] { refusedLock.lock(); defer { refusedLock.unlock() }; return lastRefused }
+    private static let refusedLock = NSLock()
+    nonisolated(unsafe) private static var lastRefused: [String] = []
 
     deinit {
         watchdog?.cancel()

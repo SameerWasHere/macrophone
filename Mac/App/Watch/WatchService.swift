@@ -45,6 +45,11 @@ final class WatchService {
         var seq = 0
         /// The stream of the window's pictures, while it's on screen.
         var stream: WindowStream?
+        /// Input from the phone reaches the pipe and the stream from the input's own queues (Nov 10
+        /// 2026, `WatchTouchPace`), no main actor between.
+        let touch = TouchRelay()
+        /// The picture's width as the wire stepped it (`WatchWireSizer`); nil = the watch's ceiling.
+        var wireWidth: Int?
         /// The newest picture not sent yet, and how much of the window changed since the last one sent.
         var latest: CVPixelBuffer?
         var latestSeq = 0
@@ -178,9 +183,11 @@ final class WatchService {
             pacing?.cancel()
             pacing = nil
             pipe?.hurry()
+            stream?.touched()
         }
 
         @MainActor func dropStream() {
+            touch.set(pipe: nil, stream: nil)
             pipe?.stop()
             pipe = nil
             alone()
@@ -227,6 +234,13 @@ final class WatchService {
     static let videoMaxWidth: CGFloat = 2560
     static let remoteVideoMaxWidth: CGFloat = 1600
     private func maxWidth(for w: Watch) -> CGFloat {
+        let ceiling = ceilingWidth(for: w)
+        guard w.wantsVideo, let stepped = w.wireWidth else { return ceiling }
+        return min(ceiling, CGFloat(stepped))
+    }
+
+    /// The widest picture this watch sends, before the wire steps it down.
+    private func ceilingWidth(for w: Watch) -> CGFloat {
         if w.wantsVideo { return app.isRemote(w.peer) ? Self.remoteVideoMaxWidth : Self.videoMaxWidth }
         return app.isRemote(w.peer) ? Self.remoteMaxWidth : Self.maxWidth
     }
@@ -301,7 +315,9 @@ final class WatchService {
                 w.inFrontAt = Date()
             }
         }
+        let touch = w.touch
         w.input.onInput = { [weak self, weak w] what in
+            touch.now()
             Task { @MainActor in
                 guard let self, let w else { return }
                 w.hurry()
@@ -316,7 +332,7 @@ final class WatchService {
                 w.wake()
             }
         }
-        w.input.onMotion = { [weak w] in w?.pipe?.swiped() }
+        w.input.onMotion = { touch.now() }
         w.input.onPointerShown = { [weak self, weak w] shown in
             Task { @MainActor in
                 guard let self, let w else { return }
@@ -526,7 +542,16 @@ final class WatchService {
                 return .unavailable("\(w.appName)'s window isn't open", canReveal: false)
             }
             if w.wantsVideo {
-                let pipe = VideoPipe(peer: w.peer, server: app.server, rate: rate(w), timing: timing)
+                let pipe = VideoPipe(peer: w.peer, server: app.server, rate: rate(w), timing: timing,
+                                     size: s.size, ceiling: Int(ceilingWidth(for: w)), width: w.wireWidth)
+                pipe.onWireStep = { [weak self, weak w, weak s] step in
+                    Task { @MainActor in
+                        guard let self, let w, let s, w.stream === s else { return }
+                        w.wireWidth = step.width
+                        self.app.log.add("watch: picture stepped \(step.down ? "down" : "up") to \(step.width) px (sends \(step.sendMs) ms\(step.held > 0 ? ", \(step.held) frames held for the wire" : ""))")
+                        await s.setMaxWidth(self.maxWidth(for: w))
+                    }
+                }
                 pipe.onFallback = { [weak self, weak w] why in
                     Task { @MainActor in
                         guard let self, let w else { return }
@@ -548,7 +573,7 @@ final class WatchService {
                 }
                 w.pipe = pipe
                 pipe.set(words(w))
-                w.poster.onInput = { [weak pipe] in pipe?.swiped() }
+                w.poster.onInput = { [touch = w.touch] in touch.now() }
             }
             s.onFrame = { [weak self, weak w, weak s] pixels, changed in
                 // Video: straight to the pipe, off the main thread. Pictures: the main actor's loop.
@@ -577,6 +602,7 @@ final class WatchService {
                 return .unavailable("Couldn't see \(w.appName)'s window", canReveal: true)
             }
             w.stream = s
+            w.touch.set(pipe: w.pipe, stream: s)
             w.forceUntil = Date().addingTimeInterval(5)
             // Which display, and its scale (numbers only): a window on an external display is the
             // case to tell apart.
@@ -1436,5 +1462,23 @@ final class WatchService {
         }
         try? await Task.sleep(nanoseconds: 80_000_000)
         if let original { CGWarpMouseCursorPosition(original) }
+    }
+}
+
+/// Input from the phone, to the watch's pipe and stream, from whatever queue it arrives on (Nov 10
+/// 2026): the pipe sends every changed frame for two seconds, the stream measures on a finer grid.
+final class TouchRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private weak var pipe: VideoPipe?
+    private weak var stream: WindowStream?
+
+    func set(pipe: VideoPipe?, stream: WindowStream?) {
+        lock.lock(); self.pipe = pipe; self.stream = stream; lock.unlock()
+    }
+
+    func now() {
+        lock.lock(); let p = pipe, s = stream; lock.unlock()
+        p?.touched()
+        s?.touched()
     }
 }

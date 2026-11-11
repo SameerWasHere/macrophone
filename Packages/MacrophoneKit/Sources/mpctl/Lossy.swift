@@ -16,11 +16,15 @@ import Network
 enum LossyRelay {
     static func run() async -> Int32 {
         guard let listen = flag("--listen").flatMap(UInt16.init), let to = flag("--to").flatMap({ RemoteAddressRule.parse($0) }) else {
-            stdout("usage: mpctl relay --listen <port> --to <host:port> [--loss 0.02] [--rtt 80] [--seed 1]")
+            stdout("usage: mpctl relay --listen <port> --to <host:port> [--loss 0.02] [--rtt 80] [--kbps 4000] [--seed 1]")
             return 2
         }
         let model = LinkModel(loss: Double(flag("--loss") ?? "0") ?? 0, rtt: (Double(flag("--rtt") ?? "80") ?? 80) / 1000,
                               seed: UInt64(flag("--seed") ?? "1") ?? 1)
+        // --kbps N (Nov 10 2026): a link this fast each way — segments leave one after another at
+        // that rate, and past 64 KB waiting the relay stops reading, so the sender's own buffers
+        // fill and its sends take longer (the wire behind, as a slow cellular link is).
+        model.bytesPerSecond = flag("--kbps").flatMap(Double.init).map { $0 * 1000 / 8 }
         let queue = DispatchQueue(label: "mpctl.relay")
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
@@ -54,6 +58,8 @@ final class LinkModel: @unchecked Sendable {
     private var rng: UInt64
     var segments = 0
     var lost = 0
+    /// nil = as fast as the machine goes.
+    var bytesPerSecond: Double?
 
     init(loss: Double, rtt: TimeInterval, seed: UInt64) {
         self.loss = loss
@@ -101,6 +107,11 @@ final class RelayPair: @unchecked Sendable {
         /// Segments waiting for their arrival time, oldest first; each no earlier than the one before.
         private var waiting: [(due: DispatchTime, data: Data)] = []
         private var lastDue = DispatchTime.now()
+        /// With a rate: when the link is next free to put a segment on, and bytes not yet delivered.
+        private var linkFree = DispatchTime.now()
+        private var waitingBytes = 0
+        private var readPaused = false
+        static let bufferLimit = 64 * 1024
         /// One timer, set to the oldest segment's arrival with no slack (a plain asyncAfter may
         /// fire milliseconds late, which would show up as link delay).
         private lazy var timer: DispatchSourceTimer = {
@@ -123,6 +134,7 @@ final class RelayPair: @unchecked Sendable {
                     self.queue.asyncAfter(deadline: self.lastDue + .milliseconds(5)) { self.from.cancel(); self.to.cancel() }
                     return
                 }
+                if self.model.bytesPerSecond != nil, self.waitingBytes > Pump.bufferLimit { self.readPaused = true; return }
                 self.read()
             }
         }
@@ -131,7 +143,15 @@ final class RelayPair: @unchecked Sendable {
             var i = data.startIndex
             while i < data.endIndex {
                 let j = min(i + RelayPair.segment, data.endIndex)
-                let arrive = DispatchTime.now() + model.rtt / 2 + model.extraDelay()
+                var start = DispatchTime.now()
+                if let rate = model.bytesPerSecond {
+                    // On the link only once it's free, for as long as the segment takes at the rate.
+                    start = max(start, linkFree)
+                    linkFree = start + Double(j - i) / rate
+                    start = linkFree
+                }
+                let arrive = start + model.rtt / 2 + model.extraDelay()
+                waitingBytes += j - i
                 // In order: nothing overtakes a segment still on its way (TCP's head-of-line wait).
                 let due = max(arrive, lastDue)
                 lastDue = due
@@ -146,8 +166,10 @@ final class RelayPair: @unchecked Sendable {
             var out = Data()
             while let first = waiting.first, first.due <= now {
                 out.append(first.data)
+                waitingBytes -= first.data.count
                 waiting.removeFirst()
             }
+            if readPaused, waitingBytes <= Pump.bufferLimit / 2 { readPaused = false; read() }
             if !out.isEmpty { to.send(content: out, completion: .idempotent) }
             timer.schedule(deadline: waiting.first?.due ?? .distantFuture, leeway: .nanoseconds(0))
         }
