@@ -104,4 +104,20 @@ final class ScrollMomentumTests: XCTestCase {
         var stalled = ScrollMomentum(velocity: CGVector(dx: 0, dy: 2000))!
         XCTAssertLessThan(stalled.step(dt: 3)!.dy, 2000 * 0.1 + 1)
     }
+
+    /// Stepped at 120 Hz the coast lasts as long and goes as far as at 60 (Nov 10 2026).
+    func testTheCoastFeelsTheSameAt120Hz() {
+        func coast(rate: Double, speed: Double) -> (seconds: Double, points: Double, steps: Int) {
+            var m = ScrollMomentum(velocity: CGVector(dx: 0, dy: speed))!
+            var travelled = 0.0, steps = 0
+            while let s = m.step(dt: 1 / rate) { travelled += s.dy; steps += 1 }
+            return (Double(steps) / rate, travelled, steps)
+        }
+        for speed in [400.0, 1000, 2000, 3000] {
+            let a = coast(rate: 60, speed: speed), b = coast(rate: 120, speed: speed)
+            XCTAssertEqual(a.seconds, b.seconds, accuracy: 1.0 / 60 + 0.001, "length at \(speed)")
+            XCTAssertEqual(a.points, b.points, accuracy: a.points * 0.02, "distance at \(speed)")
+            XCTAssertEqual(Double(b.steps), Double(a.steps) * 2, accuracy: 2)
+        }
+    }
 }

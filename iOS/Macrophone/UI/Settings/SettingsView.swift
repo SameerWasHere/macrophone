@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var confirmClear = false
     /// Settings › Appearance › Sounds (`SoundCues`).
     @AppStorage(SoundCues.key) private var sounds = true
+    /// The input-to-picture time in the window's header (Nov 10 2026), off by default.
+    @AppStorage(ResponseReadout.settingKey) private var showResponseTime = false
     @State private var name = ""
     @FocusState private var nameFocused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -361,10 +363,14 @@ struct SettingsView: View {
                 Label { Text("Show the app after sending") } icon: { SettingsIcon(symbol: "eye.fill", color: Color(uiColor: .systemIndigo)) }
             }
             trackpadSpeedRow
+            Toggle(isOn: $showResponseTime) {
+                Label { Text("Show response time") } icon: { SettingsIcon(symbol: "stopwatch.fill", color: Color(uiColor: .systemGray)) }
+            }
+            .accessibilityIdentifier("settings-response-time")
         } header: {
             Text("Watching")
         } footer: {
-            Text("After a dictation lands, that app's window opens here live, so you can read the answer, tap to click and swipe to scroll. Only that window, and only while you look.")
+            Text("After a dictation lands, that app's window opens here live, so you can read the answer, tap to click and swipe to scroll. Only that window, and only while you look. Response time is how long your Mac takes to show what you did, in milliseconds.")
         }
     }
 
