@@ -47,6 +47,10 @@ import MacrophoneKit
 //   mpctl serve --reshape --reshape-delay 500 # the old `watchShape` path waits that many ms (the Mac's hold); live shapes (a drag) apply at once
 //   mpctl serve --no-live-shape               # a Mac from before live shapes: one `watchShape` on release
 //   mpctl serve --no-lane / any phone command --no-lane   # a Mac / a phone from before the video lane
+//   mpctl serve --datagrams / any phone command --datagrams   # video in UDP datagrams away from home (off by default, Nov 10 2026)
+//   mpctl dgram-sim [--rtt 80] [--seconds 60] [--seeds 3]   # TCP lane vs video datagrams in simulated time (no machine load)
+//   mpctl serve --stamp                       # each video frame carries when it was encoded (bundleID "stamp:<ns>"): probe prints delivery times
+//   mpctl relay … [--reorder 0.05] [--jitter 10]   # also relays UDP on the same port: each datagram lost, late or reordered on its own
 //   mpctl serve --permissions accessibility=off,screen=off # what this "Mac" says it's allowed to do
 //   mpctl watch --double-click 0.5,0.5 | --drag 0.2,0.5,0.6,0.5 | --hover 0.5,0.5 | --type "words" | --key cmd+shift+f5
 //              | --hold command | --app-switch   # the pointer, typing and held keys as the phone sends them (Oct 19 2026)
@@ -374,14 +378,14 @@ final class ServeDelegate: LinkServerDelegate {
                             sender?.cancel()
                             encoder = try? VideoEncoder(width: image.width, height: image.height, software: has("--software"))
                             self.lock.sync { self.encoders[peerID] = encoder }
-                            let (stream, continuation) = AsyncStream.makeStream(of: (VideoEncoder.Encoded, TimeInterval).self, bufferingPolicy: .unbounded)
-                            encoder?.onEncoded = { e, took in continuation.yield((e, took)) }
+                            let (stream, continuation) = AsyncStream.makeStream(of: (VideoEncoder.Encoded, TimeInterval, UInt64).self, bufferingPolicy: .unbounded)
+                            encoder?.onEncoded = { e, took in continuation.yield((e, took, DispatchTime.now().uptimeNanoseconds)) }
                             let (w, h) = (encoder?.width ?? 0, encoder?.height ?? 0)
                             sender = Task {
-                                for await (e, took) in stream {
+                                for await (e, took, encodedAt) in stream {
                                     guard !Task.isCancelled else { return }
                                     let frame = WatchVideoFrame(seq: seqs.next(), data: e.data, parameterSets: e.parameterSets, keyframe: e.keyframe,
-                                                                width: w, height: h, appName: appName, bundleID: target.bundleID,
+                                                                width: w, height: h, appName: appName, bundleID: has("--stamp") ? "stamp:\(encodedAt)" : target.bundleID,
                                                                 focus: demo.focus, prompt: self.lock.sync { self.prompts[peerID] })
                                     stdout("WATCH VIDEO #\(frame.seq) \(e.data.count / 1024) KB\(e.keyframe ? " key" : "") encoded in \(Int(took * 1000)) ms")
                                     await server.send(.watchVideo(frame), to: peerID)
@@ -691,6 +695,11 @@ final class PhoneDelegate: LinkClientDelegate {
         stdout("PATH \(remote ? "remote (away from home)" : "local (back home)")")
     }
     var frames = 0
+    /// Frames decoded (the probe's frames a second), keyframes asked for, and each stamped frame's
+    /// time from its encoding on the "Mac" to here (serve --stamp; one machine, one clock).
+    var decoded = 0
+    var keyframeAsks = 0
+    var deliveryMs: [Double] = []
     /// Bytes of pictures or frames received (bandwidth, printed at the end).
     var bytes = 0
     /// When each picture or frame came, for the peak frames-a-second at the end.
@@ -741,13 +750,16 @@ final class PhoneDelegate: LinkClientDelegate {
         bytes += f.data.count
         if !f.isWordsOnly { frameTimes.append(Date()) }
         let t = timing()
+        if let b = f.bundleID, b.hasPrefix("stamp:"), let ns = UInt64(b.dropFirst(6)) {
+            deliveryMs.append(Double(DispatchTime.now().uptimeNanoseconds &- ns) / 1e6)
+        }
         if f.isWordsOnly {
             stdout("WATCH VIDEO #\(f.seq) words only\(f.prompt.map { " prompt \($0.choices.count) answers" } ?? "")\(t)")
             return
         }
         guard WatchVideoFrame.canDecode(seq: f.seq, keyframe: f.keyframe, newest: newestVideo, waitingForKeyframe: waitingForKeyframe) else {
             stdout("WATCH VIDEO #\(f.seq) dropped (waiting for a keyframe)")
-            if !waitingForKeyframe { waitingForKeyframe = true; client.watchKeyframe() }
+            if !waitingForKeyframe { waitingForKeyframe = true; keyframeAsks += 1; client.watchKeyframe() }
             return
         }
         let t0 = Date()
@@ -755,6 +767,7 @@ final class PhoneDelegate: LinkClientDelegate {
             let pixels = try decoder.decode(f)
             newestVideo = f.seq
             waitingForKeyframe = false
+            decoded += 1
             if !quietFrames { stdout("WATCH VIDEO #\(f.seq) \(f.width)x\(f.height) \(f.data.count / 1024) KB\(f.keyframe ? " key" : "") decoded in \(Int(Date().timeIntervalSince(t0) * 1000)) ms\(f.focus.map { " focus \($0)" } ?? "")\(t)") }
             if let dir = flag("--save"), let image = VideoDecoder.image(pixels) {
                 let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(f.seq).png")
@@ -765,6 +778,7 @@ final class PhoneDelegate: LinkClientDelegate {
         } catch {
             stdout("WATCH VIDEO #\(f.seq) failed to decode (\(error)) — asking for a keyframe")
             waitingForKeyframe = true
+            keyframeAsks += 1
             client.watchKeyframe()
         }
     }
@@ -790,6 +804,8 @@ func makeClient() -> (LinkClient, PhoneDelegate) {
     if !client.features.contains(RemoteAccess.feature) { client.features.append(RemoteAccess.feature) }
     if has("--no-bonjour") { client.browsesBonjour = false }
     if has("--no-lane") { client.laneEnabled = false }
+    if has("--datagrams") { client.datagramsEnabled = true }
+    if has("--no-datagrams") { client.datagramsEnabled = false }
     if let a = flag("--away-after").flatMap(Double.init) { client.awayAfter = a }
     if let text = flag("--dial") {
         guard let addr = RemoteAddressRule.parse(text) else { stdout("bad --dial address: \(text)"); exit(2) }
@@ -831,6 +847,9 @@ func run() async -> Int32 {
                                                          WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature]
         // The video lane (pictures on their own connection away from home): --no-lane is a Mac from before.
         if has("--no-lane") { server.laneEnabled = false }
+        // Video datagrams (VideoDatagrams.swift): off unless --datagrams (or the defaults key).
+        if has("--datagrams") { server.datagramsEnabled = true }
+        if has("--no-datagrams") { server.datagramsEnabled = false }
         server.macFeatures.append(MacPermissions.feature)
         // The desktop picture (Wallpaper.swift): the demo gradient, or --wallpaper's image.
         server.macFeatures.append(MacWallpaper.feature)
@@ -1252,6 +1271,31 @@ func run() async -> Int32 {
         CleanupPrompts.setCustomInstructions(flag("--instructions"))
         let r = await Cleaner.clean(args[1], level: level, dictionary: [], language: "en-US")
         stdout(r.cleaned ?? "(kept as spoken\(r.skipped.map { ": " + $0 } ?? ""))")
+        return 0
+
+    case "dgram-sim":
+        // mpctl dgram-sim [--rtt 80] [--fps 19] [--bytes 30000] [--seconds 60] [--seeds 3]: the TCP lane
+        // vs video datagrams in simulated time over the relay's link model (VideoDatagramBench).
+        let rtt = (Double(flag("--rtt") ?? "80") ?? 80) / 1000
+        let fps = Double(flag("--fps") ?? "19") ?? 19
+        let n = Int(fps * (Double(flag("--seconds") ?? "60") ?? 60))
+        let bytes = Int(flag("--bytes") ?? "30000") ?? 30_000
+        let seeds = Int(flag("--seeds") ?? "3") ?? 3
+        for loss in [0, 0.01, 0.02, 0.05] {
+            for dg in [false, true] {
+                var rs: [VideoDatagramBench.Result] = []
+                for seed in 1...seeds { rs.append(VideoDatagramBench.run(datagrams: dg, loss: loss, rtt: rtt, fps: fps, frames: n, bytes: bytes, seed: UInt64(seed))) }
+                func avg(_ k: (VideoDatagramBench.Result) -> Double) -> String { String(format: "%.0f", rs.map(k).reduce(0, +) / Double(rs.count)) }
+                func sum(_ k: (VideoDatagramBench.Result) -> Int) -> Int { rs.map(k).reduce(0, +) }
+                let shown = sum { $0.shown }, all = sum { $0.frames }
+                let ov = rs.map { $0.overhead }.reduce(0, +) / Double(rs.count) * 100
+                var line = "SIM loss \(Int(loss * 100))% \(dg ? "datagrams" : "lane     ") · shown \(String(format: "%.1f", Double(shown) / Double(all) * fps)) fps (\(shown)/\(all)) · "
+                line += "given up \(sum { $0.givenUp }) · keyframes \(sum { $0.keyframesAsked }) · p50 \(avg { $0.p50 }) · p95 \(avg { $0.p95 }) · p99 \(avg { $0.p99 }) · max \(avg { $0.max }) ms · "
+                line += "overhead \(String(format: "%.1f", ov))%"
+                if dg { line += " · rebuilt \(sum { $0.recovered }) · NACKs \(sum { $0.nacks }) · resent \(sum { $0.resent })" }
+                stdout(line)
+            }
+        }
         return 0
 
     case "relay":

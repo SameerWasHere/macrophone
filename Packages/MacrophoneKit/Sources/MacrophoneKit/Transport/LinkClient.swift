@@ -131,6 +131,11 @@ public final class LinkClient: @unchecked Sendable {
     /// Away from home, move the window's pictures to a connection of their own when the Mac can
     /// (VideoLane.swift); the hello names it. Off only to prove the fallback (mpctl --no-lane).
     public var laneEnabled = true
+    /// Away from home, take the video in UDP datagrams when the Mac can (VideoDatagrams.swift).
+    /// Off by default (`VideoDatagrams.enabledByDefault`, a defaults key).
+    public var datagramsEnabled = VideoDatagrams.enabledByDefault
+    /// Another UDP port for the datagrams than the session's (a test relay only).
+    var datagramPort: UInt16?
 
     private let queue = DispatchQueue(label: "macrophone.client")
     private let lock = NSLock()
@@ -196,7 +201,9 @@ public final class LinkClient: @unchecked Sendable {
     public var hasVideoLane: Bool { lock.sync { session?.hasLane ?? false } }
     /// What the hello names: the app's list, plus the video lane when it's on.
     var helloFeatures: [String] {
-        laneEnabled && !features.contains(VideoLane.feature) ? features + [VideoLane.feature] : features
+        var f = laneEnabled && !features.contains(VideoLane.feature) ? features + [VideoLane.feature] : features
+        if datagramsEnabled, !f.contains(VideoDatagrams.feature) { f.append(VideoDatagrams.feature) }
+        return f
     }
     /// Connected over a remote address (away from home) rather than Bonjour.
     public var isRemote: Bool { lock.sync { session != nil && _remote } }
@@ -638,6 +645,9 @@ public final class LinkClient: @unchecked Sendable {
                 // Away, and both name it: the pictures get a connection of their own.
                 if VideoLane.shouldOpen(phoneFeatures: hello, macFeatures: Set(macFeatures ?? []), remote: remote, enabled: laneEnabled) {
                     openLane(for: s, endpoint: conn.connection.endpoint, macID: mac.id)
+                }
+                if VideoDatagrams.shouldOpen(phoneFeatures: hello, macFeatures: Set(macFeatures ?? []), remote: remote, enabled: datagramsEnabled) {
+                    openDatagrams(for: s, endpoint: conn.connection.endpoint, macID: mac.id)
                 }
                 return s
             case .failure(.unknownPeer) where !verified:

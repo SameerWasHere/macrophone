@@ -45,6 +45,8 @@ struct LaneSecrets: Sendable {
     let macProof: Data
     let macToPhone: SymmetricKey
     let phoneToMac: SymmetricKey
+    /// The session's video datagram keys (VideoDatagrams.swift).
+    let datagram: DatagramKeys
 
     init(pairKey: SymmetricKey, phoneNonce: Data, macNonce: Data) {
         let salt = phoneNonce + macNonce
@@ -52,6 +54,7 @@ struct LaneSecrets: Sendable {
         macProof = Data(HMAC<SHA256>.authenticationCode(for: Data("lane-mac".utf8) + salt, using: pairKey))
         macToPhone = HKDF<SHA256>.deriveKey(inputKeyMaterial: pairKey, salt: salt, info: Data("m2p-lane".utf8), outputByteCount: 32)
         phoneToMac = HKDF<SHA256>.deriveKey(inputKeyMaterial: pairKey, salt: salt, info: Data("p2m-lane".utf8), outputByteCount: 32)
+        datagram = DatagramKeys(pairKey: pairKey, phoneNonce: phoneNonce, macNonce: macNonce)
     }
 }
 
