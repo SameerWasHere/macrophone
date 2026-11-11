@@ -157,8 +157,13 @@ public struct ScrollEvents: Sendable, Equatable {
 public struct ScrollMomentum: Sendable, Equatable {
     /// Points a second, below which a swipe just stops.
     public static let minimumSpeed = 150.0
-    /// The rate the decay is defined at — a 120 Hz display sends no more than sixty a second.
+    /// The rate the decay is defined at. The coast is stepped in real time (`step(dt:)`), so a
+    /// 120 Hz display steps it twice as often with half-size steps and the same feel and length
+    /// (Nov 10 2026: it was pinned to sixty a second).
     public static let tickRate = 60.0
+    /// The fastest the phone sends a swipe's deltas and the coast: a ProMotion screen's rate (the
+    /// display link asks for it and takes what the screen gives).
+    public static let fastestRate = 120.0
     /// Velocity kept per tick: a flick of 1000–3000 points a second coasts for about 1.6–2.1 s,
     /// inside the tail of a Mac trackpad's.
     public static let decayPerTick = 0.96

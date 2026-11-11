@@ -265,6 +265,109 @@ extension EnvironmentValues {
     @Entry var fullScreenAvailable = false
 }
 
+/// Scrolling ahead of the Mac (Nov 10 2026, `ScrollPrediction`): while a finger scrolls the Mac's
+/// window, the picture moves by the deltas the Mac hasn't answered yet. A hidden setting
+/// (`watch.predictScroll`), and `MACROPHONE_PREDICT_SCROLL=1|0` in a Debug build.
+enum ScrollAhead {
+    static let key = "watch.predictScroll"
+    /// Off (Nov 10 2026): tried and recorded frame by frame — the whole picture moves, so the Mac
+    /// window's own title bar and traffic lights slide under the finger and a strip of wallpaper
+    /// opens at its edge, then everything snaps back as the Mac's frame lands. It read as the
+    /// window coming loose, at home (~60 ms) and over a slow link alike. Kept for a try on a phone.
+    static let byDefault = false
+    #if DEBUG
+    private static let forced = ProcessInfo.processInfo.environment["MACROPHONE_PREDICT_SCROLL"].map { $0 == "1" }
+    #endif
+    static var isOn: Bool {
+        #if DEBUG
+        if let forced { return forced }
+        #endif
+        return UserDefaults.standard.object(forKey: key) as? Bool ?? byDefault
+    }
+}
+
+/// The header's open room between the name and the clusters (Nov 10 2026): a spacer that, with
+/// Settings › Watching › Show response time on, shows the input-to-picture time in it — laid over
+/// the room, so it never moves a control, never widens the row (the header still gives way in its
+/// order) and goes rather than squeeze anything when the room is too narrow for it.
+struct ResponseGap: View {
+    @ObservedObject var watcher: Watcher
+    var minLength: CGFloat
+    @AppStorage(ResponseReadout.settingKey) private var setting = false
+    /// The phone's one row under the window shows it instead (`ResponseCorner`).
+    @Environment(\.responseInRow) private var inRow
+    private var shown: Bool { setting && !inRow }
+
+    var body: some View {
+        Color.clear
+            // Ideal = the minimum, as a Spacer's: the header's ViewThatFits picks the same row.
+            .frame(minWidth: minLength, idealWidth: minLength, maxWidth: .infinity, minHeight: 0, idealHeight: 0, maxHeight: 0)
+            .overlay {
+                if shown {
+                    ViewThatFits(in: .horizontal) {
+                        ResponseReadout(watcher: watcher, short: false)
+                        ResponseReadout(watcher: watcher, short: true)
+                        Color.clear.frame(width: 0, height: 0)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+extension EnvironmentValues {
+    /// The window's response time is shown in the phone's row under it, not in the header.
+    @Entry var responseInRow = false
+}
+
+/// The response time in the corner of the phone's row under the window (the regular iPhone and
+/// the Duo's cover): the last over the median, two short lines, laid over the row's free corner.
+struct ResponseCorner: View {
+    @ObservedObject var watcher: Watcher
+    @AppStorage(ResponseReadout.settingKey) private var shown = false
+
+    var body: some View {
+        if shown {
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(watcher.responseLast.map { "\($0) ms" } ?? "— ms")
+                Text(watcher.responseMedian.map { "med \($0)" } ?? " ")
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(Ink.tertiary)
+            .lineLimit(1)
+            .fixedSize()
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(watcher.responseLast.map { "Response time \($0) milliseconds, median \(watcher.responseMedian ?? $0)" } ?? "Response time not measured yet")
+            .accessibilityIdentifier("watch-response-time")
+        }
+    }
+}
+
+/// "86 ms · median 92" — the last input's time to the next frame on screen and the running median.
+struct ResponseReadout: View {
+    static let settingKey = "settings.showResponseTime"
+    @ObservedObject var watcher: Watcher
+    var short: Bool
+
+    var body: some View {
+        Text(words)
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(Ink.tertiary)
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityLabel(watcher.responseLast.map { "Response time \($0) milliseconds" } ?? "Response time not measured yet")
+            .accessibilityIdentifier("watch-response-time")
+    }
+
+    private var words: String {
+        guard let last = watcher.responseLast else { return "— ms" }
+        if short { return "\(last) ms" }
+        return "\(last) ms · median \(watcher.responseMedian ?? last)"
+    }
+}
+
 struct WatchHeaderBar: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject var watcher: Watcher
@@ -298,7 +401,7 @@ struct WatchHeaderBar: View {
                 if let middle, !nameOnly {
                     middle.frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Spacer(minLength: 0)
+                    ResponseGap(watcher: watcher, minLength: 0)
                 }
                 // The book's page: the vertical bar has the window's buttons, the header the
                 // paperclip (its deck has no key row).
@@ -310,7 +413,7 @@ struct WatchHeaderBar: View {
                 HStack(spacing: 10) {
                     nameDotsIfRoom
                     fullScreenButton
-                    Spacer(minLength: 8)
+                    ResponseGap(watcher: watcher, minLength: 8)
                     done
                 }
                 HStack(spacing: 10) {
@@ -368,7 +471,7 @@ struct WatchHeaderBar: View {
             name(dots: fit == .full, words: fit == .full || fit == .noDots)
                 .fixedSize(horizontal: fit != .squeezed, vertical: false)
             if !fullScreenFolded { fullScreenButton }
-            Spacer(minLength: narrow ? 2 : 4)
+            ResponseGap(watcher: watcher, minLength: narrow ? 2 : 4)
             // The Whole Screen's zoom-out cell is what its row gives up at the last stages (a Pro:
             // "Whole Scre…" with both kept); Full Screen stays.
             clusters(zoomInMenu: fit == .zoomInMenu || soundFolded, soundInMenu: soundFolded, fullScreenInMenu: fullScreenFolded,
@@ -973,6 +1076,7 @@ struct WatchWindow: View {
                              onDrag: { watcher.windowDrag($0, at: $1) }, whole: watcher.wholeWindow,
                              onScroll: { watcher.scroll(at: $0, by: $1) },
                              onScrollPhase: { watcher.scrollPhase($0, at: $1) },
+                             predictLag: { [weak watcher] in ScrollAhead.isOn ? watcher?.responseLag : nil },
                              onAdjusted: { moved in if live { watcher.setMovedAway(moved) } },
                              onWhole: { whole in if live { watcher.wholeShown(whole) } },
                              pointerSprite: live ? pointer.sprite : nil,
@@ -1906,6 +2010,8 @@ struct WindowViewer: UIViewRepresentable {
     var whole = false
     var onScroll: (CGPoint, CGVector) -> Void
     var onScrollPhase: (WatchScrollPhase, CGPoint) -> Void
+    /// The measured response time (seconds) to scroll the picture ahead by; nil: no prediction.
+    var predictLag: () -> TimeInterval? = { nil }
     var onAdjusted: (Bool) -> Void
     /// The whole window is on screen (fully zoomed out), or no longer is.
     var onWhole: (Bool) -> Void = { _ in }
@@ -1977,6 +2083,7 @@ struct WindowViewer: UIViewRepresentable {
         v.onDrag = onDrag
         v.onScroll = onScroll
         v.onScrollPhase = onScrollPhase
+        v.predictLag = predictLag
         v.onAdjusted = onAdjusted
         v.onWholeShown = onWhole
         v.pointerHost = pointerSprite
@@ -2538,6 +2645,13 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     private var scrollLink: CADisplayLink?
     private var momentum: ScrollMomentum?
     private var lastTick: CFTimeInterval = 0
+    /// A swipe or a coast wants the link (it also runs on while a prediction settles).
+    private var linkWanted = false
+    /// Scrolling ahead of the Mac (`ScrollAhead`): the deltas the picture can't show yet.
+    private var prediction = ScrollPrediction()
+    var predictLag: () -> TimeInterval? = { nil }
+    /// The shift on screen now, in the view's points.
+    private var predicted = CGVector.zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2664,6 +2778,8 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             // Another window: its view starts fresh with its first frame (the picture of the one
             // before stays in place, dimmed by the panel, until then).
             lastGeneration = generation
+            prediction.clear()
+            if predicted != .zero { applyPrediction(.zero) }
             imageSize = .zero
             adjusted = false
             lastRecenter = nil
@@ -3267,27 +3383,70 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     }
 
     private func startLink() {
+        linkWanted = true
         guard scrollLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
-        let rate = Float(ScrollMomentum.tickRate)
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
+        // The screen's own rate, up to 120 (Nov 10 2026: pinned to 60, a ProMotion phone's swipe
+        // reached the Mac half as often as the finger moved). The coast is stepped in real time,
+        // so it feels and lasts the same at either rate (`ScrollMomentum.step(dt:)`).
+        let fast = Float(ScrollMomentum.fastestRate)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: Float(ScrollMomentum.tickRate), maximum: fast, preferred: fast)
         link.add(to: .main, forMode: .common)
         scrollLink = link
         lastTick = CACurrentMediaTime()
     }
 
     private func stopLink() {
-        scrollLink?.invalidate()
-        scrollLink = nil
+        linkWanted = false
         momentum = nil
+        // A prediction still on screen settles on the link's ticks first.
+        if prediction.isEmpty { endLink() }
     }
 
-    /// Once a display frame: the finger's deltas since the last, or the coast's next step.
+    private func endLink() {
+        scrollLink?.invalidate()
+        scrollLink = nil
+        if predicted != .zero { applyPrediction(.zero) }
+    }
+
+    /// Once a display frame: the finger's deltas since the last, or the coast's next step — and
+    /// the picture's shift ahead of the Mac.
     @objc private func tick(_ link: CADisplayLink) {
         let now = link.targetTimestamp
         let dt = now - lastTick
         lastTick = now
-        if momentum != nil { step(dt: dt) } else { flushScroll() }
+        if linkWanted { if momentum != nil { step(dt: dt) } else { flushScroll() } }
+        settlePrediction(at: now)
+        if !linkWanted, prediction.isEmpty { endLink() }
+    }
+
+    // MARK: Scrolling ahead of the Mac (Nov 10 2026)
+
+    /// A delta went (points of the view): the picture moves by it now, if prediction is on.
+    private func predict(_ d: CGVector) {
+        guard swiper.isEnabled, !isZooming, !isZoomBouncing, predictLag() != nil else { return }
+        prediction.sent(d, at: CACurrentMediaTime())
+    }
+
+    private func settlePrediction(at t: CFTimeInterval) {
+        guard let lag = predictLag(), swiper.isEnabled, !isZooming else {
+            prediction.clear()
+            if predicted != .zero { applyPrediction(.zero) }
+            return
+        }
+        applyPrediction(prediction.offset(at: t, lag: lag))
+    }
+
+    /// Shifts what the canvas holds (the video and the picture under it) by the view's points —
+    /// clipped by the window's own edges; the frame, the shadow and the corners stay.
+    private func applyPrediction(_ d: CGVector) {
+        guard d != predicted else { return }
+        predicted = d
+        let z = max(zoomScale, 0.01)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        canvas.layer.sublayerTransform = d == .zero ? CATransform3DIdentity : CATransform3DMakeTranslation(d.dx / z, d.dy / z, 0)
+        CATransaction.commit()
     }
 
     /// One step of the coast, in the picture's points as the finger's deltas are — nothing left
@@ -3298,6 +3457,7 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
         let shown = CGSize(width: imageSize.width * zoomScale, height: imageSize.height * zoomScale)
         guard shown.width > 0, shown.height > 0 else { endMomentum(); return }
         onScroll(scrollAnchor, CGVector(dx: s.dx / shown.width, dy: s.dy / shown.height))
+        predict(s)
     }
 
     private func endMomentum() {
@@ -3309,12 +3469,14 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
     private func flushScroll() {
         guard abs(pendingScroll.dx) + abs(pendingScroll.dy) > 0.0005 else { return }
         onScroll(scrollAnchor, pendingScroll)
+        predict(CGVector(dx: pendingScroll.dx * imageSize.width * zoomScale, dy: pendingScroll.dy * imageSize.height * zoomScale))
         pendingScroll = .zero
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
+            prediction.clear()
             endMomentum()
             leaving = true
             defer { leaving = false }

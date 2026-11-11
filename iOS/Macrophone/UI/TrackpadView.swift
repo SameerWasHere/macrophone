@@ -470,8 +470,11 @@ final class TrackpadTouchView: UIView {
     private func startLink() {
         guard link == nil else { return }
         let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
-        let rate = Float(ScrollMomentum.tickRate)
-        l.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
+        // The screen's own rate, up to 120 (Nov 10 2026: pinned to 60, a ProMotion phone's swipe
+        // reached the Mac half as often as the finger moved). The coast is stepped in real time,
+        // so it feels and lasts the same at either rate (`ScrollMomentum.step(dt:)`).
+        let fast = Float(ScrollMomentum.fastestRate)
+        l.preferredFrameRateRange = CAFrameRateRange(minimum: Float(ScrollMomentum.tickRate), maximum: fast, preferred: fast)
         l.add(to: .main, forMode: .common)
         link = l
         lastTick = CACurrentMediaTime()

@@ -152,6 +152,37 @@ final class VideoCanvas: UIView {
         if renderer.status == .failed { renderer.flush() }
     }
 
+    // MARK: When a frame is on screen (the response time, Nov 10 2026)
+
+    /// Calls `done` with the display time of the first screen refresh that shows a frame other
+    /// than `before` (the one on screen when the frame was handed in) — the decoder's own word,
+    /// `displayedPixelBuffer`, looked at once a refresh. Given up (no call) after a quarter of a
+    /// second: a frame held for a resize, or one that never decoded, times nothing. Before iOS 17.4
+    /// the refresh after the hand-in stands for it.
+    func whenShown(after before: CVPixelBuffer?, _ done: @escaping (CFTimeInterval) -> Void) {
+        shownWaits.append((before, done, CACurrentMediaTime()))
+        guard shownLink == nil else { return }
+        let link = CADisplayLink(target: ShownLinkProxy(self), selector: #selector(ShownLinkProxy.tick(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: Float(ScrollMomentum.fastestRate), preferred: Float(ScrollMomentum.fastestRate))
+        link.add(to: .main, forMode: .common)
+        shownLink = link
+    }
+
+    private var shownWaits: [(before: CVPixelBuffer?, done: (CFTimeInterval) -> Void, since: CFTimeInterval)] = []
+    private var shownLink: CADisplayLink?
+
+    fileprivate func shownTick(_ link: CADisplayLink) {
+        let now = displayedFrame()
+        var left: [(before: CVPixelBuffer?, done: (CFTimeInterval) -> Void, since: CFTimeInterval)] = []
+        for w in shownWaits {
+            let changed: Bool
+            if #available(iOS 17.4, *) { changed = now != nil && now !== w.before } else { changed = true }
+            if changed { w.done(link.timestamp) } else if link.timestamp - w.since < 0.25 { left.append(w) }
+        }
+        shownWaits = left
+        if shownWaits.isEmpty { shownLink?.invalidate(); shownLink = nil }
+    }
+
     /// The frame on screen now, as the decoder left it (nil before any).
     func displayedFrame() -> CVPixelBuffer? {
         guard hasFrame, #available(iOS 17.4, *) else { return nil }
@@ -168,5 +199,15 @@ final class VideoCanvas: UIView {
         holdRelease?.cancel()
         holdRelease = nil
         displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+    }
+}
+
+/// Holds the canvas weakly (a display link retains its target).
+private final class ShownLinkProxy: NSObject {
+    weak var canvas: VideoCanvas?
+    init(_ c: VideoCanvas) { canvas = c }
+    @objc func tick(_ link: CADisplayLink) {
+        guard let canvas else { link.invalidate(); return }
+        canvas.shownTick(link)
     }
 }

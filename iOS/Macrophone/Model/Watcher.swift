@@ -284,7 +284,7 @@ final class Watcher: ObservableObject {
         }
         // The window it leaves keeps its picture for next time.
         if switching, isOpen { keepPicture() }
-        if !isOpen { watchCount &+= 1 }
+        if !isOpen { watchCount &+= 1; response.reset(); responseLast = nil; responseMedian = nil }
         switchedAt = switching && isOpen ? Date() : nil
         self.target = target
         if !isOpen { drag = .pan; wholeWindow = false }
@@ -458,6 +458,7 @@ final class Watcher: ObservableObject {
             }
             log?.add(line)
         }
+        if let line = response.summary { log?.add(line) }
         log?.add("watching closed")
     }
 
@@ -472,6 +473,7 @@ final class Watcher: ObservableObject {
         recentFrames = []
         peakPerSecond = 0
         framePathMicros = []
+        response.dropWaiting()
         awaitingFirstPicture = true
         askedAt = Date()
         video.ready()
@@ -558,6 +560,7 @@ final class Watcher: ObservableObject {
         touch()
         Haptics.press()
         sendAction(action)
+        markInput()
         inputSeq &+= 1
         // The answer to a key shows at the bottom of the window: go back there.
         recenter &+= 1
@@ -570,6 +573,7 @@ final class Watcher: ObservableObject {
         touch()
         Haptics.press()
         if !input.windowClick(p, count: count, right: false) { sendClick(p) }
+        markInput()
         if count > 1 { log?.add("watching: click ×\(count)") }
     }
 
@@ -581,6 +585,7 @@ final class Watcher: ObservableObject {
             guard sendRightClick(p) else { return false }
         }
         Haptics.rightClick()
+        markInput()
         log?.add("watching: right-click")
         return true
     }
@@ -598,6 +603,7 @@ final class Watcher: ObservableObject {
     /// Something went to the Mac with no mark of its own on the picture (a key, typing, a drag's
     /// end): the bezel's rim answers; `recenter` goes to the newest output too.
     func inputSent(recenter: Bool = false) {
+        markInput()
         inputSeq &+= 1
         if recenter { self.recenter &+= 1 }
     }
@@ -999,6 +1005,7 @@ final class Watcher: ObservableObject {
         touch()
         guard sendKey(k) else { return }
         Haptics.press()
+        markInput()
         inputSeq &+= 1
         recenter &+= 1
         log?.add("watching: key")
@@ -1034,11 +1041,49 @@ final class Watcher: ObservableObject {
     func scroll(at p: CGPoint, by d: CGVector) {
         touch()
         sendScroll(p, d)
+        // A swipe's first step is timed (the rest move a picture already moving). A Mac without
+        // phases: a step after a pause is a new swipe's first.
+        let now = CACurrentMediaTime()
+        if !scrollTimed || (!macCanScroll && now - lastScrollAt > 0.3) { scrollTimed = true; markInput() }
+        lastScrollAt = now
     }
 
     /// Where the swipe is (landed, lifted, coasting): the Mac makes one gesture of the deltas.
     func scrollPhase(_ phase: WatchScrollPhase, at p: CGPoint) {
+        if phase == .began { scrollTimed = false }
         sendScrollPhase(phase, p)
+    }
+    private var scrollTimed = false
+    private var lastScrollAt: CFTimeInterval = 0
+
+    // MARK: Response time (Nov 10 2026)
+
+    /// Input to the next frame on screen (`ResponseClock`): measured on every watch, shown only
+    /// with Settings › Watching › Show response time, and in the closing log line.
+    private var response = ResponseClock()
+    /// The newest and the running median, whole ms; nil before the first.
+    @Published private(set) var responseLast: Int?
+    @Published private(set) var responseMedian: Int?
+    /// The response time to scroll ahead by (the median, seconds): nil before any is measured.
+    var responseLag: TimeInterval? { response.median.map { $0 / 1000 } }
+
+    /// Something went to the Mac that should change the picture: the wait for the frame starts.
+    func markInput() {
+        guard isOpen, !phase.isPaused else { return }
+        response.input(at: CACurrentMediaTime())
+    }
+
+    private func frameShown(at t: CFTimeInterval) {
+        guard let ms = response.frameShown(at: t) else { return }
+        #if DEBUG
+        if Self.timing { log?.add("watching: response \(Int(ms.rounded())) ms") }
+        #else
+        _ = ms
+        #endif
+        let last = response.last.map { Int($0.rounded()) }
+        let median = response.median.map { Int($0.rounded()) }
+        if responseLast != last { responseLast = last }
+        if responseMedian != median { responseMedian = median }
     }
 
     /// Scroll that the zoom chose, not him: zooming back in returns to Pan.
@@ -1223,6 +1268,7 @@ final class Watcher: ObservableObject {
             // A picture after video (the Mac's chip got busy): the picture is what shows now.
             if self.videoSize != nil { self.video.clear(); self.videoSize = nil }
             self.arrangeHasPicture = true
+            if self.response.waitingSince != nil { self.frameShown(at: CACurrentMediaTime()) }
             self.show(img, appName: frame.appName, bundleID: frame.bundleID, focus: frame.focus, prompt: frame.prompt, bytes: data.count, how: "picture", points: frame.points, cursor: frame.cursor)
         }
     }
@@ -1244,6 +1290,21 @@ final class Watcher: ObservableObject {
     /// A frame of video, handed to the canvas in order (the system decodes and draws it). Only
     /// the words (the question, the place to type) when there's nothing to decode.
     func received(_ frame: WatchVideoFrame) {
+        #if DEBUG
+        // MACROPHONE_FAKE_LAG=<ms>: every frame shown that much later — a slow link's round trip,
+        // stood in for on the simulator (the scroll prediction's test, Nov 10 2026).
+        if Self.fakeLag > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.fakeLag) { [weak self] in self?.receivedNow(frame) }
+            return
+        }
+        #endif
+        receivedNow(frame)
+    }
+    #if DEBUG
+    private static let fakeLag = (Double(ProcessInfo.processInfo.environment["MACROPHONE_FAKE_LAG"] ?? "") ?? 0) / 1000
+    #endif
+
+    private func receivedNow(_ frame: WatchVideoFrame) {
         guard isOpen, !phase.isPaused else { return }
         // One count for pictures, frames and words: the first picture of a video watch is a JPEG.
         if isDesktop, front != frame.front { front = frame.front }
@@ -1262,6 +1323,8 @@ final class Watcher: ObservableObject {
         #if DEBUG
         let t0 = Self.timing ? CACurrentMediaTime() : 0
         #endif
+        let timing = response.waitingSince != nil
+        let before = timing ? video.displayedFrame() : nil
         guard video.enqueue(frame) else {
             log?.add("watching: a frame didn't decode — asking for a keyframe")
             waitingForKeyframe = true
@@ -1269,6 +1332,7 @@ final class Watcher: ObservableObject {
             return
         }
         waitingForKeyframe = false
+        if timing { video.whenShown(after: before) { [weak self] t in self?.frameShown(at: t) } }
         arrangeHasPicture = true
         countFrame()
         videoBytes += frame.data.count

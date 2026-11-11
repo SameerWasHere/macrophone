@@ -450,6 +450,8 @@ struct MainView: View {
                                        dormant: panelDormant && !panelShown && windowHere || innerAsleep)
                                 // Full Screen beside the name (the cover has it in its bar).
                                 .environment(\.fullScreenAvailable, true)
+                                // The response time is the row's under the window, not the header's.
+                                .environment(\.responseInRow, isCover || regularPhone)
                                 // Hidden under full screen too: not live, so it never measures
                                 // for the window's shape nor takes the video from the screen.
                                 .environment(\.watchWindowHidden, !panelShown || inFullScreen)
@@ -538,6 +540,11 @@ struct MainView: View {
                                 micButton(size: watching ? 64 : 92)
                             }
                             if watching { pageButton(.trackpad).frame(maxWidth: .infinity) }
+                        }
+                        // The response time (Settings › Watching), in the row's free corner beyond
+                        // the trackpad's button: laid over, so it moves nothing.
+                        .overlay(alignment: .trailing) {
+                            if watching { ResponseCorner(watcher: watcher).padding(.trailing, 6) }
                         }
                         .padding(.top, watching ? 4 : 0)
                         if watching {

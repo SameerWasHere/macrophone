@@ -79,6 +79,9 @@ targets:
         MacrophoneCloudAlerts: $(MACROPHONE_CLOUD_ALERTS)
         LSRequiresIPhoneOS: true
         ITSAppUsesNonExemptEncryption: false
+        # 120 Hz on a ProMotion iPhone (Nov 10 2026): without it iOS caps the app's own display
+        # links (the swipe's deltas, the coast) and its animations at 60.
+        CADisableMinimumFrameDurationOnPhone: true
         # No UIRequiresFullScreen (Nov 1 2026): deprecated in iOS 26, and on the Duo it marks the app
         # as fixed-size — iOS kept it at the size it launched at and boxed it on the other screen
         # (the cover's 469 pt in the middle of the open screen, seen on Sameer's Duo).
