@@ -47,7 +47,7 @@ public enum WatchTouchPace {
 public struct WatchWireSizer: Sendable, Equatable {
     /// The widths it steps through, widest first (pixels). The top is the watch's own ceiling
     /// (2560 at home, 1600 away); a ceiling below a step skips it.
-    public static let steps: [Int] = [2560, 1600, 1000]
+    public static let steps: [Int] = [2560, 2000, 1600, 1200]
     /// A send this slow (seconds — a frame from handing to the sender to on the wire) is slow.
     public static let slowSend = 0.08
     /// One this quick is fast.
@@ -56,13 +56,27 @@ public struct WatchWireSizer: Sendable, Equatable {
     /// them) steps down.
     public static let recent = 10
     public static let slowToStepDown = 6
-    /// Fast sends in a row to step up.
-    public static let fastToStepUp = 90
+    /// To step up: this many fast sends in a row, and `settleUp` with nothing slow or held
+    /// (Nov 10 2026: it was 90 in a row, which a mostly still window takes minutes to reach — on
+    /// his Duo the picture stepped to 1000 px two seconds into a watch at home and stayed there,
+    /// blurry on the inner screen).
+    public static let fastToStepUp = 5
+    /// Frames held for the wire step it down only when the holding has lasted this long (ten in
+    /// a sixth of a second is the phone busy opening a window, not a slow link).
+    public static let heldFor: TimeInterval = 1.0
+    /// Nothing steps down in a watch's first seconds (the phone is laying the window out).
+    public static let grace: TimeInterval = 3
     /// And this long since the last step, either way.
     public static let settleDown: TimeInterval = 2
     public static let settleUp: TimeInterval = 8
 
     public let ceiling: Int
+    /// False: the width never changes (at home — the link is the house's own, and a soft picture
+    /// on a big screen is the worse trade).
+    public var follows = true
+    private var bornAt: TimeInterval?
+    private var heldSince: TimeInterval?
+    private var troubleAt: TimeInterval = -.infinity
     /// The width now (the stream's maximum).
     public private(set) var width: Int
     /// The width the frames really have (a window narrower than `width` streams at its own): a step
@@ -104,31 +118,38 @@ public struct WatchWireSizer: Sendable, Equatable {
     /// A frame went onto the wire after `seconds`, at `now` (any clock, seconds). Returns a step
     /// when the width should change.
     public mutating func sent(seconds: Double, at now: TimeInterval) -> Step? {
+        if bornAt == nil { bornAt = now }
         lastSends.append(seconds)
         if lastSends.count > Self.recent { lastSends.removeFirst() }
-        fastRun = seconds <= Self.fastSend ? fastRun + 1 : 0
+        if seconds <= Self.fastSend { fastRun += 1 } else { fastRun = 0; troubleAt = now }
         // Frames held for the wire count only while no send has been quick since.
-        if seconds < Self.slowSend { held = 0 }
+        if seconds < Self.slowSend { held = 0; heldSince = nil }
         return decide(at: now)
     }
 
     /// A frame was held back because the wire was behind (two handed in, not yet sent).
     public mutating func heldForWire(at now: TimeInterval) -> Step? {
+        if bornAt == nil { bornAt = now }
         held += 1
+        if heldSince == nil { heldSince = now }
         fastRun = 0
+        troubleAt = now
         return decide(at: now)
     }
 
     private mutating func decide(at now: TimeInterval) -> Step? {
+        guard follows else { return nil }
         let ladder = self.ladder
         guard let i = ladder.firstIndex(of: width) else { width = ceiling; return nil }
         let slow = lastSends.filter { $0 >= Self.slowSend }.count
         let below = ladder.dropFirst(i + 1).first { $0 < min(width, showing ?? width) }
-        if let below, now - steppedAt >= Self.settleDown,
-           (lastSends.count >= Self.recent && slow >= Self.slowToStepDown) || held >= Self.recent {
+        let heldLong = held >= Self.recent && now - (heldSince ?? now) >= Self.heldFor
+        if let below, now - steppedAt >= Self.settleDown, now - (bornAt ?? now) >= Self.grace,
+           (lastSends.count >= Self.recent && slow >= Self.slowToStepDown) || heldLong {
             return step(to: below, down: true, at: now)
         }
-        if i > 0, fastRun >= Self.fastToStepUp * upBackoff, now - steppedAt >= Self.settleUp {
+        if i > 0, fastRun >= Self.fastToStepUp, now - troubleAt >= Self.settleUp * Double(upBackoff),
+           now - steppedAt >= Self.settleUp {
             return step(to: ladder[i - 1], down: false, at: now)
         }
         return nil
@@ -144,6 +165,8 @@ public struct WatchWireSizer: Sendable, Equatable {
         lastSends = []
         fastRun = 0
         held = 0
+        heldSince = nil
+        if down { troubleAt = now }
         return Step(width: w, down: down, sendMs: median, held: heldNow)
     }
 }

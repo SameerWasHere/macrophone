@@ -107,12 +107,14 @@ final class VideoPipe: @unchecked Sendable {
     /// session in a process takes ~90–150 ms to make; later ones ~6–13). `ceiling` / `width`: the
     /// widest picture this watch sends, and the width it sends now (a stepped-down watch whose
     /// window changed keeps its step).
-    init(peer: UUID, server: LinkServer, rate: Int, timing: Bool, size: (width: Int, height: Int)? = nil, ceiling: Int = 2560, width: Int? = nil) {
+    init(peer: UUID, server: LinkServer, rate: Int, timing: Bool, size: (width: Int, height: Int)? = nil, ceiling: Int = 2560, width: Int? = nil, followsWire: Bool = true) {
         self.peer = peer
         self.server = server
         self.rate = rate
         self.timing = timing
         sizer = WatchWireSizer(ceiling: ceiling, width: width ?? ceiling)
+        // At home the picture keeps its full width (Nov 10 2026): the sizer is for a link away.
+        sizer.follows = followsWire
         (outgoing, outgoingContinuation) = AsyncStream.makeStream(of: WatchVideoFrame.self, bufferingPolicy: .unbounded)
         let stream = outgoing
         sender = Task.detached(priority: .userInitiated) { [weak self] in

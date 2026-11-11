@@ -232,7 +232,9 @@ final class WatchService {
     /// Video at the window's own Retina sharpness (Oct 18 2026, "high fidelity"): text holds up
     /// when you zoom in; HEVC carries it easily at home, a little less away.
     static let videoMaxWidth: CGFloat = 2560
-    static let remoteVideoMaxWidth: CGFloat = 1600
+    /// (2000 since Nov 10 2026: the Duo's inner screen is 1,935 px across a window's half, and
+    /// 1600 read soft there; the wire sizer steps it down when the link can't carry it.)
+    static let remoteVideoMaxWidth: CGFloat = 2000
     private func maxWidth(for w: Watch) -> CGFloat {
         let ceiling = ceilingWidth(for: w)
         guard w.wantsVideo, let stepped = w.wireWidth else { return ceiling }
@@ -543,7 +545,7 @@ final class WatchService {
             }
             if w.wantsVideo {
                 let pipe = VideoPipe(peer: w.peer, server: app.server, rate: rate(w), timing: timing,
-                                     size: s.size, ceiling: Int(ceilingWidth(for: w)), width: w.wireWidth)
+                                     size: s.size, ceiling: Int(ceilingWidth(for: w)), width: w.wireWidth, followsWire: app.isRemote(w.peer))
                 pipe.onWireStep = { [weak self, weak w, weak s] step in
                     Task { @MainActor in
                         guard let self, let w, let s, w.stream === s else { return }

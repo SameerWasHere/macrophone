@@ -8,6 +8,23 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The picture keeps its full width at home (Nov 10 2026, later) — amends the wire sizer below
+
+Sameer on build 44: latency "is good", but on the Duo's inner screen (portrait, the laptop) "it's
+not high resolution enough … some of the text is blurry". His Mac's log: at home, 2–5 s into a
+watch, "picture stepped down to 1600 px (sends 0 ms, 10 frames held for the wire)" then "to 1000
+px", and it never came back — the inner half needs 1,935 px. The new `watchSeen` hold counted ten
+frames held in a sixth of a second (the phone busy laying the window out) as a slow link, and a
+step up needed 90 quick arrivals in a row, which a mostly still window takes minutes to give.
+- **At home the sizer is off** (`WatchWireSizer.follows`, `VideoPipe(followsWire: app.isRemote)`):
+  the picture is always the ceiling's 2,560 px. The hold itself (at most 4 frames ahead) stays.
+- **Away:** ceiling 2,000 px (was 1,600); steps 2560 · 2000 · 1600 · 1200 (the floor was 1000);
+  nothing steps down in a watch's first 3 s (`grace`); held frames count only once the holding has
+  lasted 1 s (`heldFor`); a step up needs 5 quick arrivals and 8 s with nothing slow or held
+  (× the backoff after a relapse) — not 90 in a row. `WatchLatencyTests` (11).
+- Mac 1.1.22 (no iPhone change). **Needs his eyes:** the inner screen at home after this — the
+  log should show no "stepped down" on the home network; away, how 2,000 px holds on cellular.
+
 ## Latency: real time while you touch it (Nov 10 2026)
 
 Sameer: "any ways to reduce the latency further and make the experience for real time?", then

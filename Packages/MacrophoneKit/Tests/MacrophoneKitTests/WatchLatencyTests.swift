@@ -77,84 +77,117 @@ final class WatchLatencyTests: XCTestCase {
     // MARK: The picture follows the wire
 
     func testTheLadderStartsAtTheCeiling() {
-        XCTAssertEqual(WatchWireSizer(ceiling: 2560).ladder, [2560, 1600, 1000])
-        XCTAssertEqual(WatchWireSizer(ceiling: 1600).ladder, [1600, 1000])
-        XCTAssertEqual(WatchWireSizer(ceiling: 1500).ladder, [1500, 1000])
+        XCTAssertEqual(WatchWireSizer(ceiling: 2560).ladder, [2560, 2000, 1600, 1200])
+        XCTAssertEqual(WatchWireSizer(ceiling: 2000).ladder, [2000, 1600, 1200])
+        XCTAssertEqual(WatchWireSizer(ceiling: 1500).ladder, [1500, 1200])
         XCTAssertEqual(WatchWireSizer(ceiling: 1000).ladder, [1000])
         // A watch already stepped down starts at its step.
         XCTAssertEqual(WatchWireSizer(ceiling: 2560, width: 1600).width, 1600)
-        XCTAssertEqual(WatchWireSizer(ceiling: 2560, width: 1200).width, 1000)
-        XCTAssertEqual(WatchWireSizer(ceiling: 2560, width: 500).width, 1000)
+        XCTAssertEqual(WatchWireSizer(ceiling: 2560, width: 1300).width, 1200)
+        XCTAssertEqual(WatchWireSizer(ceiling: 2560, width: 500).width, 1200)
     }
 
-    func testFastSendsNeverStepAtHome() {
+    /// A sizer past its first seconds (nothing steps down in a watch's opening moments).
+    private func settled(ceiling: Int, at t: Double) -> WatchWireSizer {
+        var s = WatchWireSizer(ceiling: ceiling)
+        _ = s.sent(seconds: 0.001, at: t - WatchWireSizer.grace - 1)
+        return s
+    }
+
+    func testFastSendsNeverStep() {
         var s = WatchWireSizer(ceiling: 2560)
         var t = 0.0
         for _ in 0..<5000 { XCTAssertNil(s.sent(seconds: 0.001, at: t)); t += 1.0 / 60 }
-        // A lone slow send, or a few held frames between quick sends, don't either.
+        // A lone slow send, or a burst of held frames (the phone busy for a moment), don't either.
         XCTAssertNil(s.sent(seconds: 0.3, at: t))
         for _ in 0..<5 { XCTAssertNil(s.heldForWire(at: t)) }
         XCTAssertNil(s.sent(seconds: 0.002, at: t))
-        for _ in 0..<9 { XCTAssertNil(s.heldForWire(at: t)) }
+        for _ in 0..<40 { XCTAssertNil(s.heldForWire(at: t)); t += 0.01 }
+        XCTAssertEqual(s.width, 2560)
+    }
+
+    func testAtHomeItNeverSteps() {
+        var s = settled(ceiling: 2560, at: 100)
+        s.follows = false
+        var t = 100.0
+        for _ in 0..<400 { XCTAssertNil(s.sent(seconds: 0.5, at: t)); XCTAssertNil(s.heldForWire(at: t)); t += 0.05 }
+        XCTAssertEqual(s.width, 2560)
+    }
+
+    func testNothingStepsDownInAWatchsFirstSeconds() {
+        var s = WatchWireSizer(ceiling: 2560)
+        var t = 50.0
+        // Ten held in a sixth of a second two seconds in (his Duo, at home): no step.
+        for _ in 0..<30 { XCTAssertNil(s.heldForWire(at: t)); XCTAssertNil(s.sent(seconds: 0.2, at: t)); t += 0.09 }
         XCTAssertEqual(s.width, 2560)
     }
 
     func testSlowSendsStepDownOneAtATimeAndSettle() {
-        var s = WatchWireSizer(ceiling: 2560)
+        var s = settled(ceiling: 2560, at: 100)
         var t = 100.0
         var steps: [WatchWireSizer.Step] = []
         for _ in 0..<40 { if let st = s.sent(seconds: 0.14, at: t) { steps.append(st) }; t += 0.05 }
         // 40 slow sends over 2 s: one step (the next must wait `settleDown`).
-        XCTAssertEqual(steps, [WatchWireSizer.Step(width: 1600, down: true, sendMs: 140, held: 0)])
-        for _ in 0..<40 { if let st = s.sent(seconds: 0.14, at: t) { steps.append(st) }; t += 0.05 }
-        XCTAssertEqual(steps.map(\.width), [1600, 1000])
+        XCTAssertEqual(steps, [WatchWireSizer.Step(width: 2000, down: true, sendMs: 140, held: 0)])
+        for _ in 0..<200 { if let st = s.sent(seconds: 0.14, at: t) { steps.append(st) }; t += 0.05 }
+        XCTAssertEqual(steps.map(\.width), [2000, 1600, 1200])
         // The floor: no further.
         for _ in 0..<200 { XCTAssertNil(s.sent(seconds: 0.5, at: t)); t += 0.05 }
-        XCTAssertEqual(s.width, 1000)
+        XCTAssertEqual(s.width, 1200)
     }
 
     func testAStepDownGoesBelowWhatTheFramesReallyAre() {
-        // A window 1440 px wide under a 2560 ceiling: 1600 would change nothing — straight to 1000.
-        var s = WatchWireSizer(ceiling: 2560)
+        // A window 1440 px wide under a 2560 ceiling: 2000 and 1600 would change nothing — to 1200.
+        var s = settled(ceiling: 2560, at: 5)
         s.showing = 1440
         var step: WatchWireSizer.Step?
         for _ in 0..<10 { step = s.sent(seconds: 0.2, at: 5) ?? step }
-        XCTAssertEqual(step?.width, 1000)
+        XCTAssertEqual(step?.width, 1200)
         // Already at or under the floor: nothing to step to.
-        var t = WatchWireSizer(ceiling: 2560)
+        var t = settled(ceiling: 2560, at: 5)
         t.showing = 900
         for _ in 0..<40 { XCTAssertNil(t.sent(seconds: 0.2, at: 5)) }
     }
 
-    func testFramesHeldForTheWireStepDownToo() {
-        var s = WatchWireSizer(ceiling: 1600)
+    func testFramesHeldForASecondStepDownToo() {
+        var s = settled(ceiling: 1600, at: 10)
         var step: WatchWireSizer.Step?
-        for _ in 0..<WatchWireSizer.recent { step = s.heldForWire(at: 10) ?? step }
-        XCTAssertEqual(step?.width, 1000)
-        XCTAssertEqual(step?.held, WatchWireSizer.recent)
+        var t = 10.0
+        for _ in 0..<9 { XCTAssertNil(s.heldForWire(at: t)); t += 0.1 }       // 0.9 s of holding: not yet
+        for _ in 0..<4 { step = s.heldForWire(at: t) ?? step; t += 0.1 }
+        XCTAssertEqual(step?.width, 1200)
+        XCTAssertGreaterThanOrEqual(step?.held ?? 0, WatchWireSizer.recent)
     }
 
-    func testFastSendsStepBackUpOnlyAfterALongRunAndNeverFlap() {
-        var s = WatchWireSizer(ceiling: 2560)
+    func testItStepsBackUpAfterACleanStretchAndNeverFlaps() {
+        var s = settled(ceiling: 2560, at: 0)
         var t = 0.0
         for _ in 0..<10 { _ = s.sent(seconds: 0.2, at: t); t += 0.05 }
-        XCTAssertEqual(s.width, 1600)
-        // A run interrupted by a medium send starts over.
-        for _ in 0..<80 { XCTAssertNil(s.sent(seconds: 0.01, at: t)); t += 0.1 }
+        XCTAssertEqual(s.width, 2000)
+        // Quick arrivals, but not yet a clean stretch: nothing.
+        for _ in 0..<60 { XCTAssertNil(s.sent(seconds: 0.01, at: t)); t += 0.1 }      // 6 s
+        // One medium send starts the stretch over.
         XCTAssertNil(s.sent(seconds: 0.05, at: t))
-        for _ in 0..<(WatchWireSizer.fastToStepUp - 1) { XCTAssertNil(s.sent(seconds: 0.01, at: t)); t += 0.1 }
-        let up = s.sent(seconds: 0.01, at: t)
+        for _ in 0..<70 { XCTAssertNil(s.sent(seconds: 0.01, at: t)); t += 0.1 }      // 7 s clean
+        var up: WatchWireSizer.Step?
+        for _ in 0..<20 { up = s.sent(seconds: 0.01, at: t) ?? up; t += 0.1 }          // past 8 s
         XCTAssertEqual(up?.width, 2560)
         XCTAssertEqual(up?.down, false)
-        // Slow again soon after: down, and the next step up needs twice the run.
+        // A mostly still window gets there too: a handful of quick arrivals spread over the stretch.
+        var still = settled(ceiling: 2560, at: 0)
+        var u = 0.0
+        for _ in 0..<10 { _ = still.sent(seconds: 0.2, at: u); u += 0.05 }
+        var back: WatchWireSizer.Step?
+        for _ in 0..<8 { u += 2; back = still.sent(seconds: 0.005, at: u) ?? back }
+        XCTAssertEqual(back?.width, 2560)
+        // Slow again soon after: down, and the next step up needs twice the clean stretch.
         t += 3
         for _ in 0..<10 { _ = s.sent(seconds: 0.2, at: t); t += 0.05 }
-        XCTAssertEqual(s.width, 1600)
+        XCTAssertEqual(s.width, 2000)
         XCTAssertEqual(s.upBackoff, 2)
-        t += 10
-        for _ in 0..<(WatchWireSizer.fastToStepUp + 10) { XCTAssertNil(s.sent(seconds: 0.01, at: t)); t += 0.1 }
+        for _ in 0..<120 { XCTAssertNil(s.sent(seconds: 0.01, at: t)); t += 0.1 }     // 12 s: not enough now
         var again: WatchWireSizer.Step?
-        for _ in 0..<WatchWireSizer.fastToStepUp { again = s.sent(seconds: 0.01, at: t) ?? again; t += 0.1 }
+        for _ in 0..<60 { again = s.sent(seconds: 0.01, at: t) ?? again; t += 0.1 }
         XCTAssertEqual(again?.width, 2560)
     }
 }
