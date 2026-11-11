@@ -26,7 +26,7 @@ final class FrontWindowTests: XCTestCase {
         XCTAssertEqual(FrontWindow.trimmed("a\n  b\tc"), "a b c")
         let t = FrontWindow.trimmed(String(repeating: "word ", count: 30))
         XCTAssertLessThanOrEqual(t.count, FrontWindow.titleLimit)
-        XCTAssertTrue(t.hasSuffix("…"))
+        XCTAssertFalse(t.hasSuffix("…"), "no dots: the phone fades a long line")
         XCTAssertEqual(FrontWindow.trimmed(String(repeating: "x", count: 100)).count, FrontWindow.titleLimit)
     }
 

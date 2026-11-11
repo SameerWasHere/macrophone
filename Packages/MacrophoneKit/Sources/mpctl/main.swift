@@ -809,6 +809,7 @@ final class PhoneDelegate: LinkClientDelegate {
             waitingForKeyframe = false
             probe(pixels)
             decoded += 1
+            client.watchSeen(f.seq)
             if !quietFrames { stdout("WATCH VIDEO #\(f.seq) \(f.width)x\(f.height) \(f.data.count / 1024) KB\(f.keyframe ? " key" : "") decoded in \(Int(Date().timeIntervalSince(t0) * 1000)) ms\(f.focus.map { " focus \($0)" } ?? "")\(t)") }
             if let dir = flag("--save"), let image = VideoDecoder.image(pixels) {
                 let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath).appendingPathComponent("frame-\(f.seq).png")
@@ -892,6 +893,7 @@ func run() async -> Int32 {
         if has("--datagrams") { server.datagramsEnabled = true }
         if has("--no-datagrams") { server.datagramsEnabled = false }
         server.macFeatures.append(MacPermissions.feature)
+        if !has("--no-seen") { server.macFeatures.append(WatchVideo.seenFeature) }
         // The desktop picture (Wallpaper.swift): the demo gradient, or --wallpaper's image.
         server.macFeatures.append(MacWallpaper.feature)
         server.macFeatures.append(MacCursor.feature)

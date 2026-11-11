@@ -59,6 +59,8 @@ public protocol LinkServerDelegate: AnyObject {
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID)
     /// The phone wants the next video frame to stand on its own (it started, came back or lost one).
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID)
+    /// The phone has this video frame (the Mac paces what it sends by these).
+    func linkServer(_ server: LinkServer, watchSeen seq: Int, from peerID: UUID)
     /// Size the window that phone is watching for readable text (Aa).
     func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID)
     /// A swipe on the watched window landed, lifted, or its coast began or ended, at `point`.
@@ -110,6 +112,7 @@ public extension LinkServerDelegate {
     func linkServer(_ server: LinkServer, watchScroll point: CGPoint, delta: CGVector, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchChoose promptID: String, index: Int, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {}
+    func linkServer(_ server: LinkServer, watchSeen seq: Int, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchScrollPhase phase: WatchScrollPhase, at point: CGPoint, from peerID: UUID) {}
     func linkServer(_ server: LinkServer, watchSound on: Bool, from peerID: UUID) {}
@@ -658,6 +661,8 @@ public final class LinkServer: @unchecked Sendable {
                 notify { $0.linkServer(self, watchAction: action, from: phoneID) }
             case .watchKeyframe:
                 notify { $0.linkServer(self, watchKeyframeFrom: phoneID) }
+            case let .watchSeen(seq):
+                notify { $0.linkServer(self, watchSeen: seq, from: phoneID) }
             case let .watchFit(fit):
                 notify { $0.linkServer(self, watchFit: fit, from: phoneID) }
             case let .watchScrollPhase(phase, x, y):

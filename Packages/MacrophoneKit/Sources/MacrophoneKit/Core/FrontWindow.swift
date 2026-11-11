@@ -33,18 +33,19 @@ public struct FrontWindow: Codable, Sendable, Equatable {
     }
 
     /// The longest title sent (the phone shows one line).
-    public static let titleLimit = 60
+    public static let titleLimit = 90
 
-    /// One line, at most `titleLimit` characters, ending in "…" when cut (on a word when one is near).
+    /// One line, at most `titleLimit` characters, cut on a word when one is near — with no "…"
+    /// (Nov 10 2026: nothing in the app ends in dots; the phone fades a line that runs long).
     public static func trimmed(_ s: String) -> String {
         let one = s.components(separatedBy: .newlines).joined(separator: " ")
             .split(whereSeparator: { $0 == " " || $0 == "\t" }).joined(separator: " ")
         guard one.count > titleLimit else { return one }
-        var cut = String(one.prefix(titleLimit - 1))
+        var cut = String(one.prefix(titleLimit))
         if let space = cut.lastIndex(of: " "), cut.distance(from: cut.startIndex, to: space) > titleLimit * 2 / 3 {
             cut = String(cut[..<space])
         }
-        return cut.trimmingCharacters(in: CharacterSet(charactersIn: " —-–·,:;")) + "…"
+        return cut.trimmingCharacters(in: CharacterSet(charactersIn: " —-–·,:;"))
     }
 
     /// "Claude — Fix the login bug", or "Claude".

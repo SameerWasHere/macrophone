@@ -215,6 +215,7 @@ final class AppModel: ObservableObject {
         watcher.sendScrollPhase = { [weak self] phase, p in self?.client.watchScrollPhase(phase, at: p) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }
         watcher.sendKeyframe = { [weak self] in self?.client.watchKeyframe() ?? false }
+        watcher.sendSeen = { [weak self] seq in self?.client.watchSeen(seq) }
         watcher.sendFit = { [weak self] f in self?.client.watchFit(f) ?? false }
         watcher.macFeatures = { [weak self] in self?.client.macFeatures ?? [] }
         watcher.macID = { [weak self] in self?.pairedMac?.id }

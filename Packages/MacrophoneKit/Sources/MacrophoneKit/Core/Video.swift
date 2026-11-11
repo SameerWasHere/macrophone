@@ -22,6 +22,10 @@ public enum WatchVideo {
     public static let feature = "video"
     /// The Mac resizes the watched window for readable text (`watchFit`).
     public static let fitFeature = "fit"
+    /// The Mac wants to hear which video frames arrived (`watchSeen`, Nov 10 2026): a send
+    /// "finishes" the moment its bytes are queued, so without this the Mac can't tell a slow link
+    /// from a fast one and piles frames into the connection's buffer — each one later than the last.
+    public static let seenFeature = "videoSeen"
 }
 
 /// One frame of the watched window as video. Sent only when the window changed.

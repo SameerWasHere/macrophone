@@ -917,7 +917,7 @@ public final class LinkClient: @unchecked Sendable {
             pongArrived()
         case .showPermissions:
             break
-        case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape, .watchShapeLive,
+        case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchSeen, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape, .watchShapeLive,
              .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertAnswer, .alertWatch, .keepAwakeSet, .chatAnswers, .livePiece:
             break
         }
@@ -1259,6 +1259,12 @@ public final class LinkClient: @unchecked Sendable {
 
     /// Ask for a video frame that stands on its own. Only a Mac that named "video" gets it
     /// (an unknown message would end an older Mac's session). False when it wasn't sent.
+    /// This video frame arrived. Only a Mac that named "videoSeen" hears it.
+    public func watchSeen(_ seq: Int) {
+        guard let s = lock.sync({ macFeatures.contains(WatchVideo.seenFeature) ? session : nil }) else { return }
+        s.post(.watchSeen(seq: seq))
+    }
+
     @discardableResult
     public func watchKeyframe() -> Bool {
         guard let s = lock.sync({ macFeatures.contains(WatchVideo.feature) ? session : nil }) else { return false }

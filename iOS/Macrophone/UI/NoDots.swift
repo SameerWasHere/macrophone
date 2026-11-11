@@ -22,6 +22,11 @@ extension View {
         modifier(OneLineNoDots(edge: edge, shrink: shrink))
     }
 
+    /// One line: at its own width when `fixed` (it never gives way), else `oneLine()`.
+    @ViewBuilder func oneLine(fixed: Bool, shrink: CGFloat = 0.85) -> some View {
+        if fixed { lineLimit(1).fixedSize(horizontal: true, vertical: false) } else { oneLine(shrink: shrink) }
+    }
+
     /// `oneLine()` only when `on`; otherwise as many lines as it takes.
     @ViewBuilder func oneLine(if on: Bool, shrink: CGFloat = 0.85) -> some View {
         if on { oneLine(shrink: shrink) } else { fixedSize(horizontal: false, vertical: true) }

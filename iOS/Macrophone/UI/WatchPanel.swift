@@ -903,8 +903,9 @@ struct WatchKicker: View {
         Text(text)
             .font(.subheadline.weight(.bold))
             .foregroundStyle(watcher.phase == .live ? Ink.ink : Ink.tertiary)
-            .lineLimit(1)
-            .fixedSize(horizontal: fits, vertical: false)
+            // Whole where the row has the room; in the tightest row a little smaller, then
+            // fading at its end — never "…" (Nov 10 2026).
+            .oneLine(fixed: fits)
     }
 
     /// Live: the name alone — the lit dot is the word. Anything else says what's up.
@@ -1283,7 +1284,7 @@ struct WatchWindow: View {
         var body: some View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(Ink.secondary)
-                Text(words).font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink).lineLimit(1)
+                Text(words).font(.footnote.weight(.semibold)).foregroundStyle(Ink.ink).oneLine(shrink: 0.7)
             }
             .padding(.leading, 12).padding(.trailing, 14).padding(.vertical, 9)
             .watchGlass(Capsule())
@@ -1471,6 +1472,7 @@ struct WatchDragSwitch: View {
             }
                 .font(.footnote.weight(.semibold))
                 .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(on ? Ink.onTint : Ink.secondary)
                 .padding(.horizontal, style == .glyphs ? 13 : 12)
                 .frame(minHeight: WatchLook.control - 6)
@@ -1635,10 +1637,14 @@ struct WatchActions: View {
                         .frame(width: 22, height: 22)
                         .background(Circle().fill(lit ? Ink.onTint.opacity(0.14) : Ink.ink.opacity(0.08)))
                 }
+                // The whole answer (Nov 10 2026: no "…" anywhere — the row scrolls sideways, and
+                // rows wrap where it's wide); only an answer longer than a chip can be runs out
+                // under a fade.
                 Text(short)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(lit ? Ink.onTint : Ink.ink)
-                    .lineLimit(1)
+                    .oneLine(shrink: 1)
+                    .frame(maxWidth: 420)
             }
             .padding(.leading, 8)
             .padding(.trailing, 14)
@@ -1668,12 +1674,11 @@ struct WatchActions: View {
         .accessibilityIdentifier("watch-answer-\(i)")
     }
 
-    /// An answer's words for its chip: whole words up to about `limit` letters, then "…" — never
-    /// a word cut in two, never a dangling comma ("Yes, and don't ask again this session" →
-    /// "Yes, and don't ask again…").
-    static func chipWords(_ s: String, limit: Int = 24) -> String {
+    /// An answer's words for its chip: all of them (Nov 10 2026, Sameer: "The dot dot dot should
+    /// never happen anywhere in the app" — it had been whole words to ~24 letters, then "…").
+    static func chipWords(_ s: String, limit: Int = .max) -> String {
         let text = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.count > limit + 1 else { return text }
+        guard limit < .max, text.count > limit + 1 else { return text }
         var out = ""
         for word in text.split(separator: " ") {
             let next = out.isEmpty ? String(word) : out + " " + word
@@ -3579,7 +3584,7 @@ private struct WatchFrontChip: View {
                 } else {
                     Image(systemName: "macwindow").font(.footnote.weight(.semibold))
                 }
-                Text("Watch \(front.name)").font(.footnote.weight(.semibold)).lineLimit(1)
+                Text("Watch \(front.name)").font(.footnote.weight(.semibold)).oneLine()
                 Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(Ink.tertiary)
             }
         }

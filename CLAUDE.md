@@ -8,6 +8,89 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## Latency: real time while you touch it (Nov 10 2026)
+
+Sameer: "any ways to reduce the latency further and make the experience for real time?", then
+"orchestrate some opus sub agents to do all these and then review and push all at once". Four
+Opus agents in worktrees (the Mac's video pipe · the phone's window view · the away transport ·
+dictation), merged, reviewed and one piece added at the merge (`watchSeen`). **The Mac app changed**
+(1.1.21): it needs installing. Evidence that started it, from his Mac's log: "window gave 20672
+(5156 changed) … 3267 frames", i.e. a third of the changed frames held back by pacing.
+- **While touched, every change goes** (`WatchTouchPace`, kit `Core/WatchLatency.swift`): for 2 s
+  after any input from the phone (click, pointer move, key, typing, held key, scroll step, answer —
+  `TouchRelay` in WatchService carries it from the input queues; `hurry()` too) any frame that
+  changed at all goes at half the stream's period (60 a second at home), and the brightness plane
+  is sampled every 4th pixel, not every 8th — the coarse grid missed a typed full stop in 45% of
+  places and a 4 px dot entirely. Probe app, a dot every 0.25 s with input: 44–48 of 48 seen and a
+  slowest tenth of 81–210 ms before, 48/48 and 43–84 ms after; a dot at 60 Hz: 4 → 58 frames a
+  second. Idle pacing and a still window's cost are unchanged (idle still uses the coarse grid).
+- **The Mac hears which frames arrived** (`watchSeen(seq:)`, feature `WatchVideo.seenFeature`
+  "videoSeen"; `Watcher.sendSeen` on every video frame taken; `VideoPipe.seen`): a send "finishes"
+  when its bytes are queued, so on a slow link frames piled up in the connection's buffer, each
+  later than the last, and nothing on the Mac could see it. Now at most `unseenLimit` (4) frames
+  go ahead of what the phone has (2 s without an answer = answers lost, start over), and the wire
+  sizer reads how much later than the quickest one each arrived. Through `mpctl relay --kbps 100
+  --rtt 80` with the probe at 60 Hz: before, two step-downs logged and the phone still got only
+  full-size frames for 40 s; after, 439 frames at 1000 px and 7 at full size, every change within
+  16 ms of the frame carrying it. `mpctl serve` names it (`--no-seen` = a Mac from before).
+- **The picture steps down when the wire is slow** (`WatchWireSizer`): 2560 → 1600 → 1000 px when
+  6 of 10 frames arrive ≥ 80 ms late or 10 are held for the wire; up after 90 quick ones and 8 s; a
+  step up undone within 30 s doubles the run needed (≤ 8×). Log "watch: picture stepped down to …".
+- **Encoder: unchanged, by measurement** (`mpctl encode-bench`): this Mac's HEVC encoder refuses
+  MaxFrameDelayCount, and low-latency rate control is slower (16 vs 10 ms at 2560) with 30–50%
+  bigger keyframes. `VideoEncoder.Tuning` stays `.standard`.
+- **Response time, shown** (Settings › Watching › Show response time, `settings.showResponseTime`,
+  off; `ResponseClock`, kit `Core/ResponseTime.swift`): a tap, click, key, typed character, a
+  swipe's first step → the next video frame on screen (`VideoCanvas.whenShown`). On the iPhone and
+  the cover it sits in the corner of the row under the window (`ResponseCorner`), elsewhere in the
+  header's open room (`ResponseGap`); id `watch-response-time`; log "watching: response median N
+  ms, p90 N ms over K inputs". Simulator loopback: taps and keys median 58 ms.
+- **120 Hz**: `CADisableMinimumFrameDurationOnPhone`; the swipe and coast links ask for up to 120
+  (`ScrollMomentum.fastestRate`; the coast is stepped in real time — same length at 60 and 120).
+- **Scroll prediction: built, OFF** (`ScrollPrediction`, hidden `watch.predictScroll`, DEBUG
+  `MACROPHONE_PREDICT_SCROLL=1`): shifting the picture ahead of the Mac moves the Mac window's own
+  title bar and traffic lights and opens a strip of wallpaper; it read as the window coming loose.
+  Don't turn it on unasked. Frames `docs/screens/latency-nov10/phone/`.
+- **Video datagrams: built, OFF** (`Transport/VideoDatagrams.swift`, `VideoDatagramPath.swift`,
+  feature `videoDatagrams`, on with `defaults write <app> video.datagrams -bool YES` on both ends):
+  UDP beside the TCP lane, each datagram sealed per session, XOR parity + NACKs, in order with a
+  deadline, back to the lane when it goes quiet. Loopback relay at 80 ms RTT: median 41/72/121 ms
+  (lane) vs 42/43/48 (datagrams) at 1/2/5% loss, but p95 at 5% 123–136 vs 147–170 and 12–27%
+  overhead; nothing ran over a real phone, Tailscale or cellular. The door (a UDP listener) opens
+  only when enabled. `mpctl dgram-sim`, `relay` (UDP too, `--reorder`, `--jitter`, `--kbps`).
+- **Type as I speak: opt-in** (Settings › Dictation, `settings.typeAsISpeak`, id `type-as-i-speak`;
+  kit `Core/LiveTyping.swift`, Mac `Delivery/LiveTyper.swift`, feature `liveTyping`): settled words
+  are typed on the Mac while he talks (nothing until 3 words have settled; never a Return), and at
+  the end the cleaned words replace them where they differ (`LiveReconcile`: select the range
+  through Accessibility and paste; in a terminal Delete the tail; if the place can't be verified,
+  leave it and paste the usual way), then Send. It stops for good the moment the app, window or
+  field changes, a click or someone's key arrives (`LiveFocusRule`), and never starts with someone
+  at the Mac. Cancel takes back exactly what it typed. No Undo for a live dictation. Proven on a
+  simulator against serve (16 pieces / 95 characters, replaced at the end; cancel took back 95).
+  **Never run against real apps**: Electron composers may ignore the selection or reformat text
+  (the words could end up twice), a terminal takes ~3 ms a Delete.
+- Tests: `swift test` 415. Hooks: `MACROPHONE_FAKE_LAG=<ms>`, `MACROPHONE_TYPE_LIVE=1|0`,
+  `MACROPHONE_FAKE_EDIT=1`; `mpctl encode-bench`, `watch --changes <s> --poke-every <s>`.
+- **Needs his phone and Mac:** the response time at home and on cellular (the number to beat);
+  120 Hz on a ProMotion screen; the Mac at twice the scroll-delta rate; the step-down on a real
+  slow link; Type as I speak into Claude, Terminal and Notes.
+
+## No "…" anywhere (Nov 10 2026)
+
+Sameer: "The dot dot dot should never happen anywhere in the app." SwiftUI ends any text that
+doesn't fit with an ellipsis and has no switch for it, so nothing says `lineLimit` on its own any
+more (`UI/NoDots.swift`): words the app writes are never limited (they wrap, step down a size —
+`StatusLine` tries its font, then caption, then caption2, then grows out of its slot — or were
+reworded: the glance says "Paused"); a name from the Mac (an app, a window's title, the Mac's name)
+gets `oneLine()` / `lines(_:)`: whole when it fits, a little smaller when that's all it takes,
+else it runs out under a fade at its end — `oneLine(fading: .leading)` for the keyboard's echo.
+Answer chips show the whole answer (`chipWords` cuts nothing; the row scrolls sideways).
+`FrontWindow.trimmed` (the Mac) cuts at 90 characters with no "…". The flight chip carries its
+first words with no dots. The "…" in "Connecting…", "Listening…", "Open…" is punctuation and stays.
+**Still cut by the system or on purpose:** notification bodies and buttons (`AlertWords`,
+`AlertNotification` — iOS's own notification UI), widgets, toolbar titles iOS draws itself.
+When adding text: never `lineLimit(n)` alone — use `oneLine()`, `lines(n)` or let it wrap.
+
 ## Cancel a dictation; the words once on the Duo; errors in full; no impossible shapes (Nov 10 2026)
 
 Sameer on build 42. Frames: `docs/screens/cancel-nov10/`.

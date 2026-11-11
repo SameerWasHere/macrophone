@@ -191,6 +191,9 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac: send a frame that stands on its own (the phone started, came back, or lost
     /// one). Only to a Mac that named "video".
     case watchKeyframe
+    /// Phone → Mac: the video frame with this number arrived and was handed to the decoder. Only
+    /// to a Mac that named "videoSeen". The Mac keeps at most a few frames unanswered.
+    case watchSeen(seq: Int)
     /// Phone → Mac: size the watched window for readable text (only to a Mac that named "fit").
     case watchFit(WatchFit)
     /// Phone → Mac: where a swipe on the watched window is — the finger landed or lifted, the

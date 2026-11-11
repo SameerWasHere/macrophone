@@ -73,6 +73,16 @@ final class VideoPipe: @unchecked Sendable {
     private var reshapeLimit = Date.distantPast
     private var arrivedSize = CGSize.zero
     private var seq = 0
+    /// Video frames sent that the phone hasn't said it has (Nov 10 2026). A send "finishes" when
+    /// its bytes are queued, not when they arrive, so on a slow link frames piled up in the
+    /// connection's buffer, each later than the last, and the wire sizer never saw it (its smaller
+    /// pictures queued behind the big ones). A phone that says what arrived (`watchSeen`) is sent
+    /// at most `unseenLimit` frames ahead of what it has; the sizer reads how late each arrived.
+    private var unseen: [(seq: Int, at: CFTimeInterval)] = []
+    private var hearsSeen = false
+    private var quickestSeen = Double.infinity
+    private var seenTimerArmed = false
+    static let unseenLimit = 4
     private var timerArmed = false
     private var stopped = false
     private var stats = Stats()
@@ -150,6 +160,23 @@ final class VideoPipe: @unchecked Sendable {
 
     /// Input from the phone (a click, a pointer move, a key, typing, a scroll step): for two seconds
     /// every frame that changed at all goes at the stream's rate.
+    /// The phone has the video frame with this number.
+    func seen(_ s: Int) {
+        queue.async {
+            let now = CACurrentMediaTime()
+            self.hearsSeen = true
+            if let i = self.unseen.firstIndex(where: { $0.seq == s }) {
+                // How much later than the quickest one this watch has seen: the link's own delay
+                // taken out, what's left is the wire backing up.
+                let took = now - self.unseen[i].at
+                self.quickestSeen = min(self.quickestSeen, took)
+                if let step = self.sizer.sent(seconds: max(0, took - self.quickestSeen), at: now) { self.onWireStep?(step) }
+            }
+            self.unseen.removeAll { $0.seq <= s }
+            self.drain()
+        }
+    }
+
     func touched() {
         queue.async {
             let now = Date()
@@ -255,6 +282,21 @@ final class VideoPipe: @unchecked Sendable {
             if let step = sizer.heldForWire(at: CACurrentMediaTime()) { onWireStep?(step) }
             return
         }
+        if hearsSeen, unseen.count >= Self.unseenLimit {
+            let t = CACurrentMediaTime()
+            if let oldest = unseen.first, t - oldest.at > 2 {
+                // Nothing heard for two seconds: its answers are lost, not late. Start over.
+                unseen.removeAll()
+            } else {
+                stats.heldForWire += 1
+                if let step = sizer.heldForWire(at: t) { onWireStep?(step) }
+                if !seenTimerArmed {
+                    seenTimerArmed = true
+                    queue.asyncAfter(deadline: .now() + 0.25) { self.seenTimerArmed = false; self.drain() }
+                }
+                return
+            }
+        }
         let width = CVPixelBufferGetWidth(pixels), height = CVPixelBufferGetHeight(pixels)
         sizer.showing = width
         // A new size (the window was resized, Aa): a new encoder.
@@ -311,6 +353,7 @@ final class VideoPipe: @unchecked Sendable {
         if e.keyframe { stats.keyframes += 1 }
         stats.bytes += e.data.count
         seq += 1
+        if hearsSeen { unseen.append((seq, CACurrentMediaTime())) }
         stats.sentAt.append(Date())
         let w = currentWords
         outgoingContinuation.yield(WatchVideoFrame(seq: seq, data: e.data, parameterSets: e.parameterSets, keyframe: e.keyframe,
@@ -332,7 +375,8 @@ final class VideoPipe: @unchecked Sendable {
                 if self.timing, Date().timeIntervalSince(self.actionAt) < 3 {
                     print("[watch] frame on the wire \(Int(Date().timeIntervalSince(self.actionAt) * 1000)) ms after the action (send \(Int(seconds * 1000)) ms, \(frame.data.count / 1024) KB)"); fflush(stdout)
                 }
-                if let step = self.sizer.sent(seconds: seconds, at: CACurrentMediaTime()) { self.onWireStep?(step) }
+                // (A phone that says what arrived: the sizer reads that, below — not the queueing.)
+                if !self.hearsSeen, let step = self.sizer.sent(seconds: seconds, at: CACurrentMediaTime()) { self.onWireStep?(step) }
             }
             self.drain()
         }

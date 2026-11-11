@@ -449,12 +449,12 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     SettingsIcon(symbol: "bell.fill", color: w.calm ? Color(uiColor: .systemGray) : Light.gold)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(w.title).lineLimit(1)
+                        Text(w.title).lines(2)
                         let who = w.appName == w.title ? "" : "\(w.appName) · "
                         Text(w.calm ? "\(who)only when it stops changing" : "\(who)on watch")
                             .font(.footnote)
                             .foregroundStyle(Ink.secondary)
-                            .lineLimit(1)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
                     Button("Stop") { model.setAlertWatch(w.ref, on: false) }
@@ -769,7 +769,7 @@ struct MacConnectionView: View {
             ToolbarItem(placement: .principal) {
                 Text(model.pairedMac?.name ?? "Your Mac")
                     .font(.headline)
-                    .lineLimit(1)
+                    .oneLine(shrink: 0.75)
                     .opacity(model.pairedMac == nil || headerGone ? 1 : 0)
                     .accessibilityHidden(!(model.pairedMac == nil || headerGone))
             }

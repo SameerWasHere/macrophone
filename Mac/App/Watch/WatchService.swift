@@ -838,6 +838,11 @@ final class WatchService {
         watches[peer]?.pipe?.requestKeyframe()
     }
 
+    /// The phone has this video frame.
+    func seen(_ seq: Int, for peer: UUID) {
+        watches[peer]?.pipe?.seen(seq)
+    }
+
     /// The question is worth reading again: not within a second of the last read, and only once
     /// something bigger than a caret or a spinner changed since.
     private func promptDue(_ w: Watch) -> Bool {

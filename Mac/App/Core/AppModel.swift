@@ -153,6 +153,7 @@ final class AppModel: ObservableObject, LinkServerDelegate {
                               SaveToDownloads.feature, MacSound.feature,
                               WatchMouse.feature, WatchTyping.feature, WatchKeyHold.feature]
         server.macFeatures.append(MacPermissions.feature)
+        server.macFeatures.append(WatchVideo.seenFeature)
         watchPermissions()
         // The desktop picture, behind a phone drawn as a little Mac desktop (Nov 1 2026, Core/Wallpaper.swift).
         server.macFeatures.append(MacWallpaper.feature)
@@ -846,6 +847,10 @@ final class AppModel: ObservableObject, LinkServerDelegate {
 
     func linkServer(_ server: LinkServer, watchKeyframeFrom peerID: UUID) {
         watch.keyframe(for: peerID)
+    }
+
+    func linkServer(_ server: LinkServer, watchSeen seq: Int, from peerID: UUID) {
+        watch.seen(seq, for: peerID)
     }
 
     func linkServer(_ server: LinkServer, watchFit fit: WatchFit, from peerID: UUID) {

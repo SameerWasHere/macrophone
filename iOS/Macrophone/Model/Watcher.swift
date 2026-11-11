@@ -238,6 +238,8 @@ final class Watcher: ObservableObject {
     @Published private(set) var macCanScroll = false
     /// Asks the Mac for a video frame that stands on its own; false when it can't be sent.
     var sendKeyframe: () -> Bool = { false }
+    /// A video frame arrived (the Mac paces what it sends by these).
+    var sendSeen: (Int) -> Void = { _ in }
     var log: DiagnosticLog?
 
     private var idleTask: Task<Void, Never>?
@@ -1332,6 +1334,7 @@ final class Watcher: ObservableObject {
             return
         }
         waitingForKeyframe = false
+        sendSeen(frame.seq)
         if timing { video.whenShown(after: before) { [weak self] t in self?.frameShown(at: t) } }
         arrangeHasPicture = true
         countFrame()
