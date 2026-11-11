@@ -2,6 +2,7 @@ import CoreMedia
 import CoreVideo
 import Foundation
 import MacrophoneKit
+import QuartzCore
 import ScreenCaptureKit
 import VideoToolbox
 
@@ -20,8 +21,15 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// A new picture (its pixels, to turn into an image only if it's sent) and the share of it
     /// that changed since the one before (0…1).
     var onFrame: (@Sendable (CVPixelBuffer, Double) -> Void)?
-    /// The last picture, sampled, to measure the next change against (on the stream's queue).
+    /// The last picture, sampled, to measure the next change against (on the stream's queue), and
+    /// the grid it was sampled on.
     private var previous: [UInt32]?
+    private var previousStep = 0
+    /// The last input from the phone (Nov 10 2026, `WatchTouchPace`): for two seconds after it the
+    /// change is measured on a finer grid, so a character typed or a thin caret is never taken for
+    /// no change (the idle grid missed a full stop in about half the places it can land).
+    private let touchLock = NSLock()
+    private var touchedAt = -Double.infinity
     /// The stream ended on its own (the window closed, the permission went).
     var onStop: (@Sendable (Error?) -> Void)?
     /// The picture's size, in pixels.
@@ -69,6 +77,27 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
         stream = SCStream(filter: filter, configuration: cfg, delegate: relay)
         super.init()
         relay.owner = self
+    }
+
+    /// Input from the phone just came (any thread).
+    func touched() {
+        touchLock.lock(); touchedAt = CACurrentMediaTime(); touchLock.unlock()
+    }
+
+    private var sinceTouched: Double {
+        touchLock.lock(); defer { touchLock.unlock() }
+        return CACurrentMediaTime() - touchedAt
+    }
+
+    /// The widest picture changed (the wire stepped it, `WatchWireSizer`): the same window, at
+    /// another width. Its next frame is the new size (a new encoder and a keyframe on the Mac; the
+    /// phone keeps its view — `WatchReconnect.sameShape`).
+    func setMaxWidth(_ width: CGFloat) async {
+        guard width != maxWidth else { return }
+        maxWidth = width
+        let (cfg, size) = Self.configuration(for: windowSize, scale: scale, maxWidth: width, maxRate: maxRate, video: video, cursor: showsCursor, source: sourceRect)
+        self.size = size
+        try? await stream.updateConfiguration(cfg)
     }
 
     /// The pointer shown in the picture, or not (the phone's trackpad came or went).
@@ -194,12 +223,20 @@ final class WindowStream: NSObject, SCStreamOutput, SCStreamDelegate {
             // The window server says the whole window changed on every frame it gives, thirty a
             // second for video (TextEdit, Electron apps, on macOS 27) — the sample is the real
             // gate, and a coarser one on the brightness plane keeps a still window cheap.
+            let step = WatchTouchPace.sampleStep(planar: planar, sinceInput: sinceTouched)
             let sample = base.map {
-                WatchChange.sample(base: UnsafeRawPointer($0), width: width, height: height, bytesPerRow: bytesPerRow, bytesPerPixel: planar ? 1 : 4, step: planar ? 8 : 4)
+                WatchChange.sample(base: UnsafeRawPointer($0), width: width, height: height, bytesPerRow: bytesPerRow, bytesPerPixel: planar ? 1 : 4, step: step)
             } ?? []
             CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
-            share = previous.map { WatchChange.changedShare($0, sample) } ?? 1
+            if let previous, step == previousStep {
+                share = WatchChange.changedShare(previous, sample)
+            } else {
+                // The first frame, or the grid just changed: no comparison — count it as a sliver
+                // (one small frame at most; a new size compares as all changed, as before).
+                share = previous == nil ? 1 : WatchPacing.sliver
+            }
             previous = sample
+            previousStep = step
         }
         onFrame(buffer, share)
     }

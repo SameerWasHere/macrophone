@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreVideo
+import QuartzCore
 import Foundation
 import MacrophoneKit
 
@@ -58,10 +59,12 @@ final class VideoPipe: @unchecked Sendable {
     private var changedSinceRead = 0.0
     private var readAskedAt = Date.distantPast
     private var forceUntil = Date.distantPast
-    /// Until when a swipe is under way: any change bigger than a caret then goes at the stream's
-    /// rate — a chat column scrolling in a big window changes a small share of it, which reads
-    /// as a highlight moving (one frame a second) otherwise.
-    private var inputUntil = Date.distantPast
+    /// The last input from the phone for this watch (Nov 10 2026, `WatchTouchPace`): for two
+    /// seconds after it every frame that changed at all goes at the stream's own rate. (It grew out
+    /// of the swipe's rule: a chat column scrolling in a big window changes a small share of it.)
+    private var inputAt = Date.distantPast
+    /// The picture's width follows the wire (`WatchWireSizer`).
+    private var sizer: WatchWireSizer
     /// When the last action from the phone happened, for timing prints.
     private var actionAt = Date.distantPast
     private var inFlight = 0
@@ -86,12 +89,20 @@ final class VideoPipe: @unchecked Sendable {
     /// Called on `queue` with the frame just sent when the window has settled and the question
     /// may have changed: read it (off this queue) and call `readDone`, then `sendWords` if it did.
     var onSettled: (@Sendable (CVPixelBuffer) -> Void)?
+    /// Called on `queue` when the wire wants another picture width: the stream's maximum width
+    /// steps (down when sends back up, up after a long run of quick ones).
+    var onWireStep: (@Sendable (WatchWireSizer.Step) -> Void)?
 
-    init(peer: UUID, server: LinkServer, rate: Int, timing: Bool) {
+    /// `size`: the stream's picture size, to make the encoder ahead of the first frame (the first
+    /// session in a process takes ~90–150 ms to make; later ones ~6–13). `ceiling` / `width`: the
+    /// widest picture this watch sends, and the width it sends now (a stepped-down watch whose
+    /// window changed keeps its step).
+    init(peer: UUID, server: LinkServer, rate: Int, timing: Bool, size: (width: Int, height: Int)? = nil, ceiling: Int = 2560, width: Int? = nil) {
         self.peer = peer
         self.server = server
         self.rate = rate
         self.timing = timing
+        sizer = WatchWireSizer(ceiling: ceiling, width: width ?? ceiling)
         (outgoing, outgoingContinuation) = AsyncStream.makeStream(of: WatchVideoFrame.self, bufferingPolicy: .unbounded)
         let stream = outgoing
         sender = Task.detached(priority: .userInitiated) { [weak self] in
@@ -99,7 +110,13 @@ final class VideoPipe: @unchecked Sendable {
                 guard let self else { return }
                 let t = Date()
                 await server.send(.watchVideo(frame), to: peer)
-                self.sent(frame, ms: Int(Date().timeIntervalSince(t) * 1000))
+                self.sent(frame, seconds: Date().timeIntervalSince(t))
+            }
+        }
+        if let size {
+            queue.async { [weak self] in
+                guard let self, self.encoder == nil, !self.stopped else { return }
+                self.encoder = self.makeEncoder(width: size.width, height: size.height)
             }
         }
     }
@@ -119,11 +136,25 @@ final class VideoPipe: @unchecked Sendable {
         }
     }
 
-    /// The next frame goes at once, whatever changed (an action just happened).
+    /// The next frame goes at once, whatever changed (an action just happened) — and the window
+    /// counts as touched.
     func hurry() {
         queue.async {
-            self.forceUntil = Date().addingTimeInterval(2)
-            self.actionAt = Date()
+            let now = Date()
+            self.forceUntil = now.addingTimeInterval(2)
+            self.actionAt = now
+            self.inputAt = now
+            self.drain()
+        }
+    }
+
+    /// Input from the phone (a click, a pointer move, a key, typing, a scroll step): for two seconds
+    /// every frame that changed at all goes at the stream's rate.
+    func touched() {
+        queue.async {
+            let now = Date()
+            if now.timeIntervalSince(self.inputAt) > WatchTouchPace.window { self.actionAt = now }
+            self.inputAt = now
             self.drain()
         }
     }
@@ -142,9 +173,7 @@ final class VideoPipe: @unchecked Sendable {
     }
 
     /// A swipe's step or phase just came: the window is being scrolled.
-    func swiped() {
-        queue.async { self.inputUntil = Date().addingTimeInterval(0.5) }
-    }
+    func swiped() { touched() }
 
     /// The question was read off the frame `onSettled` gave.
     func readDone() { queue.async { self.changedSinceRead = 0 } }
@@ -210,8 +239,7 @@ final class VideoPipe: @unchecked Sendable {
             }
             return
         }
-        let swiping = now < inputUntil && changedSince >= WatchPacing.sliver
-        let interval = now < forceUntil ? 0 : WatchPacing.minimumInterval(changed: swiping ? max(changedSince, WatchPacing.small) : changedSince, quick: true, rate: rate, live: true)
+        let interval = now < forceUntil ? 0 : WatchTouchPace.minimumInterval(changed: changedSince, sinceInput: now.timeIntervalSince(inputAt), rate: rate)
         if interval == .infinity { pending = nil; return }
         let due = lastSentAt.addingTimeInterval(interval)
         if now < due {
@@ -222,23 +250,20 @@ final class VideoPipe: @unchecked Sendable {
             }
             return
         }
-        if inFlight >= 2 { stats.heldForWire += 1; return }
+        if inFlight >= 2 {
+            stats.heldForWire += 1
+            if let step = sizer.heldForWire(at: CACurrentMediaTime()) { onWireStep?(step) }
+            return
+        }
         let width = CVPixelBufferGetWidth(pixels), height = CVPixelBufferGetHeight(pixels)
+        sizer.showing = width
         // A new size (the window was resized, Aa): a new encoder.
         if let v = encoder, v.width != width & ~1 || v.height != height & ~1 { encoder = nil }
         if encoder == nil {
-            guard let v = try? VideoEncoder(width: width, height: height, rate: rate) else {
+            guard let v = makeEncoder(width: width, height: height) else {
                 stopped = true
                 onFallback?("the video encoder didn't start")
                 return
-            }
-            v.onEncoded = { [weak self] e, took in self?.queue.async { self?.encoded(e, took: took) } }
-            v.onHung = { [weak self] in
-                self?.queue.async {
-                    guard let self, !self.stopped else { return }
-                    self.stopped = true
-                    self.onFallback?("the video encoder returned nothing for \(Int(VideoEncoder.hangAfter * 1000)) ms")
-                }
             }
             encoder = v
         }
@@ -259,6 +284,23 @@ final class VideoPipe: @unchecked Sendable {
             readAskedAt = now
             onSettled?(pixels)
         }
+    }
+
+    /// queue: a session for this size, wired to this pipe. Each new size is a new session and a
+    /// keyframe (measured Nov 10 2026: 6–13 ms to make once the chip is warm, the keyframe 40–180 KB
+    /// at 1000–2560 px against ~1 KB for a typed character's frame).
+    private func makeEncoder(width: Int, height: Int) -> VideoEncoder? {
+        guard let v = try? VideoEncoder(width: width, height: height, rate: rate) else { return nil }
+        if timing { print("[watch] encoder made for \(v.width)×\(v.height) in \(Int(v.madeIn * 1000)) ms (\(v.tuning.rawValue))"); fflush(stdout) }
+        v.onEncoded = { [weak self] e, took in self?.queue.async { self?.encoded(e, took: took) } }
+        v.onHung = { [weak self] in
+            self?.queue.async {
+                guard let self, !self.stopped else { return }
+                self.stopped = true
+                self.onFallback?("the video encoder returned nothing for \(Int(VideoEncoder.hangAfter * 1000)) ms")
+            }
+        }
+        return v
     }
 
     /// queue: the encoder gave a frame's bytes — onto the wire, in order.
@@ -282,11 +324,15 @@ final class VideoPipe: @unchecked Sendable {
     }
 
     /// The sender: a frame is on the wire.
-    private func sent(_ frame: WatchVideoFrame, ms: Int) {
+    private func sent(_ frame: WatchVideoFrame, seconds: Double) {
         queue.async {
             if !frame.isWordsOnly {
                 self.inFlight = max(0, self.inFlight - 1)
-                if self.stats.sendMs.count < 4000 { self.stats.sendMs.append(ms) }
+                if self.stats.sendMs.count < 4000 { self.stats.sendMs.append(Int(seconds * 1000)) }
+                if self.timing, Date().timeIntervalSince(self.actionAt) < 3 {
+                    print("[watch] frame on the wire \(Int(Date().timeIntervalSince(self.actionAt) * 1000)) ms after the action (send \(Int(seconds * 1000)) ms, \(frame.data.count / 1024) KB)"); fflush(stdout)
+                }
+                if let step = self.sizer.sent(seconds: seconds, at: CACurrentMediaTime()) { self.onWireStep?(step) }
             }
             self.drain()
         }
