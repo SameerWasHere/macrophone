@@ -14,8 +14,8 @@ Sameer: "submit the latest build", then "submit with updated screenshots". Versi
 build 44 and all three screenshot sets re-shot from that code (`iOS/docs/store-screenshots/`;
 how in `docs/APP_STORE.md` › Screenshots). `mpctl serve`'s demo window wraps its text at words
 now and `MPCTL_NO_DRAWN_POINTER=1` leaves its own drawn arrow out (the phone draws the pointer).
-**sameer.us answers 402 `DEPLOYMENT_DISABLED`** (Vercel) — support URL, privacy policy and the Mac
-download; his to fix before review reaches the app.
+sameer.us was down that night (402, Vercel) and is back since Nov 12. The public Mac download is
+still 1.1.6; his own Mac runs 1.1.22 (not published).
 
 ## The picture keeps its full width at home (Nov 10 2026, later) — amends the wire sizer below
 

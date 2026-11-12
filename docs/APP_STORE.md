@@ -13,7 +13,8 @@ notes point to were unreachable; it has to be back before review reaches the app
 lot of app changes". All three sets re-shot from build 44's code and replaced through the API
 (the submission cancelled first — a version waiting for review can't be edited — then submitted
 again: `a4d1396f-…`, Waiting for Review, build 44, release after approval). Captions unchanged.
-sameer.us still answered 402.
+sameer.us still answered 402 that night; **back on Nov 12 2026** (Sameer unblocked it: the site, privacy,
+support, the download page and the 1.1.6 disk image all answer 200).
 **Resubmitted Nov 2 2026 as 1.0 (5)** after App Review's automated scan asked about "VPN
 functionality" (there is none — answered in the message thread and in the review notes; the
 description's "over your own VPN" became "when you're away from home"). Build 5 is main as of
