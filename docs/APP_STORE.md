@@ -1,5 +1,14 @@
 # Macrophone: App Store submission (iPhone, 1.0)
 
+**Resubmitted Nov 11 2026 as 1.0 (44)** — Sameer: "submit the latest build". Build 5 had sat in
+Waiting for Review since Nov 2; that submission was cancelled (through the App Store Connect API),
+build 44 attached to version 1.0 and a new submission made (Waiting for Review, release after
+approval). The listing wasn't touched. Three lines of the review notes were brought up to date
+(the setup's Skip step — the "iOS asks to find devices" page is gone; notifications also asked
+after a dictation into a chat; a line on iCloud's private database carrying alerts); the notes
+are at the 4,000-character limit (3,995). **Found that day: all of sameer.us answered 402
+`DEPLOYMENT_DISABLED`** (Vercel) — the support URL, the privacy policy and the Mac download the
+notes point to were unreachable; it has to be back before review reaches the app.
 **Resubmitted Nov 2 2026 as 1.0 (5)** after App Review's automated scan asked about "VPN
 functionality" (there is none — answered in the message thread and in the review notes; the
 description's "over your own VPN" became "when you're away from home"). Build 5 is main as of
