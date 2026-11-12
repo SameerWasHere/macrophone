@@ -32,8 +32,7 @@ final class DemoWindow: @unchecked Sendable {
         "finishes, so a token that expires mid-request",
         "is treated as invalid.",
         "",
-        "I'll move the check after the refresh and",
-        "add a test for the expired-token case.",
+        "I'll move the check after the refresh and add a test for the expired-token case.",
         "",
         "● Update(AuthView.swift)",
         "  ⎿ 12 lines changed",
@@ -194,10 +193,26 @@ final class DemoWindow: @unchecked Sendable {
         let (pointer, pointerOn, dragStart, typedN, heldNames) = lock.sync { (pointerAt, pointerShown, dragFrom, typedCount, heldKeys) }
         // The columns that fit (Menlo 24 is ~14.5 px a character); a longer line wraps.
         let columns = max(10, Int((Double(w) - focus.minX * Double(w) - 34) / 14.5))
+        // At a word where there is one, as an agent's own output wraps (Nov 11 2026: cut by the
+        // column it read "se|ssion", which Vision then read as two words and a store screenshot
+        // showed as a typo); what wraps from an answer or a bullet lines up under its words.
         let all = shown.flatMap { line -> [String] in
-            var rest = Substring(line), out: [String] = []
-            repeat { out.append(String(rest.prefix(columns))); rest = rest.dropFirst(columns) } while !rest.isEmpty
-            return out
+            guard line.count > columns else { return [line] }
+            let indent = String(line.prefix { $0 == " " })
+            let marked = line.dropFirst(indent.count).first.map { "❯›●0123456789".contains($0) } == true
+            let hang = indent + (marked ? "   " : "")
+            var out: [String] = [], cur = ""
+            for word in line.split(separator: " ", omittingEmptySubsequences: false) {
+                let next = cur.isEmpty && out.isEmpty ? String(word) : cur + " " + word
+                if next.count > columns, !cur.trimmingCharacters(in: .whitespaces).isEmpty { out.append(cur); cur = hang + word } else { cur = next }
+            }
+            out.append(cur)
+            // A single word longer than the line still breaks, as a terminal's does.
+            return out.flatMap { piece -> [String] in
+                var rest = Substring(piece), cut: [String] = []
+                repeat { cut.append(String(rest.prefix(columns))); rest = rest.dropFirst(columns) } while !rest.isEmpty
+                return cut
+            }
         }
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
@@ -274,7 +289,9 @@ final class DemoWindow: @unchecked Sendable {
             ctx.addLine(to: CGPoint(x: to.x * Double(w), y: Double(h) - to.y * Double(h)))
             ctx.strokePath()
         }
-        if pointerOn, let p = pointer {
+        // (`MPCTL_NO_DRAWN_POINTER=1`: none — the Mac app doesn't draw one into the stream either;
+        // the phone draws the pointer itself. For screenshots.)
+        if pointerOn, let p = pointer, ProcessInfo.processInfo.environment["MPCTL_NO_DRAWN_POINTER"] != "1" {
             // An arrow, as the Mac's own pointer would be drawn into the picture.
             let x = p.x * Double(w), y = Double(h) - p.y * Double(h)
             ctx.setFillColor(CGColor(gray: 1, alpha: 1))

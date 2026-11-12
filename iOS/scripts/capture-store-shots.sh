@@ -7,7 +7,7 @@
 # Re-captured Nov 1 2026 for the Apple-native redesign (the phone at rest is a little Mac desktop:
 # the menu bar, the Dock of the Mac's open apps, the options bar, the Siri-like mic). Shots 01–06
 # need a live stand-in Mac: in Packages/MacrophoneKit run `swift build` then
-#   .build/debug/mpctl serve --name "Sameer's MacBook Pro" --auto-approve --no-attention --state <fresh dir>
+#   MPCTL_NO_DRAWN_POINTER=1 .build/debug/mpctl serve --name "Sameer's MacBook" --auto-approve --no-attention --rounded --reshape --front-every 0 --state <fresh dir>
 # (it answers with real app icons, a drawn Claude Code window and the demo wallpaper) and pass its
 # PAIR URL. A pairing URL works once: a fresh --state for each simulator. If the simulator was
 # paired with other Macs before, unpair them first (MACROPHONE_UNPAIR=<name>) or the pill and the
@@ -58,10 +58,11 @@ shot 02-reply    9  MACROPHONE_SCREEN=main MACROPHONE_SEND_TO=Terminal MACROPHON
 # The trackpad page, the pointer moved onto the question's first answer (after it was read).
 look dark
 shot 03-trackpad 22 MACROPHONE_SCREEN=main MACROPHONE_SEND_TO=Terminal MACROPHONE_SEND=1 MACROPHONE_WATCH=1 \
-  "MACROPHONE_WATCH_ACTIONS=page@trackpad,point@-85@45"
+  "MACROPHONE_WATCH_ACTIONS=page@trackpad,point@${POINT:--60@40}"
 look light
 # The phone at rest: the menu bar, the Dock of the Mac's open apps, the options bar, the mic.
-shot 04-desktop  7  MACROPHONE_SCREEN=main MACROPHONE_SEND_TO=Terminal MACROPHONE_SEND=1
+# (The window watched for a moment first, then Done: the desktop's card holds its picture.)
+shot 04-desktop  19 MACROPHONE_SCREEN=main MACROPHONE_SEND_TO=Terminal MACROPHONE_SEND=1 MACROPHONE_WATCH=1 "MACROPHONE_WATCH_ACTIONS=wait@10,done"
 shot 05-open-app 7  MACROPHONE_SCREEN=openapp
 shot 06-settings 5  MACROPHONE_SCREEN=settings MACROPHONE_SEND_TO=Terminal MACROPHONE_SEND=1 MACROPHONE_DICTIONARY=kubectl,SwiftUI,Postgres,onAppear,TestFlight
 # Forget the stand-in Mac first, or onboarding skips past the pairing step.

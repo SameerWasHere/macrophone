@@ -8,6 +8,15 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## App Store: 1.0 (44) waiting for review, with new screenshots (Nov 11 2026)
+
+Sameer: "submit the latest build", then "submit with updated screenshots". Version 1.0 carries
+build 44 and all three screenshot sets re-shot from that code (`iOS/docs/store-screenshots/`;
+how in `docs/APP_STORE.md` › Screenshots). `mpctl serve`'s demo window wraps its text at words
+now and `MPCTL_NO_DRAWN_POINTER=1` leaves its own drawn arrow out (the phone draws the pointer).
+**sameer.us answers 402 `DEPLOYMENT_DISABLED`** (Vercel) — support URL, privacy policy and the Mac
+download; his to fix before review reaches the app.
+
 ## The picture keeps its full width at home (Nov 10 2026, later) — amends the wire sizer below
 
 Sameer on build 44: latency "is good", but on the Duo's inner screen (portrait, the laptop) "it's

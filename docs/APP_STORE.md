@@ -9,6 +9,11 @@ after a dictation into a chat; a line on iCloud's private database carrying aler
 are at the 4,000-character limit (3,995). **Found that day: all of sameer.us answered 402
 `DEPLOYMENT_DISABLED`** (Vercel) — the support URL, the privacy policy and the Mac download the
 notes point to were unreachable; it has to be back before review reaches the app.
+**New screenshots the same night** — Sameer: "submit with updated screenshots … we have made a
+lot of app changes". All three sets re-shot from build 44's code and replaced through the API
+(the submission cancelled first — a version waiting for review can't be edited — then submitted
+again: `a4d1396f-…`, Waiting for Review, build 44, release after approval). Captions unchanged.
+sameer.us still answered 402.
 **Resubmitted Nov 2 2026 as 1.0 (5)** after App Review's automated scan asked about "VPN
 functionality" (there is none — answered in the message thread and in the review notes; the
 description's "over your own VPN" became "when you're away from home"). Build 5 is main as of
@@ -281,19 +286,25 @@ OTHER NOTES
 
 ## Screenshots
 
-Three sets, uploaded through the API on Nov 1 2026 (`APP_IPHONE_67` 6.9" 1320 × 2868,
+Three sets, uploaded through the API on Nov 1 2026 and re-shot and replaced on Nov 11 2026 (`APP_IPHONE_67` 6.9" 1320 × 2868,
 `APP_IPHONE_65` 6.5" 1284 × 2778, and `APP_IPHONE_DUO` 2007 × 2853 — the Duo's inner screen; App
 Store Connect took the size). Files: `iOS/docs/store-screenshots/6.9/`, `/6.5/`, `/duo/`, real
 screens captured through the DEBUG hooks against a stand-in Mac (`iOS/scripts/capture-store-shots.sh`,
 `capture-duo-store-shots.sh`) and framed by `iOS/scripts/render-store-shots.swift` (`duo` mode for
 the Duo). RGB, no alpha. No caption names a third-party app or says "Mac".
+To re-shoot: the stand-in Mac is `MPCTL_NO_DRAWN_POINTER=1 mpctl serve --name "Sameer's MacBook"
+--auto-approve --no-attention --rounded --reshape --front-every 0 --state <fresh dir>` (the phone
+draws the pointer itself; the demo's own would be a second one), one fresh `--state` per simulator
+(a pairing URL works once); unpair any older stand-in Mac on the simulator first, or the pairing
+shot lands on the test page. The 6.5" set is rendered from the 6.9" captures. The Duo script turns
+off a fresh simulator's "slide to type" keyboard introduction.
 
 | # | 6.9 / 6.5 | Caption |
 | --- | --- | --- |
 | 1 | `01-hero.png` — a MacBook behind, the phone watching the live Terminal window with the answers (dark) | Your computer, live on your **iPhone**. |
 | 2 | `02-talk.png` — replying while watching, the words appearing (light) | **Say** what's next. It's typed and sent. |
 | 3 | `03-tap.png` — the trackpad page, the pointer on "1. Yes" (dark) | Point, tap, **scroll**, like you're there. |
-| 4 | `04-apps.png` — at rest: menu bar, wallpaper, the Dock and the options bar magnified (light) | Every app in your **Dock**. |
+| 4 | `04-apps.png` — at rest: menu bar, wallpaper, the window's card, the Dock and the options bar magnified (light) | Every app in your **Dock**. |
 | 5 | `05-open.png` — Open an App | Open **any app** on your computer. |
 | 6 | `06-cleanup.png` — Settings' Cleanup with a Heard / Sent card | Ums and uhs, **cleaned up**. |
 | 7 | `07-private.png` — setup: scan the code | **Private.** No account. No cloud. |
@@ -304,7 +315,7 @@ the Duo). RGB, no alpha. No caption names a third-party app or says "Mac".
 | 2 | `02-keyboard.png` — the same with the Mac keyboard | A full **keyboard** for your computer. |
 | 3 | `03-book.png` — the book: the window left, keys, trackpad and mic right | Open it up. **Everything** in hand. |
 | 4 | `04-open.png` — flat: the glance left, the cover's view right | Watch on one side, **talk** on the other. |
-| 5 | `05-cover.png` — the cover at rest | Closed, it's all in one **hand**. |
+| 5 | `05-cover.png` — the cover with the window live: its answers, keyboard · mic · trackpad, the vertical bar | Closed, it's all in one **hand**. |
 
 ## Third-party names (guidelines 2.3.7 / 5.2.1)
 

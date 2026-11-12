@@ -8,7 +8,7 @@
 # (~/.claude/skills/duo-sim/duo-sim.sh: `create`, `pose`, `shot … inner|cover`) — no
 # MACROPHONE_FRAME / MACROPHONE_POSTURE stand-ins. Make your own (`duo-sim.sh create`; other
 # sessions share simulators), install the Debug build (normal signing), and pass a fresh
-# `mpctl serve … --state <new dir>`'s PAIR URL (see capture-store-shots.sh). Inner screen shots are
+# `mpctl serve … --state <new dir>`'s PAIR URL (see capture-store-shots.sh, with MPCTL_NO_DRAWN_POINTER=1). Inner screen shots are
 # 2007×2853 upright / 2853×2007 on its side; the cover 1398×2034.
 set -e
 U=$1; OUT=$2; PAIR=$3
@@ -17,6 +17,8 @@ mkdir -p $OUT
 
 xcrun simctl spawn $U defaults write com.sameer.macrophone settings.agentAlerts -bool false
 xcrun simctl spawn $U defaults write com.sameer.macrophone watch.tips.seen "click,input,keys,scroll,swipe,zoom"
+# A fresh simulator's keyboard opens with its "slide to type" introduction over the keys.
+xcrun simctl spawn $U defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
 xcrun simctl ui $U appearance light
 xcrun simctl status_bar $U override --time "9:41" --dataNetwork wifi --wifiMode active --wifiBars 3 \
   --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
@@ -31,10 +33,11 @@ launch() {  # launch <seconds> KEY=VALUE...
 }
 grab() { zsh $DUO shot $U $1 "$OUT/$2.png" >/dev/null; echo "captured $2"; }
 
-# Closed: pair, then the cover at rest (the Dock, the options bar, the mic, the vertical bar).
+# Closed: pair, then the cover with the window live (its answers, the one row of keyboard · mic ·
+# trackpad, the vertical bar's buttons).
 zsh $DUO pose $U closed
 launch 8 MACROPHONE_SCREEN=main "MACROPHONE_OPEN_URL=$PAIR"
-launch 7 MACROPHONE_SCREEN=main MACROPHONE_SEND_TO=Terminal MACROPHONE_SEND=1
+launch 22 MACROPHONE_SCREEN=main MACROPHONE_SEND_TO=Terminal MACROPHONE_SEND=1 MACROPHONE_WATCH=1
 grab cover 05-cover
 # Folded like a laptop: the window takes the top half by itself, the trackpad the deck. The demo
 # reaches its question in ~14–20 s.
