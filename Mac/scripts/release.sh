@@ -16,8 +16,12 @@
 #   5. Builds the DMG (app + Applications alias over the rendered background, laid out by
 #      scripts/dmg/dsstore.py — no Finder scripting), signs, notarizes and staples it.
 #   6. Signs the DMG for Sparkle (EdDSA) and writes the appcast item.
-#   7. Copies DMG, Macrophone-latest.dmg, release notes and appcast.xml into the website repo
+#   7. Uploads the DMG (and a copy named Macrophone-latest.dmg) to a GitHub release on the public
+#      source repo, and copies only the release notes and appcast.xml into the website repo
 #      (~/claude-projects/_web/sameer-gpt/public/macrophone/). You commit and push that repo.
+#      The DMG is never served from the website: 12 of them there used up Vercel's monthly
+#      bandwidth in Nov 2026 and took all of sameer.us down. The appcast and the download page
+#      point at GitHub, which doesn't meter downloads.
 
 set -euo pipefail
 
@@ -35,6 +39,11 @@ TEAM_ID=8523EX5882
 NOTARY_PROFILE=macrophone-notary
 SPARKLE_ACCOUNT=macrophone
 SITE_BASE="https://sameer.us/macrophone"
+# Where the DMGs live: releases of the public source repo (a private repo's files answer 404 to
+# everyone else). One release per version, tag v<version>; the newest is marked Latest, so
+# …/releases/latest/download/Macrophone-latest.dmg is the stable download link.
+RELEASE_REPO="SameerWasHere/macrophone"
+DMG_URL="https://github.com/$RELEASE_REPO/releases/download/v$VERSION/Macrophone-$VERSION.dmg"
 WEB_DIR=${MACROPHONE_WEB_DIR:-$HOME/claude-projects/_web/sameer-gpt/public/macrophone}
 OUT="$MAC_DIR/dist/$VERSION"
 DERIVED="$MAC_DIR/build/release"
@@ -49,6 +58,11 @@ die()  { print -P "%F{red}✗ $*%f" >&2; exit 1; }
 # ── 1. Preflight ────────────────────────────────────────────────────────────────────────────
 say "Preflight"
 command -v xcodegen >/dev/null || die "xcodegen is missing (brew install xcodegen)."
+if (( ! DRY_RUN )); then
+  command -v gh >/dev/null || die "gh is missing (brew install gh): the DMG goes to a GitHub release."
+  gh repo view "$RELEASE_REPO" --json visibility -q .visibility 2>/dev/null | grep -q PUBLIC \
+    || die "$RELEASE_REPO isn't reachable with gh, or isn't public — the download would answer 404."
+fi
 [[ -f "$NOTES" ]] || die "Release notes missing: $NOTES  (copy release-notes/1.0.0.html and edit it)."
 
 if (( DRY_RUN )); then
@@ -234,10 +248,10 @@ APPCAST="$DEST/releases/appcast.xml"
 # Start from the published appcast so earlier versions stay listed.
 [[ -f "$APPCAST" ]] || { [[ -f "$WEB_DIR/releases/appcast.xml" ]] && cp "$WEB_DIR/releases/appcast.xml" "$APPCAST" || true; }
 
-python3 - "$APPCAST" "$VERSION" "$BUILD" "$SITE_BASE" "$DMG_NAME" "$ED_SIG" "$LENGTH" <<'PY'
+python3 - "$APPCAST" "$VERSION" "$BUILD" "$SITE_BASE" "$DMG_URL" "$ED_SIG" "$LENGTH" <<'PY'
 import sys, os, re
 from email.utils import formatdate
-path, version, build, base, dmg, sig, length = sys.argv[1:]
+path, version, build, base, dmg_url, sig, length = sys.argv[1:]
 item = f"""    <item>
       <title>Version {version}</title>
       <pubDate>{formatdate(usegmt=True)}</pubDate>
@@ -245,7 +259,7 @@ item = f"""    <item>
       <sparkle:shortVersionString>{version}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <sparkle:releaseNotesLink>{base}/releases/notes-{version}.html</sparkle:releaseNotesLink>
-      <enclosure url="{base}/releases/{dmg}" length="{length}" type="application/octet-stream" sparkle:edSignature="{sig}"/>
+      <enclosure url="{dmg_url}" length="{length}" type="application/octet-stream" sparkle:edSignature="{sig}"/>
     </item>
 """
 head = """<?xml version="1.0" encoding="utf-8"?>
@@ -267,13 +281,38 @@ open(path, "w", encoding="utf-8").write(head + item + "".join(items) + tail)
 print(f"appcast: {len(items) + 1} item(s)")
 PY
 
-# ── 7. Publish into the website repo ───────────────────────────────────────────────────────
-cp "$DMG" "$DEST/releases/$DMG_NAME"
-cp "$DMG" "$DEST/releases/Macrophone-latest.dmg"
+# ── 7. Publish: the DMG to GitHub, the notes and the appcast into the website repo ──────────
+if (( DRY_RUN )); then
+  cp "$DMG" "$DEST/releases/$DMG_NAME"
+else
+  say "Uploading the DMG to github.com/$RELEASE_REPO (release v$VERSION)"
+  LATEST="$OUT/Macrophone-latest.dmg"
+  cp "$DMG" "$LATEST"
+  # The notes as plain lines for the release's page.
+  python3 - "$NOTES" > "$OUT/notes.md" <<'PY'
+import sys, re, html
+t = open(sys.argv[1], encoding="utf-8").read()
+sub = re.search(r'<p class="sub">(.*?)</p>', t, re.S)
+out = []
+if sub: out.append("**" + html.unescape(re.sub(r"<.*?>", "", sub.group(1))).strip() + "**\n")
+for li in re.findall(r"<li>(.*?)</li>", t, re.S):
+    out.append("- " + html.unescape(re.sub(r"<.*?>", "", li)).strip())
+print("\n".join(out))
+PY
+  if gh release view "v$VERSION" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
+    gh release upload "v$VERSION" "$DMG" "$LATEST" --repo "$RELEASE_REPO" --clobber || die "Couldn't upload the DMG."
+  else
+    gh release create "v$VERSION" "$DMG" "$LATEST" --repo "$RELEASE_REPO" --target main --latest \
+      --title "Macrophone $VERSION" --notes-file "$OUT/notes.md" || die "Couldn't create the GitHub release."
+  fi
+  CODE=$(curl -s -o /dev/null -L -w "%{http_code}" -r 0-0 "$DMG_URL")
+  [[ "$CODE" == 2* ]] || die "The DMG isn't downloadable at $DMG_URL (HTTP $CODE)."
+  ok "Downloadable at $DMG_URL"
+fi
 cp "$NOTES" "$DEST/releases/notes-$VERSION.html"
 # The feed URL in Info.plist is $SITE_BASE/appcast.xml; keep that copy identical.
 cp "$APPCAST" "$DEST/appcast.xml"
-ok "Wrote releases/$DMG_NAME, Macrophone-latest.dmg, notes-$VERSION.html, releases/appcast.xml and appcast.xml into $DEST"
+ok "Wrote notes-$VERSION.html, releases/appcast.xml and appcast.xml into $DEST"
 
 # ── 8. The Homebrew cask ───────────────────────────────────────────────────────────────────
 # brew install --cask sameerwashere/macrophone/macrophone reads ~/claude-projects/homebrew-macrophone
@@ -282,7 +321,7 @@ ok "Wrote releases/$DMG_NAME, Macrophone-latest.dmg, notes-$VERSION.html, releas
 TAP_DIR=${MACROPHONE_TAP_DIR:-$HOME/claude-projects/homebrew-macrophone}
 if (( ! DRY_RUN )) && [[ -f "$TAP_DIR/Casks/macrophone.rb" ]]; then
   SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
-  sed -i '' -E "s/^  version \".*\"/  version \"$VERSION\"/; s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$TAP_DIR/Casks/macrophone.rb"
+  sed -i '' -E "s/^  version \".*\"/  version \"$VERSION\"/; s/^  sha256 \".*\"/  sha256 \"$SHA\"/; s|^  url \".*\"|  url \"https://github.com/$RELEASE_REPO/releases/download/v#{version}/Macrophone-#{version}.dmg\"|" "$TAP_DIR/Casks/macrophone.rb"
   git -C "$TAP_DIR" commit -qam "Macrophone $VERSION" && ok "Homebrew cask set to $VERSION (committed in $TAP_DIR, not pushed)"
 fi
 
@@ -292,6 +331,6 @@ if (( DRY_RUN )); then
 else
   ok "Macrophone $VERSION ($BUILD) is signed, notarized and staged."
   echo "  Next: in ${WEB_DIR:h:h:h}, commit public/macrophone and push to deploy."
-  echo "  After the site is live: git -C $TAP_DIR push   (Homebrew then serves $VERSION)"
+  echo "  Then: git -C $TAP_DIR push   (Homebrew then serves $VERSION)"
   echo "  Then: open an older copy and choose Check for Updates… to see the update arrive."
 fi
