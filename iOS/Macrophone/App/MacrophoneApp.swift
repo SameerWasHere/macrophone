@@ -269,21 +269,16 @@ struct InnerScreenSheet: ViewModifier {
             content.ignoresSafeArea(.container, edges: edge == .trailing ? .trailing : .leading)
         } else if floats {
             content
-        } else if let edge = VerticalBarProbe.edge {
-            // The Duo's cover (Nov 7 2026): a sheet ran the full width under the vertical bar,
-            // the clock and Wi-Fi drawn over its white. The system already lays the content
-            // beside the bar's column (and puts the sheet's Done in it, as the main screen's
-            // items are); here the sheet's own ground is a card beside the column too, so the
-            // column shows the screen behind, as it does above a sheet on any iPhone.
-            let barEdge: Edge.Set = edge == .trailing ? .trailing : .leading
+        } else if VerticalBarProbe.edge != nil {
+            // The Duo's cover: one sheet, one ground, the full width — the system's own. The system
+            // lays the content beside the vertical bar's column and puts the sheet's Done there;
+            // the clock and Wi-Fi sit on the sheet's ground, as they do on any app's sheet. A Nov 7
+            // try drew the ground as a card beside the column over a cleared sheet: the sheet was
+            // never clear (a white strip under the clock), and the card was measured from the
+            // sheet's edge while the content is laid out from the screen's, so every row ran past
+            // the card and looked cut off (Nov 12 2026, Sameer: "Setting menu looks off").
             content
-                .background {
-                    Color(uiColor: size == .screen ? .systemGroupedBackground : .systemBackground)
-                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 38, topTrailingRadius: 38, style: .continuous))
-                        .padding(barEdge, VerticalBarProbe.width)
-                        .ignoresSafeArea()
-                }
-                .presentationBackground(.clear)
+                .presentationBackground(Color(uiColor: size == .screen ? .systemGroupedBackground : .systemBackground))
         } else {
             content
         }

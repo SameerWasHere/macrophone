@@ -76,9 +76,6 @@ struct SettingsView: View {
                 aboutSection
             }
             .toggleStyle(.settings)
-            // On the Duo's cover the sheet's ground is a card beside the vertical bar
-            // (`InnerScreenSheet`): the Form's own would run under the column.
-            .scrollContentBackground(VerticalBarProbe.edge == nil ? .automatic : .hidden)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(.visible, for: .navigationBar)

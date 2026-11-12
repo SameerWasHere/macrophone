@@ -8,6 +8,19 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The cover's sheets are the system's own, full width (Nov 12 2026) — wins over "The cover's sheets beside the vertical bar"
+
+Sameer's cover screenshot: "Setting menu looks off" — a white strip under the clock and every row
+cut off at its right end. The Nov 7 card (a cleared sheet, the ground drawn as a card padded by the
+bar's width) never worked: the sheet was never clear, and the card was measured from the sheet's
+edge (8 pt in from the screen's) while the system lays the content out from the screen's, so rows
+ran ~8 pt past the card onto white. Now `InnerScreenSheet`'s cover branch is only
+`presentationBackground` — grouped for Settings / History, plain for the rest — one ground the full
+width, the clock and Wi-Fi on it, the content beside the column by the system's own insets.
+Settings no longer hides the Form's ground. Don't draw a sheet's ground by hand beside the column.
+Seen on a Duo sim's cover, light and dark (Settings, History, Open an App, pairing):
+`docs/screens/settings-cover-nov12/` (before | after | dark).
+
 ## App Store: 1.0 (44) waiting for review, with new screenshots (Nov 11 2026)
 
 Sameer: "submit the latest build", then "submit with updated screenshots". Version 1.0 carries
