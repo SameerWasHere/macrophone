@@ -1,7 +1,13 @@
 # Releasing Macrophone for Mac
 
-The Mac app ships outside the App Store as a Developer ID–signed, notarized DMG from
-sameer.us/macrophone, and updates itself with Sparkle. One script does the whole release:
+The Mac app ships outside the App Store as a Developer ID–signed, notarized DMG linked from
+sameer.us/macrophone, and updates itself with Sparkle. **The DMG itself is a GitHub release asset
+on the public source repo (github.com/SameerWasHere/macrophone), never a file on the website**
+(Nov 12 2026): twelve DMGs served from Vercel used up the Hobby plan's 100 GB of monthly bandwidth
+and Vercel switched all of sameer.us off (402 `DEPLOYMENT_DISABLED`) — with the iPhone app waiting
+for review. A Nov 6 try had moved them to a release on the *private* website repo, whose files
+answer 404 to everyone else; it never deployed. The website keeps only the appcast, the notes and
+the pages. One script does the whole release:
 `Mac/scripts/release.sh <version> <build>`.
 
 (The iPhone app ships through App Store Connect — see `docs/APP_STORE.md`.)
@@ -89,24 +95,28 @@ Do these once per Mac you release from.
    `Contents/Helpers/`), notarizes and staples the app, builds the DMG (app + Applications
    alias over `scripts/render-dmg-background.swift`'s background, laid out by
    `scripts/dmg/dsstore.py`, with the app's icon on the volume), signs, notarizes and
-   staples the DMG, signs it for Sparkle, and writes into
+   staples the DMG, signs it for Sparkle, uploads it to GitHub — release `v<version>` on
+   SameerWasHere/macrophone, marked Latest, with a second copy named `Macrophone-latest.dmg`
+   (so `…/releases/latest/download/Macrophone-latest.dmg` is the stable link the download page
+   uses; the script checks the file downloads without signing in) — and writes into
    `~/claude-projects/_web/sameer-gpt/public/macrophone/`:
 
    | File | Served at |
    | --- | --- |
-   | `releases/Macrophone-<version>.dmg` | the version history |
-   | `releases/Macrophone-latest.dmg` | the stable download link |
    | `releases/notes-<version>.html` | Sparkle's release notes |
    | `releases/appcast.xml` | the appcast (all versions, newest first) |
    | `appcast.xml` | the same appcast at the feed URL in Info.plist (`SUFeedURL`) |
 
    Notarization usually takes 2–10 minutes per submission (there are two: the app, then the DMG).
 
-4. **Publish.** In `~/claude-projects/_web/sameer-gpt`, commit `public/macrophone/` and push
-   to `main`; Vercel deploys it.
+4. **Publish.** By hand in `~/claude-projects/_web/sameer-gpt/public/macrophone/`: the version
+   and "What's new" on `download/index.html`, `softwareVersion` in `index.html`'s JSON-LD, a new
+   section at the top of `releases/index.html`. Commit and push to `main`; Vercel deploys it.
+   Versions before 1.1.22 are in the release `mac-archive` (not Latest), where the appcast's
+   older items point.
 
 5. **Check it.**
-   - Download `https://sameer.us/macrophone/releases/Macrophone-latest.dmg`, open it, drag to
+   - Download from the button on `https://sameer.us/macrophone/download`, open it, drag to
      Applications, launch — no Gatekeeper warning.
    - `spctl --assess --type execute -vv /Applications/Macrophone.app` → `accepted`,
      `source=Notarized Developer ID`.
@@ -131,16 +141,16 @@ repo isn't touched). Use it to check a change to the pipeline.
 - **"The Sparkle key in the keychain doesn't match SUPublicEDKey"** — you're on a Mac
   without the backed-up key. Restore it (one-time setup, step 3). Don't change the plist.
 - **A bad release is out** — ship a fixed one with a higher build number. To stop new
-  downloads first, point `Macrophone-latest.dmg` back at the previous DMG and remove the bad
-  `<item>` from both appcast files, then push.
+  downloads first, mark the previous GitHub release Latest (`gh release edit v<previous>
+  --latest`) and remove the bad `<item>` from both appcast files, then push.
 
 ## Homebrew and iCloud (Oct 17 2026)
 
 - **Homebrew:** `brew install --cask sameerwashere/macrophone/macrophone` reads the tap at
   `~/claude-projects/homebrew-macrophone` (github.com/SameerWasHere/homebrew-macrophone).
   `release.sh` writes the new version and the DMG's SHA-256 into `Casks/macrophone.rb` and
-  commits it; push the tap (`git -C ~/claude-projects/homebrew-macrophone push`) after the website
-  deploy, so the URL it names is live. The cask's livecheck reads the Sparkle appcast.
+  commits it (the cask's URL is the GitHub release's); push the tap
+  (`git -C ~/claude-projects/homebrew-macrophone push`). The cask's livecheck reads the Sparkle appcast.
 - **iCloud:** the Mac app signs with the Developer ID profile "Macrophone Mac iCloud Developer ID"
   (container `iCloud.com.sameer.macrophone`, Production) so it can send alerts through the
   person's iCloud; `release.sh` passes the `MACROPHONE_*` settings and a manual export. If that

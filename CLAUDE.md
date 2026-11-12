@@ -14,8 +14,14 @@ Sameer: "submit the latest build", then "submit with updated screenshots". Versi
 build 44 and all three screenshot sets re-shot from that code (`iOS/docs/store-screenshots/`;
 how in `docs/APP_STORE.md` › Screenshots). `mpctl serve`'s demo window wraps its text at words
 now and `MPCTL_NO_DRAWN_POINTER=1` leaves its own drawn arrow out (the phone draws the pointer).
-sameer.us was down that night (402, Vercel) and is back since Nov 12. The public Mac download is
-still 1.1.6; his own Mac runs 1.1.22 (not published).
+sameer.us was down that night (402, Vercel) and is back since Nov 12.
+
+**Mac 1.1.22 (82) is public (Nov 12 2026), and Mac downloads never come from the website.** What
+took sameer.us down: twelve DMGs served from Vercel used up the Hobby plan's 100 GB a month. Now
+`Mac/scripts/release.sh` uploads the DMG to a GitHub release on this public repo (`v<version>`,
+marked Latest, plus `Macrophone-latest.dmg`; older ones in `mac-archive`) and the website holds
+only the appcast, notes and pages — `docs/RELEASING.md`. Never put a DMG (or anything heavy) under
+the website's `public/`. A release on the private website repo answers 404 to everyone else.
 
 ## The picture keeps its full width at home (Nov 10 2026, later) — amends the wire sizer below
 
