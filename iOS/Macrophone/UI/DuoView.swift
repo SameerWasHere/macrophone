@@ -138,10 +138,17 @@ extension MainView {
             // (`DuoLook.edgeTop`). The glance at rest keeps its place in from the corners.
             let hand = watcher.isShowing
             let safe = geo.safeAreaInsets
-            let left = hand ? -safe.leading : inset
+            // Only the Mac's own screen fitted to the phone runs past the corners (its corners
+            // hold wallpaper and a menu bar's ends). A window keeps clear of them (Nov 17 2026,
+            // Sameer on his Duo: "a weird black bar at the top and the bottom is getting blocked
+            // by the curve of the phone"): 12 pt in from the side, 21 from the top and the foot —
+            // the most a square picture can have with none of it under the 55 pt curve — and no band.
+            let bleeds = macPageBleeds
+            let clear = DuoLook.uprightMargin
+            let left = hand ? (bleeds ? 0 : clear) - safe.leading : inset
             let top = hand ? DuoLook.edgeTop - safe.top : inset
             let right = hand ? (h.mac.maxX + h.deck.minX) / 2 : h.mac.width
-            let foot = hand ? geo.size.height + safe.bottom : geo.size.height - inset
+            let foot = hand ? geo.size.height + safe.bottom - (bleeds ? 0 : DuoLook.edgeTop) : geo.size.height - inset
             let pageWidth = max(0, right - left)
             let restHeight = max(0, foot - top)
             let pageHeight = typing ? max(0, min(restHeight, keyboardTop(in: geo) - top - DuoLook.keyboardGap)) : restHeight
@@ -156,7 +163,7 @@ extension MainView {
                     // The page keeps its column; the picture in hand runs out of it to the edges.
                     .frame(width: h.mac.width, height: geo.size.height, alignment: .topLeading)
                     .background(alignment: .topLeading) {
-                        if hand {
+                        if bleeds {
                             macTopBand(width: pageWidth, height: DuoLook.edgeTop, screen: CGSize(width: geo.size.width + safe.leading + safe.trailing, height: geo.size.height + safe.top + safe.bottom))
                                 .padding(.leading, left)
                                 .padding(.top, -safe.top)
@@ -178,6 +185,12 @@ extension MainView {
     }
 
     // MARK: The laptop (upright: the hinge across — folded, or flat)
+
+    /// The Mac's page runs out past the screen's rounded corners: only for the Mac's own screen
+    /// fitted to the phone, in hand. A window stays clear of the corners, whole.
+    // (Nov 17 2026: off for the fitted Whole Screen too — on his Duo the band read as a black bar
+    // and the curve cut the foot. Everything in hand stays clear of the corners.)
+    var macPageBleeds: Bool { false }
 
     /// The keyboard page is up with a window in hand.
     var keyboardUp: Bool { watcher.isShowing && input.page == .keyboard }
@@ -207,7 +220,7 @@ extension MainView {
             // (`uprightPictureTop`). The deck keeps its place and its margins. The glance at rest
             // is where it was.
             let hand = watcher.isShowing
-            let side: CGFloat = hand ? 0 : DuoLook.uprightMargin
+            let side: CGFloat = macPageBleeds ? 0 : DuoLook.uprightMargin
             let bleed: CGFloat = hand ? max(0, h.deck.minY - h.mac.maxY) / 2 : 0
             let restGap: CGFloat = flat ? 10 : h.deck.minY - h.mac.maxY - bleed
             // In hand, flat upright's deck is at least as tall as the keyboard and its bar (402 pt
@@ -274,7 +287,7 @@ extension MainView {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             // The band over the picture in hand: the Mac's own desktop, as full screen draws it.
             .background(alignment: .top) {
-                if hand { macTopBand(width: geo.size.width, height: uprightPictureTop, screen: geo.size) }
+                if macPageBleeds { macTopBand(width: geo.size.width, height: uprightPictureTop, screen: geo.size) }
             }
             .animation(Motion.pick(Motion.settle, reduce: reduceMotion), value: h)
             // A window coming into hand (or going back to the glance) moves the fold's line on a

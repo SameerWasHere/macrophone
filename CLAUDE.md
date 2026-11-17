@@ -8,6 +8,18 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The Duo's Mac page stays clear of the corners (Nov 17 2026) — amends the Nov 16 edge-to-edge section
+
+Sameer's Duo screenshot (on its side, Claude in hand): "a weird black bar at the top and the bottom is
+getting blocked by the curve of the phone … clean up is needed to avoid screen cut offs". The Nov 16
+bleed (sides 0, a 21 pt wallpaper band on top, the foot at the screen's edge) is off
+(`MainView.macPageBleeds` is false; the band code stays, unused). In hand the Mac's page is now
+12 pt in from the screen's side, 21 pt from the top and — on its side — 21 pt from the foot: the most
+a square picture gets with none of it under the 55 pt curve. Still to the fold's line, still no rows
+on the Mac's page (the answers stay on the deck). On its side 463 × 627 pt (was 437 × 523 before
+Nov 16). Seen on a Duo sim for a window (open, tabletop, dark); the Whole Screen follows the same
+path and wasn't re-shot. Don't run the picture under the corners again unasked.
+
 ## The Duo's Mac page, to its edges (Nov 16 2026, later) — wins over the inner screen's margins in the Duo sections below
 
 Sameer, after Fit to iPhone on his Duo: "because of the Duo, it would be cool to explore how to
