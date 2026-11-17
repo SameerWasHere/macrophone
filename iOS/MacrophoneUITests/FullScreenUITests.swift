@@ -33,7 +33,9 @@ final class FullScreenUITests: XCTestCase {
         let before = window(app)?.frame ?? .zero
         let screen = app.windows.firstMatch.frame
         print("FullScreen: pose \(ProcessInfo.processInfo.environment["MACROPHONE_DUO_REAL"] ?? "-") window \(before) screen \(screen)")
-        XCTAssertLessThan(before.height, screen.height - 100, "the window view leaves room for its controls")
+        // (On the Duo's inner screen on its side the window in hand is the left page whole, top
+        // band to foot — Nov 16 2026 — and its controls are the right page: the room is across.)
+        XCTAssertTrue(before.height < screen.height - 100 || before.width < screen.width * 0.6, "the window view leaves room for its controls: \(before) in \(screen)")
         button.tap()
         let exit = app.buttons["watch-fullscreen-exit"]
         XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen is up")

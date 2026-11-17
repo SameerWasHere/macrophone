@@ -203,7 +203,9 @@ final class DuoUITests: XCTestCase {
         assertSideDeck(app, inner, split: split, "the book")
         let answer = app.buttons["watch-answer-0"]
         XCTAssertTrue(answer.waitForExistence(timeout: 8))
-        XCTAssertLessThan(answer.frame.maxX, split, "the answers are a row under the Mac's page")
+        // Nov 16 2026: the left page is the picture alone, to its edges; the answers are a row on
+        // the right page's deck, as the laptop's are on its deck.
+        XCTAssertGreaterThan(answer.frame.minX, split - 2, "the answers are a row on the right page's deck, not on the Mac's page")
         shot("book")
         pick(app, "Mic")
         let mic = app.buttons["Start dictation"]

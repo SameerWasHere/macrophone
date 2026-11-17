@@ -3057,7 +3057,13 @@ final class ViewerScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecog
             return
         }
         let forAnswers = CACurrentMediaTime() < holdZoomUntil
-        if old != .zero, abs(old.width - bounds.width) < 1, keyboardUp || heightBeforeKeyboard != nil || forAnswers {
+        // A view that grew past what its picture was fitted to isn't the keyboard's doing (Nov 16
+        // 2026: flat upright on the Duo, a window taken in hand with the deck on its trackpad
+        // grows out of the glance's room — the held zoom left the picture at four fifths of its
+        // room, margins all round, for good). The keyboard going only gives back the height the
+        // zoom was fitted to, so it never reads as smaller than its room here.
+        let outgrown = bounds.height > old.height + 0.5 && zoomScale < min(bounds.width / imageSize.width, visibleHeight / imageSize.height) - 0.0002
+        if old != .zero, abs(old.width - bounds.width) < 1, !outgrown, keyboardUp || heightBeforeKeyboard != nil || forAnswers {
             if keyboardUp, heightBeforeKeyboard == nil { heightBeforeKeyboard = old.height }
             keepZoom(oldHeight: old.height)
             return

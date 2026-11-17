@@ -95,7 +95,9 @@ final class DuoTypingUITests: XCTestCase {
                 XCTAssertEqual(typed.minX, rest.minX, accuracy: 1, "\(what): the window's left edge never moves for the keyboard")
                 XCTAssertEqual(typed.width, rest.width, accuracy: 1, "\(what): nor its width (\(rest.width) → \(typed.width))")
                 XCTAssertEqual(typed.minY, rest.minY, accuracy: 1, "\(what): nor its top (\(rest.minY) → \(typed.minY))")
-                XCTAssertGreaterThan(typed.height, rest.height * 0.5, "\(what): the Mac's screen is never a sliver (\(rest.height) → \(typed.height))")
+                // (The book's page at rest runs to the screen's foot since Nov 16 2026 — under where
+                // the keyboard rises — so what's left over the keys is a smaller share of it: 324 of 648.)
+                XCTAssertGreaterThan(typed.height, rest.height * (pose == "laptop" || pose == "portrait" ? 0.5 : 0.45), "\(what): the Mac's screen is never a sliver (\(rest.height) → \(typed.height))")
                 if pose == "laptop" || pose == "portrait" {
                     // Flat upright the keyboard never reaches the Mac's half (Nov 7 2026): the window
                     // keeps its whole frame, the bar on the deck under the fold. Folded, iOS starts the

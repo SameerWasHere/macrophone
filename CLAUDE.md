@@ -8,6 +8,59 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The Duo's Mac page, to its edges (Nov 16 2026, later) — wins over the inner screen's margins in the Duo sections below
+
+Sameer, after Fit to iPhone on his Duo: "because of the Duo, it would be cool to explore how to
+maximize the screen's real estate, like absolute to the edge of every orientation that we put the
+phone in, so that it feels more like a mini laptop". **iPhone only; nothing pushed or released.**
+With a window or the Whole Screen **in hand** on the inner screen, the Mac's page is the picture
+alone, out to that page's physical edges. The glance at rest, the cover, the regular iPhone and full
+screen are unchanged. Frames (before | after trackpad · mic · keyboard, per pose and place):
+`docs/screens/duo-edge-nov16/`.
+- **Upright — the laptop and flat upright** (`laptopBody`): the Mac's half is x 0 … the screen's
+  width, from the 21 pt top band (`uprightPictureTop`, as before) down to **the fold's own line** —
+  the middle of the fold's band (`bleed`, half of `h.deck.minY − h.mac.maxY`; 20 pt on the
+  simulator). No side margins (`side` 0 in hand, `DuoLook.uprightMargin` at rest), nothing above
+  the fold. The deck keeps its place and margins. Measured: 645 × 435 → **669 × 455 pt**; the Mac
+  is sent 1004×682 for the fitted Whole Screen (was 968×652). The un-fitted Whole Screen
+  (`wholeScreenSize`) is edge to edge across too.
+- **On its side — the book and flat landscape** (`sideBody`): the left page is the picture alone:
+  left edge the screen's (past the safe area), top `DuoLook.edgeTop` (21 pt), foot the screen's
+  foot (past the home indicator's inset, as full screen), right edge the fold's line. Measured:
+  437 × 523 → **475 × 648 pt** (+35%); fitted Whole Screen 714×972 (was 658×784). **The question's
+  answers are a row on the right page's deck** (under the window's name, over the modes —
+  `DuoDeck.answersShown` no longer upright-only), one sideways row, gone while the keyboard is
+  asked for, as the laptop's. `DuoMacHalf`'s side branch is `screen(…)` alone; a window the Mac
+  can't reshape still sits at the page's top at its fitted height (`shortPicture`), nothing under
+  it. No tip strip was on a folded page before, and none is now.
+- **The band over the picture** (`MainView.macTopBand`): the Mac's wallpaper under the 0.22 veil,
+  as `DuoFullScreen` draws it — only in hand.
+- **Typing:** the same rules — top, left and width never move; only the foot gives way to the
+  keyboard (the laptop: 455 → 425 pt, the same line as before; flat upright: whole; the book's
+  page: 648 → 324 pt over the keys).
+- **Found on the way — a window taken in hand flat upright sat at four fifths of its room**
+  (524 × 353 in a 645 × 435 room, margins all round, on main too) whenever the deck was on the
+  trackpad or keyboard: the viewer holds its zoom for a height-only change while those pages are up
+  (`keepZoom`), and the window grows out of the glance's room as it comes into hand.
+  `ViewerScrollView.layoutSubviews`: a view that **grew** past what its picture is fitted to
+  (`outgrown`) lays out afresh; the keyboard going never reads that way (it gives back the height
+  the zoom was fitted to).
+- **Left as they are:** the window's own rounded corners (the Mac's mask) — in the page's corners
+  they show the band or the wallpaper inside the display's corner; the display's 55 pt corner cuts
+  ~12 pt of the top row at the sides and the bottom-left corner on its side, as full screen does.
+- **Tests** (a Duo sim in the pose, against `serve --rounded --reshape`): DuoTyping (laptop,
+  portrait, book), DuoSettle (laptop, book), DuoLayoutStability (laptop, portrait), FullScreen
+  (laptop, portrait, book, open) and DuoUITests' book / portrait / landscape pass. Assertions
+  changed: the book's answers are on the right page; the book's typing floor is 0.45 of its (now
+  taller) rest; FullScreen's "leaves room for its controls" takes a page-wide window on its side
+  (it failed on main there: 577 of 669). `DuoUITests.testLaptopPoseIsAMacAboveAndTheDeckBelow`
+  fails on main the same way (the trackpad 123 pt under the two-row answers, wants 136).
+- **Needs his Duo:** the fold band's real height and whether the picture reads right across the
+  crease's edge at a real hinge angle; the home indicator over the left page's foot and a swipe up
+  from there against a click; the bottom-left corner's cut on a real Dock; the band's look over his
+  wallpaper in light mode; Show it here flat upright filling at once (the `outgrown` fix) on the
+  real pipe's timing; the real Mac reshaping to 1004×682 / 714×972 (only the stand-in did).
+
 ## The Whole Screen, fitted to the iPhone (Nov 16 2026) — wins over "never the whole screen" in the auto-fit sections
 
 Sameer: "even in whole screen mode the Mac screen is optimized for the space available on the phone
