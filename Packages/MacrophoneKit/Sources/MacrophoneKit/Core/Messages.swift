@@ -278,6 +278,11 @@ public enum Message: Codable, Sendable {
     /// Phone → Mac (only to a Mac naming LiveTyping.feature): a step of a dictation typed as he
     /// speaks, or its cancel (Core/LiveTyping.swift).
     case livePiece(LivePiece)
+    /// Phone → Mac (only to a Mac naming FittedScreen.feature): the whole screen at this view's
+    /// shape (a display made for it), or back as it was (Core/FittedScreen.swift).
+    case screenFit(FittedScreenRequest)
+    /// Mac → phone (only to a phone naming FittedScreen.feature): how the fitted screen stands.
+    case screenFitState(FittedScreenState)
     // Either way
     case ping
     case pong

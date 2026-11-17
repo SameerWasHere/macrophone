@@ -118,6 +118,7 @@ final class WatchService {
         var lastFront: FrontApp?
         /// The whole screen: the display its stream shows (Pick a display, Oct 19 2026).
         var desktopDisplay: CGDirectDisplayID?
+        var desktopSize: CGSize?
         /// When the window was last seen in front: a swipe's steps skip the check for a moment
         /// (each one listed every window on the Mac, thirty times a second, on the thread that
         /// sends the pictures).
@@ -267,6 +268,8 @@ final class WatchService {
 
     func set(_ target: TargetRef?, for peer: UUID) {
         guard let target else { stop(peer); return }
+        // The screen fitted to this phone stays while it shows the Whole Screen (`VirtualScreen`).
+        VirtualScreen.shared.watchChanged(peer, desktop: DesktopWatch.isDesktop(target))
         // The same window, watched again within the grace (the phone back from the background, a
         // link that blipped — Nov 8 2026, round 3): its sizes carry over, so Done still puts it back.
         var carried: Parked?
@@ -355,6 +358,7 @@ final class WatchService {
     }
 
     func stop(_ peer: UUID) {
+        VirtualScreen.shared.watchChanged(peer, desktop: false)
         guard let w = watches.removeValue(forKey: peer) else { return }
         w.task?.cancel()
         w.sendTask?.cancel()
@@ -387,6 +391,7 @@ final class WatchService {
         watches.keys.forEach(stop)
         for p in parked.values { p.task?.cancel(); putBack(p) }
         parked = [:]
+        VirtualScreen.shared.quit()
     }
 
     // MARK: The window's size through a pause (Nov 8 2026, round 3)
@@ -432,6 +437,14 @@ final class WatchService {
         guard let f = p.before, let wid = p.windowID, wid != WindowServer.desktopID, Paster.isTrusted,
               let win = AX.window(in: AX.app(p.pid), id: wid), AX.isAlive(win), !AX.bool(win, "AXFullScreen") else { return }
         _ = WindowFit.set(win, frame: f)
+    }
+
+    /// This phone is shown the Whole Screen right now.
+    func isWatchingDesktop(_ peer: UUID) -> Bool { watches[peer].map { DesktopWatch.isDesktop($0.target) } ?? false }
+
+    /// The Whole Screen moved to another display or changed size: every watch of it looks now.
+    func desktopChanged() {
+        for w in watches.values where DesktopWatch.isDesktop(w.target) { w.hurry(); w.wake() }
     }
 
     /// The windows phones are looking at now.
@@ -527,7 +540,13 @@ final class WatchService {
         }
 
         // The whole screen moved to another display (picked on the phone, or this one unplugged).
-        if wid == WindowServer.desktopID, w.stream != nil, w.desktopDisplay != MacDisplays.watched { w.dropStream() }
+        // (Or the display fitted to the phone is being made or reshaped: its stream waits for it,
+        // and one of another size is made again — Nov 16 2026, `VirtualScreen`.)
+        if wid == WindowServer.desktopID {
+            for _ in 0..<80 where VirtualScreen.shared.busy { try? await Task.sleep(nanoseconds: 100_000_000) }
+            place = (place.onScreen, WindowServer.desktopBounds)
+        }
+        if wid == WindowServer.desktopID, w.stream != nil, w.desktopDisplay != MacDisplays.watched || w.desktopSize != place.bounds.size { w.dropStream() }
         if let s = w.stream {
             await s.resize(to: place.bounds.size, maxWidth: maxWidth(for: w))
         } else {
@@ -1010,6 +1029,7 @@ final class WatchService {
         guard let c = try? await refreshContent(),
               let display = c.displays.first(where: { $0.displayID == wanted }) ?? c.displays.first else { return nil }
         w.desktopDisplay = display.displayID
+        w.desktopSize = CGDisplayBounds(display.displayID).size
         let mine = c.windows.filter { $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier }
         return WindowStream(display: display, excluding: mine, maxWidth: maxWidth(for: w), maxRate: rate(w), video: w.wantsVideo)
     }

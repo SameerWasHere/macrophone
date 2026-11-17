@@ -17,8 +17,11 @@ enum MacDisplays {
 
     /// The display the whole screen shows: the one picked while it's still connected, else the main one.
     static var watched: CGDirectDisplayID {
+        // Fitted to a phone (Nov 16 2026, `VirtualScreen`): the display made for it is the whole screen.
+        if let fitted = VirtualScreen.currentID, online().contains(fitted) { return fitted }
         let id = lock.withLock { picked }
         if let id, online().contains(id) { return id }
+        if let real = VirtualScreen.mainBefore, online().contains(real) { return real }
         return CGMainDisplayID()
     }
 
@@ -56,11 +59,15 @@ enum MacDisplays {
         let names: [CGDirectDisplayID: String] = Dictionary(NSScreen.screens.compactMap { s in
             (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber).map { ($0.uint32Value, s.localizedName) }
         }, uniquingKeysWith: { a, _ in a })
-        let main = CGMainDisplayID()
-        return online().map { id in
+        // The display fitted to a phone is never one to pick: while it's up the list is the real
+        // displays, as they sit around the one that was main before it.
+        let fitted = VirtualScreen.currentID
+        let main = VirtualScreen.mainBefore ?? CGMainDisplayID()
+        let base = fitted == nil ? .zero : CGDisplayBounds(main).origin
+        return online().filter { $0 != fitted }.map { id in
             let b = CGDisplayBounds(id)
             let name = names[id] ?? (CGDisplayIsBuiltin(id) != 0 ? "Built-in Display" : "Display")
-            return MacDisplay(id: key(for: id), name: name, x: b.minX, y: b.minY, width: b.width, height: b.height, isMain: id == main)
+            return MacDisplay(id: key(for: id), name: name, x: b.minX - base.x, y: b.minY - base.y, width: b.width, height: b.height, isMain: id == main)
         }
     }
 

@@ -34,7 +34,8 @@ enum DisplayControl {
     /// The built-in panel, if it's on — never an external (in clamshell the main display is an
     /// external, and On The Go dimmed whatever was main).
     static var builtIn: CGDirectDisplayID? { onlineDisplays().first { CGDisplayIsBuiltin($0) != 0 } }
-    static var externals: [CGDirectDisplayID] { onlineDisplays().filter { CGDisplayIsBuiltin($0) == 0 } }
+    /// (Never the display fitted to a phone — `VirtualScreen` — which is no monitor to switch off.)
+    static var externals: [CGDirectDisplayID] { onlineDisplays().filter { CGDisplayIsBuiltin($0) == 0 && $0 != VirtualScreen.currentID } }
 
     static func brightness() -> Float? {
         guard let s = services, let d = builtIn else { return nil }

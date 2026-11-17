@@ -211,6 +211,7 @@ final class AppModel: ObservableObject {
         watcher.sendWindow = { [weak self] c in self?.client.watchWindow(c) ?? false }
         watcher.sendKey = { [weak self] k in self?.client.watchKey(k) ?? false }
         watcher.sendShape = { [weak self] s in self?.client.watchShape(s) ?? false }
+        watcher.sendScreenFit = { [weak self] r in self?.client.screenFit(r) ?? false }
         watcher.sendScroll = { [weak self] p, d in self?.client.watchScroll(at: p, by: d) }
         watcher.sendScrollPhase = { [weak self] phase, p in self?.client.watchScrollPhase(phase, at: p) }
         watcher.sendChoose = { [weak self] p, i in self?.client.watchChoose(p, index: i) }
@@ -301,7 +302,7 @@ final class AppModel: ObservableObject {
         // The Mac says what it's allowed to do (MacPermissionNote.swift).
         c.features.append(MacPermissions.feature)
         // The Mac's displays, Wake Your Mac, Mac Controls (Oct 19 2026, Model/MacReach.swift).
-        c.features += [Displays.feature, WakeInfo.feature, MacControl.feature, MacVolume.feature]
+        c.features += [Displays.feature, WakeInfo.feature, MacControl.feature, MacVolume.feature, FittedScreen.feature]
         // Keep Awake: the Mac on with its lid closed, from Control Center (Nov 7 2026, Model/KeepAwakeModel.swift).
         c.features.append(KeepAwakeStatus.feature)
         // The Mac's desktop picture, behind the screens (Nov 1 2026, Model/WallpaperStore.swift).

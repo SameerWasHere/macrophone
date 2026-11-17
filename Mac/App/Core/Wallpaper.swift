@@ -121,7 +121,10 @@ final class WallpaperSource {
 
     /// The main screen's desktop picture file, and when it last changed.
     private static func readSource() -> Source? {
-        guard let screen = NSScreen.screens.first, let url = NSWorkspace.shared.desktopImageURL(for: screen) else { return nil }
+        // (While a screen fitted to a phone is the main one — `VirtualScreen` — the real main display's.)
+        let real = VirtualScreen.mainBefore
+        let screen = real.flatMap { id in NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == id } } ?? NSScreen.screens.first
+        guard let screen, let url = NSWorkspace.shared.desktopImageURL(for: screen) else { return nil }
         let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         return Source(url: url, modified: values?.contentModificationDate, size: values?.fileSize)
     }

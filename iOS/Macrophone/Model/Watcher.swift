@@ -448,6 +448,7 @@ final class Watcher: ObservableObject {
         wantsAutoFit = false
         shapeSent = nil
         switchedAt = nil
+        screenFitRefused = false
         autoFitTask?.cancel()
         input.closed()
         idleTask?.cancel()
@@ -676,7 +677,10 @@ final class Watcher: ObservableObject {
         // Never bigger than the screen (a layout pass offered no height: 362 × ~1,170 on his
         // cover, sent to the Mac as a 0.31 strip — "340×1084, took 600×1084" — Nov 10 2026), and
         // never narrower than a phone held upright in full screen (0.46).
-        let screen = UIScreen.main.bounds.size
+        // (The screen the app is on: on a Duo `UIScreen.main` can be the cover while the app is on
+        // the inner screen, and full screen there — 951 or 930 pt long — was never a window's
+        // shape, so nothing was sent. Nov 16 2026.)
+        let screen = ((UIApplication.shared.connectedScenes.first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.first) as? UIWindowScene)?.screen.bounds.size ?? UIScreen.main.bounds.size
         let long = max(screen.width, screen.height) + 1
         guard size.width <= long, size.height <= long else { return false }
         return aspect >= 0.42 && aspect <= 3
@@ -759,9 +763,11 @@ final class Watcher: ObservableObject {
     private var keepsOwnShape: Set<String> = []
     private static let arrangeLimit: TimeInterval = 4.5
     private static let reshapeWait: TimeInterval = 2.5
+    private static let screenArrangeLimit: TimeInterval = 9
+    private static let screenReshapeWait: TimeInterval = 7
 
     private func beginArranging(fresh: Bool) {
-        guard isOpen, !isDesktop else { endArranging(); return }
+        guard isOpen, !isDesktop || fitsScreen else { endArranging(); return }
         arrangeBegan = Date()
         arrangeHasPicture = !fresh && hasPicture
         arrangeFresh = fresh
@@ -790,22 +796,23 @@ final class Watcher: ObservableObject {
     }
 
     private func isArranged() -> Bool {
-        guard isOpen, let target, Date().timeIntervalSince(arrangeBegan) < Self.arrangeLimit else { return true }
+        // (The Mac makes a display and moves its windows for the fitted screen: a little longer.)
+        guard isOpen, let target, Date().timeIntervalSince(arrangeBegan) < (isDesktop ? Self.screenArrangeLimit : Self.arrangeLimit) else { return true }
         switch phase {
         case .live, .starting, .reconnecting: break
         default: return true
         }
         guard arrangeHasPicture, let picture = videoSize ?? image?.size else { return false }
         // Nothing will reshape it: what's there is what there is.
-        if glancing || !viewAtRest || sizedByHand || !canFitToPhone || Self.keepsOwnSize(target) { return true }
+        if glancing || !viewAtRest || sizedByHand || !takesShape(target) { return true }
         if let id = target.bundleID, keepsOwnShape.contains(id) { return true }
         if let sent = shapeSent {
             // The frame at the shape sent, and the view still that shape.
             // (Or, on an open, the view has held this shape a moment: the shape ahead was right.)
             let viewAgrees = arrangeFresh && viewerPose == input.pose && Self.sameShape(viewerSize, sent) && Date().timeIntervalSince(measuredAt) > 0.4
             if Self.sameShape(picture, sent), !wantsAutoFit || viewAgrees { return true }
-            if !wantsAutoFit, let at = shapeSentAt, Date().timeIntervalSince(at) > Self.reshapeWait {
-                if let id = target.bundleID { keepsOwnShape.insert(id) }
+            if !wantsAutoFit, let at = shapeSentAt, Date().timeIntervalSince(at) > (isDesktop ? Self.screenReshapeWait : Self.reshapeWait) {
+                if !isDesktop, let id = target.bundleID { keepsOwnShape.insert(id) }
                 log?.add("watching: the window didn't take the view's shape — shown as it is")
                 return true
             }
@@ -840,8 +847,7 @@ final class Watcher: ObservableObject {
     /// on screen a second — give the window its shape if it still wants one.
     private func autoFitSoon() {
         autoFitTask?.cancel()
-        guard wantsAutoFit, isOpen, !glancing, !sizedByHand, let target, !isDesktop,
-              canFitToPhone, !Self.keepsOwnSize(target) else { return }
+        guard wantsAutoFit, isOpen, !glancing, !sizedByHand, let target, takesShape(target) else { return }
         let now = Date()
         let wait = max(Self.settle - now.timeIntervalSince(measuredAt),
                        Self.settleAfterAsk - now.timeIntervalSince(shapeAskedAt),
@@ -856,8 +862,7 @@ final class Watcher: ObservableObject {
     }
 
     private func applyAutoFit() {
-        guard wantsAutoFit, isOpen, !glancing, !sizedByHand, phase == .live, viewAtRest, let target, !isDesktop,
-              canFitToPhone, !Self.keepsOwnSize(target) else { return }
+        guard wantsAutoFit, isOpen, !glancing, !sizedByHand, phase == .live, viewAtRest, let target, takesShape(target) else { return }
         // Folded, the half's own measure, never the phone layout's still fading out.
         guard !fillsView || viewerFills, viewerSize.width > 40, viewerSize.height > 40 else { return }
         let size = viewerSize
@@ -869,6 +874,18 @@ final class Watcher: ObservableObject {
         wantsAutoFit = false
         // Held still, in this pose: what the next open here sends ahead.
         if !fullScreen { UserDefaults.standard.set([size.width, size.height], forKey: Self.viewSizeKey(input.pose, fill: viewerFills)) }
+        if isDesktop {
+            // The whole screen: a display made for this view (the same one unless its size moved).
+            if let was = shapeSent, let a = FittedScreen.size(forView: was.width, was.height),
+               let b = FittedScreen.size(forView: size.width, size.height), !FittedScreen.differs(a, b) { return }
+            guard giveScreen(size) else { return }
+            shapeSent = size
+            shapeSentAt = Date()
+            if let viewKey { UserDefaults.standard.removeObject(forKey: viewKey) }
+            drag = .scroll
+            log?.add("watching: the whole screen takes the view's shape (\(Int(size.width))×\(Int(size.height)))")
+            return
+        }
         if let was = shapeSent {
             let aspect = size.width / size.height, before = was.width / was.height
             guard abs(aspect - before) / before > 0.04 else { return }
@@ -892,8 +909,8 @@ final class Watcher: ObservableObject {
     /// the new half a second in. The view's own measure still checks it once it's live (a shape
     /// off by more than 4% is sent again).
     private func shapeAhead() {
-        guard macFeatures().contains(WatchShape.aheadFeature),
-              !glancing, !sizedByHand, let target, !isDesktop, canFitToPhone, !Self.keepsOwnSize(target),
+        guard isDesktop || macFeatures().contains(WatchShape.aheadFeature),
+              !glancing, !sizedByHand, let target, takesShape(target),
               !fullScreen else { return }
         // This pose's measure, from this launch or the last (`viewSizeKey`).
         var size = viewerPose == input.pose && viewerFills == fillsView ? viewerSize : .zero
@@ -903,7 +920,16 @@ final class Watcher: ObservableObject {
             size = CGSize(width: kept[0], height: kept[1])
             remembered = true
         }
-        guard Self.plausible(size), sendShape(size) else { return }
+        guard Self.plausible(size) else { return }
+        if isDesktop {
+            guard giveScreen(size) else { return }
+            shapeSent = size
+            shapeSentAt = Date()
+            drag = .scroll
+            log?.add("watching: the whole screen opens at the view's shape (\(Int(size.width))×\(Int(size.height)))\(remembered ? " — remembered from last time" : "")")
+            return
+        }
+        guard sendShape(size) else { return }
         shapeSent = size
         shapeSentAt = Date()
         if !askedForFit { autoFitted = true }
@@ -920,9 +946,98 @@ final class Watcher: ObservableObject {
     /// The view leaves a window it shaped by itself: the Mac puts it back as it was.
     private func putBackAutoFit() {
         defer { autoFitted = false }
+        // The whole screen this view had fitted: the Mac puts its screen and windows back.
+        if screenFitSent {
+            screenFitSent = false
+            _ = sendScreenFit(FittedScreenRequest(on: false))
+            log?.add("watching: the whole screen goes back to its own size")
+        }
         guard autoFitted, !sizedByHand, !askedForFit, canWindowCommands else { return }
         _ = sendWindow(.restore)
         log?.add("watching: the window goes back to its own size")
+    }
+
+    // MARK: The Whole Screen, fitted to the iPhone (Nov 16 2026)
+
+    // Sameer: "even in whole screen mode the Mac screen is optimized for the space available on
+    // the phone in its various orientations. Default size should still be an option." With Fit to
+    // iPhone on (the Whole Screen's Window menu; off by default, remembered), the Whole Screen
+    // takes part in the rule above as a window does: the view's size goes ahead on open, on a
+    // pose change and on full screen in or out, and the Mac makes its screen that shape
+    // (`FittedScreen`, a display made for it). Off: the Mac's own screen, shown whole, as before.
+
+    static let screenFitKey = "watch.screenFit"
+    /// Fit to iPhone for the Whole Screen, as he set it.
+    @Published private(set) var screenFit = UserDefaults.standard.bool(forKey: Watcher.screenFitKey)
+    /// The connected Mac can make its screen the view's shape.
+    var canFitScreen: Bool { macFeatures().contains(FittedScreen.feature) }
+    var sendScreenFit: (FittedScreenRequest) -> Bool = { _ in false }
+    /// The Mac said it couldn't (this watch): the Whole Screen shows as it is.
+    private var screenFitRefused = false
+    /// A fitted screen was asked of the Mac and not yet given back.
+    private var screenFitSent = false
+    /// What the Mac last said of it.
+    private(set) var screenFitState: FittedScreenState?
+
+    /// The Whole Screen is shown, and it's the fitted one (or about to be).
+    var fitsScreen: Bool { isDesktop && screenFit && !screenFitRefused && canFitScreen }
+
+    /// Whether this view gives the place its shape: a window the Mac can reshape and that doesn't
+    /// keep its own size, or the Whole Screen with Fit to iPhone on.
+    private func takesShape(_ target: TargetRef) -> Bool {
+        if DesktopWatch.isDesktop(target) { return fitsScreen }
+        return canFitToPhone && !Self.keepsOwnSize(target)
+    }
+
+    private func giveScreen(_ size: CGSize) -> Bool {
+        guard FittedScreen.size(forView: size.width, size.height) != nil,
+              sendScreenFit(FittedScreenRequest(on: true, width: size.width, height: size.height)) else { return false }
+        screenFitSent = true
+        return true
+    }
+
+    /// Fit to iPhone, or Actual Size, for the Whole Screen.
+    func setScreenFit(_ on: Bool) {
+        guard on != screenFit else { return }
+        screenFit = on
+        UserDefaults.standard.set(on, forKey: Self.screenFitKey)
+        screenFitRefused = false
+        Haptics.pick()
+        log?.add("watching: the whole screen — \(on ? "fit to iPhone" : "actual size")")
+        guard isOpen, isDesktop else { return }
+        if on {
+            guard canFitScreen else { return }
+            wantsAutoFit = true
+            if !fullScreen, !glancing { beginArranging(fresh: false) }
+            autoFitSoon()
+        } else {
+            autoFitTask?.cancel()
+            wantsAutoFit = false
+            shapeSent = nil
+            endArranging()
+            putBackAutoFit()
+            wholeWindow = fullScreen ? false : !fillsView
+        }
+    }
+
+    /// The Mac says how its fitted screen stands.
+    func screenFitArrived(_ state: FittedScreenState) {
+        screenFitState = state
+        if state.on {
+            log?.add("watching: the Mac's screen is \(state.width)×\(state.height) for this view")
+            return
+        }
+        guard let reason = state.reason, isOpen, isDesktop, screenFit, !screenFitRefused else { return }
+        // It couldn't: the screen as it is, and why (once).
+        screenFitRefused = true
+        screenFitSent = false
+        shapeSent = nil
+        wantsAutoFit = false
+        autoFitTask?.cancel()
+        endArranging()
+        wholeWindow = fullScreen ? false : !fillsView
+        say(reason, symbol: "display")
+        log?.add("watching: the Mac couldn't fit its screen — shown as it is")
     }
 
     /// Fit to iPhone: the Mac gives the window this view's shape, as big as its screen allows, so

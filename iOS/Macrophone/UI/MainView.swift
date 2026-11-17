@@ -849,7 +849,7 @@ struct MainView: View {
                     .disabled(watcher.phase != .live || showLiveWords)
                     .accessibilityIdentifier("watch-whole")
                 }
-                if !watcher.isDesktop {
+                if !watcher.isDesktop || watcher.canFitScreen {
                     barItem(.window) { WatchWindowMenu(watcher: watcher, bar: true).disabled(showLiveWords) }
                 }
             }
@@ -1758,7 +1758,9 @@ extension MainView {
         model.log.add("full screen flight \(entering ? "in" : "out"): from \(from.map { "\(Int($0.clip.width))×\(Int($0.clip.height)) at \(Int($0.clip.minX)),\(Int($0.clip.minY))" } ?? "nowhere")\(prepared != nil ? " (prepared)" : "")")
         #endif
         if entering {
-            zoom.enter(image: image, from: from, screen: screen, corner: corner)
+            // (The fitted Whole Screen sits under the top band: `fittedTop`.)
+            let top = fittedTop
+            zoom.enter(image: image, from: from, screen: CGRect(x: screen.minX, y: screen.minY + top, width: screen.width, height: screen.height - top), corner: corner)
             return
         }
         let phone = regularPhone || isCover
@@ -1777,6 +1779,22 @@ extension MainView {
                 zoom.aim(WindowZoomPlace(clip: real.picture.intersection(real.clip), picture: real.picture, corner: real.corner))
             }
         }
+    }
+
+    /// The Whole Screen fitted to the iPhone, in full screen (Nov 16 2026): how far below the
+    /// screen's top edge the Mac's screen starts. A Mac's menu bar has the Apple menu and the
+    /// clock in its corners, and on an iPhone the Dynamic Island sits in its middle — so under
+    /// the island where there is one (the top safe area), else just clear of the screen's rounded
+    /// corners (the laptop's picture's rule). The sides and the foot run to the screen's edges:
+    /// its rounded bottom corners only cut wallpaper and the Dock's ends. 0 when it isn't fitted.
+    var fittedTop: CGFloat {
+        guard watcher.fitsScreen else { return 0 }
+        if regularPhone {
+            let top = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.keyWindow?.safeAreaInsets.top ?? 0
+            // (A phone with a home button has neither an island nor rounded corners.)
+            return top > 30 ? top : 0
+        }
+        return DuoLook.cornerClear(side: DuoLook.uprightMargin)
     }
 
     func flyWindow(shown: Bool) {

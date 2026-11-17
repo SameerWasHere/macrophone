@@ -81,6 +81,16 @@ final class DemoWindow: @unchecked Sendable {
             wordsVersion += 1
         }
     }
+    /// The Whole Screen fitted to the phone (Nov 16 2026): the demo desktop drawn at that size, or
+    /// back at its own for nil.
+    func setSize(_ size: (Int, Int)?) {
+        lock.sync {
+            width = size.map { max(200, $0.0 & ~1) } ?? 1400
+            height = size.map { max(200, $0.1 & ~1) } ?? 900
+            version += 1
+            wordsVersion += 1
+        }
+    }
     /// Bumped by every change to what the window shows (`mpctl serve` draws a frame when it moved),
     /// and by one that could change the question it asks (a scroll or a click can't).
     private(set) var version = 0

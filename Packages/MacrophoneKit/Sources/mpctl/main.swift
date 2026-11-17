@@ -67,6 +67,8 @@ import MacrophoneKit
 //              the phone gets "‹App› answered you" with the demo window's picture (ANSWER sent …), as the Mac's
 //              ReplyWatcher does for a chat the phone wrote to; --no-chat-answers is a Mac from before (Nov 8 2026)
 //   (every watch prints WATCH TARGET <bundle id>#<key>; a watch of Where I'm typing ends in "(front)")
+//   mpctl watch --target screen --screen-fit 669x951 --features video,fittedScreen   # asks as the phone does; prints SCREEN FIT STATE …
+//   mpctl serve [--no-screen-fit] [--screen-fit-cant] [--screen-fit-delay <ms>]   # the Whole Screen fitted to the phone: SCREEN FIT 1004×1426 / SCREEN FIT off (Nov 16 2026)
 //   mpctl serve [--awake-desktop] [--awake-blocked] [--awake-no-helper] [--awake-battery N] [--no-awake]
 //              Keep Awake (Nov 7 2026): a made-up state; prints AWAKE on / AWAKE off / AWAKE displays off / AWAKE timer 60m
 //   mpctl awake on|off|displays-on|displays-off|timer <min>|restore|status   # as the phone asks; prints KEEP AWAKE … back
@@ -262,6 +264,8 @@ final class ServeDelegate: LinkServerDelegate {
     var watchStarted: [UUID: Date] = [:]
     /// A stopped watch's grace before its demo window goes back to its own shape (round 3).
     var graces: [UUID: Task<Void, Never>] = [:]
+    /// The fitted screen's grace after a watch stops (ScreenFit.swift).
+    var screenFitGrace: Task<Void, Never>?
     var prompts: [UUID: WatchPrompt] = [:]
     /// A phone that named "video" gets HEVC: its encoder, and whether it asked for a keyframe.
     var encoders: [UUID: VideoEncoder] = [:]
@@ -278,8 +282,11 @@ final class ServeDelegate: LinkServerDelegate {
             // would send (Nov 9 2026); --rounded-black: black painted outside them, no mask (the
             // Nov 8 2026 look, for the phone's pixel-guess fallback); --reshape: the window takes
             // the shape the phone sends, as the Mac app reshapes a real one.
-            if has("--rounded") || has("--rounded-black") { d.cornerRadius = 52 }
-            if has("--rounded-black") { d.blackCorners = true }
+            // (A screen has no rounded corners; fitted to the phone, it's drawn at that size.)
+            let desk = ScreenFitDemo.isDesktop(key)
+            if !desk, has("--rounded") || has("--rounded-black") { d.cornerRadius = 52 }
+            if !desk, has("--rounded-black") { d.blackCorners = true }
+            if desk, let s = ScreenFitDemo.size { d.setSize((s.width, s.height)) }
             let name = target.displayName.components(separatedBy: " — ")
             d.app = name.first ?? "Claude"
             if name.count > 1 { d.title = name[1] } else { d.title = d.app }
@@ -294,6 +301,7 @@ final class ServeDelegate: LinkServerDelegate {
         watches[peerID] = nil
         guard let asked = target else {
             tones.set(false, for: peerID, server: server); stdout("WATCH stopped")
+            screenFitWatchStopped(peerID)
             // As the Mac app does (Nov 8 2026, round 3): a reshaped window keeps its shape through a
             // pause for a grace (`--restore-grace <s>`, 45 as the Mac's); a new watch meanwhile
             // keeps it, the grace running out puts it back. The phone's Done sends `restore` first.
@@ -312,6 +320,8 @@ final class ServeDelegate: LinkServerDelegate {
         }
         graces[peerID]?.cancel()
         graces[peerID] = nil
+        screenFitGrace?.cancel()
+        screenFitGrace = nil
         // Where I'm typing: the demo front window's app (Front.swift), as the Mac app adopts the app in front.
         let target = FrontDemo.resolve(asked)
         stdout("WATCH \(target.displayName)")
@@ -351,7 +361,7 @@ final class ServeDelegate: LinkServerDelegate {
             // --reshape: the shape ahead comes right behind the watch; the Mac app reshapes the
             // window before its first picture, so the first frame waits a moment for it here too
             // (the phone never sees the old shape — Nov 8 2026).
-            if has("--reshape") { try? await Task.sleep(nanoseconds: 250_000_000) }
+            if has("--reshape") || DesktopWatch.isDesktop(target) { try? await Task.sleep(nanoseconds: 250_000_000) }
             // --rounded: the window's corners, as the Mac reads them off one frame with alpha
             // (Nov 9 2026) — once the shape ahead is in, so they're read at the first frame's size.
             await self.sendMask(server, demo, to: peerID)
@@ -916,6 +926,8 @@ func run() async -> Int32 {
         if !has("--jpeg"), !has("--no-volume") { server.macFeatures.append(MacVolume.feature) }
         // What's in front on the Mac (Front.swift): --no-front is a Mac from before.
         if !has("--jpeg"), !has("--no-front") { server.macFeatures.append(FrontWindow.feature); FrontDemo.start(server) }
+        // The Whole Screen fitted to the phone (ScreenFit.swift): --no-screen-fit is a Mac from before.
+        if !has("--jpeg"), !has("--no-screen-fit") { server.macFeatures.append(FittedScreen.feature) }
         // Keep Awake (KeepAwakeDemo.swift): a made-up state, AWAKE on/off printed.
         if !has("--jpeg"), !has("--no-awake") { server.macFeatures.append(KeepAwakeStatus.feature) }
         server.start()
@@ -1146,10 +1158,15 @@ func run() async -> Int32 {
         switch flag("--target") ?? "front" {
         case "front": target = .frontApp
         case "clipboard": target = .clipboard
+        case "screen": target = DesktopWatch.target
         case let bid: target = .app(bundleID: bid, windowKey: flag("--window"), name: bid)
         }
         d.watchAsked = Date()
         client.watch(target)
+        // --screen-fit 669x951: the Whole Screen at that view's shape, as the phone's Fit to iPhone
+        // asks (ScreenFit.swift); given back before the watch ends.
+        let screenFit = flag("--screen-fit")?.split(separator: "x").compactMap { Double($0) }
+        if let v = screenFit, v.count == 2 { stdout("SCREEN FIT asked: \(client.screenFit(FittedScreenRequest(on: true, width: v[0], height: v[1])))") }
         if client.macFeatures.contains(WatchVideo.feature) { client.watchKeyframe() }
         let seconds = Double(flag("--seconds") ?? "6") ?? 6
         // --sound: Sound on, as the phone's toggle does (to a Mac that names it), and the tone measured.
@@ -1305,6 +1322,7 @@ func run() async -> Int32 {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
         }
         if let listener { client.watchSound(false); _ = listener.finish(seconds: seconds) }
+        if screenFit != nil { client.screenFit(FittedScreenRequest(on: false)); try? await Task.sleep(nanoseconds: 2_500_000_000) }
         client.watch(nil)
         try? await Task.sleep(nanoseconds: 300_000_000)
         client.stop()

@@ -913,12 +913,14 @@ public final class LinkClient: @unchecked Sendable {
             deliverMacAlert(a)
         case let .keepAwake(k):
             deliverKeepAwake(k, macID: macID)
+        case let .screenFitState(state):
+            deliverScreenFit(state, macID: macID)
         case .pong:
             pongArrived()
         case .showPermissions:
             break
         case .welcome, .hello, .dictation, .refreshTargets, .watch, .watchAction, .watchClick, .watchRightClick, .watchWindow, .watchScroll, .watchChoose, .watchKeyframe, .watchSeen, .watchFit, .watchScrollPhase, .listApps, .openApp, .quitApp, .watchKey, .watchShape, .watchShapeLive,
-             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertAnswer, .alertWatch, .keepAwakeSet, .chatAnswers, .livePiece:
+             .clipboardRequest, .clipboardSet, .attachment, .prepare, .watchSound, .macControl, .watchMouse, .watchType, .watchKeyState, .undoPaste, .alertAnswer, .alertWatch, .keepAwakeSet, .chatAnswers, .livePiece, .screenFit:
             break
         }
     }

@@ -559,6 +559,9 @@ enum DebugHooks {
                     } else if a == "fullscreen" || a == "windowed" {
                         // Full Screen (every screen since Nov 8 2026), and back.
                         model.watcher.setFullScreen(a == "fullscreen")
+                    } else if a == "screenfit" || a == "screenactual" {
+                        // The Whole Screen's Fit to iPhone / Actual Size (Nov 16 2026).
+                        model.watcher.setScreenFit(a == "screenfit")
                     } else if a.hasPrefix("fit@"), let f = WatchFit(rawValue: String(a.dropFirst(4))) {
                         model.watcher.setFit(f)
                     } else if a == "pan" || a == "scroll" {

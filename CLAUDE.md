@@ -8,6 +8,83 @@ templates and the Delivery pane were removed on purpose — don't bring them bac
 The original spec is `docs/SPEC.md`. Push to `main`.
 
 
+## The Whole Screen, fitted to the iPhone (Nov 16 2026) — wins over "never the whole screen" in the auto-fit sections
+
+Sameer: "even in whole screen mode the Mac screen is optimized for the space available on the phone
+in its various orientations. Default size should still be an option", "it's okay if all the windows
+get moved to this new virtual display", "account for the rounded corners … edge to edge". Off by
+default (`watch.screenFit`). **Both apps changed; nothing was pushed or released.** Frames and the
+Mac's proof logs: `docs/screens/screen-fit-nov16/`.
+- **Wire** (MacrophoneKit `Core/FittedScreen.swift`, `Transport/FittedScreenLink.swift`, feature
+  `fittedScreen` in welcome and hello, own delegate protocols): phone → Mac `.screenFit(FittedScreenRequest)`
+  (on + the view's size in phone points, or off); Mac → phone `.screenFitState(FittedScreenState)`
+  (on + the display's key and size in Mac points, off, or a `reason` it couldn't). The rule
+  (`FittedScreen.size(forView:)`, pure): the view's own shape × 1.5, at least 640 Mac points wide,
+  the long side ≤ 1,920, even, 2× pixels; aspects 0.4…2.6 only; `differs` = more than 8 pt either
+  way. `FittedScreenTests` (6; loopback ports 47951–47953).
+- **Mac** (`Mac/App/Watch/VirtualScreen.swift`): a `CGVirtualDisplay` (private classes, looked up by
+  name in Swift, every selector checked — missing, the feature isn't named and nothing changes;
+  `defaults write com.sameer.macrophone.mac watch.screenFit -bool NO` switches it off) at the
+  size, HiDPI (the 2× mode is picked by hand: the system lists a 1× mode of twice the points and
+  sometimes takes it — `CGDisplayPixelsWide` gives points, read the mode's `pixelWidth`), **made
+  main** (`CGConfigureDisplayOrigin … .forSession`), the real main's wallpaper set on it, then
+  **every regular app's windows moved onto it** through Accessibility — a resizable standard window
+  fills the visible frame, anything else is centred — each one's frame remembered first.
+  `MacDisplays.watched` names it, so the Whole Screen's stream, clicks, pointer, scrolls and typing
+  follow; the stream is made again when the display's size changes. A new shape re-shapes the same
+  display live (`applySettings` again: same id and UUID; made again only if that fails) and fits
+  the windows again. Off — the phone's Actual Size / Done / a switch to another window, 45 s
+  (`WatchService.restoreGrace`) after its Whole Screen watch stops, Quit — the arrangement goes
+  back, the display is released, the windows get their frames back. A crash removes the display
+  with the process (macOS moves the windows to the real screen, at their fitted sizes); nothing is
+  written to disk. Refused with a reason: no Accessibility, locked, not a screen's shape. The list
+  of displays sent to phones never has it (the real ones, as they sat); the wallpaper sender reads
+  the real main's; Keep Awake's externals leave it out. Log: sizes and counts only.
+- **Phone** (`Watcher`, "The Whole Screen, fitted to the iPhone"): `screenFit` / `setScreenFit` /
+  `fitsScreen`; with it on the Whole Screen goes through auto-fit as a window does (`takesShape`):
+  the view's size ahead on open (`shapeAhead`), on a pose change and on full screen in/out, the
+  `ArrangingCover` over the reshape (it waits up to 7 s for the Mac), then the picture fills its
+  room. Done or a switch gives it back (`putBackAutoFit` → off); a refusal says the Mac's reason
+  once and shows the screen as it is. **The toggle:** the Whole Screen now has the Window menu
+  (`watch-window`, VoiceOver "Screen") with a Mac naming the feature — Fit to iPhone · Actual Size,
+  then Hear Your Mac / Show the Whole Screen when the row folded them in, Show Tips Again; in the
+  cover's / side bar too. On a Pro's row Sound folds into it (Whole Screen · Full Screen · Mac
+  Controls · Window · Done). `wholeScreenSize` / `shortPicture` (DuoView) stand aside while fitted.
+- **Full screen, edge to edge** (`DuoFullScreen`, `MainView.fittedTop`): the Mac's screen runs to
+  the sides and the foot; its top sits under the island on a regular iPhone (the top safe area;
+  0 on a home-button phone), else `DuoLook.cornerClear(side: 12)` (21 pt) on the Duo; the band
+  above is the Mac's wallpaper under a light veil. No corner clipping of its own.
+- **Found on the way:** `Watcher.plausible` measured against `UIScreen.main`, which on a Duo can be
+  the cover while the app is on the inner screen — full screen there (951 / 930 pt long) was never
+  "a window's shape", so no shape was ever sent for it, for windows too. It reads the scene's screen now.
+- **mpctl:** `serve` names it and redraws its demo desktop at the size (`SCREEN FIT 1004×1426`,
+  `(ahead)` right behind a watch, `(kept)` for the same size, `SCREEN FIT off`, `… off after N s`);
+  `--no-screen-fit` a Mac from before, `--screen-fit-cant`, `--screen-fit-delay <ms>`. `watch
+  --target screen --screen-fit 669x951 --features video,fittedScreen` asks as the phone does.
+- **Hooks:** phone `MACROPHONE_WATCH_ACTIONS=…,screenfit,screenactual`. Mac (DEBUG): **a Debug build
+  moves no windows unless `MACROPHONE_FIT_ONLY=<bundle id>` (that app's) or `*`**;
+  `MACROPHONE_FIT_NO_MAIN=1` leaves the menu bar where it is; `MACROPHONE_FIT_TEST=1004x1426@2,640x1292@2`
+  makes, reshapes, puts back, prints `FIT …` and quits.
+- **Proven.** Simulators against `serve` (an iPhone 17 Pro, a Duo's cover, tabletop, flat upright,
+  open): on → the shape printed and the picture filling its room (Pro 640×918, cover 640×750,
+  laptop half 968×652, side page 658×784); full screen → Pro 640×1292 under a 62 pt band, Duo
+  1004×1396 / 1426×972 under 21 pt; back → the windowed shape; off → the letterboxed screen; a
+  relaunch with it on → `(ahead)`; `--no-screen-fit` → no Window menu. On this Mac, a Debug copy
+  with only a test app's two windows allowed: the display at 2008×2852 px in 0.6 s, reshaped live
+  in 1.1 s, **made main once for ~4 s** (1.35 s to make; main true; the windows filled / centred;
+  off → main display 1 again, both windows at their old frames), and `mpctl watch` got the fitted
+  display as HEVC at 2008×2852 then the real screen again after off. `swift test` 423.
+- **Not proven — needs his Mac and phone:** his real windows moved and put back (Electron apps,
+  windows on other Spaces, full-screen and minimized ones are skipped); the Dock on a 640 pt screen
+  (windows are fitted before the Dock arrives, so they may run under it); clicks, the pointer and
+  typing on the fitted display (they follow `desktopBounds`, never tried); a real phone end to end
+  (how long the cover shows; one frame of the real screen can come before the fitted one); the
+  45 s grace and a phone that drops; two real displays; Keep Awake's displays-off with it up (does
+  a virtual display keep drawing with the panels asleep?); Sidecar / AirPlay / BetterDisplay beside
+  it; whether windows come back right after a crash. Text is small on a regular iPhone (640 Mac
+  points across 402): the ×1.5 is one constant (`FittedScreen.pointScale`). The Duo frames in the
+  folder have the simulator's notifications prompt over them.
+
 ## The cover's sheets are the system's own, full width (Nov 12 2026) — wins over "The cover's sheets beside the vertical bar"
 
 Sameer's cover screenshot: "Setting menu looks off" — a white strip under the clock and every row

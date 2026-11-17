@@ -21,6 +21,7 @@ extension AppModel: LinkServerVolumeDelegate {
         wake.start()
         // The volume as it changes, to every phone whose Control Center shows it (Nov 7 2026).
         server.macFeatures.append(MacVolume.feature)
+        wireFittedScreen()
         let volume = MacVolumeWatcher.shared
         volume.onChange = { [weak self] v in
             guard let self, !self.server.phones(with: MacVolume.feature).isEmpty else { return }
@@ -52,6 +53,33 @@ extension AppModel: LinkServerVolumeDelegate {
     }
 
     func macVolume(_ server: LinkServer, for peerID: UUID) -> MacVolume? { MediaKeys.Volume.current }
+
+    /// The Whole Screen fitted to a phone (Nov 16 2026, Watch/VirtualScreen.swift): named only on
+    /// a Mac that can make the display.
+    func wireFittedScreen() {
+        let screen = VirtualScreen.shared
+        screen.log = { [weak self] in self?.log.add($0) }
+        screen.onChange = { [weak self] in self?.watch.desktopChanged() }
+        screen.onEnded = { [weak self] peer in
+            guard let self else { return }
+            Task { await self.server.sendScreenFit(.off, to: peer) }
+        }
+        guard VirtualScreen.available else { log.add("fitted screen: this Mac can't make one — not offered"); return }
+        server.macFeatures.append(FittedScreen.feature)
+        #if DEBUG
+        screen.debugTestIfAsked()
+        #endif
+    }
+}
+
+extension AppModel: LinkServerFittedScreenDelegate {
+    func linkServer(_ server: LinkServer, screenFit request: FittedScreenRequest, from peerID: UUID) {
+        Task { @MainActor in
+            let state = await VirtualScreen.shared.handle(request, from: peerID, watchingDesktop: watch.isWatchingDesktop(peerID))
+            if !state.on, let reason = state.reason { log.add("fitted screen: not made (\(reason.count) characters of why sent)") }
+            await server.sendScreenFit(state, to: peerID)
+        }
+    }
 
     func linkServer(_ server: LinkServer, macControl control: MacControl, from peerID: UUID) {
         Task { @MainActor in

@@ -256,7 +256,8 @@ extension MainView {
     /// top corners stay clear of the screen's rounded ones. Nil for a window (it fills the half).
     /// From the room at rest: the keyboard never re-measures it.
     func wholeScreenSize(in room: CGSize) -> CGSize? {
-        guard watcher.isShowing, watcher.isDesktop, let size = watcher.videoSize ?? watcher.image?.size,
+        // (Fitted to the iPhone, the Mac's screen takes the half's shape as a window does.)
+        guard watcher.isShowing, watcher.isDesktop, !watcher.fitsScreen, let size = watcher.videoSize ?? watcher.image?.size,
               size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return nil }
         let aspect = size.width / size.height
         // The side margins are the deck's; the top stays clear of the screen's rounded corners
@@ -688,10 +689,29 @@ struct DuoFullScreen: View {
 
     var body: some View {
         GeometryReader { geo in
-            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true, onHold: summonPad,
+            let top = main.fittedTop
+            WatchWindow(watcher: watcher, interactive: true, bezelWidth: 0, corner: 0, fill: true,
+                        onHold: { summonPad(at: CGPoint(x: $0.x, y: $0.y + top)) },
                         // The finger that held is already a trackpad finger: no lifting first.
                         onHoldMoved: { [padClock] d, dt in padClock.last = Date(); input.pointerMoved(by: d, dt: dt) },
                         onHoldEnded: { [padClock] in padClock.last = Date(); padClock.holding = false })
+                // The fitted Whole Screen (Nov 16 2026): the Mac's screen from under the island (or
+                // just clear of the rounded corners) to the screen's sides and foot — the band
+                // over it is the Mac's own desktop, as its menu bar sits on it.
+                .frame(width: geo.size.width, height: max(0, geo.size.height - top))
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
+                .background(alignment: .top) {
+                    if top > 0 {
+                        ZStack {
+                            DesktopBackground(wallpaper: AppModel.shared.wallpaper, settings: AppModel.shared.settings, glow: .clear)
+                            Color.black.opacity(0.22)
+                        }
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .frame(height: top, alignment: .top)
+                        .clipped()
+                        .accessibilityHidden(true)
+                    }
+                }
                 .overlay(alignment: .bottom) { MacPermissionBanner(watcher: watcher) }
                 .overlay(alignment: .bottom) {
                     if main.showLiveWords {
@@ -712,7 +732,6 @@ struct DuoFullScreen: View {
                         if input.pages.contains(.trackpad) { trackpadButton(disc: disc, room: geo.size) }
                     }
                 }
-                .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea()
         // The ground where the picture doesn't reach — on a tall screen, until the Mac's reshaped
@@ -1147,7 +1166,7 @@ struct DuoMacHalf: View {
         // page's whole room — sized from its current picture, the page sent that picture's shape
         // back to the Mac and the window could never grow to fill it (Nov 9 2026: 438×282 on a
         // 438×480 page, every time).
-        guard !edge, watcher.isDesktop || !watcher.canFitToPhone,
+        guard !edge, watcher.isDesktop ? !watcher.fitsScreen : !watcher.canFitToPhone,
               watcher.hasPicture, let size = watcher.videoSize ?? watcher.image?.size, size.width > 0, size.height > 0 else { return nil }
         let width = room.width - 2 * DuoLook.halfBezel
         let h = width * size.height / size.width + 2 * DuoLook.halfBezel

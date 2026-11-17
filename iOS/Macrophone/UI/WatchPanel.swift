@@ -475,7 +475,7 @@ struct WatchHeaderBar: View {
             // The Whole Screen's zoom-out cell is what its row gives up at the last stages (a Pro:
             // "Whole Scre…" with both kept); Full Screen stays.
             clusters(zoomInMenu: fit == .zoomInMenu || soundFolded, soundInMenu: soundFolded, fullScreenInMenu: fullScreenFolded,
-                     zoomHidden: lastStages && watcher.isDesktop)
+                     zoomHidden: lastStages && watcher.isDesktop && !watcher.canFitScreen)
             done
         }
     }
@@ -598,7 +598,10 @@ struct WatchHeaderBar: View {
         // Sameer: "Mac controls should be its own button rather than hidden in a sub menu"
         // — one tap from any window, on every page): one piece of glass.
         // While the link comes back they hold their places, dimmed (the header never re-lays).
-        let soundHere = (model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature)) && !(soundInMenu && !watcher.isDesktop)
+        // The Whole Screen has a Window menu of its own with a Mac that can fit its screen to the
+        // iPhone (Nov 16 2026: Fit to iPhone / Actual Size); it folds as a window's does.
+        let screenMenu = watcher.isDesktop && watcher.canFitScreen
+        let soundHere = (model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature)) && !(soundInMenu && (!watcher.isDesktop || screenMenu))
         let controls = model.canMacControls || watcher.heldFeature(MacControl.feature)
         if soundHere || controls {
             HStack(spacing: 0) {
@@ -616,10 +619,10 @@ struct WatchHeaderBar: View {
         if watcher.macCanFit, watcher.target != .clipboard, !(zoomHidden && !attachHere) {
             // The whole screen has no window to size, minimize or close: zoom out stays its cell
             // (until the row's last stages, round 3 — `zoomHidden`).
-            let folded = zoomInMenu && !watcher.isDesktop || zoomHidden
+            let folded = zoomInMenu && (!watcher.isDesktop || screenMenu) || zoomHidden
             HStack(spacing: 0) {
                 if !folded { WatchWholeButton(watcher: watcher) }
-                if !watcher.isDesktop {
+                if !watcher.isDesktop || screenMenu {
                     if !folded { WatchCellDivider() }
                     WatchWindowMenu(watcher: watcher, zoomItem: folded,
                                     soundItem: soundInMenu && (model.macAudio.macCanPlay || watcher.heldFeature(MacSound.feature)),
@@ -738,6 +741,58 @@ struct WatchWindowMenu: View {
 
     var body: some View {
         Menu {
+            if watcher.isDesktop { screenItems } else { windowItems }
+        } label: {
+            if bar {
+                Label("Window", systemImage: "macwindow")
+            } else {
+                Image(systemName: "macwindow")
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+        .modifier(WatchCellUnlessBar(bar: bar, width: 42, tint: watcher.fit == .normal || watcher.isDesktop ? Ink.ink : Light.cyan))
+        .disabled(watcher.phase != .live)
+        .accessibilityLabel(watcher.isDesktop ? "Screen" : "Window")
+        .accessibilityHint(watcher.isDesktop ? "Fit your Mac's screen to this iPhone, or show it at its actual size." : "Fit to iPhone and the text size here; the window's size, minimize and close on your Mac; the tips again.")
+        .accessibilityIdentifier("watch-window")
+        .confirmationDialog("Close \(watcher.name)'s window on your Mac?", isPresented: $confirmClose, titleVisibility: .visible) {
+            Button("Close Window", role: .destructive) { watcher.window(.close) }
+        } message: {
+            Text("If it has unsaved work, your Mac asks first.")
+        }
+    }
+
+    /// The Whole Screen's menu (Nov 16 2026): the Mac's screen made this view's shape, or as it is.
+    @ViewBuilder private var screenItems: some View {
+        Picker("Your Mac's screen", selection: Binding(get: { watcher.screenFit }, set: { watcher.setScreenFit($0) })) {
+            Label("Fit to iPhone", systemImage: "iphone.gen3").tag(true)
+            Label("Actual Size", systemImage: "display").tag(false)
+        }
+        .pickerStyle(.inline)
+        if zoomItem || soundItem {
+            Section {
+                if soundItem {
+                    Toggle(isOn: Binding(get: { model.macAudio.isOn }, set: { _ in model.macAudio.toggle() })) {
+                        Label("Hear Your Mac", systemImage: model.macAudio.isOn ? "speaker.wave.2.fill" : "speaker")
+                    }
+                    .disabled(!model.macAudio.macCanPlay)
+                    .accessibilityIdentifier("watch-sound")
+                }
+                if zoomItem, !watcher.fitsScreen {
+                    Button { watcher.toggleWholeWindow() } label: {
+                        Label(watcher.wholeWindow ? "Zoom Back In" : "Show the Whole Screen",
+                              systemImage: watcher.wholeWindow ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                    }
+                    .accessibilityIdentifier("watch-whole")
+                }
+            }
+        }
+        Section {
+            Button { WatchTips.reset() } label: { Label("Show Tips Again", systemImage: "lightbulb") }
+        }
+    }
+
+    @ViewBuilder private var windowItems: some View {
             // Alerts first: the reason to walk away from a window is knowing when it needs you.
             if let t = watcher.target {
                 Section { AlertWatchButton(ref: t) }
@@ -803,24 +858,6 @@ struct WatchWindowMenu: View {
             Section {
                 Button { WatchTips.reset() } label: { Label("Show Tips Again", systemImage: "lightbulb") }
             }
-        } label: {
-            if bar {
-                Label("Window", systemImage: "macwindow")
-            } else {
-                Image(systemName: "macwindow")
-                    .font(.subheadline.weight(.semibold))
-            }
-        }
-        .modifier(WatchCellUnlessBar(bar: bar, width: 42, tint: watcher.fit == .normal ? Ink.ink : Light.cyan))
-        .disabled(watcher.phase != .live)
-        .accessibilityLabel("Window")
-        .accessibilityHint("Fit to iPhone and the text size here; the window's size, minimize and close on your Mac; the tips again.")
-        .accessibilityIdentifier("watch-window")
-        .confirmationDialog("Close \(watcher.name)'s window on your Mac?", isPresented: $confirmClose, titleVisibility: .visible) {
-            Button("Close Window", role: .destructive) { watcher.window(.close) }
-        } message: {
-            Text("If it has unsaved work, your Mac asks first.")
-        }
     }
 }
 

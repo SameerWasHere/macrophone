@@ -216,6 +216,14 @@ extension AppModel: LinkClientVolumeDelegate {
     }
 }
 
+extension AppModel: LinkClientFittedScreenDelegate {
+    /// The Whole Screen fitted to the iPhone (Nov 16 2026): what the Mac did with the ask.
+    func linkClient(_ client: LinkClient, screenFit state: FittedScreenState, macID: UUID) {
+        guard client === self.client, macID == pairedMac?.id else { return }
+        watcher.screenFitArrived(state)
+    }
+}
+
 #if DEBUG
 extension MacReach {
     /// MACROPHONE_REACH (DebugHooks): the three features driven headlessly.

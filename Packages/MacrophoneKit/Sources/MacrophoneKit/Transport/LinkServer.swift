@@ -771,9 +771,12 @@ public final class LinkServer: @unchecked Sendable {
                 handleChatAnswers(on, from: phoneID)
             case let .livePiece(piece):
                 handleLivePiece(piece, from: phoneID)
+            case let .screenFit(request):
+                guard macFeatures.contains(FittedScreen.feature) else { break }
+                handleScreenFit(request, from: phoneID)
             case .welcome, .ack, .targets, .landed, .watchState, .watchFrame, .watchVideo, .macAudio, .attention, .apps, .appOpened, .appQuit, .remoteAddresses, .needsYou, .windows, .clipboardReply, .attachmentLanded:
                 break
-            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .watchMask, .undoDone, .alertAnswerDone, .alertWatches, .macAlert, .frontWindow, .keepAwake:
+            case .macPermissions, .macWallpaper, .macVolume, .macCursor, .watchMask, .undoDone, .alertAnswerDone, .alertWatches, .macAlert, .frontWindow, .keepAwake, .screenFitState:
                 break
             case .displays, .wakeInfo, .macControlDone:
                 break

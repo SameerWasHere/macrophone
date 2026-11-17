@@ -1,0 +1,13 @@
+FIT available true, accessibility true, displays 1, main 1
+FIT fitted screen: made 1004×1426 (2008×2852 px, not main) in 628 ms · 2 windows of 1 apps moved onto it (only the app named by MACROPHONE_FIT_ONLY)
+FIT display 9 bounds -1004,0 1004×1426 · 2008×2852 px · main false · watched true · listed to phones 1
+FIT window was 300,365 700×452 now -1004,30 1004×1087
+FIT window was 500,705 260×212 now -632,622 260×212
+FIT fitted screen: reshaped to 640×1292 in 1132 ms · 2 windows fitted again
+FIT display 9 bounds -640,0 640×1292 · 1280×2584 px · main false · watched true · listed to phones 1
+FIT window was 300,365 700×452 now -640,30 640×1262
+FIT window was 500,705 260×212 now -450,555 260×212
+FIT fitted screen: off (the test's end) · 2 of 2 windows put back where they were
+FIT window back at 300,365 700×452 (was 300,365 700×452)
+FIT window back at 500,705 260×212 (was 500,705 260×212)
+FIT done · displays 1, main 1
