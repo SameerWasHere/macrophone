@@ -74,8 +74,10 @@ enum DuoLook {
     /// "part of the Mac window gets cut off by the rounded edges of the duo screen").
     /// The inner screen's corner: 55 pt on every corner (the Duo's device profile, `iPhone
     /// Duo.simdevicetype` — public data; reading it off the screen would be private API).
-    @MainActor static var displayCorner: CGFloat { 55 }
-    @MainActor static var edgeInset: CGFloat { ceil(displayCorner * (1 - 1 / 2.squareRoot())) }
+    // (An iPad's corner is 18 pt: nothing of a picture a margin in is ever under it, so the
+    // margins there are the deck's own 12 — Nov 18 2026.)
+    @MainActor static var displayCorner: CGFloat { Device.isPad ? 18 : 55 }
+    @MainActor static var edgeInset: CGFloat { Device.isPad ? uprightMargin : ceil(displayCorner * (1 - 1 / 2.squareRoot())) }
     /// Square, like the window it shows (the inset alone keeps the screen's curve off it).
     static let edgeCorner: CGFloat = 0
     /// Upright, the window under the status bar: the gap over it, and the margins either side —
@@ -99,6 +101,7 @@ enum DuoLook {
     /// How far below the screen's top edge a square picture `side` points in from the sides sits
     /// so its top corners are just clear of the screen's rounded corners (on the curve, not past).
     @MainActor static func cornerClear(side: CGFloat) -> CGFloat {
+        if Device.isPad { return side >= uprightMargin ? uprightMargin : displayCorner }
         let r = displayCorner, dx = max(0, r - side)
         return ceil(r - (max(0, r * r - dx * dx)).squareRoot())
     }
@@ -1310,6 +1313,8 @@ struct DuoDeck: View {
                 WatchHeaderBar(watcher: watcher, dragSwitch: true) { t, _ in
                     watcher.say(t.title, symbol: "arrow.left.and.right")
                 }
+                // (An iPad has no vertical bar: the header holds every button, Full Screen too.)
+                .environment(\.fullScreenAvailable, Device.isPad)
                 .padding(.horizontal, 12)
             }
             // (Held, dimmed, while the link comes back: the deck under them never moves for a blip.)

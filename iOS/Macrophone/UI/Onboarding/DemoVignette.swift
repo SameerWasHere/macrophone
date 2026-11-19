@@ -21,7 +21,7 @@ struct DemoVignette: View {
         }
         .frame(height: 210)
         .accessibilityElement()
-        .accessibilityLabel("Animation: you speak into your iPhone and the words appear on your Mac.")
+        .accessibilityLabel("Animation: you speak into your \(Device.name) and the words appear on your Mac.")
     }
 
     private func draw(_ g: inout GraphicsContext, size: CGSize, t: Double) {

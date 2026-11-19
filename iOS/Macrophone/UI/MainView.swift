@@ -215,7 +215,13 @@ struct MainView: View {
     /// rounded corners"). On iOS 27.1 hiding it there left SwiftUI's root laid out 82 pt down
     /// under an empty band, the mic cut at the foot — `StatusBarRoomFix` (RootView) pulls the
     /// root back up to the screen's top, so the band is never drawn.
-    var hidesStatusBar: Bool { inFullScreen || (posture.pose.foldAcross && watcher.isShowing) }
+    var hidesStatusBar: Bool { inFullScreen || ((posture.pose.foldAcross || padInner) && watcher.isShowing) }
+
+    /// An iPad (Nov 18 2026): the Duo's open screen without a fold or a vertical bar. Its layouts
+    /// are the inner screen's — on its side the Mac's page and the deck beside it, upright the Mac
+    /// above the deck — split where an iPad wants it (`Posture.halves`), and with a window in hand
+    /// the deck's own header holds every button either way up (no system bar, no status bar).
+    var padInner: Bool { Device.isPad && posture.pose.isInner }
 
     /// The laptop's picture under the screen's top edge (the status bar hidden) or under the status
     /// bar: how far it sits down and in. At the top edge the screen's rounded corners (55 pt) would
@@ -229,7 +235,7 @@ struct MainView: View {
     /// rest (Mac · History · Settings beside the clock). Upright with a window in hand there's
     /// none — the deck's own header has Done and the window's controls, the laptop's and flat
     /// upright's alike, so folding one into the other moves nothing.
-    var innerBarShown: Bool { barUsed && !(posture.pose.foldAcross && watcher.isShowing) }
+    var innerBarShown: Bool { barUsed && !((posture.pose.foldAcross || padInner) && watcher.isShowing) }
 
     /// The pose's layout: the phone's (the cover screen, every other iPhone), or the Duo's.
     /// The window has the whole screen (Full Screen — every pose, the cover and every other
@@ -921,7 +927,7 @@ struct MainView: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .tint(up ? Light.cyan : nil)
-        .accessibilityHint(up ? "Puts the keyboard away." : "Types on your Mac with the iPhone's keyboard.")
+        .accessibilityHint(up ? "Puts the keyboard away." : "Types on your Mac with the \(Device.name)'s keyboard.")
         .accessibilityIdentifier("bar-keyboard")
     }
 
@@ -1466,7 +1472,7 @@ struct MacPill: View {
         .accessibilityLabel(accessibility)
         .accessibilityValue(several ? "\(position) of \(model.pairedMacs.count) Macs" : "")
         .accessibilityHint(several ? "Opens your Macs. Swipe up or down to switch Macs."
-                           : model.isPaired ? "Opens Settings." : "Pairs this iPhone with Macrophone on your Mac.")
+                           : model.isPaired ? "Opens Settings." : "Pairs this \(Device.name) with Macrophone on your Mac.")
         .accessibilityAdjustableAction { direction in
             guard several else { return }
             switch direction {

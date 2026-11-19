@@ -159,7 +159,7 @@ final class Posture: ObservableObject {
     private func updateProvisional(_ p: FoldPose, reading r: FoldReading) {
         var guess = false
         if #available(iOS 27.1, *) {
-            guess = p.isInner && r.hinge == nil && !hingeHeard && !hingeWaitOver
+            guess = !Device.isPad && p.isInner && r.hinge == nil && !hingeHeard && !hingeWaitOver
         }
         // (The wait runs from the first measure: before it the scene has no size to wait on.)
         if guess, r.size != .zero, hingeWaitTask == nil {
@@ -187,7 +187,20 @@ final class Posture: ObservableObject {
     /// simulator's frame a NavigationStack draws its own vertical bar inside the scene, and a
     /// page measured from the scene ran under it.
     func halves(for pose: FoldPose, in size: CGSize) -> FoldHalves {
-        FoldHalves.split(size, pose: pose, division: reading.division)
+        // An iPad has no fold (Nov 18 2026): the Mac gets most of the screen and the deck a
+        // phone's width beside it, or a phone's deck's height under it.
+        if Device.isPad, reading.division == nil, size.width > 0, size.height > 0 {
+            let band: CGFloat = 16
+            if pose == .laptop {
+                let deck = min(460, max(380, size.height * 0.36)).rounded()
+                return FoldHalves(mac: CGRect(x: 0, y: 0, width: size.width, height: size.height - deck - band),
+                                  deck: CGRect(x: 0, y: size.height - deck, width: size.width, height: deck))
+            }
+            let deck = min(460, max(380, size.width * 0.37)).rounded()
+            return FoldHalves(mac: CGRect(x: 0, y: 0, width: size.width - deck - band, height: size.height),
+                              deck: CGRect(x: size.width - deck, y: 0, width: deck, height: size.height))
+        }
+        return FoldHalves.split(size, pose: pose, division: reading.division)
             ?? FoldHalves(mac: CGRect(origin: .zero, size: size), deck: .zero)
     }
 }

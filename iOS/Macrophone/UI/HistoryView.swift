@@ -34,14 +34,14 @@ struct HistoryView: View {
             Group {
                 if !model.settings.historyEnabled {
                     EmptyState(symbol: "clock.badge.xmark", title: "History is off",
-                               message: "Turn it on to keep your last 50 dictations on this iPhone.") {
+                               message: "Turn it on to keep your last 50 dictations on this \(Device.name).") {
                         Button("Turn On History") { Haptics.pick(); model.setHistoryEnabled(true) }
                             .emptyStateButton()
                             .accessibilityIdentifier("history-turn-on")
                     }
                 } else if model.historyItems.isEmpty {
                     EmptyState(symbol: "clock.arrow.circlepath", title: "No dictations yet",
-                               message: "Your last 50 show up here, on this iPhone only.")
+                               message: "Your last 50 show up here, on this \(Device.name) only.")
                 } else {
                     list(selecting: false)
                 }
@@ -216,7 +216,7 @@ struct HistoryView: View {
                     Text(Self.dayTitle(group.day))
                 } footer: {
                     if group.day == groups.last?.day {
-                        Text("Kept on this iPhone only — the last 50. Your Mac has its own history.")
+                        Text("Kept on this \(Device.name) only — the last 50. Your Mac has its own history.")
                     }
                 }
                 .headerProminence(.increased)
@@ -244,7 +244,7 @@ struct ClearHistoryConfirmation: ViewModifier {
     var clear: () -> Void
 
     func body(content: Content) -> some View {
-        content.confirmationDialog("Clear all history on this iPhone?", isPresented: $isPresented, titleVisibility: .visible) {
+        content.confirmationDialog("Clear all history on this \(Device.name)?", isPresented: $isPresented, titleVisibility: .visible) {
             Button("Clear All", role: .destructive, action: clear)
         } message: {
             Text("Your Mac keeps its own history; this doesn't change it.")
@@ -335,7 +335,7 @@ struct HistoryRow: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(item.targetName.map { "To \($0)" } ?? "On this iPhone"), \(item.dictation.createdAt.formatted(date: .omitted, time: .shortened)), \(item.labels.joined(separator: ", "))")
+            .accessibilityLabel("\(item.targetName.map { "To \($0)" } ?? "On this \(Device.name)"), \(item.dictation.createdAt.formatted(date: .omitted, time: .shortened)), \(item.labels.joined(separator: ", "))")
             .accessibilityValue(item.text(cleaned: true))
             // Room for Undo at the row's end while the Mac can still take the paste back
             // (`HistoryUndoButton`, laid over the row by the list — inside the link's label it was
@@ -349,7 +349,7 @@ struct HistoryRow: View {
     /// The app, and the window's title apart — as Mail has the sender, then the subject — so the
     /// name never wraps beside the time ("Terminal — claude" → Terminal, then claude).
     private var parts: (app: String, window: String?) {
-        let full = item.targetName ?? "This iPhone"
+        let full = item.targetName ?? "This \(Device.name)"
         guard let cut = full.range(of: " — ") else { return (full, nil) }
         return (String(full[..<cut.lowerBound]), String(full[cut.upperBound...]))
     }
@@ -488,7 +488,7 @@ struct HistoryPage: View {
                 HStack(spacing: 12) {
                     HistoryIcon(item: item, size: 40)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(item.targetName ?? "This iPhone").font(.headline).foregroundStyle(Ink.ink)
+                        Text(item.targetName ?? "This \(Device.name)").font(.headline).foregroundStyle(Ink.ink)
                         Label(item.labels.first ?? "", systemImage: mark.symbol)
                             .font(.subheadline)
                             .foregroundStyle(mark.color)
@@ -512,7 +512,7 @@ struct HistoryPage: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .navigationTitle(item.targetName ?? "This iPhone")
+        .navigationTitle(item.targetName ?? "This \(Device.name)")
         .toolbar {
             if item.showsVersionToggle {
                 ToolbarItem(placement: .principal) {

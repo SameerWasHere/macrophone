@@ -129,7 +129,7 @@ struct OnboardingView: View {
         let micOff = Recorder.micStatus == .denied
         let speechOff = Recorder.speechStatus == .denied || Recorder.speechStatus == .restricted
         return SetupPage(title: "It listens only while you ask it to",
-                         message: "Macrophone hears you only while you tap or hold the button, and turns your voice into text on this iPhone. No audio is kept. iOS asks to allow the microphone and speech recognition.",
+                         message: "Macrophone hears you only while you tap or hold the button, and turns your voice into text on this \(Device.name). No audio is kept. iOS asks to allow the microphone and speech recognition.",
                          compact: compact) {
             SetupSymbol(name: "mic.fill", style: Light.ember, compact: compact)
         } content: {
@@ -137,7 +137,7 @@ struct OnboardingView: View {
                 note("The microphone is off for Macrophone. Turn it on in Settings, then come back — or skip for now.")
             } else if speechOff {
                 note(Recorder.speechStatus == .restricted
-                     ? "Speech recognition is turned off on this iPhone (Screen Time or a profile). You can skip for now."
+                     ? "Speech recognition is turned off on this \(Device.name) (Screen Time or a profile). You can skip for now."
                      : "Speech recognition is off for Macrophone. Turn it on in Settings, then come back — or skip for now.")
             }
         } buttons: {
@@ -176,7 +176,7 @@ struct OnboardingView: View {
                     .background(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
                     .accessibilityLabel("sameer dot u s slash macrophone")
                 Label {
-                    Text("Next, iOS asks to find devices on your network — that's how your iPhone finds your Mac. Nothing goes to the internet.")
+                    Text("Next, iOS asks to find devices on your network — that's how your \(Device.name) finds your Mac. Nothing goes to the internet.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "wifi").foregroundStyle(Light.cyan)
@@ -286,8 +286,8 @@ private struct OnboardingTest: View {
     var body: some View {
         SetupPage(title: worked ? "It works" : (model.isPaired ? "Say something to your Mac" : "Try it here first"),
                   message: worked
-                    ? (model.isPaired ? "Look at your Mac — your words are there." : "Your words are on this iPhone's clipboard, ready to paste. Pair your Mac any time from the top of the main screen.")
-                    : "Tap the button, say “Hello from my iPhone,” then tap again.",
+                    ? (model.isPaired ? "Look at your Mac — your words are there." : "Your words are on this \(Device.name)'s clipboard, ready to paste. Pair your Mac any time from the top of the main screen.")
+                    : "Tap the button, say “Hello from my \(Device.name),” then tap again.",
                   compact: compact) {
             EmptyView()
         } content: {

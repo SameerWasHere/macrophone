@@ -389,13 +389,13 @@ struct CloudAlertsStatusRow: View {
         case .notificationsOff:
             row("Notifications are off for Macrophone, so alerts can't reach you", symbol: "bell.slash", button: "Open Settings", action: openSettings)
         case .noAccount:
-            row("Sign in to iCloud on this iPhone to get alerts while Macrophone is closed", symbol: "icloud.slash", button: "Open Settings", action: openSettings)
+            row("Sign in to iCloud on this \(Device.name) to get alerts while Macrophone is closed", symbol: "icloud.slash", button: "Open Settings", action: openSettings)
         case .iCloudOff:
             row("iCloud is off for Macrophone. Turn it on in Settings › your name › iCloud to get alerts while it's closed", symbol: "icloud.slash", button: "Open Settings", action: openSettings)
         case .signInAgain:
             row("iCloud needs your password again (Settings › your name) before alerts can reach you closed", symbol: "person.crop.circle.badge.exclamationmark", button: "Open Settings", action: openSettings)
         case .pushOff:
-            row("Apple's notification service didn't take this iPhone, so alerts can't reach it while Macrophone is closed", symbol: "bell.slash", button: "Try Again") {
+            row("Apple's notification service didn't take this \(Device.name), so alerts can't reach it while Macrophone is closed", symbol: "bell.slash", button: "Try Again") {
                 Task { await AgentAlerts.shared.subscribeInCloud(force: true) }
             }
         case let .failed(code):

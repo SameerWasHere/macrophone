@@ -1061,7 +1061,7 @@ final class Watcher: ObservableObject {
         // and whenever this app's window opens while it keeps this shape.
         if let target { Self.setFitted(target, true); Self.setKeepsOwnSize(target, false) }
         drag = .scroll
-        say("\(name)'s window now has your iPhone's shape — all of it fits here, and one finger scrolls it", symbol: "iphone.gen3")
+        say("\(name)'s window now has your \(Device.name)'s shape — all of it fits here, and one finger scrolls it", symbol: Device.symbol)
         log?.add("watching: fit to iPhone")
     }
 

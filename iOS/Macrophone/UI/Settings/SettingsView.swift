@@ -160,7 +160,7 @@ struct SettingsView: View {
         if let mac = model.pairedMac {
             let standing = model.standing(of: mac)
             MacBanner(name: mac.name, status: standing.words, routeSymbol: RouteGlyph.symbol(standing), plate: 48)
-                .accessibilityHint("How this iPhone reaches it, at home and away.")
+                .accessibilityHint("How this \(Device.name) reaches it, at home and away.")
                 .accessibilityIdentifier("settings-mac")
         } else {
             MacBanner(name: "Pair Your Mac", status: "Scan the code on your Mac to send your words to it.", paired: false, plate: 48)
@@ -210,7 +210,7 @@ struct SettingsView: View {
                 NavigationLink(value: SettingsRoute.connection) {
                     MacBanner(name: mac.name, status: standing.words, routeSymbol: RouteGlyph.symbol(standing))
                 }
-                .accessibilityHint("How this iPhone reaches it, at home and away.")
+                .accessibilityHint("How this \(Device.name) reaches it, at home and away.")
                 .accessibilityIdentifier("settings-mac")
             } else {
                 NavigationLink(value: SettingsRoute.pairing) {
@@ -357,7 +357,7 @@ struct SettingsView: View {
         } header: {
             Text("Cleanup")
         } footer: {
-            Text("Runs on this iPhone with Apple's on-device model. The raw words are always one tap away in History.")
+            Text("Runs on this \(Device.name) with Apple's on-device model. The raw words are always one tap away in History.")
         }
     }
 
@@ -515,8 +515,8 @@ struct SettingsView: View {
         } footer: {
             Text((settings.macWallpaper
                  ? "Fade your Mac's wallpaper, or turn it off, if it makes things hard to read."
-                 : "Automatic follows this iPhone's Light or Dark setting.")
-                 + " Sounds stay quiet when this iPhone is on silent.")
+                 : "Automatic follows this \(Device.name)'s Light or Dark setting.")
+                 + " Sounds stay quiet when this \(Device.name) is on silent.")
         }
     }
 
@@ -563,16 +563,16 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("pair-another-mac")
             }
-            let field = TextField("iPhone", text: $name)
+            let field = TextField("\(Device.name)", text: $name)
                 .foregroundStyle(Ink.secondary)
                 .focused($nameFocused)
                 .submitLabel(.done)
                 .onSubmit(commitName)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
-                .accessibilityLabel("This iPhone's name")
+                .accessibilityLabel("This \(Device.name)'s name")
             // "This iPhone", its name the value beside it (as Settings › General › About › Name).
-            let label = Label { Text("This iPhone") } icon: { SettingsIcon(symbol: "iphone", color: Color(uiColor: .systemGray)) }
+            let label = Label { Text("This \(Device.name)") } icon: { SettingsIcon(symbol: Device.plainSymbol, color: Color(uiColor: .systemGray)) }
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 6) { label; field }
             } else {
@@ -585,15 +585,15 @@ struct SettingsView: View {
             Text("Devices")
         } footer: {
             Text((model.pairedMacs.count > 1 ? "What you say goes to the checked Mac; tap another to switch. " : "")
-                 + "Your Mac shows this iPhone's name next to each dictation.")
+                 + "Your Mac shows this \(Device.name)'s name next to each dictation.")
         }
         .confirmationDialog("Unpair \(unpairing?.name ?? model.macName)?", isPresented: Binding(get: { unpairing != nil }, set: { if !$0 { unpairing = nil } }),
                             titleVisibility: .visible, presenting: unpairing) { mac in
             Button("Unpair", role: .destructive) { Task { await model.unpair(mac.id) } }
         } message: { mac in
             Text(model.pairedMacs.count > 1 && mac.id == model.pairedMac?.id
-                 ? "This iPhone stops sending to it and switches to your other Mac. To send to it again, pair with the QR code on it."
-                 : "This iPhone stops sending to it. To send again, pair with the QR code on your Mac.")
+                 ? "This \(Device.name) stops sending to it and switches to your other Mac. To send to it again, pair with the QR code on it."
+                 : "This \(Device.name) stops sending to it. To send again, pair with the QR code on your Mac.")
         }
         .onChange(of: nameFocused) { _, focused in if !focused { commitName() } }
     }
@@ -615,9 +615,9 @@ struct SettingsView: View {
         } header: {
             Text("History")
         } footer: {
-            Text("Your last 50 dictations, kept on this iPhone only. Clearing them leaves your Mac's history alone.")
+            Text("Your last 50 dictations, kept on this \(Device.name) only. Clearing them leaves your Mac's history alone.")
         }
-        .confirmationDialog("Clear all history on this iPhone?", isPresented: $confirmClear, titleVisibility: .visible) {
+        .confirmationDialog("Clear all history on this \(Device.name)?", isPresented: $confirmClear, titleVisibility: .visible) {
             Button("Clear All", role: .destructive) { model.clearHistory() }
         }
     }
@@ -644,7 +644,7 @@ struct SettingsView: View {
         } header: {
             Text("About")
         } footer: {
-            Text("Speech turns into text on this iPhone, and no audio is kept. Your words go straight to your Mac, at home or away. No account, no analytics.")
+            Text("Speech turns into text on this \(Device.name), and no audio is kept. Your words go straight to your Mac, at home or away. No account, no analytics.")
         }
     }
 }
@@ -824,8 +824,8 @@ struct MacConnectionView: View {
             }
         } message: {
             Text(model.pairedMacs.count > 1
-                 ? "This iPhone stops sending to it and switches to your other Mac."
-                 : "This iPhone stops sending to it.")
+                 ? "This \(Device.name) stops sending to it and switches to your other Mac."
+                 : "This \(Device.name) stops sending to it.")
         }
     }
 

@@ -694,7 +694,7 @@ private struct UnpairedPlace: View {
                     .frame(width: 32, height: 32)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Copies on this iPhone").font(.body.weight(.semibold)).foregroundStyle(Ink.ink)
+                    Text("Copies on this \(Device.name)").font(.body.weight(.semibold)).foregroundStyle(Ink.ink)
                     Text("Pair your Mac to send to its apps").font(.footnote).foregroundStyle(Light.cyan)
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -707,8 +707,8 @@ private struct UnpairedPlace: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Send to: this iPhone's clipboard. Pair your Mac to choose where it goes.")
-        .accessibilityHint("Pairs this iPhone with Macrophone on your Mac.")
+        .accessibilityLabel("Send to: this \(Device.name)'s clipboard. Pair your Mac to choose where it goes.")
+        .accessibilityHint("Pairs this \(Device.name) with Macrophone on your Mac.")
         .accessibilityIdentifier("send-to")
     }
 }

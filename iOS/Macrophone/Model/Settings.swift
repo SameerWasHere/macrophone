@@ -218,7 +218,7 @@ enum DeviceNameSuggestion {
                 let owner = mac[..<r.lowerBound].trimmingCharacters(in: .whitespaces)
                 let rest = mac[r.upperBound...].lowercased()
                 guard !owner.isEmpty, owner.count <= 30, rest.contains("mac") || rest.contains("imac") else { continue }
-                return owner + apostrophe.trimmingCharacters(in: .whitespaces) + " iPhone"
+                return owner + apostrophe.trimmingCharacters(in: .whitespaces) + " \(Device.name)"
             }
         }
         return nil

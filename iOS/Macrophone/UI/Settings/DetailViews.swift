@@ -99,7 +99,7 @@ struct LanguageView: View {
                     .accessibilityAddTraits(lang.id == settings.language ? .isSelected : [])
                 }
             } footer: {
-                Text("Only languages your iPhone can transcribe on its own are shown, so your voice never leaves it. Cleanup works in English; other languages are sent as heard.")
+                Text("Only languages your \(Device.name) can transcribe on its own are shown, so your voice never leaves it. Cleanup works in English; other languages are sent as heard.")
             }
         }
         .navigationTitle("Language")

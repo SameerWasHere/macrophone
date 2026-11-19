@@ -12,7 +12,7 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "5"
-    TARGETED_DEVICE_FAMILY: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
 packages:
@@ -37,7 +37,7 @@ targets:
         PRODUCT_NAME: Macrophone
         # iPhone only. Set per target: XcodeGen gives every iOS target "1,2" (iPad too), which
         # beats the project-level value and would ship a universal app needing iPad screenshots.
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         # The icon is Macrophone/AppIcon.icon (Icon Composer, Liquid Glass on iOS 26+; picked up from
         # the folder above as wrapper.icon) and Assets.xcassets/AppIcon.appiconset (the flattened
         # light / dark / tinted PNGs for iOS 17–18) — the same name, so Xcode takes the .icon and
@@ -93,7 +93,7 @@ targets:
         UILaunchScreen:
           UIColorName: LaunchBackground
         NSMicrophoneUsageDescription: Macrophone listens only while you tap or hold the mic button, to turn your speech into text. No audio is kept.
-        NSSpeechRecognitionUsageDescription: Your speech is turned into text on this iPhone. It isn't sent to Apple or anyone else.
+        NSSpeechRecognitionUsageDescription: Your speech is turned into text on this device. It isn't sent to Apple or anyone else.
         NSCameraUsageDescription: The camera is used only to scan the pairing code shown on your Mac.
         NSLocalNetworkUsageDescription: Macrophone finds your Mac on this network and sends it your text directly. Nothing goes to the internet.
         NSBonjourServices: [_macrophone._tcp]
@@ -113,7 +113,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.controls
         PRODUCT_NAME: MacrophoneControls
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
     entitlements:
       path: MacrophoneControls/MacrophoneControls.entitlements
@@ -141,7 +141,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sameer.macrophone.alerts
         PRODUCT_NAME: MacrophoneAlerts
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
         MACROPHONE_CLOUD_ENVIRONMENT: Production
         CODE_SIGN_ENTITLEMENTS: MacrophoneAlerts/MacrophoneAlerts.entitlements

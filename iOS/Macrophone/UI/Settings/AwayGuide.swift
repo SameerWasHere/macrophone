@@ -39,7 +39,7 @@ struct AwayGuideView: View {
                 signInStep
                 testStep
             } footer: {
-                Text("Tailscale is free and private: your iPhone and Mac talk to each other directly, and nothing goes through a server of ours.")
+                Text("Tailscale is free and private: your \(Device.name) and Mac talk to each other directly, and nothing goes through a server of ours.")
             }
             manualSection
         }
@@ -80,8 +80,8 @@ struct AwayGuideView: View {
             Text("Use it anywhere")
                 .font(.title2.bold())
                 .foregroundStyle(Ink.ink)
-            Text(works ? "Your iPhone reaches \(macName) over Tailscale. It works away from home."
-                       : "With Tailscale on both, your iPhone reaches \(macName) from anywhere — not only on your Wi-Fi.")
+            Text(works ? "Your \(Device.name) reaches \(macName) over Tailscale. It works away from home."
+                       : "With Tailscale on both, your \(Device.name) reaches \(macName) from anywhere — not only on your Wi-Fi.")
                 .font(.subheadline)
                 .foregroundStyle(Ink.secondary)
                 .multilineTextAlignment(.center)
@@ -120,8 +120,8 @@ struct AwayGuideView: View {
     }
 
     private var appStep: some View {
-        AwayStepRow(number: 2, title: "Get Tailscale on this iPhone",
-                    detail: hasApp ? "Tailscale is on this iPhone." : "It's free on the App Store.",
+        AwayStepRow(number: 2, title: "Get Tailscale on this \(Device.name)",
+                    detail: hasApp ? "Tailscale is on this \(Device.name)." : "It's free on the App Store.",
                     done: hasApp, id: "away-step-app") {
             if !hasApp {
                 Link(destination: TailscaleHere.appStore) { Text("Get Tailscale") }
@@ -133,7 +133,7 @@ struct AwayGuideView: View {
 
     private var signInStep: some View {
         AwayStepRow(number: 3, title: "Sign in and turn it on",
-                    detail: phoneOn ? "This iPhone is on Tailscale."
+                    detail: phoneOn ? "This \(Device.name) is on Tailscale."
                                     : "Use the same account as on your Mac, then turn Tailscale on. Allow the VPN when iOS asks.",
                     done: phoneOn, id: "away-step-signin") {
             if !phoneOn {
@@ -160,7 +160,7 @@ struct AwayGuideView: View {
     /// What Test it found, in one sentence: what works, or exactly what's in the way.
     private var testWords: String {
         if testing { return "Reaching \(macName) over Tailscale…" }
-        guard let result else { return "Checks that this iPhone reaches your Mac over Tailscale — it works from here at home too." }
+        guard let result else { return "Checks that this \(Device.name) reaches your Mac over Tailscale — it works from here at home too." }
         switch result {
         case .works: return "Works away from home."
         case .notPaired: return "Pair a Mac first."
@@ -168,7 +168,7 @@ struct AwayGuideView: View {
         case .remoteOff: return "Your Mac is on Tailscale, but Away from home is off in Macrophone on your Mac."
         case .unreachable:
             return phoneOn ? "Your Mac didn't answer over Tailscale. Check it's awake, with Tailscale on and signed in to the same account."
-                           : "Tailscale is off on this iPhone. Turn it on in the Tailscale app, then test again."
+                           : "Tailscale is off on this \(Device.name). Turn it on in the Tailscale app, then test again."
         case .notThisMac: return "Something else answered at your Mac's Tailscale address. Open Macrophone here at home once so your Mac shares its new address."
         }
     }
@@ -290,7 +290,7 @@ struct AwayOfferSheet: View {
 
     var body: some View {
         SetupPage(title: "Use it away from home",
-                  message: "Set up Tailscale once — it's free — and your iPhone reaches \(model.pairedMac?.name ?? "your Mac") from anywhere, not only on your Wi-Fi.",
+                  message: "Set up Tailscale once — it's free — and your \(Device.name) reaches \(model.pairedMac?.name ?? "your Mac") from anywhere, not only on your Wi-Fi.",
                   compact: true) {
             SetupSymbol(name: "network.badge.shield.half.filled", style: Light.cyan, compact: true)
         } buttons: {

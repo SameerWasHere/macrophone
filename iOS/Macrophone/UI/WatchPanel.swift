@@ -753,7 +753,7 @@ struct WatchWindowMenu: View {
         .modifier(WatchCellUnlessBar(bar: bar, width: 42, tint: watcher.fit == .normal || watcher.isDesktop ? Ink.ink : Light.cyan))
         .disabled(watcher.phase != .live)
         .accessibilityLabel(watcher.isDesktop ? "Screen" : "Window")
-        .accessibilityHint(watcher.isDesktop ? "Fit your Mac's screen to this iPhone, or show it at its actual size." : "Fit to iPhone and the text size here; the window's size, minimize and close on your Mac; the tips again.")
+        .accessibilityHint(watcher.isDesktop ? "Fit your Mac's screen to this \(Device.name), or show it at its actual size." : "Fit to \(Device.name) and the text size here; the window's size, minimize and close on your Mac; the tips again.")
         .accessibilityIdentifier("watch-window")
         .confirmationDialog("Close \(watcher.name)'s window on your Mac?", isPresented: $confirmClose, titleVisibility: .visible) {
             Button("Close Window", role: .destructive) { watcher.window(.close) }
@@ -765,7 +765,7 @@ struct WatchWindowMenu: View {
     /// The Whole Screen's menu (Nov 16 2026): the Mac's screen made this view's shape, or as it is.
     @ViewBuilder private var screenItems: some View {
         Picker("Your Mac's screen", selection: Binding(get: { watcher.screenFit }, set: { watcher.setScreenFit($0) })) {
-            Label("Fit to iPhone", systemImage: "iphone.gen3").tag(true)
+            Label("Fit to \(Device.name)", systemImage: Device.symbol).tag(true)
             Label("Actual Size", systemImage: "display").tag(false)
         }
         .pickerStyle(.inline)
@@ -831,14 +831,14 @@ struct WatchWindowMenu: View {
             if watcher.canFitToPhone {
                 Section {
                     Button { watcher.fitToPhone() } label: {
-                        Label("Fit to iPhone", systemImage: "iphone.gen3")
+                        Label("Fit to \(Device.name)", systemImage: Device.symbol)
                         Text("The whole window, filling this view")
                     }
                 }
             }
             // A header over a picker doesn't draw in a menu (iOS 26), so each row says what it is:
             // "Normal text", "Larger text", "Largest text".
-            Picker("Text size on this iPhone", selection: Binding(get: { watcher.fit }, set: { watcher.setFit($0) })) {
+            Picker("Text size on this \(Device.name)", selection: Binding(get: { watcher.fit }, set: { watcher.setFit($0) })) {
                 ForEach(WatchFit.allCases, id: \.self) { f in Text("\(f.title) text").tag(f) }
             }
             .pickerStyle(.inline)

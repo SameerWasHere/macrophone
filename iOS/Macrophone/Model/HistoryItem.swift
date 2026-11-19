@@ -67,7 +67,7 @@ struct HistoryItem: Codable, Identifiable, Sendable, Hashable {
     var labels: [String] {
         var out: [String] = []
         switch delivery {
-        case .copiedOnPhone: out.append("Copied on iPhone")
+        case .copiedOnPhone: out.append("Copied on \(Device.name)")
         case .cleaning, .sending: out.append("Sending")
         case .delivered:
             if let l = landed { out.append(l.chip) }

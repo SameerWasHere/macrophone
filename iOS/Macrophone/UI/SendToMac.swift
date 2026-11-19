@@ -144,7 +144,7 @@ struct AttachMenu: View {
         if model.canAttach, model.canSaveToDownloads, SaveToDownloads.isDefault(for: t) {
             return "Saves a photo or file to your Mac's Downloads, or moves the clipboard."
         }
-        return model.canAttach ? "Sends a photo or file into \(Places.appName(t, in: model)), or moves the clipboard." : "Moves the clipboard between your iPhone and your Mac."
+        return model.canAttach ? "Sends a photo or file into \(Places.appName(t, in: model)), or moves the clipboard." : "Moves the clipboard between your \(Device.name) and your Mac."
     }
 }
 

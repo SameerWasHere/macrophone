@@ -991,7 +991,7 @@ final class AppModel: ObservableObject {
         guard !raw.isEmpty else {
             takeBackLiveTyping("nothing to send")
             if o.reason == .recognizerFailed {
-                status = .problem("Speech recognition couldn't start on this iPhone. Try again in a moment.", openSettings: false)
+                status = .problem("Speech recognition couldn't start on this \(Device.name). Try again in a moment.", openSettings: false)
                 Haptics.failed()
             } else if o.duration < 0.4, !o.reason.isEarly {
                 status = .ready   // a brush of the button — ignored, no item
@@ -1891,7 +1891,7 @@ final class AppModel: ObservableObject {
             default: return pressSend ? "Sent to \(place)." : "Pasted into \(place)."
             }
         case .queued?: return "\(macName) isn't reachable — it'll go to \(place) when it is."
-        case .copiedOnPhone?: return "No Mac is paired, so it's copied on this iPhone."
+        case .copiedOnPhone?: return "No Mac is paired, so it's copied on this \(Device.name)."
         case .failed?: return "\(macName) couldn't deliver it to \(place)."
         default: return "Sending it to \(place)."
         }
@@ -2360,7 +2360,7 @@ extension AppModel: LinkClientDelegate {
         var item = ClipboardItem()
         if pb.hasStrings, let s = pb.string { item.text = s }
         else if pb.hasImages, let img = pb.image { item.image = Self.jpeg(img, maxBytes: ClipboardItem.maxImage) }
-        guard !item.isEmpty else { explain("Your iPhone's clipboard is empty"); return }
+        guard !item.isEmpty else { explain("Your \(Device.name)'s clipboard is empty"); return }
         guard client.sendClipboard(item) else {
             explain(item.text.map { $0.utf8.count > ClipboardItem.maxText } == true ? "That's too long to send" : "Update Macrophone on your Mac to share the clipboard")
             return
@@ -2602,8 +2602,8 @@ extension AppModel: LinkClientDelegate {
         // Only the active Mac has a session (or a dial) to forget us on.
         if watcher.isOpen { watcher.close() }
         forgetMac(macID, wasActive: true)
-        status = .notice(pairedMac == nil ? "\(name) forgot this iPhone. Pair again to send to it."
-                         : "\(name) forgot this iPhone. Sending to \(macName) now.")
+        status = .notice(pairedMac == nil ? "\(name) forgot this \(Device.name). Pair again to send to it."
+                         : "\(name) forgot this \(Device.name). Sending to \(macName) now.")
     }
 }
 

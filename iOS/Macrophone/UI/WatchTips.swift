@@ -32,8 +32,8 @@ struct WatchTip: Identifiable, Equatable {
                                detail: "Pinch in or out; the window opens where you left it next time. The button by Done shows the whole window.")
     /// With a Mac that reshapes windows: the same tip names the Window menu's Fit to iPhone.
     static let zoomAndFit = WatchTip(id: "zoom", symbol: "arrow.up.left.and.arrow.down.right",
-                                     title: "Pinch to zoom, or Fit to iPhone",
-                                     detail: "Pinch in or out; the button by Done shows it whole. Fit to iPhone, in the Window menu, reshapes the window to fit here.")
+                                     title: "Pinch to zoom, or Fit to \(Device.name)",
+                                     detail: "Pinch in or out; the button by Done shows it whole. Fit to \(Device.name), in the Window menu, reshapes the window to fit here.")
     static let swipe = WatchTip(id: "swipe", symbol: "arrow.left.and.right",
                                 title: "Swipe in from the side for your other windows",
                                 detail: "Start at the very edge of the screen. Or tap the window's name at the top to pick one.")

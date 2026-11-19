@@ -104,7 +104,7 @@ extension AppModel {
         let pick = settings.selection.target
         let name = quickName(pick)
         items.append(QuickActions.item(.dictate, "Dictate to \(name.title)",
-                                       subtitle: isPaired ? (name.window ?? macName) : "Copies it on this iPhone",
+                                       subtitle: isPaired ? (name.window ?? macName) : "Copies it on this \(Device.name)",
                                        symbol: "mic", target: QuickActions.id(for: pick)))
         if isPaired {
             // What's in front on the Mac, whatever it is: second, under the thumb.

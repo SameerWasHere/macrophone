@@ -319,7 +319,7 @@ final class Recorder: ObservableObject {
             switch self {
             case .micDenied: return "The microphone is off for Macrophone. Turn it on to dictate."
             case .speechDenied: return "Speech recognition is off for Macrophone. Turn it on to dictate."
-            case .languageNotOnDevice: return "This iPhone can't transcribe that language by itself. Pick another in Settings › Language."
+            case .languageNotOnDevice: return "This \(Device.name) can't transcribe that language by itself. Pick another in Settings › Language."
             case .recognizerBusy: return "Speech recognition isn't ready yet. Try again in a moment."
             case .noInput: return "No microphone is available right now — is a call using it?"
             case .audio: return "The microphone couldn't start. Try again."

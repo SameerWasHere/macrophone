@@ -56,7 +56,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Macrophone listens only while you tap or hold the mic button, to turn your speech into text. No audio is kept.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Your speech is turned into text on this iPhone. It isn't sent to Apple or anyone else.</string>
+	<string>Your speech is turned into text on this device. It isn't sent to Apple or anyone else.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

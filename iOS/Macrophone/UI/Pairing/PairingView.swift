@@ -227,7 +227,7 @@ struct PairingPanel: View {
         return SetupPage(title: "Paired with \(name)",
                          message: model.pairedMacs.count > 1
                             ? "It's the active Mac now. Swipe up or down on its name at the top to switch between your Macs."
-                            : "What you say on this iPhone now lands on that Mac.",
+                            : "What you say on this \(Device.name) now lands on that Mac.",
                          compact: compact) {
             // Apple's done: a white check on a solid green disc.
             Image(systemName: "checkmark.circle.fill")
@@ -241,12 +241,12 @@ struct PairingPanel: View {
                 .onAppear { pairedShown = true }
         } content: {
             VStack(alignment: .leading, spacing: 8) {
-                Text("What should your Mac call this iPhone?")
+                Text("What should your Mac call this \(Device.name)?")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Ink.ink)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
-                TextField("iPhone", text: $deviceName)
+                TextField("\(Device.name)", text: $deviceName)
                     .font(.body)
                     .foregroundStyle(Ink.ink)
                     .textInputAutocapitalization(.words)
@@ -259,7 +259,7 @@ struct PairingPanel: View {
                     .background(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).fill(Color(uiColor: .secondarySystemBackground)))
                     .overlay(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
                         .strokeBorder(Light.cyan.opacity(nameFocused ? 0.7 : 0), lineWidth: 1.5))
-                    .accessibilityLabel("This iPhone's name")
+                    .accessibilityLabel("This \(Device.name)'s name")
                     .accessibilityIdentifier("device-name")
                 if let suggestion, suggestion != deviceName {
                     Button { withAnimation(Motion.snap) { deviceName = suggestion } } label: {
@@ -335,7 +335,7 @@ struct PairingPanel: View {
     private var networkNote: some View {
         Text(model.localNetworkDenied
              ? "Local Network is off for Macrophone, so it can't see your Mac. Turn it on in Settings."
-             : "Your iPhone and Mac talk directly over this network. Nothing goes to the internet.")
+             : "Your \(Device.name) and Mac talk directly over this network. Nothing goes to the internet.")
             .font(.footnote)
             .foregroundStyle(model.localNetworkDenied ? Light.ochre : Ink.secondary)
             .multilineTextAlignment(.center)

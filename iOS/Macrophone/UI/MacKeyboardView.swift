@@ -589,7 +589,7 @@ struct MacKeyboardBar: View {
         .buttonStyle(WatchCellStyle(width: 44, height: Self.cell))
         .accessibilityLabel("Mac Keys")
         .accessibilityValue(macKeys ? "on" : "off")
-        .accessibilityHint(macKeys ? "Back to the iPhone's keyboard." : "The Mac's keyboard: ⌘ ⌥ ⌃, fn and the function keys.")
+        .accessibilityHint(macKeys ? "Back to the \(Device.name)'s keyboard." : "The Mac's keyboard: ⌘ ⌥ ⌃, fn and the function keys.")
         .accessibilityIdentifier("keyboard-mac-keys")
     }
 

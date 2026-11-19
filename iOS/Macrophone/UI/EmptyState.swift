@@ -138,12 +138,12 @@ struct DesktopEmptyState: View {
         case .micOff(let speech):
             return speech ? "Turn it on in Settings so Macrophone can turn your voice into words."
                           : "Turn it on in Settings so Macrophone can hear you."
-        case .unpaired: return "What you say goes into any app on your Mac — until then, it's copied on this iPhone."
+        case .unpaired: return "What you say goes into any app on your Mac — until then, it's copied on this \(Device.name)."
         case .localNetwork: return "Turn it on in Settings so Macrophone can find \(model.macName) on this Wi-Fi."
         case .notFound:
             switch model.awayHelp {
-            case .setUp?: return "Away from home? Set up Tailscale once and your iPhone reaches it from anywhere. What you say waits for it."
-            case .turnOnTailscale?: return "Turn on Tailscale on this iPhone to reach it from here. What you say waits for it."
+            case .setUp?: return "Away from home? Set up Tailscale once and your \(Device.name) reaches it from anywhere. What you say waits for it."
+            case .turnOnTailscale?: return "Turn on Tailscale on this \(Device.name) to reach it from here. What you say waits for it."
             case .check?: return "Make sure it's awake, with Tailscale and Macrophone open. What you say waits for it."
             case nil: return "Make sure it's awake with Macrophone open — what you say waits for it."
             }

@@ -162,7 +162,7 @@ struct StatusLine: View {
             return ("", Ink.tertiary)
         case .ready:
             if !model.isPaired, desktopSays { return ("", Ink.tertiary) }
-            if !model.isPaired { return ("Not paired — your words are copied on this iPhone", Ink.tertiary) }
+            if !model.isPaired { return ("Not paired — your words are copied on this \(Device.name)", Ink.tertiary) }
             switch model.linkState {
             // Back from the background with the link on its way (Nov 7 2026): the words it had on
             // leaving, nothing about connecting — `returning` ends before any reconnect begins.
@@ -233,7 +233,7 @@ struct StatusLine: View {
             if model.reconnecting { return ("Queued — it'll send as soon as \(model.macName) is back", Ink.tertiary) }
             if model.localNetworkDenied { return ("Queued — Local Network is off for Macrophone. Turn it on in Settings and it'll send", Light.ochre) }
             return ("Mac not found — queued, it'll send when your Mac is back", Light.ochre)
-        case .copiedOnPhone: return ("Copied on iPhone — paste it anywhere", Light.mint)
+        case .copiedOnPhone: return ("Copied on \(Device.name) — paste it anywhere", Light.mint)
         case .failed(_, let detail):
             if let detail, !detail.isEmpty {
                 return ("Not delivered — \(detail). Fix that on your Mac, then tap Resend.", Light.rose)

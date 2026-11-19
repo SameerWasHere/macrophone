@@ -114,7 +114,7 @@ struct DeckKeyboard: View {
                     shiftKey(width: unit * 2.25 + gap / 2)
                 }
                 HStack(spacing: gap) {
-                    DeckKey(width: unit * 1.5, a11y: "ABC, the iPhone's keyboard", id: "keyboard-abc", action: {
+                    DeckKey(width: unit * 1.5, a11y: "ABC, the \(Device.name)'s keyboard", id: "keyboard-abc", action: {
                         Haptics.pick()
                         KeyboardChoice.shared.set(false, on: surface)
                     }) { Text("ABC").font(.system(size: 15, weight: .medium)) }
