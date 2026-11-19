@@ -1,7 +1,0 @@
-SCREEN FIT asked: true
-WATCH VIDEO #2 2560x1654 158 KB key decoded in 131 ms +53 ms
-SCREEN FIT STATE on 1004×1426
-WATCH VIDEO #1 2008x2852 4 KB key decoded in 28 ms +373 ms
-WATCH VIDEO #1 2560x1654 32 KB key decoded in 23 ms +2710 ms
-SCREEN FIT STATE off
-FRAMES 36 · 819 KB in 8 s · peak 15 a second
