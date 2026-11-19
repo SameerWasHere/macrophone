@@ -18,7 +18,7 @@ signed in as yourself. Each part is short.
    Passwords, then run this and paste it when asked:
 
    ```bash
-   xcrun notarytool store-credentials macrophone-notary --apple-id sbhutani95@gmail.com --team-id 8523EX5882
+   xcrun notarytool store-credentials macrophone-notary --apple-id <your Apple ID> --team-id 8523EX5882
    ```
 3. **Back up the Sparkle update key** (if it's lost, installed copies can never update again).
    Run these two commands, then move `macrophone-sparkle-key.txt` from your Desktop into your
